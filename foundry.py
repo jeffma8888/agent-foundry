@@ -37,6 +37,7 @@ import datetime as dt
 import json
 import os
 import pathlib
+import shlex
 import shutil
 import subprocess
 import sys
@@ -80,6 +81,11 @@ class ProductConfig:
     learnings: str = ""          # defaults to <work_root>/LEARNINGS.md
     quality_bar: str = ""        # free-form product quality constraints
     push_enabled: bool = True    # gate may push (False => dry-run / review-only)
+    # Post-release fresh-clone verification (dormant until wired in iter 03).
+    # Backward-compatible: old configs that omit these load with these defaults.
+    postrelease_enabled: bool = True   # run the fresh-clone verify (iter 03+)
+    setup_cmd: str = "uv sync"          # how to install deps in the fresh clone
+    smoke_cmd: str | None = None       # optional smoke command; None => skipped
 
     def resolve(self) -> "ProductConfig":
         def expand(p: str) -> str:
@@ -315,6 +321,181 @@ def run_doctor_cli(cfg: ProductConfig) -> int:
     print(f"doctor: {passed}/{len(checks)} checks ok — "
           f"{'READY' if ok else 'NOT READY'}")
     return 0 if ok else 1
+
+
+# --------------------------------------------------------------------------- #
+# Post-release fresh-clone verification (DORMANT — item 11, bite 1/2).
+#
+# Proves the *pushed* commit is deployable from a clean checkout, not just that
+# the working tree is green — closing the class of release bugs (a file never
+# `git add`-ed, uv.lock drift, a leftover-dev-tree-only import) a CD system
+# exists to prevent. Every external effect flows through two monkeypatchable
+# module-level seams — `run_cmd` (all command execution) and `cleanup_clone`
+# (throwaway-clone deletion) — so the whole path is offline-verifiable.
+# `sha_matches` and `postrelease_verdict` are pure. NOTHING in the running loop
+# calls any of this yet; the pipeline wiring is deferred to iter 03.
+# --------------------------------------------------------------------------- #
+CMD_TIMEOUT = 600  # default per-command wall clock for run_cmd (seconds)
+
+
+@dataclasses.dataclass(frozen=True)
+class CmdResult:
+    """Outcome of one external command run through the `run_cmd` seam.
+
+    `.ok` is True ONLY when the process launched, exited, and returned 0.
+    `.out` carries combined stdout+stderr (or the reason a launch/timeout
+    failed) so callers never touch the raw process object. Frozen so a result
+    can't be mutated after the fact.
+    """
+    ok: bool
+    out: str
+
+
+def run_cmd(args, cwd=None, timeout: int = CMD_TIMEOUT) -> "CmdResult":
+    """Execute one command, NEVER raising (Behavior 2).
+
+    The single I/O seam for the whole verify path: the tester monkeypatches
+    `foundry.run_cmd` to script command outcomes offline, so verification does
+    zero real subprocess/network work in tests. A launch failure or timeout is
+    folded into a `.ok is False` result with a non-empty `.out` explaining why
+    — an unreachable command must never crash the verifier.
+    """
+    try:
+        p = subprocess.run(list(args), cwd=cwd, capture_output=True,
+                           text=True, timeout=timeout)
+        return CmdResult(p.returncode == 0, (p.stdout or "") + (p.stderr or ""))
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return CmdResult(
+            False, f"run_cmd could not execute {list(args)!r}: {exc!r}")
+
+
+def cleanup_clone(clone_dir) -> None:
+    """Delete a throwaway clone dir (best-effort deletion seam).
+
+    Isolated so the tester can force a raising cleanup and confirm the verdict
+    is unaffected. `verify_fresh_clone` guards every call, so a cleanup failure
+    never propagates or changes the verdict (Behavior 10).
+    """
+    shutil.rmtree(clone_dir, ignore_errors=True)
+
+
+def sha_matches(expected: str, actual: str) -> bool:
+    """True iff two commit ids agree on the shorter of their lengths.
+
+    A short sha is a prefix of the full sha it names, so prefix comparison on
+    the common length lets a 9-char short id match its 40-char full id. An
+    empty id or the `"?"` unreachable-sentinel on either side is never a match.
+    """
+    if not expected or not actual or expected == "?" or actual == "?":
+        return False
+    n = min(len(expected), len(actual))
+    return expected[:n] == actual[:n]
+
+
+@dataclasses.dataclass(frozen=True)
+class PostReleaseResult:
+    """Verdict of a fresh-clone verification.
+
+    `.sentinel` is DERIVED from `.healthy` (property), so the two can never
+    disagree: HEALTHY whenever healthy (including the infra-skipped case), else
+    BROKEN. `.skipped_infra` marks a network-boundary skip — never a hotfix.
+    """
+    healthy: bool
+    skipped_infra: bool
+    detail: str
+
+    @property
+    def sentinel(self) -> str:
+        return "POSTRELEASE: HEALTHY" if self.healthy else "POSTRELEASE: BROKEN"
+
+
+def postrelease_verdict(*, remote_ok: bool, clone_ok: bool, setup_ok: bool,
+                        test_ok: bool, sha_ok: bool, smoke_ran: bool,
+                        smoke_ok: bool) -> "PostReleaseResult":
+    """Pure decision logic mapping step outcomes to a verdict.
+
+    WHY infra tolerance takes precedence (Behavior 5): remote discovery,
+    `git clone`, and `uv sync` are the network-boundary steps; a transient
+    failure there must NEVER raise a hotfix, so any of them failing =>
+    HEALTHY + skipped_infra. Only once the boundary is clean do the real
+    signals (test, sha, smoke) decide BROKEN (Behavior 6). A skipped smoke
+    (no smoke_cmd) never causes BROKEN (Behavior 7).
+    """
+    if not (remote_ok and clone_ok and setup_ok):
+        return PostReleaseResult(
+            True, True,
+            "network-boundary step failed "
+            f"(remote_ok={remote_ok}, clone_ok={clone_ok}, "
+            f"setup_ok={setup_ok}); treated as infra, not a hotfix")
+    if not test_ok:
+        return PostReleaseResult(
+            False, False, "fresh-clone test suite failed")
+    if not sha_ok:
+        return PostReleaseResult(
+            False, False, "cloned HEAD does not match the pushed sha")
+    if smoke_ran and not smoke_ok:
+        return PostReleaseResult(
+            False, False, "fresh-clone smoke command failed")
+    return PostReleaseResult(
+        True, False,
+        "fresh clone builds, tests, and matches the pushed sha"
+        + ("" if smoke_ran else " (smoke skipped)"))
+
+
+def verify_fresh_clone(cfg: "ProductConfig", expected_sha: str,
+                       clone_dir) -> "PostReleaseResult":
+    """Re-verify a pushed commit from a throwaway clone (DORMANT this iter).
+
+    Runs every external effect through the `run_cmd`/`cleanup_clone` module
+    seams — read as module-level names AT CALL TIME so
+    `monkeypatch.setattr(foundry, "run_cmd"/"cleanup_clone", ...)` bites — and
+    folds the step outcomes through the pure `postrelease_verdict`. Cleanup is
+    attempted on EVERY path (Behavior 10); an unexpected seam error is treated
+    as infra (HEALTHY + skipped_infra), never a false hotfix (Behavior 11).
+    """
+    remote_ok = clone_ok = setup_ok = test_ok = sha_ok = False
+    smoke_ran = False
+    smoke_ok = True  # only consulted when smoke_ran is True
+    result: "PostReleaseResult"
+    try:
+        # 1. discover the clone source (origin remote URL) in cfg.repo
+        url_res = run_cmd(["git", "-C", str(cfg.repo),
+                           "remote", "get-url", "origin"])
+        remote_ok = url_res.ok
+        clone_url = url_res.out.strip()
+
+        # 2. clone into the throwaway dir
+        if remote_ok:
+            clone_ok = run_cmd(
+                ["git", "clone", clone_url, str(clone_dir)]).ok
+        # 3. install deps in the clone
+        if remote_ok and clone_ok:
+            setup_ok = run_cmd(shlex.split(cfg.setup_cmd), cwd=clone_dir).ok
+        # 4. test + sha check + optional smoke, all inside the clone
+        if remote_ok and clone_ok and setup_ok:
+            test_ok = run_cmd(shlex.split(cfg.test_cmd), cwd=clone_dir).ok
+            head_res = run_cmd(["git", "-C", str(clone_dir),
+                                "rev-parse", "HEAD"])
+            sha_ok = head_res.ok and sha_matches(
+                expected_sha, head_res.out.strip())
+            if cfg.smoke_cmd:  # smoke is issued ONLY when a smoke_cmd is set
+                smoke_ran = True
+                smoke_ok = run_cmd(shlex.split(cfg.smoke_cmd),
+                                   cwd=clone_dir).ok
+
+        result = postrelease_verdict(
+            remote_ok=remote_ok, clone_ok=clone_ok, setup_ok=setup_ok,
+            test_ok=test_ok, sha_ok=sha_ok, smoke_ran=smoke_ran,
+            smoke_ok=smoke_ok)
+    except Exception as exc:  # a seam blew up => infra, never a false hotfix
+        result = PostReleaseResult(
+            True, True, f"verification errored, treated as infra: {exc!r}")
+    finally:
+        try:
+            cleanup_clone(clone_dir)  # always attempted, on every path
+        except Exception:
+            pass  # cleanup failure must never change the verdict (Behavior 10)
+    return result
 
 
 # --------------------------------------------------------------------------- #
