@@ -528,6 +528,169 @@ def agents_cli(cfg: ProductConfig, recent: int = 12,
 
 
 # --------------------------------------------------------------------------- #
+# Spec-completeness + size guard (roadmap item 5 — COMPLETES the item).
+#
+# Oversized iterations are the foundry's #1 reliability failure mode: a feature
+# too big for one context window blows the stage timeout, burns retries/backoff,
+# and can strand a shift (the 3 engineer timeouts on repolens were the smell).
+# `spec_lint` is the deterministic core: pure spec text in, a structural+size
+# verdict out — no filesystem/subprocess/network/clock, so it is fully
+# offline-testable. `lint_spec_cli` is the on-demand operator seam (read a file
+# -> spec_lint -> print). NOTHING on a control path calls this yet; wiring it
+# into the PM stage or a blocking gate touches control flow and is a later bite.
+# The three tuning knobs below are module-level so `spec_lint` reads them at CALL
+# time (a `monkeypatch.setattr(foundry, ...)` bites) and an operator can retune.
+# --------------------------------------------------------------------------- #
+REQUIRED_SPEC_SECTIONS = (
+    "## Feature",
+    "## Why",
+    "## Expected Behaviors",
+    "## Acceptance Criteria",
+    "## Out of Scope",
+    "## Size self-check",
+)
+SPEC_SIZE_WARN_CHARS = 16000   # a spec longer than this smells oversized
+SPEC_MAX_BEHAVIORS = 20        # more behaviors than this smells oversized
+
+
+@dataclasses.dataclass(frozen=True)
+class SpecLint:
+    """A structural + size lint verdict for a single PM spec (roadmap item 5).
+
+    Frozen so a computed verdict can't be mutated after the fact, which also
+    gives value-equality for free: two `spec_lint` calls on the same text hold
+    equal fields, so they compare ``==`` (Behavior 1). The five stored fields are
+    the raw measurements taken from the spec at call time; the four properties
+    are pure derivations, so the whole verdict follows deterministically from
+    what was measured (the CLI adds no independent logic on top).
+    """
+    char_count: int
+    num_behaviors: int
+    missing_sections: tuple[str, ...]
+    size_over_chars: bool
+    size_over_behaviors: bool
+
+    @property
+    def sections_ok(self) -> bool:
+        """True iff no required heading is missing."""
+        return self.missing_sections == ()
+
+    @property
+    def size_ok(self) -> bool:
+        """True iff the spec is within BOTH size thresholds."""
+        return not (self.size_over_chars or self.size_over_behaviors)
+
+    @property
+    def ok(self) -> bool:
+        """The combined verdict: structurally complete AND right-sized."""
+        return self.sections_ok and self.size_ok
+
+    @property
+    def verdict(self) -> str:
+        """The operator-facing token: ``"OK"`` when ok, else ``"REVIEW"``."""
+        return "OK" if self.ok else "REVIEW"
+
+
+def _count_expected_behaviors(lines: list[str]) -> int:
+    """Count ordered-list items inside the ``## Expected Behaviors`` section only.
+
+    The section spans from the FIRST line whose stripped form is
+    ``## Expected Behaviors`` (or starts with ``## Expected Behaviors ``),
+    exclusive, up to (exclusive) the next line whose stripped form starts with
+    ``## `` (or end-of-text). A counted line is one whose left-stripped form
+    starts with one-or-more ASCII digits immediately followed by a ``.`` (``1.``,
+    ``12.``). ASCII-only on purpose (``str.isdigit`` would also match non-ASCII
+    numerals). Absent section -> ``0``. Helper, so `spec_lint` stays flat.
+    """
+    start = None
+    for i, ln in enumerate(lines):
+        s = ln.strip()
+        if s == "## Expected Behaviors" or s.startswith("## Expected Behaviors "):
+            start = i
+            break
+    if start is None:
+        return 0
+    count = 0
+    for ln in lines[start + 1:]:
+        if ln.strip().startswith("## "):
+            break
+        item = ln.lstrip()
+        digits = 0
+        for ch in item:
+            if ch in "0123456789":
+                digits += 1
+            else:
+                break
+        if digits and len(item) > digits and item[digits] == ".":
+            count += 1
+    return count
+
+
+def spec_lint(spec_text: str) -> SpecLint:
+    """Score a PM spec for structural completeness + size (pure, total).
+
+    Reads the three module knobs — ``REQUIRED_SPEC_SECTIONS``,
+    ``SPEC_SIZE_WARN_CHARS``, ``SPEC_MAX_BEHAVIORS`` — AT CALL TIME (not captured
+    at import / as default args) so patching any of them changes a subsequent
+    call's verdict. Performs NO filesystem/subprocess/network/clock access, never
+    raises for any ``spec_text`` (including ``""``), and is deterministic, so the
+    same input always yields an equal ``SpecLint``.
+
+    A required heading ``H`` is PRESENT iff some line, after ``str.strip()``,
+    equals ``H`` or starts with ``H + " "`` (so a trailing parenthetical like
+    ``## Size self-check (dogfooded)`` still counts as ``## Size self-check``).
+    """
+    lines = spec_text.splitlines()
+
+    def present(heading: str) -> bool:
+        for ln in lines:
+            s = ln.strip()
+            if s == heading or s.startswith(heading + " "):
+                return True
+        return False
+
+    missing = tuple(h for h in REQUIRED_SPEC_SECTIONS if not present(h))
+    char_count = len(spec_text)
+    num_behaviors = _count_expected_behaviors(lines)
+    return SpecLint(
+        char_count=char_count,
+        num_behaviors=num_behaviors,
+        missing_sections=missing,
+        size_over_chars=char_count > SPEC_SIZE_WARN_CHARS,
+        size_over_behaviors=num_behaviors > SPEC_MAX_BEHAVIORS,
+    )
+
+
+def lint_spec_cli(path: str) -> int:
+    """On-demand CLI: lint a PM spec file for completeness + size.
+
+    Reads the file at ``path``, computes `spec_lint`, prints a human-readable
+    report, and returns ``0`` (ok) / ``1`` (incomplete or oversized) / ``2``
+    (file not found). Writes NOTHING to disk. A thin wrapper over the pure core:
+    it adds no lint logic beyond read -> `spec_lint` -> format, so the printed
+    verdict/char/behavior figures always match the ``SpecLint`` fields. A missing
+    file returns ``2`` (distinct from a lint REVIEW) without letting a
+    ``FileNotFoundError`` propagate.
+    """
+    p = pathlib.Path(path)
+    if not p.exists():
+        print(f"lint-spec: file not found: {path}")
+        return 2
+    lint = spec_lint(p.read_text())
+    print(f"lint-spec: {path}")
+    print(f"  char_count: {lint.char_count} (warn > {SPEC_SIZE_WARN_CHARS})")
+    print(f"  num_behaviors: {lint.num_behaviors} (max {SPEC_MAX_BEHAVIORS})")
+    if lint.missing_sections:
+        print(f"  missing sections: {', '.join(lint.missing_sections)}")
+    else:
+        print("  missing sections: (none)")
+    print(f"  size_over_chars: {lint.size_over_chars}  "
+          f"size_over_behaviors: {lint.size_over_behaviors}")
+    print(f"verdict: {lint.verdict}")
+    return 0 if lint.ok else 1
+
+
+# --------------------------------------------------------------------------- #
 # Post-release fresh-clone verification (DORMANT — item 11, bite 1/2).
 #
 # Proves the *pushed* commit is deployable from a clean checkout, not just that
@@ -1067,7 +1230,16 @@ def main(argv: list[str] | None = None) -> int:
                      help="most-recent lessons to embed (default 12)")
     agt.add_argument("--print", dest="print_only", action="store_true",
                      help="print to stdout instead of writing <repo>/AGENTS.md")
+    # `lint-spec` scores a PM spec file for completeness + size. It takes a spec
+    # PATH (--file), NOT a product --config, so it is dispatched BEFORE
+    # `load_config` below. On-demand only — the pipeline never calls it.
+    lnt = sub.add_parser("lint-spec")
+    lnt.add_argument("--file", required=True,
+                     help="path to a PM spec (pm.md) to lint")
     args = ap.parse_args(argv)
+
+    if args.cmd == "lint-spec":
+        return lint_spec_cli(args.file)
 
     cfg = load_config(args.config)
     if args.cmd == "doctor":
