@@ -104,6 +104,11 @@ Nothing is remembered in-context across stages. Durable memory is:
   NIGHT_LOG timeline (one `{ts, event, ...}` JSON object per line, `ts` is a
   tz-aware UTC ISO-8601 instant). Written best-effort alongside every NIGHT_LOG
   line; purely diagnostic (never read on a control path) and git-ignored.
+- Per-ship suite wall-time (item 7): on every genuine ship `postrelease_step`
+  records the fresh-clone test-suite seconds — a `fresh-clone suite wall-time:
+  N.NNs` line in NIGHT_LOG/events (flagged `SLOW` past `SUITE_SLOW_SECONDS`) and
+  a `suite_seconds:` body line in `state/iter-NN/postrelease.md` — so unattended
+  throughput is measurable. Diagnostic only, off every control path.
 
 ## 6. Extending the foundry (platform team's charter)
 
