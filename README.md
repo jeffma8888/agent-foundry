@@ -76,6 +76,7 @@ always-on operating contract (AC power, the single-brain rule, the STOP files).
 |---|---|
 | `foundry.py` | Runs ONE product team's loop on any repo (via a JSON config). |
 | `dispatcher.py` | The single-brain scheduler across many teams (concurrency 1). |
+| `watchdog.py` | A `scheduled`/cron probe that resurrects the dispatcher if its process died and no STOP is set (single-brain + STOP-respecting). |
 | `roles/` | The 7 project-agnostic role playbooks (pm, engineer, reviewer, tester, fix, final, reporter). |
 | `products/<name>/config.json` | One product's wiring (repo, vision, roadmap, quality bar, push target). |
 | `foundry.config.example.json` | The dispatcher's work-item list. |

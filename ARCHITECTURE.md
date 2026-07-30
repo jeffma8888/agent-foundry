@@ -66,7 +66,13 @@ git write state: its only git is the read-only clone inside `verify_fresh_clone`
   heavy-work gate and recursively launches another runner instead of working.
 - **Resilience.** Per stage: up to 4 attempts, backoff 10→20→40 min. Per loop:
   after 2 consecutive infra-failing iterations, cool down 30m→1h→2h→4h. A STOP
-  sentinel is honored between every stage and during every sleep.
+  sentinel is honored between every stage and during every sleep. An external
+  `scheduled` watchdog (`watchdog.py`) closes the one gap this cannot: if the
+  dispatcher PROCESS itself dies (crash/OOM/kill/restart), the watchdog
+  resurrects it -- but only IFF it is truly down AND no STOP is present, so it
+  never violates single-brain (§4) or STOP-respect. It is a standalone module
+  off the control path (process-scan liveness, no PID-file, no edit to
+  `dispatcher.py`/`foundry.py`).
 - **Iteration numbering** continues across restarts by scanning `state/iter-*`.
 
 ## 4. The single-brain rule (why the dispatcher exists)
