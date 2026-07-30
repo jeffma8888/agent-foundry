@@ -66,6 +66,9 @@ uv run python dispatcher.py --config foundry.config.json
 
 # 4. Read the bounded learnings digest (pinned `## Patterns` head + recent tail):
 uv run python foundry.py learnings --config products/repolens/config.json  # [--recent N]
+
+# 5. Emit an AGENTS.md house-rules file into the product repo from its learnings:
+uv run python foundry.py agents --config products/repolens/config.json  # [--recent N] [--print]
 ```
 
 Stop any time: `touch STOP` (whole company) or `touch products/<name>/STOP`
