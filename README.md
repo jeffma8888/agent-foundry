@@ -72,6 +72,9 @@ uv run python foundry.py agents --config products/repolens/config.json  # [--rec
 
 # 6. Lint a PM spec for completeness + size before an iteration (exit 1 = REVIEW):
 uv run python foundry.py lint-spec --file products/repolens/state/iter-NN/pm.md
+
+# 7. Report "N/M stories pass" from a product prd.json (exit 0 complete/1 incomplete/2 missing|invalid):
+uv run python foundry.py prd --config products/repolens/config.json
 ```
 
 Stop any time: `touch STOP` (whole company) or `touch products/<name>/STOP`
