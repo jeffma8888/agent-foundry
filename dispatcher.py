@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """dispatcher.py -- the single always-on brain of agent-foundry.
 
-The problem it solves: every `agent agent run` draws from ONE finite per-account
+The problem it solves: every agent-CLI run draws from ONE finite per-account
 model-API token budget. Running several continuous product loops in parallel
-starves that budget and they all stall ("Too many tokens" / 120s time-outs).
+starves that budget and they all stall (rate-limit errors / 120s time-outs).
 
 The dispatcher fixes this by running work items ROUND-ROBIN at global
 concurrency 1: exactly one product-team iteration executes at a time, so the

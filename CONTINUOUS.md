@@ -7,7 +7,7 @@ contract that makes "always on" actually survive a real machine.
 
 `caffeinate` can only hold the machine awake on **AC power**. On battery,
 macOS runs maintenance-sleep cycles that no `caffeinate` flag can block, and a
-sleeping machine stalls every in-flight `agent agent run` ("Connection stalled —
+sleeping machine stalls every in-flight agent-CLI run ("Connection stalled —
 no data received for 120s"). **Unattended runs require AC power and lid open**
 (Apple Silicon sleeps on lid-close even on AC unless clamshell + external
 display). Nuclear option (needs sudo): `sudo pmset -a disablesleep 1`
@@ -16,11 +16,10 @@ display). Nuclear option (needs sudo): `sudo pmset -a disablesleep 1`
 
 ## Launch it as a real background task
 
-Launch the dispatcher (or a single `foundry.py run`) as ONE backgrounded task
-so it outlives the launching turn. From Agent: use the Bash tool with
-`timeout: 0` — never a shell `&`/`disown` (that gets reaped when the call
-returns). The process self-daemonizes nothing; the background task IS the
-supervisor.
+Launch the dispatcher (or a single `foundry.py run`) as ONE detached background
+process so it outlives the launching shell (e.g. `nohup ... &`, or your agent
+runner's own background-task mechanism). The process self-daemonizes nothing;
+the background job IS the supervisor.
 
 ## Stopping is a file, not a signal
 

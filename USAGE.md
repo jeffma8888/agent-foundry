@@ -57,11 +57,11 @@ The dispatcher runs the platform team (improves the foundry) and every enabled
 product team, one iteration at a time, until you `touch STOP`. This is the
 quota-safe way to have more than one team "always on."
 
-## Invoking from Agent, in plain language
+## Invoking from your agent, in plain language
 
 Once this repo exists you can just say things like:
 
-- *"Use the foundry to build a new CLI that does X"* → Agent does Recipe A.
+- *"Use the foundry to build a new CLI that does X"* → follow Recipe A.
 - *"Use the foundry to keep improving <existing repo>"* → Recipe B.
 - *"Run the foundry"* / *"keep the company running"* → Recipe C (launch the
   dispatcher as one backgrounded task; see CONTINUOUS.md).
