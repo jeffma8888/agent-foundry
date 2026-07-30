@@ -93,6 +93,7 @@ class ProductConfig:
     branch: str = "main"
     vision: str = ""             # path to VISION.md (fixed product intent)
     roadmap: str = ""            # path to roadmap file the PM owns
+    prd: str = ""                # path to prd.json machine roadmap (item 1)
     quality_ref: str = ""        # sibling repo whose conventions set the bar
     test_cmd: str = "uv run pytest"
     roles_dir: str = ""          # defaults to <foundry>/roles
@@ -115,6 +116,9 @@ class ProductConfig:
         self.repo = expand(self.repo)
         self.vision = expand(self.vision)
         self.roadmap = expand(self.roadmap)
+        # prd.json machine roadmap: an explicit path (with {FOUNDRY}/~ expanded)
+        # wins; otherwise default to <repo>/prd.json. Needs `repo` expanded first.
+        self.prd = expand(self.prd) or str(pathlib.Path(self.repo) / "prd.json")
         self.quality_ref = expand(self.quality_ref)
         self.roles_dir = expand(self.roles_dir) or str(FOUNDRY / "roles")
         self.work_root = expand(self.work_root) or str(
@@ -691,6 +695,127 @@ def lint_spec_cli(path: str) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# prd.json machine-roadmap status (roadmap item 1, bite 1/2).
+#
+# Right now the only record of what a product has shipped is the prose
+# NIGHT_LOG / roadmap, which a machine cannot reliably parse to decide "are we
+# done?". A per-product `prd.json` (a list of stories, each with a `passes`
+# flag) is the jq-able machine roadmap. `prd_status` is the deterministic core:
+# pure JSON text in, a `PrdStatus` count out -- no filesystem/subprocess/
+# network/clock, and it NEVER raises -- so it is fully offline-testable and can
+# back both the on-demand CLI now AND, in a later bite, the dispatcher's
+# deterministic global-stop. `prd_status_cli` is the operator-facing seam (read
+# cfg.prd -> prd_status -> print "N/M stories pass"). NOTHING on a control path
+# calls this yet -- wiring it into the dispatcher touches control flow (bite 2).
+# --------------------------------------------------------------------------- #
+@dataclasses.dataclass(frozen=True)
+class PrdStatus:
+    """A story-pass count for a product's prd.json machine roadmap.
+
+    Frozen so a computed status can't be mutated after the fact, which also
+    gives value-equality for free: two `prd_status` calls on byte-identical text
+    hold equal fields, so they compare ``==`` (Behavior 9). ``pending`` is a
+    tuple (hashable + order-stable) of the not-yet-passing stories' identifiers
+    in file order. The two properties are pure derivations of the stored counts,
+    so the whole verdict follows deterministically from what was parsed.
+    """
+    valid: bool
+    total: int
+    passed: int
+    pending: tuple
+
+    @property
+    def complete(self) -> bool:
+        """True iff valid AND there is >=1 story AND every story passes.
+
+        An empty story list (``total == 0``) is deliberately NOT complete -- a
+        product with no stories has shipped nothing, so it must never read as
+        done (Behavior 5).
+        """
+        return self.valid and self.total > 0 and self.passed == self.total
+
+    @property
+    def summary(self) -> str:
+        """The operator one-liner, e.g. ``"2/5 stories pass"`` (Behavior 6)."""
+        return f"{self.passed}/{self.total} stories pass"
+
+
+def prd_status(prd_text: str) -> PrdStatus:
+    """Count passing stories in a prd.json machine roadmap (pure, total).
+
+    Accepts both top-level shapes (Behavior 2): a bare array ``[ ... ]`` and an
+    object ``{"stories": [ ... ]}`` wrapping the same stories. Story-list entries
+    that are not JSON objects are ignored entirely -- excluded from ``total``,
+    ``passed`` and ``pending`` (Behavior 4). ``passes`` is evaluated as truthy,
+    so ``true``/``1`` pass while a missing key / ``false`` / ``null`` / ``0`` do
+    not (Behavior 3).
+
+    NEVER raises (Behavior 8): malformed JSON, or valid JSON that is neither an
+    array nor an object containing a ``stories`` array (e.g. ``42``, ``"x"``,
+    ``{}`` with no ``stories`` key), returns
+    ``PrdStatus(valid=False, total=0, passed=0, pending=())``.
+
+    A pending story's identifier is its ``id`` if present and truthy, else its
+    ``title`` if present and truthy, else ``"#{k}"`` where ``k`` is its 1-based
+    position among the story OBJECTS (junk entries do not advance ``k``),
+    matching Behavior 7.
+    """
+    invalid = PrdStatus(valid=False, total=0, passed=0, pending=())
+    try:
+        data = json.loads(prd_text)
+    except (ValueError, TypeError):
+        return invalid
+
+    if isinstance(data, list):
+        raw_stories = data
+    elif isinstance(data, dict) and isinstance(data.get("stories"), list):
+        raw_stories = data["stories"]
+    else:
+        return invalid
+
+    # Only JSON objects are stories; k enumerates objects (Behaviors 4 & 7).
+    stories = [s for s in raw_stories if isinstance(s, dict)]
+    passed = 0
+    pending: list = []
+    for k, story in enumerate(stories, start=1):
+        if story.get("passes"):
+            passed += 1
+        else:
+            pending.append(story.get("id") or story.get("title") or f"#{k}")
+    return PrdStatus(valid=True, total=len(stories), passed=passed,
+                     pending=tuple(pending))
+
+
+def prd_status_cli(cfg: ProductConfig) -> int:
+    """On-demand CLI: report "N/M stories pass" from a product's ``cfg.prd``.
+
+    Reads the file at ``cfg.prd``, computes `prd_status`, prints a human-readable
+    report, and returns ``0`` (complete) / ``1`` (incomplete) / ``2`` (missing or
+    invalid prd). Writes NOTHING to disk (Behavior 14). A thin wrapper over the
+    pure core -- it adds no counting logic beyond read -> `prd_status` -> format,
+    so the printed figures always match the ``PrdStatus`` fields. A missing file
+    returns ``2`` naming the path (Behavior 11) without letting a
+    ``FileNotFoundError`` propagate; an existing-but-malformed file returns ``2``
+    flagged as invalid JSON (Behavior 13).
+    """
+    path = pathlib.Path(cfg.prd)
+    if not path.exists():
+        print(f"prd: file not found: {cfg.prd}")
+        return 2
+    status = prd_status(path.read_text())
+    print(f"prd: {cfg.prd}")
+    if not status.valid:
+        print('prd: invalid JSON -- expected an array of story objects '
+              'or a {"stories": [...]} object')
+        return 2
+    print(f"  {status.summary}")
+    print(f"  complete: {status.complete}")
+    if status.pending:
+        print(f"  pending: {', '.join(str(x) for x in status.pending)}")
+    return 0 if status.complete else 1
+
+
+# --------------------------------------------------------------------------- #
 # Post-release fresh-clone verification (DORMANT — item 11, bite 1/2).
 #
 # Proves the *pushed* commit is deployable from a clean checkout, not just that
@@ -1236,6 +1361,12 @@ def main(argv: list[str] | None = None) -> int:
     lnt = sub.add_parser("lint-spec")
     lnt.add_argument("--file", required=True,
                      help="path to a PM spec (pm.md) to lint")
+    # `prd` reports "N/M stories pass" from a product's prd.json machine roadmap
+    # (cfg.prd). On-demand only -- the pipeline/dispatcher NEVER call it (bite 2
+    # wires the same pure prd_status into the dispatcher for an automatic stop).
+    prd = sub.add_parser("prd")
+    prd.add_argument("--config", required=True,
+                     help="path to product JSON config")
     args = ap.parse_args(argv)
 
     if args.cmd == "lint-spec":
@@ -1248,6 +1379,8 @@ def main(argv: list[str] | None = None) -> int:
         return learnings_cli(cfg, recent=args.recent)
     if args.cmd == "agents":
         return agents_cli(cfg, recent=args.recent, print_only=args.print_only)
+    if args.cmd == "prd":
+        return prd_status_cli(cfg)
     if args.cmd == "once":
         res = run_iteration(cfg)
         print(json.dumps(res))
