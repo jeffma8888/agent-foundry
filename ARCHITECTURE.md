@@ -10,12 +10,12 @@ platform team must preserve them.
 ```
 L2  Dispatcher (dispatcher.py) ── decides which team works next; concurrency 1
 L1  Product team loop (foundry.run_iteration) ── one small feature, fully gated
-L0  Stage runner (foundry.run_stage) ── one fresh `agent agent run` + retry/backoff
+L0  Stage runner (foundry.run_stage) ── one fresh agent-CLI run + retry/backoff
 ```
 
-This mirrors the autonomy stack the author already runs elsewhere
-(discovery-scout → goal loop → resilient execution); here it is packaged as a reusable,
-repo-agnostic org.
+This mirrors a proven autonomy stack
+(discovery → goal loop → resilient execution); here it is packaged as a
+reusable, repo-agnostic org.
 
 ## 2. The product pipeline (one iteration)
 
@@ -35,7 +35,7 @@ The loop reads the `VERDICT:` / `RESULT:` / `ACTION:` sentinel lines to branch;
 it never parses free-form prose for control flow.
 
 Stage 6 runs **only after `ACTION: PUSHED`** (the ship branch); it is SKIPPED on a
-no-ship iteration. It is a deterministic inline step, not an `agent agent run`
+no-ship iteration. It is a deterministic inline step, not an agent-CLI run
 (bite 1 built the whole verify as a mechanical helper, and the quality bar demands
 deterministic + offline-testable — an agent stage is neither). It never touches
 git write state: its only git is the read-only clone inside `verify_fresh_clone`.
@@ -62,7 +62,7 @@ git write state: its only git is the read-only clone inside `verify_fresh_clone`
   and the product's observable output — never `src/`, notes, or diffs. Its tests
   encode the spec, not the implementation.
 - **Anti-delegation clause** is appended to every stage prompt (see
-  `foundry.ANTI_DELEGATION`). Without it an `agent`-profile sub-agent inherits the
+  `foundry.ANTI_DELEGATION`). Without it a general-purpose sub-agent inherits the
   heavy-work gate and recursively launches another runner instead of working.
 - **Resilience.** Per stage: up to 4 attempts, backoff 10→20→40 min. Per loop:
   after 2 consecutive infra-failing iterations, cool down 30m→1h→2h→4h. A STOP
@@ -71,7 +71,7 @@ git write state: its only git is the read-only clone inside `verify_fresh_clone`
 
 ## 4. The single-brain rule (why the dispatcher exists)
 
-Every `agent agent run` draws from ONE finite per-account model-API token budget.
+Every agent-CLI run draws from ONE finite per-account model-API token budget.
 Two continuous loops in parallel starve it and both stall ("Too many tokens" /
 120s time-to-first-token). The dispatcher therefore runs **exactly one team
 iteration at a time**, round-robin by priority, so the entire budget always

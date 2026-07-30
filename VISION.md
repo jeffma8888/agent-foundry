@@ -23,9 +23,9 @@ tested increments*, safely and unattended.
 
 **Hard constraints:**
 - Single-brain: one foundry per model-API account (dispatcher serializes teams).
-- macOS + Agent CLI + uv; AC power for unattended runs.
+- macOS + an agent CLI + uv; AC power for unattended runs.
 - Small, reversible increments only — the framework must never break its own
   resume/restart semantics.
 
-**Out of scope (for now):** multi-machine distribution, non-Agent backends,
+**Out of scope (for now):** multi-machine distribution, alternative agent backends,
 a hosted service, and any product-specific logic.

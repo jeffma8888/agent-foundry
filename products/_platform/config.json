@@ -1,11 +1,11 @@
 {
   "name": "_platform",
-  "repo": "~/projects/agent-foundry",
+  "repo": "{FOUNDRY}",
   "allowed_push_repo": "agent-foundry",
   "branch": "main",
   "vision": "{FOUNDRY}/VISION.md",
   "roadmap": "{FOUNDRY}/PLATFORM_ROADMAP.md",
-  "quality_ref": "~/projects/agent-foundry",
+  "quality_ref": "{FOUNDRY}",
   "test_cmd": "uv run --with pytest pytest -q",
   "roles_dir": "{FOUNDRY}/roles",
   "work_root": "{FOUNDRY}/products/_platform",

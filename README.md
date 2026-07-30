@@ -28,7 +28,7 @@ work that passes every gate.
                               → Final Reviewer (ships or reverts)
 ```
 
-Each stage is a **fresh** `agent agent run` (clean context, no memory bloat).
+Each stage is a **fresh** agent-CLI run (clean context, no memory bloat).
 The only memory between stages/iterations lives on disk: the spec, the diff,
 the commit history, and the learnings log.
 
@@ -51,7 +51,7 @@ the commit history, and the learnings log.
 ## Quickstart
 
 ```bash
-# 0. Preflight the box before committing a shift (AC power, agent, uv, remote):
+# 0. Preflight the box before committing a shift (AC power, agent CLI, uv, remote):
 uv run python foundry.py doctor --config products/repolens/config.json
 
 # 1. Run one product team on an existing repo, a single iteration:
@@ -85,7 +85,7 @@ always-on operating contract (AC power, the single-brain rule, the STOP files).
 
 ## Requirements
 
-- macOS with the Agent CLI (`agent agent run`) authenticated.
+- An agent CLI on PATH, configured via `FOUNDRY_AGENT_BIN` / `FOUNDRY_AGENT_ARGS`.
 - `uv` (Python ≥3.12). No runtime dependencies; `pytest` for the framework's own tests.
 - **AC power** for unattended runs (battery maintenance-sleep kills long loops).
 

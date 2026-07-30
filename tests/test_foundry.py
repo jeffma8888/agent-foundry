@@ -68,7 +68,7 @@ def test_build_prompt_contains_context_and_guardrails(tmp_path):
     assert cfg.repo in prompt
     assert str(pathlib.Path(cfg.roles_dir) / "pm.md") in prompt
     assert "anti" in foundry.ANTI_DELEGATION.lower() or "HARD RULES" in prompt
-    assert "resilient execution" in prompt  # anti-delegation clause present
+    assert "re-delegate" in prompt  # anti-delegation clause present
     assert "extra!" in prompt
     assert cfg.learnings in prompt
 

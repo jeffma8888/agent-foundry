@@ -15,13 +15,13 @@ Design invariants (learned building `repolens` -- 9 features shipped overnight):
 
   * Stage success == the stage's OUTPUT FILE exists and is non-empty.
     Exit codes and agent self-reports are NOT trusted.
-  * Every stage is a one-shot `agent agent run`, retried with exponential
+  * Every stage is a one-shot agent-CLI run, retried with exponential
     backoff. Infra failures (throttling / stall / timeout) never kill the loop.
   * The Final Reviewer is the ONLY role that touches git; on any doubt it
     reverts to origin/<branch> rather than shipping half-done work.
   * The Tester is firewalled from src/ -- black-box behaviour verification only.
   * Every role prompt carries an anti-delegation clause (no nested agent runs,
-    no resilient execution, no re-delegation) -- else sub-agents recurse.
+    no re-delegation) -- else sub-agents recurse.
   * Continuous by default: runs until a STOP sentinel file appears.
 
 Usage:
@@ -44,7 +44,15 @@ import sys
 import time
 
 FOUNDRY = pathlib.Path(__file__).resolve().parent
-AGENT_BIN = os.environ.get("AGENT_BIN", "/path/to/agent-cli")
+# The agent CLI is configurable so the foundry stays tool-agnostic. AGENT_BIN
+# is the executable each stage shells out to; AGENT_RUN_ARGS is its argument
+# template (the literal "{prompt}" is replaced with the per-stage task prompt
+# at call time). Configure both via environment variables:
+#   FOUNDRY_AGENT_BIN  = /path/to/your/agent-cli
+#   FOUNDRY_AGENT_ARGS = JSON list, e.g. ["run", "--task", "{prompt}"]
+AGENT_BIN = os.environ.get("FOUNDRY_AGENT_BIN", "")
+AGENT_RUN_ARGS = json.loads(
+    os.environ.get("FOUNDRY_AGENT_ARGS", '["run", "--task", "{prompt}"]'))
 
 STAGE_TIMEOUT = 1800            # 30 min hard cap per agent-run attempt
 MAX_ATTEMPTS = 4               # attempts per stage
@@ -53,13 +61,12 @@ COOLDOWNS = [1800, 3600, 7200, 14400]  # infra cooldown 30m -> 1h -> 2h -> 4h
 REPORT_EVERY = 5               # periodic status report cadence (iterations)
 
 ANTI_DELEGATION = (
-    "HARD RULES: Do ALL of this work YOURSELF in this single run. Do NOT use "
-    "resilient execution, goal loop, scheduled tasks, nested agent runs, "
-    "background tasks, or teammates. Do NOT classify the work as heavy or "
-    "route it anywhere. Touch ONLY the product repo, your state dir, and the "
-    "foundry learnings log named below. Never push to any repo other than the "
-    "declared push target. Never force-push. Never run credential-refresh or credential "
-    "commands."
+    "HARD RULES: Do ALL of this work YOURSELF in this single run. Do NOT spawn "
+    "nested agent runs, background jobs, schedulers, or teammates, and do NOT "
+    "re-delegate the work to any other process. Touch ONLY the product repo, "
+    "your state dir, and the foundry learnings log named below. Never push to "
+    "any repo other than the declared push target. Never force-push. Never run "
+    "authentication or credential commands."
 )
 
 
@@ -229,7 +236,7 @@ def check_power() -> Check:
     """Is the machine on AC power?
 
     WHY it's the first check: on battery macOS runs maintenance-sleep cycles
-    that no `caffeinate` can block, so every `agent agent run` stalls (120s
+    that no `caffeinate` can block, so every agent-CLI run stalls (120s
     time-to-first-token) — the single most expensive unattended-run failure.
     Delegates to the `power_state` seam so the tester can force either verdict.
     """
@@ -242,11 +249,12 @@ def check_power() -> Check:
 
 
 def check_agent() -> Check:
-    """Does the Agent binary exist at the `AGENT_BIN` path?
+    """Does the configured agent-CLI binary exist at `AGENT_BIN`?
 
-    Every stage shells out to this path; a missing binary would burn all 4
-    attempts + backoffs producing nothing. Reads the module-level `AGENT_BIN` at call
-    time so the tester can point it at an existing / non-existent path.
+    Every stage shells out to this binary; a missing/unconfigured binary would
+    burn all 4 attempts + backoffs producing nothing. Reads the module-level
+    `AGENT_BIN` at call time so the tester can point it at an existing /
+    non-existent path.
     """
     try:
         path = AGENT_BIN
@@ -645,9 +653,10 @@ def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
             return False, out_file
         log(cfg, f"iter {iteration:02d} · **{stage}** attempt {attempt} started")
         try:
+            agent_cmd = [AGENT_BIN] + [
+                (prompt if a == "{prompt}" else a) for a in AGENT_RUN_ARGS]
             p = subprocess.run(
-                [AGENT_BIN, "agent", "run", "--task", prompt, "--profile", "agent",
-                 "--mode", "act"],
+                agent_cmd,
                 capture_output=True, text=True, timeout=STAGE_TIMEOUT)
             blob = (p.stdout or "") + (p.stderr or "")
         except subprocess.TimeoutExpired:
