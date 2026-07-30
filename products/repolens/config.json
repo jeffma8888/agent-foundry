@@ -1,0 +1,14 @@
+{
+  "name": "repolens",
+  "repo": "~/projects/repolens",
+  "allowed_push_repo": "repolens",
+  "branch": "main",
+  "vision": "~/projects/repolens/VISION.md",
+  "roadmap": "~/projects/repolens/PRODUCT.md",
+  "quality_ref": "~/projects/proactive-loop-agent",
+  "test_cmd": "uv run pytest",
+  "roles_dir": "{FOUNDRY}/roles",
+  "work_root": "{FOUNDRY}/products/repolens",
+  "quality_bar": "Offline-first: NO network access at runtime or in tests. Runtime deps: pydantic v2 only; dev dep: pytest only. Byte-exact golden-output test philosophy. Deterministic output. Python >=3.12, uv-managed.",
+  "push_enabled": true
+}

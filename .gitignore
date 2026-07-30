@@ -1,0 +1,21 @@
+# Runtime artifacts produced by each product team (per-run noise, not source)
+products/*/state/
+products/*/NIGHT_LOG.md
+products/*/STATUS_REPORT.md
+products/*/LEARNINGS.md
+products/*/STATUS_REPORT.md
+DISPATCH_LOG.md
+STOP
+products/*/STOP
+
+# The live dispatcher config (copy of the .example) is machine-local
+foundry.config.json
+
+# Python / uv
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Local-only promotion / scratch notes
+PROMOTION.md
