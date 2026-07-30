@@ -921,6 +921,18 @@ def cleanup_clone(clone_dir) -> None:
     shutil.rmtree(clone_dir, ignore_errors=True)
 
 
+def _monotonic() -> float:
+    """Monotonic clock read -- a measurement-only module seam.
+
+    Isolated as a module-level name (NOT `time.monotonic` inline) so a test can
+    `monkeypatch.setattr(foundry, "_monotonic", ...)` to script the two reads
+    that bracket the fresh-clone test command (roadmap item 7). It feeds ONLY
+    the per-ship suite wall-time measurement -- never any control flow -- so
+    patching it can never perturb `sleep_interruptible` or loop timing.
+    """
+    return time.monotonic()
+
+
 def sha_matches(expected: str, actual: str) -> bool:
     """True iff two commit ids agree on the shorter of their lengths.
 
@@ -934,6 +946,29 @@ def sha_matches(expected: str, actual: str) -> bool:
     return expected[:n] == actual[:n]
 
 
+# Default fresh-clone suite wall-time (seconds) past which a ship is flagged
+# SLOW. Module-level + patchable so a test -- and, later, item 7 bite 2 (a PM
+# speed-story trigger) -- reads the threshold at CALL time, not a hard-coded one.
+SUITE_SLOW_SECONDS: float = 120.0
+
+
+def suite_timing_line(seconds: float, threshold: float) -> str:
+    """Format the per-ship deployable-suite wall-time line (item 7, bite 1).
+
+    Pure + total: renders `seconds` to exactly two decimals and appends a `SLOW`
+    advisory ONLY when strictly `seconds > threshold` -- the boundary case
+    (seconds == threshold) is deliberately NOT slow, so a suite sitting right at
+    the limit never nags. This is the smallest visible unit of the throughput
+    signal the unattended-continuous-shipping goal needs; bite 2 will file a
+    speed story off the same threshold.
+    """
+    base = f"fresh-clone suite wall-time: {seconds:.2f}s"
+    if seconds > threshold:
+        return (f"{base} SLOW (>{threshold:.2f}s threshold; "
+                "consider a speed story)")
+    return base
+
+
 @dataclasses.dataclass(frozen=True)
 class PostReleaseResult:
     """Verdict of a fresh-clone verification.
@@ -945,6 +980,11 @@ class PostReleaseResult:
     healthy: bool
     skipped_infra: bool
     detail: str
+    # Fresh-clone suite wall-time in seconds (item 7, bite 1). DIAGNOSTIC ONLY:
+    # it NEVER affects `healthy`, `skipped_infra`, or the derived `sentinel`.
+    # `None` whenever the fresh-clone test command did not run (infra-skip,
+    # postrelease disabled, or a verify error) -- see `verify_fresh_clone`.
+    test_seconds: float | None = None
 
     @property
     def sentinel(self) -> str:
@@ -998,6 +1038,7 @@ def verify_fresh_clone(cfg: "ProductConfig", expected_sha: str,
     remote_ok = clone_ok = setup_ok = test_ok = sha_ok = False
     smoke_ran = False
     smoke_ok = True  # only consulted when smoke_ran is True
+    test_seconds: float | None = None  # set ONLY when the test command runs
     result: "PostReleaseResult"
     try:
         # 1. discover the clone source (origin remote URL) in cfg.repo
@@ -1015,7 +1056,13 @@ def verify_fresh_clone(cfg: "ProductConfig", expected_sha: str,
             setup_ok = run_cmd(shlex.split(cfg.setup_cmd), cwd=clone_dir).ok
         # 4. test + sha check + optional smoke, all inside the clone
         if remote_ok and clone_ok and setup_ok:
+            # Time ONLY the full-suite run: this is the comparable per-ship
+            # "deployable-suite wall-time" (item 7). `_monotonic` is a module
+            # seam so a test scripts the two bracketing reads; the delta is a
+            # non-negative float threaded onto the verdict below.
+            _t0 = _monotonic()
             test_ok = run_cmd(shlex.split(cfg.test_cmd), cwd=clone_dir).ok
+            test_seconds = _monotonic() - _t0
             head_res = run_cmd(["git", "-C", str(clone_dir),
                                 "rev-parse", "HEAD"])
             sha_ok = head_res.ok and sha_matches(
@@ -1029,6 +1076,10 @@ def verify_fresh_clone(cfg: "ProductConfig", expected_sha: str,
             remote_ok=remote_ok, clone_ok=clone_ok, setup_ok=setup_ok,
             test_ok=test_ok, sha_ok=sha_ok, smoke_ran=smoke_ran,
             smoke_ok=smoke_ok)
+        # Thread the measured wall-time onto the PURE verdict WITHOUT touching
+        # its decision logic (test_seconds is inert; Behaviors 6/12). It stays
+        # None on the infra-skip path where the test command never ran.
+        result = dataclasses.replace(result, test_seconds=test_seconds)
     except Exception as exc:  # a seam blew up => infra, never a false hotfix
         result = PostReleaseResult(
             True, True, f"verification errored, treated as infra: {exc!r}")
@@ -1086,12 +1137,16 @@ def _write_postrelease_artifact(artifact: pathlib.Path, expected_sha: str,
 
     The LAST non-empty line is EXACTLY `result.sentinel`, mirroring the
     `VERDICT:`/`RESULT:`/`ACTION:` sentinel-line contract so the verdict is
-    greppable and machine-readable. The body carries the pushed sha and the
-    verdict detail for a human reading the artifact.
+    greppable and machine-readable. The body carries the pushed sha, the
+    fresh-clone suite wall-time (`suite_seconds`, `n/a` when the test command
+    did not run), and the verdict detail for a human reading the artifact.
     """
+    secs = ("n/a" if result.test_seconds is None
+            else f"{result.test_seconds:.2f}")
     artifact.write_text(
         f"# Post-release fresh-clone verification -- pushed sha {expected_sha}\n\n"
         f"- skipped_infra: {result.skipped_infra}\n"
+        f"- suite_seconds: {secs}\n"
         f"- detail: {result.detail}\n\n"
         f"{result.sentinel}\n")
 
@@ -1140,6 +1195,15 @@ def postrelease_step(cfg: ProductConfig, iteration: int,
         clear_hotfix_flag(cfg)
     # infra-skipped HEALTHY: leave any pre-existing flag intact -- an unverified
     # skip must neither clear a real hotfix nor raise a false one.
+
+    # Record the per-ship deployable-suite wall-time (item 7, bite 1) ONLY when
+    # the fresh-clone test command actually ran (test_seconds is set). An
+    # infra-skip / disabled / errored path has no comparable number, so it emits
+    # no timing line. SUITE_SLOW_SECONDS is read as a module global at call time
+    # so a monkeypatched threshold bites; `log` best-effort mirrors it to
+    # events.jsonl too.
+    if result.test_seconds is not None:
+        log(cfg, suite_timing_line(result.test_seconds, SUITE_SLOW_SECONDS))
 
     _write_postrelease_artifact(artifact, expected_sha, result)
     return result
