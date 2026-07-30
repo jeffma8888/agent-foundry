@@ -94,6 +94,9 @@ Nothing is remembered in-context across stages. Durable memory is:
   A pinned `## Patterns` head holds the durable curated rules; `foundry learnings
   --config <cfg> [--recent N]` renders a bounded digest (that head + the N most-recent
   lessons) so a fresh agent reads high-signal history without slurping the whole log.
+  That same bounded digest (newest `PROMPT_LEARNINGS_RECENT` lessons) is ALSO inlined
+  into EVERY stage prompt by `build_prompt`, so each fresh agent receives it inline —
+  not just on demand via the CLI.
 - `products/<name>/NIGHT_LOG.md` — the event timeline; `DISPATCH_LOG.md` — shifts.
 - `products/<name>/events.jsonl` — a machine-readable JSONL mirror of the
   NIGHT_LOG timeline (one `{ts, event, ...}` JSON object per line, `ts` is a

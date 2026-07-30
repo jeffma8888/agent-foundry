@@ -69,6 +69,18 @@ ANTI_DELEGATION = (
     "authentication or credential commands."
 )
 
+# Bounded learnings digest inlined into every stage prompt (roadmap item 2,
+# bite 2/2). `build_prompt` reads these at CALL time from the module globals
+# (not as default-arg values) so a `monkeypatch.setattr(foundry, ...)` bites.
+# The default of 10 is deliberately tighter than the CLI's 12: the prompt path
+# pays this cost on EVERY stage of EVERY iteration, so a modest bound keeps
+# per-prompt overhead small and time-to-first-token friendly.
+PROMPT_LEARNINGS_RECENT = 10   # newest N lessons inlined into each stage prompt
+PROMPT_LEARNINGS_LABEL = (
+    "- Recent foundry learnings (bounded digest; read this, do not slurp the "
+    "whole log):"
+)
+
 
 # --------------------------------------------------------------------------- #
 # Config
@@ -737,6 +749,19 @@ def postrelease_step(cfg: ProductConfig, iteration: int,
 def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
                  role_file: str, out_file: pathlib.Path,
                  it_dir: pathlib.Path, extra: str) -> str:
+    # Inline the bounded learnings digest so EVERY fresh stage agent reads the
+    # pinned `## Patterns` head + the newest lessons directly, instead of
+    # slurping the unbounded LEARNINGS.md off disk (roadmap item 2, bite 2/2).
+    # Read defensively: a missing/unreadable file must never crash the pipeline
+    # on a product that has recorded nothing yet -> empty text -> placeholder
+    # digest. `PROMPT_LEARNINGS_RECENT` / `learnings_digest` are referenced as
+    # module globals so `monkeypatch.setattr(foundry, ...)` bites at call time.
+    lp = pathlib.Path(cfg.learnings)
+    try:
+        text = lp.read_text() if lp.exists() else ""
+    except OSError:
+        text = ""
+    digest = learnings_digest(text, recent=PROMPT_LEARNINGS_RECENT)
     return (
         f"You are the {stage.upper()} in iteration {iteration} of the "
         f"autonomous product team building the product '{cfg.name}'.\n\n"
@@ -752,6 +777,7 @@ def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
         f"- This iteration's state dir (all stage outputs live here): {it_dir}\n"
         f"- Foundry learnings log (append your role lessons here): "
         f"{cfg.learnings}\n"
+        f"{PROMPT_LEARNINGS_LABEL}\n{digest}\n"
         f"- Iteration number for file naming: {iteration:02d}\n"
         f"- YOUR REQUIRED OUTPUT FILE: {out_file} -- you MUST write it before "
         f"finishing, even on failure (state what failed and why).\n\n"
