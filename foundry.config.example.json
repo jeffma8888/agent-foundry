@@ -1,0 +1,19 @@
+{
+  "_comment": "Dispatcher config. Each work_item points at a foundry.py product config. Lower priority runs first each round. The dispatcher runs them round-robin at global concurrency 1 so they never split the model-API quota. Copy to foundry.config.json and edit.",
+  "work_items": [
+    {
+      "name": "_platform",
+      "config": "{FOUNDRY}/products/_platform/config.json",
+      "priority": 0,
+      "enabled": true,
+      "_note": "The team that improves agent-foundry itself. The compounding asset -> runs first."
+    },
+    {
+      "name": "repolens",
+      "config": "{FOUNDRY}/products/repolens/config.json",
+      "priority": 10,
+      "enabled": true,
+      "_note": "Flagship product artifact. Set enabled=false while a dedicated repolens loop runs elsewhere."
+    }
+  ]
+}
