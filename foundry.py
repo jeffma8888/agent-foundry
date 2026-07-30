@@ -376,6 +376,82 @@ def run_doctor_cli(cfg: ProductConfig) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Bounded learnings digest (roadmap item 2, bite 1/2).
+#
+# `LEARNINGS.md` grows unbounded, so a fresh agent that reads it to learn what
+# already shipped burns more of its context window every iteration — directly
+# eroding the VISION's promise of reliable continuous iteration. `learnings_digest`
+# is the deterministic core: pure text in, bounded text out (the pinned `## Patterns`
+# head verbatim + the most-recent role-tagged lessons under an accurate count
+# header). `learnings_cli` is the operator-facing seam that reads the file and
+# prints it. NOTHING on a control path reads the digest yet — wiring it into
+# `build_prompt` is bite 2 (a later iteration); this bite is purely additive.
+# --------------------------------------------------------------------------- #
+def learnings_digest(text: str, recent: int = 12) -> str:
+    """Reduce a role-tagged learnings log to a bounded, high-signal view.
+
+    Returns the pinned ``## Patterns`` head verbatim (the durable curated rules)
+    followed by an accurate ``## Recent lessons (last N of M)`` header and only
+    the ``recent`` most-recent lesson lines. Pure — no filesystem/subprocess/
+    network — so it is fully offline-testable and can back both the CLI and, in
+    a later bite, the prompt builder.
+
+    A *lesson line* is any line whose left-stripped form starts with ``- [`` (the
+    ``- [ROLE iterNN] ...`` bullet). A *pattern bullet* is a plain ``- `` bullet
+    that is NOT a lesson line, so curated head rules are never miscounted. The
+    ``## Patterns`` head runs from its heading up to (exclusive) the first later
+    ``## `` heading OR the first lesson line, whichever comes first — robust even
+    when a file omits the ``## Chronological lessons`` marker. With no ``## Patterns``
+    section a two-line placeholder head is emitted so the output shape is stable.
+    """
+    lines = text.splitlines()
+
+    def is_lesson(line: str) -> bool:
+        return line.lstrip().startswith("- [")
+
+    def is_h2(line: str) -> bool:
+        return line.lstrip().startswith("## ")
+
+    # Pinned head: verbatim from `## Patterns` to the next `## ` heading or the
+    # first lesson line (whichever is first); a placeholder when absent.
+    head_start = next(
+        (i for i, ln in enumerate(lines)
+         if ln.lstrip().startswith("## Patterns")),
+        None,
+    )
+    if head_start is None:
+        head = ["## Patterns", "(none recorded yet)"]
+    else:
+        head = [lines[head_start]]
+        for ln in lines[head_start + 1:]:
+            if is_h2(ln) or is_lesson(ln):
+                break
+            head.append(ln)
+
+    # Bounded tail: every lesson line in document order, keep the last `recent`.
+    lessons = [ln for ln in lines if is_lesson(ln)]
+    total = len(lessons)
+    kept = lessons[max(0, total - recent):]
+
+    parts = [*head, "", f"## Recent lessons (last {len(kept)} of {total})", *kept]
+    return "\n".join(parts)
+
+
+def learnings_cli(cfg: ProductConfig, recent: int = 12) -> int:
+    """CLI entry: print the bounded learnings digest for a product; return 0.
+
+    Reads ``cfg.learnings`` defensively — a missing file yields an empty-text
+    digest (the ``## Patterns`` placeholder + a zero-count header) instead of a
+    ``FileNotFoundError`` — so it works on a product that has recorded nothing
+    yet. Purely diagnostic: reads one file, prints, exits 0.
+    """
+    path = pathlib.Path(cfg.learnings)
+    text = path.read_text() if path.exists() else ""
+    print(learnings_digest(text, recent=recent))
+    return 0
+
+
+# --------------------------------------------------------------------------- #
 # Post-release fresh-clone verification (DORMANT — item 11, bite 1/2).
 #
 # Proves the *pushed* commit is deployable from a clean checkout, not just that
@@ -888,11 +964,18 @@ def main(argv: list[str] | None = None) -> int:
     for name in ("run", "once", "doctor"):
         s = sub.add_parser(name)
         s.add_argument("--config", required=True, help="path to product JSON config")
+    # `learnings` also takes --recent to bound the rendered tail (default 12).
+    lrn = sub.add_parser("learnings")
+    lrn.add_argument("--config", required=True, help="path to product JSON config")
+    lrn.add_argument("--recent", type=int, default=12,
+                     help="most-recent lessons to include (default 12)")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
     if args.cmd == "doctor":
         return run_doctor_cli(cfg)
+    if args.cmd == "learnings":
+        return learnings_cli(cfg, recent=args.recent)
     if args.cmd == "once":
         res = run_iteration(cfg)
         print(json.dumps(res))
