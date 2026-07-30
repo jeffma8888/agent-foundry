@@ -91,6 +91,9 @@ Nothing is remembered in-context across stages. Durable memory is:
 - `products/<name>/state/iter-NN/*` — every stage's inputs/outputs/logs.
 - the product repo's git history + README + roadmap file.
 - `products/<name>/LEARNINGS.md` — role-tagged lessons (`- [PM iterNN] ...`).
+  A pinned `## Patterns` head holds the durable curated rules; `foundry learnings
+  --config <cfg> [--recent N]` renders a bounded digest (that head + the N most-recent
+  lessons) so a fresh agent reads high-signal history without slurping the whole log.
 - `products/<name>/NIGHT_LOG.md` — the event timeline; `DISPATCH_LOG.md` — shifts.
 - `products/<name>/events.jsonl` — a machine-readable JSONL mirror of the
   NIGHT_LOG timeline (one `{ts, event, ...}` JSON object per line, `ts` is a
