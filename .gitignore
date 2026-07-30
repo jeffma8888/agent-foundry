@@ -7,6 +7,9 @@ products/*/STATUS_REPORT.md
 DISPATCH_LOG.md
 STOP
 products/*/STOP
+# A transient post-release hotfix flag (raised on a BROKEN clean-room verify)
+# is runtime state, not source — never let it leak into a commit.
+products/*/HOTFIX_NEEDED.md
 
 # The live dispatcher config (copy of the .example) is machine-local
 foundry.config.json

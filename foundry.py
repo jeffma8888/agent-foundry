@@ -499,6 +499,111 @@ def verify_fresh_clone(cfg: "ProductConfig", expected_sha: str,
 
 
 # --------------------------------------------------------------------------- #
+# Post-release wiring (item 11, bite 2/2) -- the deterministic inline "stage".
+#
+# NOT an LLM agent role: bite 1 already built the whole verification as a
+# pure/mechanical helper, and the product quality bar demands deterministic +
+# offline-testable, which an agent stage is neither. `postrelease_step` gives
+# `verify_fresh_clone` a call site, a `POSTRELEASE:` sentinel artifact, and a
+# per-product `HOTFIX_NEEDED.md` lifecycle. It runs ONLY on the SHIPPED branch
+# (after the push already happened), so a BROKEN verdict never reverts and
+# never changes `status` -- the bad public commit is fixed forward by the next
+# iteration via the hotfix flag.
+# --------------------------------------------------------------------------- #
+def hotfix_flag_path(cfg: ProductConfig) -> pathlib.Path:
+    """Per-product hotfix flag location: `<work_root>/HOTFIX_NEEDED.md`."""
+    return pathlib.Path(cfg.work_root) / "HOTFIX_NEEDED.md"
+
+
+def write_hotfix_flag(cfg: ProductConfig, sha: str, detail: str) -> None:
+    """Raise the hotfix flag after a BROKEN post-release.
+
+    Overwrites any existing flag (newest breakage wins -- no append pile-up) and
+    embeds both the pushed `sha` and the verbatim `detail` so the next PM has
+    the evidence it needs. Never raises for a normal writable work_root.
+    """
+    path = hotfix_flag_path(cfg)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "# HOTFIX NEEDED -- post-release verification is BROKEN\n\n"
+        f"- Pushed sha: {sha}\n"
+        f"- Evidence: {detail}\n\n"
+        "The next PM's ONLY feature this iteration is the hotfix that makes the "
+        "post-release verification HEALTHY again (which clears this flag). Do "
+        "NOT revert or force-push the bad commit -- fix it forward.\n")
+
+
+def clear_hotfix_flag(cfg: ProductConfig) -> None:
+    """Remove the hotfix flag if present; silent no-op when it is absent."""
+    hotfix_flag_path(cfg).unlink(missing_ok=True)
+
+
+def _write_postrelease_artifact(artifact: pathlib.Path, expected_sha: str,
+                                result: "PostReleaseResult") -> None:
+    """Write the per-iteration `postrelease.md` sentinel artifact.
+
+    The LAST non-empty line is EXACTLY `result.sentinel`, mirroring the
+    `VERDICT:`/`RESULT:`/`ACTION:` sentinel-line contract so the verdict is
+    greppable and machine-readable. The body carries the pushed sha and the
+    verdict detail for a human reading the artifact.
+    """
+    artifact.write_text(
+        f"# Post-release fresh-clone verification -- pushed sha {expected_sha}\n\n"
+        f"- skipped_infra: {result.skipped_infra}\n"
+        f"- detail: {result.detail}\n\n"
+        f"{result.sentinel}\n")
+
+
+def postrelease_step(cfg: ProductConfig, iteration: int,
+                     expected_sha: str) -> "PostReleaseResult":
+    """Re-verify a just-pushed commit from a throwaway fresh clone.
+
+    Calls `verify_fresh_clone` / the flag helpers by their BARE module names at
+    call time so `monkeypatch.setattr(foundry, "<name>", ...)` bites. Writes the
+    `POSTRELEASE:` sentinel artifact on every enabled path and applies the
+    hotfix-flag lifecycle:
+
+      * genuine HEALTHY (healthy and not skipped_infra) -> clear the flag
+      * BROKEN (not healthy)                            -> raise the flag
+      * infra-skipped HEALTHY / disabled / verify error -> leave the flag as-is
+
+    NEVER propagates a `verify_fresh_clone` exception: the commit is already
+    pushed, so a verification error is treated as infra (HEALTHY + skipped) and
+    must never crash the loop or raise a false hotfix.
+    """
+    it_dir = cfg.state / f"iter-{iteration:02d}"
+    it_dir.mkdir(parents=True, exist_ok=True)
+    artifact = it_dir / "postrelease.md"
+
+    if not cfg.postrelease_enabled:
+        # A no-op skip: don't clone, don't touch the flag, still emit a sentinel.
+        result = PostReleaseResult(
+            True, True,
+            "post-release verification disabled (cfg.postrelease_enabled is "
+            "False); skipped without touching the hotfix flag")
+        _write_postrelease_artifact(artifact, expected_sha, result)
+        return result
+
+    clone_dir = it_dir / "postrelease_clone"  # throwaway; verify cleans it up
+    try:
+        result = verify_fresh_clone(cfg, expected_sha, clone_dir)
+    except Exception as exc:  # a verify error must never crash a shipped iter
+        result = PostReleaseResult(
+            True, True,
+            f"post-release verification errored, treated as infra: {exc!r}")
+
+    if not result.healthy:
+        write_hotfix_flag(cfg, expected_sha, result.detail)
+    elif not result.skipped_infra:
+        clear_hotfix_flag(cfg)
+    # infra-skipped HEALTHY: leave any pre-existing flag intact -- an unverified
+    # skip must neither clear a real hotfix nor raise a false one.
+
+    _write_postrelease_artifact(artifact, expected_sha, result)
+    return result
+
+
+# --------------------------------------------------------------------------- #
 # Prompt + stage runner
 # --------------------------------------------------------------------------- #
 def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
@@ -630,7 +735,13 @@ def run_iteration(cfg: ProductConfig, iteration: int | None = None) -> dict:
     new_head = head_of_branch(cfg)
     if contains(final, "ACTION: PUSHED") and new_head != base:
         log(cfg, f"iter {iteration:02d} SHIPPED — origin/{cfg.branch} now {new_head}")
-        return {"status": "shipped", "head": new_head, "iteration": iteration}
+        # Post-release: re-verify the PUSHED commit from a fresh clone. Additive
+        # only -- a BROKEN verdict raises the hotfix flag but keeps status
+        # "shipped" (the commit is genuinely pushed; fix forward next iter).
+        post = postrelease_step(cfg, iteration, new_head)
+        log(cfg, f"iter {iteration:02d} post-release {post.sentinel}")
+        return {"status": "shipped", "head": new_head, "iteration": iteration,
+                "postrelease": post.sentinel}
     revert_repo(cfg, "final gate declined to ship")
     log(cfg, f"iter {iteration:02d} completed WITHOUT ship (reverted; see final.md)")
     return {"status": "no-ship", "iteration": iteration}

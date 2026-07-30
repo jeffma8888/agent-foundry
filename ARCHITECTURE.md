@@ -28,10 +28,17 @@ repo-agnostic org.
 | 4 | Isolated Tester | `tester.md` | `tester.md` (`RESULT:` line) | no |
 | 4b| Fix + re-test (if FAIL) | `fix.md` + `tester.md` | `fix_tests.md`, `tester2.md` | no |
 | 5 | Final Reviewer (gate) | `final.md` | `final.md` (`ACTION:` line) | **YES — only role** |
+| 6 | Post-release verify (deterministic; **not** an agent) | — (`postrelease_step`) | `state/iter-NN/postrelease.md` (`POSTRELEASE:` line) | no — read-only clone/verify |
 | — | Reporter (every 5 iters) | `reporter.md` | `reporter_done_NN.md` + STATUS_REPORT | no |
 
 The loop reads the `VERDICT:` / `RESULT:` / `ACTION:` sentinel lines to branch;
 it never parses free-form prose for control flow.
+
+Stage 6 runs **only after `ACTION: PUSHED`** (the ship branch); it is SKIPPED on a
+no-ship iteration. It is a deterministic inline step, not an `agent agent run`
+(bite 1 built the whole verify as a mechanical helper, and the quality bar demands
+deterministic + offline-testable — an agent stage is neither). It never touches
+git write state: its only git is the read-only clone inside `verify_fresh_clone`.
 
 ## 3. Invariants (do not regress these)
 
@@ -41,7 +48,16 @@ it never parses free-form prose for control flow.
 - **Independent, pessimistic gate.** The Final Reviewer re-runs the full suite,
   checks the working tree is clean of stray files, and is the sole git-writer.
   Ship requires `ACTION: PUSHED <sha>` AND a changed remote head; otherwise the
-  loop reverts to `origin/<branch>`.
+  loop reverts to `origin/<branch>`. **Post-release re-verification:** after a
+  ship, `postrelease_step` re-verifies the *pushed* commit from a throwaway
+  fresh clone (clone → setup → test → sha-match → optional smoke) and emits
+  `POSTRELEASE: HEALTHY|BROKEN`. This closes the gap the gate cannot: it proves
+  the release is deployable from a clean checkout, not just that the working tree
+  was green (catches a file never `git add`-ed, lockfile drift, dev-tree-only
+  imports). A BROKEN result NEVER reverts or force-pushes the public commit — it
+  raises a per-product `HOTFIX_NEEDED.md` flag that the next PM must clear by
+  fixing forward; a transient network-boundary failure is treated as infra
+  (skipped, HEALTHY) and never raises a false hotfix.
 - **Tester isolation.** The Tester may read the spec, README, roadmap, `tests/`,
   and the product's observable output — never `src/`, notes, or diffs. Its tests
   encode the spec, not the implementation.
@@ -77,3 +93,12 @@ Small, safe, reversible increments that keep `tests/` green and keep
 `foundry.py` / `dispatcher.py` importable. Candidate work lives in
 `PLATFORM_ROADMAP.md`. Never change a running loop's resume semantics
 (iteration numbering, state layout, sentinel lines) without a migration note.
+
+**Migration notes**
+- *iter 03:* new diagnostic sentinel `POSTRELEASE: HEALTHY|BROKEN` (written to
+  `state/iter-NN/postrelease.md`) and a new per-product `HOTFIX_NEEDED.md` flag.
+  Both are ADDITIVE and off the control path — `run_iteration`/`run_continuous`
+  still branch only on `VERDICT:`/`RESULT:`/`ACTION:` and `res["status"]`
+  ∈ {shipped, no-ship, infra-fail, stopped}; `POSTRELEASE:` rides along as an
+  additive `res["postrelease"]` key. Iteration numbering and `state/iter-NN`
+  layout are unchanged, so a live loop resumes cleanly on restart.
