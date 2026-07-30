@@ -38,8 +38,18 @@ sleep, so a stop takes effect within ~30s, never mid-git-push.
 - Infra failures (throttle/stall/timeout) are absorbed: 4 attempts/stage with
   10→20→40 min backoff, then a 30m→1h→2h→4h loop-level cooldown. The loop does
   not die on infra problems — only on STOP.
-- For extra safety across machine reboots, add a `scheduled` watchdog that
-  re-launches the dispatcher if its PID is gone and no STOP file exists.
+- For extra safety across machine reboots, a `scheduled` watchdog is shipped:
+  `watchdog.py` re-launches the dispatcher IFF its process is gone AND no STOP
+  file exists (single-brain: never a second dispatcher; STOP-respect: never
+  resurrect a deliberately-stopped company). Register it as a sparse schedule,
+  e.g. every 10 min via cron:
+
+  ```bash
+  */10 * * * * cd /path/to/agent-foundry && uv run python -X utf8 watchdog.py --config foundry.config.json
+  ```
+
+  Keep the interval sparse enough that invocations do not overlap (a lock to
+  close the two-checks-both-see-down race is a future bite).
 
 ## The single-brain rule (repeat, because it bites)
 
