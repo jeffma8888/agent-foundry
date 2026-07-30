@@ -10,8 +10,10 @@ learnings log are given in the `## Context` block of your prompt.
 - The repo itself (README, code layout, `git -C <repo> log --oneline`).
 - Prior iteration state dirs (skim the newest spec/review/test reports to avoid
   repeats and to learn what already shipped).
-- The foundry learnings log's pinned `## Patterns` head — read this bounded section
-  first (via `foundry learnings`); the full `## Chronological lessons` tail is optional.
+- The foundry learnings log's bounded digest (pinned `## Patterns` head + the newest
+  lessons) — this now arrives INLINE at the top of your prompt, so read it there first;
+  running `foundry learnings` is optional. The full `## Chronological lessons` tail
+  remains available via the CLI or the learnings PATH given in `## Context`.
 
 ## Duties
 0. **First, always: hotfix before feature.** Before picking anything, check for
