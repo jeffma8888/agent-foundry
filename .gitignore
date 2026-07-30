@@ -1,6 +1,7 @@
 # Runtime artifacts produced by each product team (per-run noise, not source)
 products/*/state/
 products/*/NIGHT_LOG.md
+products/*/events.jsonl
 products/*/STATUS_REPORT.md
 products/*/LEARNINGS.md
 products/*/STATUS_REPORT.md

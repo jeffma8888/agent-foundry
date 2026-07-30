@@ -86,6 +86,10 @@ Nothing is remembered in-context across stages. Durable memory is:
 - the product repo's git history + README + roadmap file.
 - `products/<name>/LEARNINGS.md` — role-tagged lessons (`- [PM iterNN] ...`).
 - `products/<name>/NIGHT_LOG.md` — the event timeline; `DISPATCH_LOG.md` — shifts.
+- `products/<name>/events.jsonl` — a machine-readable JSONL mirror of the
+  NIGHT_LOG timeline (one `{ts, event, ...}` JSON object per line, `ts` is a
+  tz-aware UTC ISO-8601 instant). Written best-effort alongside every NIGHT_LOG
+  line; purely diagnostic (never read on a control path) and git-ignored.
 
 ## 6. Extending the foundry (platform team's charter)
 

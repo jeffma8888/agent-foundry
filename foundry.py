@@ -120,6 +120,13 @@ class ProductConfig:
         return pathlib.Path(self.work_root) / "NIGHT_LOG.md"
 
     @property
+    def events_log(self) -> pathlib.Path:
+        # Machine-readable JSONL mirror of NIGHT_LOG.md (a sibling file). It is
+        # WRITTEN only and never read on any control path -- purely diagnostic,
+        # so it can never affect resume semantics.
+        return pathlib.Path(self.work_root) / "events.jsonl"
+
+    @property
     def report(self) -> pathlib.Path:
         return pathlib.Path(self.work_root) / "STATUS_REPORT.md"
 
@@ -154,11 +161,48 @@ def now() -> str:
     return dt.datetime.now().strftime("%m-%d %H:%M:%S")
 
 
+def emit_event(events_path: pathlib.Path, event: str, **fields) -> None:
+    """Append ONE JSON object (one line) to the machine-readable event log.
+
+    Why: the human NIGHT_LOG timeline is prose a person reads, but a dashboard
+    or the periodic reporter needs a stable, ``json.loads``-able record per
+    event. This mirrors each timeline entry as ``{"ts", "event", ...fields}``
+    JSONL so downstream tooling never has to re-parse free-form markdown.
+
+    Design choices that matter:
+      * ``ts`` is a timezone-AWARE UTC ISO-8601 instant (NOT the naive local
+        ``now()`` used for the human line) so machine events sort/compare
+        unambiguously across timezones.
+      * The reserved ``ts``/``event`` keys are stamped LAST, so a caller-supplied
+        ``ts=`` in ``**fields`` can never shadow the real timestamp.
+      * ``default=str`` coerces any non-serializable field value to its string
+        form, so a stray object in the payload can never raise mid-emit.
+      * Parents are auto-created and the write is append-only, so earlier lines
+        are never rewritten and order is preserved.
+    """
+    events_path = pathlib.Path(events_path)
+    events_path.parent.mkdir(parents=True, exist_ok=True)
+    record = dict(fields)
+    record["event"] = event
+    record["ts"] = dt.datetime.now(dt.timezone.utc).isoformat()
+    with events_path.open("a") as f:
+        f.write(json.dumps(record, default=str) + "\n")
+
+
 def log(cfg: ProductConfig, msg: str) -> None:
     line = f"- `{now()}` [{cfg.name}] {msg}"
     with cfg.night_log.open("a") as f:
         f.write(line + "\n")
     print(line, flush=True)
+    # Best-effort machine-readable mirror. The durable human NIGHT_LOG write
+    # above runs FIRST and must never be blocked by the JSON mirror: a disk
+    # error (or a monkeypatched-to-raise emit_event in tests) can never crash a
+    # shipped/in-flight iteration, so the emit is fully wrapped. Called by BARE
+    # module name so ``monkeypatch.setattr(foundry, "emit_event", ...)`` seams.
+    try:
+        emit_event(cfg.events_log, "log", product=cfg.name, msg=msg)
+    except Exception:
+        pass
 
 
 def sleep_interruptible(cfg: ProductConfig, seconds: int) -> bool:
