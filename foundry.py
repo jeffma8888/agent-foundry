@@ -37,6 +37,7 @@ import datetime as dt
 import json
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 import time
@@ -200,6 +201,120 @@ def revert_repo(cfg: ProductConfig, reason: str) -> None:
     git(cfg, "reset", "--hard", f"origin/{cfg.branch}")
     git(cfg, "clean", "-fd")
     log(cfg, f"repo reverted to origin/{cfg.branch} ({reason})")
+
+
+# --------------------------------------------------------------------------- #
+# Preflight (foundry doctor)
+# --------------------------------------------------------------------------- #
+@dataclasses.dataclass(frozen=True)
+class Check:
+    """One preflight check result.
+
+    Frozen so a probe's verdict can't be mutated after the fact. `.detail` is
+    always a human-readable, non-empty string so `doctor` output is actionable
+    regardless of pass/fail.
+    """
+    name: str
+    ok: bool
+    detail: str
+
+
+def check_power() -> Check:
+    """Is the machine on AC power?
+
+    WHY it's the first check: on battery macOS runs maintenance-sleep cycles
+    that no `caffeinate` can block, so every `agent agent run` stalls (120s
+    time-to-first-token) — the single most expensive unattended-run failure.
+    Delegates to the `power_state` seam so the tester can force either verdict.
+    """
+    try:
+        state = power_state()
+        ok = "AC Power" in (state or "")
+        return Check("power", ok, state or "power state unavailable")
+    except Exception as exc:  # a probe never crashes the preflight — it FAILs
+        return Check("power", False, f"power check errored: {exc!r}")
+
+
+def check_agent() -> Check:
+    """Does the Agent binary exist at the `AGENT_BIN` path?
+
+    Every stage shells out to this path; a missing binary would burn all 4
+    attempts + backoffs producing nothing. Reads the module-level `AGENT_BIN` at call
+    time so the tester can point it at an existing / non-existent path.
+    """
+    try:
+        path = AGENT_BIN
+        ok = bool(path) and pathlib.Path(path).exists()
+        return Check("agent", ok, f"{path or '(unset)'} "
+                     f"({'present' if ok else 'missing'})")
+    except Exception as exc:
+        return Check("agent", False, f"agent check errored: {exc!r}")
+
+
+def check_uv() -> Check:
+    """Is `uv` on PATH? The whole verify path is `uv run ... pytest`."""
+    try:
+        found = shutil.which("uv")
+        return Check("uv", bool(found),
+                     f"uv at {found}" if found else "uv not found on PATH")
+    except Exception as exc:
+        return Check("uv", False, f"uv check errored: {exc!r}")
+
+
+def check_remote(cfg: ProductConfig) -> Check:
+    """Is the git remote reachable (can we read origin/<branch>)?
+
+    Delegates to the `head_of_branch` seam, which returns the sentinel `"?"`
+    when `git ls-remote` can't reach origin. An unreachable remote means the
+    final gate can neither push nor safely revert.
+    """
+    try:
+        head = head_of_branch(cfg)
+        ok = head != "?"
+        return Check("remote", ok,
+                     f"origin/{cfg.branch} at {head}" if ok
+                     else f"origin/{cfg.branch} unreachable (ls-remote failed)")
+    except Exception as exc:
+        return Check("remote", False, f"remote check errored: {exc!r}")
+
+
+def run_doctor(cfg: ProductConfig) -> list[Check]:
+    """Run all four preflight probes in a stable order, exception-safe.
+
+    Always returns exactly 4 Checks — [power, agent, uv, remote] — so the operator
+    sees every result even if one probe itself raises (double-guarded here on
+    top of each probe's own try/except).
+    """
+    probes = [
+        ("power", check_power),
+        ("agent", check_agent),
+        ("uv", check_uv),
+        ("remote", lambda: check_remote(cfg)),
+    ]
+    results: list[Check] = []
+    for name, fn in probes:
+        try:
+            results.append(fn())
+        except Exception as exc:
+            results.append(Check(name, False, f"{name} check errored: {exc!r}"))
+    return results
+
+
+def doctor_ok(checks: list[Check]) -> bool:
+    """True iff every check passed. An empty list is vacuously ready."""
+    return all(c.ok for c in checks)
+
+
+def run_doctor_cli(cfg: ProductConfig) -> int:
+    """CLI entry: print one line per check + a summary; exit 0 iff all pass."""
+    checks = run_doctor(cfg)
+    for c in checks:
+        print(f"[{'PASS' if c.ok else 'FAIL'}] {c.name}: {c.detail}")
+    ok = doctor_ok(checks)
+    passed = sum(1 for c in checks if c.ok)
+    print(f"doctor: {passed}/{len(checks)} checks ok — "
+          f"{'READY' if ok else 'NOT READY'}")
+    return 0 if ok else 1
 
 
 # --------------------------------------------------------------------------- #
@@ -425,12 +540,14 @@ def run_continuous(cfg: ProductConfig) -> int:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="agent-foundry product team runner")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    for name in ("run", "once"):
+    for name in ("run", "once", "doctor"):
         s = sub.add_parser(name)
         s.add_argument("--config", required=True, help="path to product JSON config")
     args = ap.parse_args(argv)
 
     cfg = load_config(args.config)
+    if args.cmd == "doctor":
+        return run_doctor_cli(cfg)
     if args.cmd == "once":
         res = run_iteration(cfg)
         print(json.dumps(res))

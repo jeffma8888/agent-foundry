@@ -15,9 +15,14 @@ re-orders by value each iteration; ship-order is a suggestion, not a contract.
 | 6 | Mutation-testing gate (mutmut) as a deterministic weak-assertion check | Agents emit assertions that pass without validating behavior | gate can optionally run mutation testing |
 | 7 | Per-iteration suite wall-time in the log + auto-parallelize story when slow | Throughput is dominated by verify time, not reasoning | NIGHT_LOG records suite seconds; PM files a speed story past a threshold |
 | 8 | `scheduled` watchdog that relaunches the dispatcher if PID gone & no STOP | Survive reboots / crashes truly 24/7 | a documented, tested watchdog exists |
-| 9 | `foundry.py doctor` preflight (AC power, agent auth, uv, remote reachable) | Fail fast before burning a shift on a broken env | `doctor` subcommand returns actionable checks |
+| 9 | `foundry.py doctor` preflight (AC power, agent auth, uv, remote reachable) | Fail fast before burning a shift on a broken env | `doctor` subcommand returns actionable checks — **[shipping iter 01]** |
 | 10 | Structured JSON event log alongside the markdown NIGHT_LOG | Machine-readable status for dashboards / the reporter | events.jsonl written per stage |
 | 11 | **Post-release verification gate** (fresh-clone) + conventional revertable commit contract | The final gate checks the working TREE, never a clean-room checkout — this misses uncommitted files, lockfile drift, and dev-tree import leakage. For a project whose PRIMARY goal is trustworthy continuous release/deployment, a green working tree is not proof the release is deployable | a `postrelease` stage runs on every ship, clones `origin/<branch>` fresh, re-verifies, emits `POSTRELEASE: HEALTHY\|BROKEN`, and a BROKEN result raises a per-product hotfix flag the next PM must clear (see detailed spec below) |
+
+## Ship order (PM re-orders by value each iteration)
+- **iter 01 = item 9 (`foundry doctor`).** Re-ordered ahead of item 1 for the first increment: it is purely additive (a new CLI subcommand + pure helpers), touches none of the running-loop semantics (no change to iteration numbering, state layout, or the sentinel contract), and directly attacks the top unattended-run failure mode (shifts dying on battery / missing `uv`/`agent` / unreachable remote). Establishes the safe, offline-testable increment pattern.
+- Item 1 (`prd.json` machine roadmap) remains high value but is larger and touches dispatcher reporting; deferred to a later iteration after the additive-increment pattern is proven.
+- Item 11 (post-release fresh-clone verification gate) was appended by a sibling factory and is arguably the most on-mission item, but it is a MULTI-iteration effort: it adds a new pipeline stage, a new `POSTRELEASE:` sentinel, and modifies `run_iteration` control flow. Per the size bar it must be SPLIT (e.g. config fields + fresh-clone verify helper first, then wiring + hotfix flag) and, per the self-mod guardrails, deferred behind a flag while a loop is in flight. Strong candidate for iter 02–04; not a safe first bite.
 
 ## Guardrails for self-modification
 - Never change iteration numbering, state layout, or the `VERDICT:`/`RESULT:`/

@@ -51,6 +51,9 @@ the commit history, and the learnings log.
 ## Quickstart
 
 ```bash
+# 0. Preflight the box before committing a shift (AC power, agent, uv, remote):
+uv run python foundry.py doctor --config products/repolens/config.json
+
 # 1. Run one product team on an existing repo, a single iteration:
 uv run python foundry.py once --config products/repolens/config.json
 
