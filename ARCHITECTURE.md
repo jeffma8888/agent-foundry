@@ -98,6 +98,8 @@ Nothing is remembered in-context across stages. Durable memory is:
   into EVERY stage prompt by `build_prompt`, so each fresh agent receives it inline —
   not just on demand via the CLI.
 - `products/<name>/NIGHT_LOG.md` — the event timeline; `DISPATCH_LOG.md` — shifts.
+  The dispatcher also surfaces prd progress ("N/M stories pass") into `DISPATCH_LOG.md`
+  per shift for any product that has a `prd.json` (item 1); a no-op until one exists.
 - `products/<name>/events.jsonl` — a machine-readable JSONL mirror of the
   NIGHT_LOG timeline (one `{ts, event, ...}` JSON object per line, `ts` is a
   tz-aware UTC ISO-8601 instant). Written best-effort alongside every NIGHT_LOG
@@ -118,3 +120,11 @@ Small, safe, reversible increments that keep `tests/` green and keep
   ∈ {shipped, no-ship, infra-fail, stopped}; `POSTRELEASE:` rides along as an
   additive `res["postrelease"]` key. Iteration numbering and `state/iter-NN`
   layout are unchanged, so a live loop resumes cleanly on restart.
+- *iter 12:* the FIRST `dispatcher.py` edit — a per-shift diagnostic
+  `foundry.dispatch_progress_line(cfg)` call whose non-`None` result is `dlog`-ged
+  (item 1, bite 2a). ADDITIVE and off the control path: it introduces NO sentinel,
+  does not touch the round-robin order / STOP handling / `res["status"]` branching /
+  iteration numbering / `state/iter-NN` layout, and is a runtime no-op (returns
+  `None`) for every product until an operator adds a `prd.json`. So the live loop
+  is byte-identical today and resumes cleanly on restart. The automatic global-stop
+  half (bite 2b), which WOULD touch loop-termination/resume semantics, is deferred.
