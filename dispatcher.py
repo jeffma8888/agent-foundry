@@ -108,6 +108,13 @@ def main(argv: list[str] | None = None) -> int:
                          f"(iter {res.get('iteration')})")
                 except Exception as exc:  # never let one team kill the company
                     dlog(f"shift {shifts}: {cfg.name} raised {exc!r}; continuing")
+                # Diagnostic-only prd progress (item 1, bite 2a): a runtime no-op
+                # unless this product has a prd.json. `dispatch_progress_line`
+                # never raises and is OFF the control path -- it cannot affect the
+                # round-robin order, STOP handling, or res["status"] branching.
+                prog = foundry.dispatch_progress_line(cfg)
+                if prog:
+                    dlog(prog)
                 if args.max_shifts and shifts >= args.max_shifts:
                     dlog(f"max-shifts {args.max_shifts} reached; stopping")
                     return 0

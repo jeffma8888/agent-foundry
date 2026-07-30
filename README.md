@@ -63,6 +63,8 @@ uv run python foundry.py run  --config products/repolens/config.json
 # 3. Run the whole company (platform + all products) as one quota-safe brain:
 cp foundry.config.example.json foundry.config.json      # edit enabled/priority
 uv run python dispatcher.py --config foundry.config.json
+#    (the dispatcher logs "N/M stories pass" into DISPATCH_LOG.md each shift for
+#     any product that has a prd.json; a no-op for products without one.)
 
 # 4. Read the bounded learnings digest (pinned `## Patterns` head + recent tail):
 uv run python foundry.py learnings --config products/repolens/config.json  # [--recent N]

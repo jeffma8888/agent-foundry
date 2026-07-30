@@ -816,6 +816,56 @@ def prd_status_cli(cfg: ProductConfig) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Dispatcher progress reporting (item 1, bite 2a -- REPORTING ONLY).
+#
+# `dispatch_progress_line` is the shift-loop reporting hook: read `cfg.prd` ->
+# `prd_status` -> a one-line "N/M stories pass" summary the dispatcher `dlog`s
+# after each shift. Diagnostic-only and OFF every control path -- nothing in
+# `run_iteration`/`run_continuous`/`run_stage`/`build_prompt` calls it and it
+# introduces no sentinel -- so it is a runtime no-op (returns `None`) for every
+# product until an operator adds a `prd.json`. The automatic global-stop half
+# (bite 2b) that would touch loop-termination/resume semantics is deferred.
+# --------------------------------------------------------------------------- #
+def dispatch_progress_line(cfg: ProductConfig) -> str | None:
+    """One-line "N/M stories pass" progress for the dispatcher (pure, total).
+
+    Closes item 1's remaining "done when" -- the dispatcher can report a
+    product's prd progress every shift. A thin, diagnostic-only wrapper over the
+    frozen pure core (read `cfg.prd` -> `prd_status` -> format), so its counts are
+    always exactly the `PrdStatus` fields; it adds NO counting logic of its own
+    (Behavior 8). Off every control path: nothing in `run_iteration`/
+    `run_continuous`/`run_stage`/`build_prompt` calls it and it adds no sentinel,
+    so wiring it into the dispatcher changes no loop, numbering, or state layout
+    and stays a runtime no-op until an operator adds a `prd.json`.
+
+    Returns (the exact-string contract, see the PM spec Behaviors):
+      * ``None`` -- `cfg.prd` is absent, OR any unexpected read error (e.g. it
+        points at a DIRECTORY or an unreadable path). NEVER raises (Behaviors 1, 6).
+      * ``"{name}: prd.json present but unparseable"`` -- the file EXISTS but is not
+        a valid story list, so an operator sees the problem, not a silent miss; this
+        string never contains the substring "stories pass" (Behavior 5).
+      * ``"{name}: {passed}/{total} stories pass (COMPLETE)"``   -- valid + complete.
+      * ``"{name}: {passed}/{total} stories pass (in progress)"`` -- valid + not
+        complete, which includes the empty-list case (``0/0``, never "done").
+    Writes NOTHING to disk (Behavior 7): it only reads `cfg.prd`.
+    """
+    try:
+        path = pathlib.Path(cfg.prd)
+        if not path.exists():
+            return None
+        status = prd_status(path.read_text())
+    except Exception:
+        # Any unexpected filesystem/decode error (e.g. cfg.prd is a directory)
+        # must never crash the dispatcher shift loop -- degrade to a no-op.
+        return None
+    if not status.valid:
+        return f"{cfg.name}: prd.json present but unparseable"
+    state = "COMPLETE" if status.complete else "in progress"
+    # `status.summary` is the single source of "{passed}/{total} stories pass".
+    return f"{cfg.name}: {status.summary} ({state})"
+
+
+# --------------------------------------------------------------------------- #
 # Post-release fresh-clone verification (DORMANT — item 11, bite 1/2).
 #
 # Proves the *pushed* commit is deployable from a clean checkout, not just that
