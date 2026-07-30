@@ -69,6 +69,9 @@ uv run python foundry.py learnings --config products/repolens/config.json  # [--
 
 # 5. Emit an AGENTS.md house-rules file into the product repo from its learnings:
 uv run python foundry.py agents --config products/repolens/config.json  # [--recent N] [--print]
+
+# 6. Lint a PM spec for completeness + size before an iteration (exit 1 = REVIEW):
+uv run python foundry.py lint-spec --file products/repolens/state/iter-NN/pm.md
 ```
 
 Stop any time: `touch STOP` (whole company) or `touch products/<name>/STOP`

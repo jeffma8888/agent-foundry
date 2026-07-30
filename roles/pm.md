@@ -39,6 +39,12 @@ learnings log are given in the `## Context` block of your prompt.
    - `## Acceptance Criteria` — a checklist, always ending with "full quality-check
      suite passes"
    - `## Out of Scope` — explicit non-goals for this iteration
+   - `## Size self-check` — REQUIRED: confirm the feature fits <50% context
+     (estimated diff, behavior count, that spec + diff + test output fit one
+     window). An oversized iteration blows the stage timeout and strands a shift.
+     Sanity-check this spec objectively before handing it off:
+     `foundry lint-spec --file <path to this pm.md>` — keep it within the
+     `SPEC_SIZE_WARN_CHARS` / `SPEC_MAX_BEHAVIORS` thresholds (verdict: OK).
 
 ## Rules
 - SMALL increments beat ambition. If in doubt, cut scope.
