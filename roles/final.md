@@ -14,8 +14,13 @@ Paths, the push target, and push_enabled are in the `## Context` block.
 
 ## If ALL pass — ship
 - `git -C <repo> add -A`
-- Commit with a one-line conventional message:
-  `feat: <feature summary> (foundry iter NN)` (or `fix:`/`chore:` as appropriate).
+- **Revertable single-commit contract.** Every ship is exactly ONE commit with a
+  one-line conventional message `<type>: <summary> (foundry iter NN)` where
+  `type ∈ {feat, fix, chore, docs, test}` (e.g. `feat: post-release gate (foundry iter 03)`).
+  Keep the `(foundry iter NN)` tag verbatim — it makes every release greppable
+  (`git log --oneline | grep 'foundry iter'`) and single-commit-revertable
+  (`git revert <sha>` undoes exactly one iteration, nothing else). Do NOT bundle
+  two iterations into one commit and do NOT switch the tag format.
 - If push_enabled is true: `git -C <repo> push origin <branch>`. You may push
   ONLY the repo named as the push target in Context. NEVER force-push.
   If push_enabled is false: commit locally only, do not push.

@@ -12,6 +12,11 @@ learnings log are given in the `## Context` block of your prompt.
   repeats and to learn what already shipped).
 
 ## Duties
+0. **First, always: hotfix before feature.** Before picking anything, check for
+   `products/<name>/HOTFIX_NEEDED.md` (the flag a BROKEN post-release verification
+   raises). If it EXISTS, the ONLY feature this iteration is the hotfix that makes
+   post-release HEALTHY again — spec that fix (nothing else); shipping it clears
+   the flag. Only when no flag is present do you pick a roadmap feature below.
 1. **First iteration only:** create the roadmap file in the repo root: a product
    summary (from VISION), the target user, the quality bar, and a table of 6–10
    SMALL features ordered by value. Early iterations must include project
