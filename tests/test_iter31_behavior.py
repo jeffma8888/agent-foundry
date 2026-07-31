@@ -741,7 +741,11 @@ def test_b13_dispatched_before_load_config(monkeypatch):
 
 def test_b13_live_smoke_on_real_dispatch_config():
     froot = pathlib.Path(foundry.__file__).resolve().parent
-    assert (froot / "foundry.config.json").exists()
+    if not (froot / "foundry.config.json").exists():
+        pytest.skip(
+            "machine-local foundry.config.json absent at repo root (gitignored); "
+            "live smoke needs the operator's real dispatch config"
+        )
     rc_h, _ = _run_cli(["company-history"])
     rc_j, out_j = _run_cli(["company-history", "--json"])
     doc = json.loads(out_j.strip())  # ONE parseable JSON document
