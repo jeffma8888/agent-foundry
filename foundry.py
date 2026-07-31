@@ -1860,6 +1860,222 @@ def history_cli(cfg: ProductConfig, limit: int | None = None) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# `foundry timing` -- read-only, offline per-iteration suite-wall-time digest.
+# The signal it reports (`- suite_seconds:` in each `postrelease.md`) is already
+# persisted by every genuine ship (item 7, bites 1/2); this is the operator lens
+# on it -- `status` answers "healthy now?", `history` answers "what shipped?",
+# and `timing` answers "is verify-time trending up?". `parse_suite_seconds` is
+# the pure body-line parser; `TimingRecord`/`TimingSummary` + the pure
+# `summarize_timing` are the decision core (driven by the tester with zero
+# filesystem); `timing_cli` is the thin read-only shell that reads the on-disk
+# artifacts through the SAME bare-name seams (`iteration_numbers`,
+# `parse_suite_seconds`, `SUITE_SLOW_SECONDS`) so a test's `monkeypatch` bites.
+# Purely additive + off the control path -- the pipeline/dispatcher never call
+# any of it and it writes NOTHING.
+# --------------------------------------------------------------------------- #
+def parse_suite_seconds(text: str) -> float | None:
+    """Extract the fresh-clone suite wall-time from a `postrelease.md` body (pure).
+
+    Returns the float on the FIRST body line whose stripped form is the
+    `suite_seconds:` key -- an optional leading `- ` markdown bullet is tolerated
+    (that is exactly how `_write_postrelease_artifact` emits the line) and
+    whitespace anywhere on the line is ignored, so `-  suite_seconds:   12.34  `
+    still yields `12.34`. A measured `0.00` returns the float `0.0` (a real value,
+    distinct from an unmeasured iteration).
+
+    Returns `None` -- never raising for ANY string -- when the value cannot be a
+    measured wall-time: the `n/a` sentinel the artifact writes when the test
+    command did not run (`float("n/a")` fails); no `suite_seconds:` line at all;
+    empty / whitespace-only text; or a present-but-unparseable value (`abc`, an
+    empty value). The first matching line is authoritative: if its value does not
+    `float()`-parse, we stop and report `None` rather than scanning on, so a stray
+    later mention can never be misread as the measurement.
+    """
+    key = "suite_seconds:"
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        # Tolerate a single optional leading markdown bullet ("- "), then re-strip
+        # so `-  suite_seconds: ...` (extra spaces after the dash) still matches.
+        if line.startswith("-"):
+            line = line[1:].strip()
+        if not line.startswith(key):
+            continue
+        value = line[len(key):].strip()
+        try:
+            return float(value)
+        except ValueError:
+            # Present but not a measured number (`n/a`, `abc`, empty) -> unmeasured.
+            return None
+    return None
+
+
+@dataclasses.dataclass(frozen=True)
+class TimingRecord:
+    """One iteration's fresh-clone suite wall-time (item 7 timing lens).
+
+    Frozen so a computed record cannot be mutated after the fact (value equality
+    for free, matching the other pure cores). `seconds` is `None` for an
+    UNMEASURED iteration (the test command did not run, or there is no
+    `postrelease.md`) -- distinct from a measured `0.0`.
+    """
+    iteration: int
+    seconds: float | None
+
+
+@dataclasses.dataclass(frozen=True)
+class TimingSummary:
+    """A multi-iteration suite-wall-time digest for one product (item 7 lens).
+
+    Frozen (value equality, no post-hoc mutation). `records` is stored as a
+    `tuple` in render order; `threshold` is the slow cutoff captured at build
+    time. Every count and statistic is a pure derivation of `records`
+    (`min`/`max`/`avg`/`last`/slow-count computed over ONLY the measured subset,
+    so an unmeasured iteration never skews the trend). `exit_code` is `2` iff
+    there is NOTHING measured to report else `0`: timing is INFORMATIONAL and, like
+    `history`, NEVER gates on a slow suite -- a run full of slow-but-fixed timings
+    still exits `0` (raising a speed story is item 7 bite 2's job, not this lens).
+    """
+    product: str
+    records: tuple["TimingRecord", ...]
+    threshold: float
+
+    @property
+    def _measured(self) -> list[float]:
+        """The measured wall-times in record order (unmeasured records dropped)."""
+        return [r.seconds for r in self.records if r.seconds is not None]
+
+    @property
+    def total(self) -> int:
+        return len(self.records)
+
+    @property
+    def measured(self) -> int:
+        return len(self._measured)
+
+    @property
+    def min_seconds(self) -> float | None:
+        vals = self._measured
+        return min(vals) if vals else None
+
+    @property
+    def max_seconds(self) -> float | None:
+        vals = self._measured
+        return max(vals) if vals else None
+
+    @property
+    def avg_seconds(self) -> float | None:
+        vals = self._measured
+        return sum(vals) / len(vals) if vals else None
+
+    @property
+    def last_seconds(self) -> float | None:
+        # The LAST measured record in the given (ascending) order -- the most
+        # recent measured wall-time, the operator's "where is it now" datapoint.
+        vals = self._measured
+        return vals[-1] if vals else None
+
+    @property
+    def count_slow(self) -> int:
+        """Measured records STRICTLY over the threshold -- matches
+        `suite_timing_line`/`speed_story_needed` (a suite exactly at the limit is
+        deliberately NOT slow)."""
+        return sum(1 for s in self._measured if s > self.threshold)
+
+    @property
+    def exit_code(self) -> int:
+        """`2` iff nothing measured to report else `0` -- timing never gates on a
+        slow suite (that is `foundry status`/item-7-bite-2's job)."""
+        return 2 if self.measured == 0 else 0
+
+    def render(self) -> str:
+        """A deterministic multi-line digest carrying every per-iter wall-time.
+
+        Contains, as substrings (the CLI's black-box contract): the `product`
+        name; for EACH record (in stored order) a row with `iter-NN` (2-digit
+        zero-pad) and either its wall-time to two decimals with a trailing `s`
+        (e.g. `12.34s`) or `n/a` for an unmeasured record; and a rollup line
+        carrying `measured {measured}/{total}` plus, when anything is measured,
+        `min`/`max`/`avg`/`last` (each a two-decimal seconds value) and
+        `slow (>{threshold:.2f}s): {count_slow}`. With NOTHING measured the rollup
+        instead carries the literal `no measured timings yet`.
+        """
+        header = f"foundry timing -- {self.product}"
+        rows = [
+            f"  iter-{r.iteration:02d}  "
+            f"{'n/a' if r.seconds is None else f'{r.seconds:.2f}s'}"
+            for r in self.records
+        ]
+        if self.measured == 0:
+            rollup = (f"measured {self.measured}/{self.total}: "
+                      "no measured timings yet")
+        else:
+            rollup = (
+                f"measured {self.measured}/{self.total}: "
+                f"min {self.min_seconds:.2f}s, max {self.max_seconds:.2f}s, "
+                f"avg {self.avg_seconds:.2f}s, last {self.last_seconds:.2f}s, "
+                f"slow (>{self.threshold:.2f}s): {self.count_slow}")
+        return "\n".join([header, *rows, rollup])
+
+
+def summarize_timing(*, product: str, records, threshold: float) -> TimingSummary:
+    """Pure keyword-only constructor for a `TimingSummary` (item 7 lens).
+
+    A thin, total wrapper packing the product name, an iterable of `TimingRecord`,
+    and the slow `threshold` into the frozen digest, materializing `records` as a
+    `tuple` (so the frozen dataclass stays immutable and a caller's list cannot be
+    mutated out from under it). Keyword-only so the fields can never be transposed;
+    it never raises. Kept separate from `timing_cli` so the decision core stays a
+    pure function the tester can drive with zero filesystem (Behaviors 5-9)."""
+    return TimingSummary(product=product, records=tuple(records),
+                         threshold=threshold)
+
+
+def timing_cli(cfg: ProductConfig, limit: int | None = None) -> int:
+    """On-demand CLI: print a per-iteration suite-wall-time digest + 0/2 exit code.
+
+    Gathers every signal through the EXISTING module-level seams -- each called by
+    BARE name so a `monkeypatch.setattr(foundry, ...)` in a test bites:
+      * lists `cfg.state`'s dir names (guarded -- a missing / unreadable state dir
+        yields no names, never an error) and derives the iteration numbers via
+        `iteration_numbers`;
+      * applies `limit` -- keep the highest-N (most-recent) iterations when `limit`
+        is a POSITIVE int, else ALL; the numbers stay ascending so the digest reads
+        oldest-first;
+      * for each iteration reads `state/iter-NN/postrelease.md` through
+        `parse_suite_seconds` (via the shared `_read_sentinel` guard -> `None` on an
+        absent file / `OSError`), building an ascending `TimingRecord`.
+    Reads the slow `threshold` from the module global `SUITE_SLOW_SECONDS` AT CALL
+    time (patchable), hands the records to the pure `summarize_timing`, prints
+    `render()`, and returns `exit_code`. Writes NOTHING to disk (read-only) -- no
+    decision logic of its own, so the printed rollup always equals the
+    `TimingSummary` fields."""
+    state = cfg.state
+    try:
+        names = [p.name for p in state.iterdir()] if state.exists() else []
+    except OSError:
+        # A read error on the state dir degrades to "no iterations", never
+        # crashing the probe (same no-news-is-good-news contract as the artifacts).
+        names = []
+    numbers = iteration_numbers(names)
+    if isinstance(limit, int) and limit > 0:
+        # `numbers` is ascending, so the most-recent N are the LAST N; the slice
+        # preserves ascending order for the digest.
+        numbers = numbers[-limit:]
+    records = [
+        TimingRecord(
+            iteration=n,
+            seconds=_read_sentinel(state / f"iter-{n:02d}" / "postrelease.md",
+                                   parse_suite_seconds),
+        )
+        for n in numbers
+    ]
+    summary = summarize_timing(product=cfg.name, records=records,
+                              threshold=SUITE_SLOW_SECONDS)
+    print(summary.render())
+    return summary.exit_code
+
+
+# --------------------------------------------------------------------------- #
 # Prompt + stage runner
 # --------------------------------------------------------------------------- #
 def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
@@ -2160,6 +2376,16 @@ def main(argv: list[str] | None = None) -> int:
                      help="path to product JSON config")
     his.add_argument("--limit", type=int, default=None,
                      help="show only the most-recent N iterations (default: all)")
+    # `timing` prints a read-only, offline per-iteration suite-wall-time DIGEST
+    # (min/max/avg/last/slow-count) for one product, parsed from each iter's
+    # `postrelease.md` `suite_seconds` body line, ascending. `--limit N` shows
+    # only the most-recent N. On-demand only -- the pipeline/dispatcher NEVER
+    # call it; it writes nothing. Exit 0 (has measured timings) / 2 (none yet).
+    tmg = sub.add_parser("timing")
+    tmg.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    tmg.add_argument("--limit", type=int, default=None,
+                     help="show only the most-recent N iterations (default: all)")
     args = ap.parse_args(argv)
 
     if args.cmd == "lint-spec":
@@ -2180,6 +2406,8 @@ def main(argv: list[str] | None = None) -> int:
         return status_cli(cfg)
     if args.cmd == "history":
         return history_cli(cfg, limit=args.limit)
+    if args.cmd == "timing":
+        return timing_cli(cfg, limit=args.limit)
     if args.cmd == "once":
         res = run_iteration(cfg)
         print(json.dumps(res))
