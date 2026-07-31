@@ -2018,6 +2018,22 @@ class TimingRecord:
     iteration: int
     seconds: float | None
 
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of one timing row for machine
+        consumers (roadmap item 10's "machine-readable status for dashboards /
+        the reporter"), mirroring iter-20's `IterationRecord.to_dict()`.
+
+        Returns EXACTLY 2 keys in a fixed order: the two STORED fields verbatim
+        (`iteration`/`seconds`). Every value is JSON-native (int / float / None),
+        so `json.dumps(...)` never raises and the dict round-trips through
+        `json.loads(json.dumps(...))`; a measured `0.0` stays the float `0.0`,
+        distinct from an unmeasured `None`. Pure: touches no filesystem, only the
+        already-computed record."""
+        return {
+            "iteration": self.iteration,
+            "seconds": self.seconds,
+        }
+
 
 @dataclasses.dataclass(frozen=True)
 class TimingSummary:
@@ -2113,6 +2129,38 @@ class TimingSummary:
                 f"slow (>{self.threshold:.2f}s): {self.count_slow}")
         return "\n".join([header, *rows, rollup])
 
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of the whole digest for machine
+        consumers -- dashboards / cron / the reporter (roadmap item 10's
+        "machine-readable status for dashboards / the reporter"), mirroring
+        iter-19's `StatusSummary.to_dict()` and iter-20's
+        `HistorySummary.to_dict()`.
+
+        Returns EXACTLY 11 keys in a fixed order: `product` verbatim, then the
+        eight DERIVED counts/stats/exit_code each REUSING the frozen iter-18
+        properties (`total`/`measured`/`min_seconds`/`max_seconds`/`avg_seconds`/
+        `last_seconds`/`count_slow`/`exit_code`) so the payload can never disagree
+        with `render()`/the returned exit code, then the STORED `threshold`, then
+        `records` as a JSON array of each record's `to_dict()` in the SAME order
+        as `self.records`. Every value is JSON-native (str / int / float / None /
+        list of dicts), so `json.dumps(...)` never raises and the dict round-trips
+        through `json.loads(json.dumps(...))` -- including when the measured-only
+        stats are `None` (nothing measured). Pure: touches no filesystem, only the
+        already-gathered records."""
+        return {
+            "product": self.product,
+            "total": self.total,
+            "measured": self.measured,
+            "min_seconds": self.min_seconds,
+            "max_seconds": self.max_seconds,
+            "avg_seconds": self.avg_seconds,
+            "last_seconds": self.last_seconds,
+            "count_slow": self.count_slow,
+            "threshold": self.threshold,
+            "exit_code": self.exit_code,
+            "records": [r.to_dict() for r in self.records],
+        }
+
 
 def summarize_timing(*, product: str, records, threshold: float) -> TimingSummary:
     """Pure keyword-only constructor for a `TimingSummary` (item 7 lens).
@@ -2127,8 +2175,16 @@ def summarize_timing(*, product: str, records, threshold: float) -> TimingSummar
                          threshold=threshold)
 
 
-def timing_cli(cfg: ProductConfig, limit: int | None = None) -> int:
+def timing_cli(cfg: ProductConfig, limit: int | None = None,
+               as_json: bool = False) -> int:
     """On-demand CLI: print a per-iteration suite-wall-time digest + 0/2 exit code.
+
+    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
+    indent=2)` document (the stable machine contract for dashboards/reporters,
+    mirroring iter-19's `status --json` and iter-20's `history --json`); the
+    default `as_json=False` is byte-for-byte the iter-18 human `render()` text.
+    Either way the RETURN value is the same `summary.exit_code`, `--limit`
+    selection is identical, and nothing is written to disk.
 
     Gathers every signal through the EXISTING module-level seams -- each called by
     BARE name so a `monkeypatch.setattr(foundry, ...)` in a test bites:
@@ -2168,7 +2224,9 @@ def timing_cli(cfg: ProductConfig, limit: int | None = None) -> int:
     ]
     summary = summarize_timing(product=cfg.name, records=records,
                               threshold=SUITE_SLOW_SECONDS)
-    print(summary.render())
+    # `--json` emits the pure digest as a single JSON document (stdout-only, no
+    # decision logic added); the default stays the exact iter-18 human report.
+    print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
     return summary.exit_code
 
 
@@ -2489,6 +2547,9 @@ def main(argv: list[str] | None = None) -> int:
                      help="path to product JSON config")
     tmg.add_argument("--limit", type=int, default=None,
                      help="show only the most-recent N iterations (default: all)")
+    tmg.add_argument("--json", action="store_true",
+                     help="emit the digest as one JSON document (machine-readable) "
+                          "instead of the human report; same 0/2 exit code, honours --limit")
     args = ap.parse_args(argv)
 
     if args.cmd == "lint-spec":
@@ -2510,7 +2571,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "history":
         return history_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "timing":
-        return timing_cli(cfg, limit=args.limit)
+        return timing_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "once":
         res = run_iteration(cfg)
         print(json.dumps(res))
