@@ -104,6 +104,9 @@ uv run python foundry.py preflight --config products/repolens/config.json  # [--
 
 # 16. Company-wide health roll-up (#9 status across the WHOLE company): read the DISPATCH config and roll every ENABLED product team's iter-16 `status` into ONE company verdict + a scriptable exit code (0 healthy / 1 needs-attention / 2 no-enabled-products); read-only, writes nothing:
 uv run python foundry.py company-status  # --config points at the DISPATCH config (foundry.config.json), NOT a product config (default: the repo's foundry.config.json); a disabled work item is never loaded; one bad team is recorded and the roll-up continues [--json for one machine-readable company roll-up doc: dashboards/cron; same 0/1/2 exit code]
+
+# 17. Company-wide ship-ledger roll-up (#10 history across the WHOLE company -- the TREND complement to #16): read the DISPATCH config and sum every ENABLED product team's iter-10 `history` ledger into ONE company total/shipped/reverted/broken + a per-product breakdown + a scriptable exit code (0 OK / 1 a team errored / 2 no-enabled-products); read-only, writes nothing:
+uv run python foundry.py company-history  # --config points at the DISPATCH config (foundry.config.json), NOT a product config (default: the repo's foundry.config.json); a disabled work item is never loaded; one bad team is recorded and the roll-up continues; a past BROKEN in a team's ledger is informational and never gates [--limit N per team] [--json for one machine-readable company ledger doc: dashboards/cron; same 0/1/2 exit code, honours --limit]
 ```
 
 Stop any time: `touch STOP` (whole company) or `touch products/<name>/STOP`
