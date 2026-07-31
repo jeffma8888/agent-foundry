@@ -3273,6 +3273,17 @@ class TimingSummary:
         return [r.seconds for r in self.records if r.seconds is not None]
 
     @property
+    def measured_seconds(self) -> tuple[float, ...]:
+        """The measured wall-times in record order as an immutable tuple, with
+        unmeasured (`None`) records dropped -- e.g. records whose `seconds` are
+        `(10.0, None, 30.0)` yield `(10.0, 30.0)`, and nothing measured yields the
+        empty tuple `()`. A measured `0.0` is KEPT (distinct from an unmeasured
+        `None`). Purely additive and derives ONLY from `self.records` (leaves
+        `render()` / `to_dict()` / `exit_code` untouched) -- this is the accessor
+        bite 2 pooled company min/max/avg will fold over."""
+        return tuple(self._measured)
+
+    @property
     def total(self) -> int:
         return len(self.records)
 
@@ -3390,39 +3401,40 @@ def summarize_timing(*, product: str, records, threshold: float) -> TimingSummar
                          threshold=threshold)
 
 
-def timing_cli(cfg: ProductConfig, limit: int | None = None,
-               as_json: bool = False) -> int:
-    """On-demand CLI: print a per-iteration suite-wall-time digest + 0/2 exit code.
+def gather_timing(cfg: ProductConfig, limit: int | None = None) -> TimingSummary:
+    """Gather one product's multi-iteration suite WALL-TIME digest into a
+    `TimingSummary` (item 7 timing lens).
 
-    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
-    indent=2)` document (the stable machine contract for dashboards/reporters,
-    mirroring iter-19's `status --json` and iter-20's `history --json`); the
-    default `as_json=False` is byte-for-byte the iter-18 human `render()` text.
-    Either way the RETURN value is the same `summary.exit_code`, `--limit`
-    selection is identical, and nothing is written to disk.
+    Extracted output-preservingly from the iter-18 `timing_cli` gathering so BOTH
+    the single-product `foundry timing` and the coming company-wide roll-up
+    (bite 2's `company_timing_cli`) share ONE gathering seam; a monkeypatch on
+    this one function then reshapes every consumer at once. Output-preserving: the
+    records/summary it builds are byte-identical to what iter 18 built, so `foundry
+    timing` is unchanged (mirroring iter-30's `gather_status` extraction from
+    `status_cli` and iter-31's `gather_history` from `history_cli`).
 
-    Gathers every signal through the EXISTING module-level seams -- each called by
+    Reads every signal through the EXISTING module-level seams -- each called by
     BARE name so a `monkeypatch.setattr(foundry, ...)` in a test bites:
       * lists `cfg.state`'s dir names (guarded -- a missing / unreadable state dir
         yields no names, never an error) and derives the iteration numbers via
         `iteration_numbers`;
       * applies `limit` -- keep the highest-N (most-recent) iterations when `limit`
-        is a POSITIVE int, else ALL; the numbers stay ascending so the digest reads
-        oldest-first;
-      * for each iteration reads `state/iter-NN/postrelease.md` through
-        `parse_suite_seconds` (via the shared `_read_sentinel` guard -> `None` on an
-        absent file / `OSError`), building an ascending `TimingRecord`.
+        is a POSITIVE int, else ALL (a `None` / non-positive `limit` shows the full
+        run); the numbers stay ascending so the digest reads oldest-first;
+      * for each iteration reads `state/iter-NN/postrelease.md` (2-digit zero-pad)
+        through `parse_suite_seconds` (via the shared `_read_sentinel` guard ->
+        `None` on an absent file / `OSError`), building an ascending `TimingRecord`.
     Reads the slow `threshold` from the module global `SUITE_SLOW_SECONDS` AT CALL
-    time (patchable), hands the records to the pure `summarize_timing`, prints
-    `render()`, and returns `exit_code`. Writes NOTHING to disk (read-only) -- no
-    decision logic of its own, so the printed rollup always equals the
-    `TimingSummary` fields."""
+    time (so a `monkeypatch.setattr(foundry, "SUITE_SLOW_SECONDS", ...)` still
+    bites), hands the records to the pure `summarize_timing`, and returns the
+    frozen `TimingSummary` core; writes NOTHING to disk (read-only). A missing /
+    unreadable `cfg.state` yields an empty digest (`total == 0`), never raising."""
     state = cfg.state
     try:
         names = [p.name for p in state.iterdir()] if state.exists() else []
     except OSError:
-        # A read error on the state dir degrades to "no iterations", never
-        # crashing the probe (same no-news-is-good-news contract as the artifacts).
+        # A read error on the state dir must degrade to "no iterations", never
+        # crash the probe (same no-news-is-good-news contract as the artifacts).
         names = []
     numbers = iteration_numbers(names)
     if isinstance(limit, int) and limit > 0:
@@ -3437,8 +3449,30 @@ def timing_cli(cfg: ProductConfig, limit: int | None = None,
         )
         for n in numbers
     ]
-    summary = summarize_timing(product=cfg.name, records=records,
-                              threshold=SUITE_SLOW_SECONDS)
+    return summarize_timing(product=cfg.name, records=records,
+                           threshold=SUITE_SLOW_SECONDS)
+
+
+def timing_cli(cfg: ProductConfig, limit: int | None = None,
+               as_json: bool = False) -> int:
+    """On-demand CLI: print a per-iteration suite-wall-time digest + 0/2 exit code.
+
+    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
+    indent=2)` document (the stable machine contract for dashboards/reporters,
+    mirroring iter-19's `status --json` and iter-20's `history --json`); the
+    default `as_json=False` is byte-for-byte the iter-18 human `render()` text.
+    Either way the RETURN value is the same `summary.exit_code`, `--limit`
+    selection is identical, and nothing is written to disk.
+
+    Gathers the digest through the `gather_timing(cfg, limit)` seam (iter 39 --
+    which reads the on-disk artifacts via the EXISTING module-level functions,
+    called by BARE name so a `monkeypatch.setattr(foundry, ...)` bites, and reads
+    the `SUITE_SLOW_SECONDS` threshold at call time) then prints the pure
+    `TimingSummary` core. Output-preserving: the printed report / JSON / exit code
+    are byte-identical to iter 18. Writes NOTHING to disk (read-only) -- a thin
+    printer over the pure core that adds no decision logic of its own, so the
+    printed rollup always equals the `TimingSummary` fields."""
+    summary = gather_timing(cfg, limit)
     # `--json` emits the pure digest as a single JSON document (stdout-only, no
     # decision logic added); the default stays the exact iter-18 human report.
     print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
