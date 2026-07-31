@@ -866,6 +866,146 @@ def dispatch_progress_line(cfg: ProductConfig) -> str | None:
 
 
 # --------------------------------------------------------------------------- #
+# Diff-scope classifier (roadmap item 4, bite 1/2 -- DORMANT).
+#
+# Item 7 established that continuous-shipping throughput is dominated by verify
+# time. Item 4 attacks that: a *coverage-only* iteration (every changed path is
+# a test file) could ride a light gate instead of the heavy full path. That
+# needs an OBJECTIVE, deterministic answer to "does this diff touch shippable
+# source, or is it test-only?". `classify_gate_scope` is that answer: a pure,
+# total, offline function -- path strings in, a frozen `GateScope` out -- with
+# NO filesystem/subprocess/network/clock, so it is fully offline-testable.
+# `gate_scope_cli` is the operator-facing seam (--files, or the monkeypatchable
+# `run_cmd` git-diff seam -> classify -> print). This bite is DORMANT: NOTHING on
+# a control path calls it -- the final gate does NOT consult the verdict and the
+# section-3 independent full-suite-rerun invariant is untouched. Wiring the light
+# path into the gate (and preserving that invariant) is a future bite. Same
+# purely-additive, off-control-path, on-demand-CLI class as doctor/lint-spec/prd.
+# The two constants are module-level + patchable so the buckets stay tunable per
+# box AND are read at CALL time (not captured at import) -- see Behavior 8.
+# --------------------------------------------------------------------------- #
+GATE_TEST_DIR_NAMES: tuple[str, ...] = ("tests", "test")
+GATE_DOC_SUFFIXES: tuple[str, ...] = (".md", ".rst", ".txt")
+
+
+@dataclasses.dataclass(frozen=True)
+class GateScope:
+    """A bucketed classification of one diff's changed paths (item 4).
+
+    Frozen so a computed scope can't be mutated after the fact (value-equality
+    for free, matching the other pure cores). Every field is a `tuple[str, ...]`
+    (hashable + order-stable): `changed` is the input paths in order after blank
+    entries are dropped; `source`/`test`/`doc` PARTITION `changed` (pairwise
+    disjoint, and their union is exactly `changed`). The two properties are pure
+    derivations of the buckets, so the verdict follows deterministically from
+    what was classified.
+    """
+    changed: tuple[str, ...]
+    source: tuple[str, ...]
+    test: tuple[str, ...]
+    doc: tuple[str, ...]
+
+    @property
+    def light(self) -> bool:
+        """True iff there is >=1 change AND every change is a test path.
+
+        A coverage-only diff -- no source, no doc. Deliberately conservative: an
+        empty diff is NOT light (there is nothing to gate lighter), and a doc-only
+        diff is NOT light (docs such as `roles/*.md` can encode behaviour).
+        """
+        return bool(self.changed) and not self.source and not self.doc
+
+    @property
+    def scope(self) -> str:
+        """The operator one-word verdict: `"light"` when `light` else `"full"`."""
+        return "light" if self.light else "full"
+
+
+def _is_test_path(path: str) -> bool:
+    """True iff `path` is a test file (pure, total).
+
+    A path is a TEST path iff any of its `/`-split components is in
+    `GATE_TEST_DIR_NAMES`, OR its basename is `conftest.py` / ends with
+    `_test.py` / starts with `test_` and ends `.py`. Reads `GATE_TEST_DIR_NAMES`
+    at CALL time so a monkeypatch of the module constant reclassifies subsequent
+    calls (Behavior 8). Never raises for any string.
+    """
+    parts = path.split("/")
+    if any(part in GATE_TEST_DIR_NAMES for part in parts):
+        return True
+    base = parts[-1]
+    if base == "conftest.py" or base.endswith("_test.py"):
+        return True
+    return base.startswith("test_") and base.endswith(".py")
+
+
+def classify_gate_scope(changed_paths) -> GateScope:
+    """Bucket a diff's changed paths into test / doc / source (pure, total).
+
+    Drops blank/whitespace-only entries, then classifies each remaining path into
+    exactly ONE bucket, preserving input order:
+      * TEST   -- `_is_test_path` (a test-dir component or a test basename);
+      * else DOC    -- its suffix is in `GATE_DOC_SUFFIXES`;
+      * else SOURCE.
+    The test-check WINS over the doc-suffix (a `.md` under `tests/` is a fixture,
+    not shippable doc). NEVER raises for any iterable of strings, and reads BOTH
+    `GATE_TEST_DIR_NAMES`/`GATE_DOC_SUFFIXES` at CALL time (Behavior 8) -- the loop
+    does zero I/O, so the whole classification is offline + deterministic.
+    """
+    changed: list[str] = []
+    source: list[str] = []
+    test: list[str] = []
+    doc: list[str] = []
+    for raw in changed_paths:
+        path = raw.strip()
+        if not path:
+            continue
+        changed.append(path)
+        if _is_test_path(path):
+            test.append(path)
+        elif any(path.endswith(sfx) for sfx in GATE_DOC_SUFFIXES):
+            doc.append(path)
+        else:
+            source.append(path)
+    return GateScope(changed=tuple(changed), source=tuple(source),
+                     test=tuple(test), doc=tuple(doc))
+
+
+def gate_scope_cli(cfg: ProductConfig, files=None, base=None) -> int:
+    """On-demand CLI: classify a diff's scope and report it (item 4, DORMANT).
+
+    Obtains the changed paths one of two ways, then hands them to the pure core:
+      * `files` given -> classify those paths directly;
+      * else -> call the monkeypatchable `run_cmd` seam for
+        `git -C {cfg.repo} diff --name-only {base or origin/<branch>}...HEAD`
+        and `.splitlines()` its output.
+    Prints a report CONTAINING the literal `scope: <light|full>` plus the bucket
+    counts, and returns `0` (light) / `1` (full) / `2` (git seam `ok=False`).
+    Writes NOTHING to disk. A THIN wrapper over `classify_gate_scope`: it adds NO
+    classification logic beyond (files or `run_cmd` output) -> splitlines ->
+    `classify_gate_scope` -> format, so the printed buckets always equal the
+    `GateScope` fields. DORMANT -- no control path calls it; the final gate does
+    not consult the verdict.
+    """
+    if files is None:
+        ref = base or f"origin/{cfg.branch}"
+        res = run_cmd(["git", "-C", str(cfg.repo), "diff", "--name-only",
+                       f"{ref}...HEAD"])
+        if not res.ok:
+            print(f"gate-scope: git diff failed: {res.out.strip()}")
+            return 2
+        paths = res.out.splitlines()
+    else:
+        paths = list(files)
+    result = classify_gate_scope(paths)
+    print(f"gate-scope: repo {cfg.repo}")
+    print(f"  changed: {len(result.changed)}  test: {len(result.test)}  "
+          f"doc: {len(result.doc)}  source: {len(result.source)}")
+    print(f"scope: {result.scope}")
+    return 0 if result.light else 1
+
+
+# --------------------------------------------------------------------------- #
 # Post-release fresh-clone verification (DORMANT — item 11, bite 1/2).
 #
 # Proves the *pushed* commit is deployable from a clean checkout, not just that
@@ -1563,6 +1703,18 @@ def main(argv: list[str] | None = None) -> int:
     prd = sub.add_parser("prd")
     prd.add_argument("--config", required=True,
                      help="path to product JSON config")
+    # `gate-scope` classifies a diff (via --files, or the run_cmd git-diff seam)
+    # into test/doc/source and reports whether it is coverage-only ("light").
+    # DORMANT / on-demand only -- the gate never consults it (item 4 bite 2 wires
+    # the light path in). `--files nargs="*"` classifies paths directly; without
+    # it the classifier diffs `cfg.repo` against `--base` (default origin/branch).
+    gsc = sub.add_parser("gate-scope")
+    gsc.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    gsc.add_argument("--base", default=None,
+                     help="git base ref to diff against (default origin/<branch>)")
+    gsc.add_argument("--files", nargs="*", default=None,
+                     help="classify these paths directly instead of a git diff")
     args = ap.parse_args(argv)
 
     if args.cmd == "lint-spec":
@@ -1577,6 +1729,8 @@ def main(argv: list[str] | None = None) -> int:
         return agents_cli(cfg, recent=args.recent, print_only=args.print_only)
     if args.cmd == "prd":
         return prd_status_cli(cfg)
+    if args.cmd == "gate-scope":
+        return gate_scope_cli(cfg, files=args.files, base=args.base)
     if args.cmd == "once":
         res = run_iteration(cfg)
         print(json.dumps(res))
