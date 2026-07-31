@@ -518,17 +518,23 @@ def test_b4_new_symbols_absent_from_dispatcher():
     assert "company-timing" not in consts, "dispatcher references the 'company-timing' literal"
 
 
-def test_b4_no_new_subcommand_this_bite(capsys):
+def test_b4_company_timing_subcommand_present_after_bite2(capsys):
+    # iter 39 (bite 1) shipped ONLY the foundation and this guard asserted the
+    # `company-timing` subcommand was still absent ("deferred to bite 2"). iter 40
+    # (bite 2) is that deferred bite: it legitimately ships the subcommand, so the
+    # guard's retirement condition has now occurred. The regression half (every
+    # pre-existing subcommand still present) is kept; the negative half is flipped
+    # to assert the now-shipped `company-timing` subcommand appears in --help.
     with pytest.raises(SystemExit) as ei:
         foundry.main(["--help"])
     assert ei.value.code == 0
     out = capsys.readouterr().out
-    # existing subcommands (incl. the earlier company-* members) still present ...
+    # every pre-existing subcommand (incl. the earlier company-* members) survives
     for sub in ("timing", "status", "history", "company-status", "company-history"):
         assert sub in out, f"existing subcommand {sub!r} missing from --help:\n{out}"
-    # ... but NO new `company-timing` subcommand this bite
-    assert "company-timing" not in out, \
-        "this bite must add NO company-timing subcommand (deferred to bite 2)"
+    # ... and bite 2 has now added the `company-timing` subcommand
+    assert "company-timing" in out, \
+        "bite 2 (iter 40) must add the company-timing subcommand"
 
 
 def test_b4_release_sentinels_unchanged():
