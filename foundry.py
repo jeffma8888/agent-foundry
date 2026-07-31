@@ -2856,33 +2856,31 @@ def _read_sentinel(path: pathlib.Path, parser) -> str | None:
     return None
 
 
-def history_cli(cfg: ProductConfig, limit: int | None = None,
-                as_json: bool = False) -> int:
-    """On-demand CLI: print a multi-iteration ship ledger + a 0/2 exit code.
+def gather_history(cfg: ProductConfig, limit: int | None = None) -> HistorySummary:
+    """Gather one product's multi-iteration ship LEDGER into a `HistorySummary`.
 
-    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
-    indent=2)` document (the stable machine contract for dashboards/reporters,
-    mirroring iter-19's `status --json`); the default `as_json=False` is
-    byte-for-byte the iter-17 human `render()` text. Either way the RETURN value
-    is the same `summary.exit_code`, `--limit` selection is identical, and
-    nothing is written to disk.
+    Extracted verbatim from the iter-17 `history_cli` gathering (iter 31) so BOTH
+    the single-product `foundry history` and the new company-wide roll-up
+    (`company_history_cli`) share ONE gathering seam; a monkeypatch on this one
+    function then reshapes every consumer at once. Output-preserving: the records
+    it builds are byte-identical to what iter 17 built, so `foundry history` is
+    unchanged (mirroring iter-30's `gather_status` extraction from `status_cli`).
 
-    Gathers every signal through the EXISTING module-level seams -- called by
+    Reads every signal through the EXISTING module-level seams -- each called by
     BARE name so a `monkeypatch.setattr(foundry, ...)` in a test bites:
-      * lists `cfg.state`'s dir names (guarded -- a missing state dir yields no
-        names, never an error) and derives the iteration numbers via
+      * lists `cfg.state`'s dir names (guarded -- a missing / unreadable state dir
+        yields no names, never an error) and derives the iteration numbers via
         `iteration_numbers`;
       * applies `limit` -- keep the highest-N iterations when `limit` is a
-        POSITIVE int, else ALL (a missing / non-positive `--limit` shows the full
+        POSITIVE int, else ALL (a `None` / non-positive `limit` shows the full
         run); the numbers stay ascending so the ledger reads oldest-first;
       * for each iteration reads `state/iter-NN/final.md` through
-        `parse_ship_action` and `state/iter-NN/postrelease.md` through the
-        EXISTING `parse_postrelease_verdict`, both guarded to `None` on an absent
-        file / read error.
-    Hands the records to the pure `summarize_history`/`HistorySummary` core,
-    prints `render()`, and returns `exit_code`. Writes NOTHING to disk
-    (read-only) -- no decision logic of its own, so the printed rollup always
-    equals the `HistorySummary` fields."""
+        `parse_ship_action` and `state/iter-NN/postrelease.md` through
+        `parse_postrelease_verdict`, both guarded via `_read_sentinel` to `None`
+        on an absent file / read error.
+    Returns the pure `summarize_history`/`HistorySummary` core; writes NOTHING to
+    disk (read-only). A missing / unreadable `cfg.state` yields an empty ledger
+    (`total == 0`), never raising."""
     state = cfg.state
     try:
         names = [p.name for p in state.iterdir()] if state.exists() else []
@@ -2906,11 +2904,271 @@ def history_cli(cfg: ProductConfig, limit: int | None = None,
         )
         for n in numbers
     ]
-    summary = summarize_history(product=cfg.name, records=records)
+    return summarize_history(product=cfg.name, records=records)
+
+
+def history_cli(cfg: ProductConfig, limit: int | None = None,
+                as_json: bool = False) -> int:
+    """On-demand CLI: print a multi-iteration ship ledger + a 0/2 exit code.
+
+    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
+    indent=2)` document (the stable machine contract for dashboards/reporters,
+    mirroring iter-19's `status --json`); the default `as_json=False` is
+    byte-for-byte the iter-17 human `render()` text. Either way the RETURN value
+    is the same `summary.exit_code`, `--limit` selection is identical, and
+    nothing is written to disk.
+
+    Gathers the ledger through the `gather_history(cfg, limit)` seam (iter 31 --
+    which reads the on-disk artifacts via the EXISTING module-level functions,
+    called by BARE name so a `monkeypatch.setattr(foundry, ...)` bites) then
+    prints the pure `HistorySummary` core. Output-preserving: the printed report
+    / JSON / exit code are byte-identical to iter 17. Writes NOTHING to disk
+    (read-only) -- a thin printer over the pure core that adds no decision logic
+    of its own, so the printed rollup always equals the `HistorySummary` fields."""
+    summary = gather_history(cfg, limit)
     # `--json` emits the pure ledger as a single JSON document (stdout-only, no
     # decision logic added); the default stays the exact iter-17 human report.
     print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
     return summary.exit_code
+
+
+# --------------------------------------------------------------------------- #
+# Company-wide ship LEDGER roll-up (`company-history`) -- roadmap iter 31.
+#
+# The TREND-axis complement to iter-30's `company-status`: `company-status`
+# answers "is my company healthy NOW?"; `company-history` answers "what has my
+# company DONE over its whole run?". The dispatcher runs a whole COMPANY of
+# product teams (`foundry.config.json` `work_items`, each -> a product config)
+# round-robin at concurrency 1, but `foundry history` (iter 17) reports the ship
+# ledger of exactly ONE product. An operator running N teams otherwise runs
+# `history --config <cfg>` once per product and mentally sums the ledgers --
+# exactly the scattered babysitting the VISION says to eliminate.
+#
+# Purely additive + OFF the control path: it only reads the dispatch config and
+# each product's on-disk ledger artifacts and prints; the pipeline / dispatcher
+# NEVER call it and it writes NOTHING. Same "compose existing frozen cores + a
+# shared gathering seam, add no new I/O seam" pattern iter 30 endorsed, applied
+# to the LEDGER probe -- REUSING the already-shipped, tested
+# `parse_dispatch_work_items` (iter 30) and the frozen `HistorySummary` core.
+# Company-history is INFORMATIONAL like per-product history: a past `BROKEN`
+# inside a team's ledger does NOT gate; only a STRUCTURAL read/parse error
+# (unreadable dispatch config, or a team that failed to load/gather) -> exit 1.
+# --------------------------------------------------------------------------- #
+@dataclasses.dataclass(frozen=True)
+class CompanyHistory:
+    """A one-shot COMPANY-wide ship-ledger roll-up across a dispatch config (iter 31).
+
+    Frozen so a computed roll-up can't be mutated after the fact (value equality
+    for free, matching the other pure cores). Every derived value is a pure
+    property over the stored fields, so the whole verdict -- including the
+    scriptable exit code -- follows deterministically from what was gathered, and
+    the JSON payload / render text can never disagree with the exit code.
+
+    Fields:
+      * `dispatch_path` -- the dispatch config path, echoed into `render()`.
+      * `products` -- the per-product `HistorySummary` ledgers that were
+        successfully gathered, IN dispatch-file order (an enabled product that
+        failed to load/gather is NOT here -- it lands in `errors`).
+      * `disabled` -- names of work items with `enabled=False` (never loaded).
+      * `errors` -- `(product, message)` 2-tuples for enabled items that raised
+        while loading/gathering (the sole caller guarantees each is a 2-tuple).
+    """
+    dispatch_path: str
+    products: tuple[HistorySummary, ...]
+    disabled: tuple[str, ...]
+    errors: tuple[tuple[str, str], ...]
+
+    @property
+    def n_products(self) -> int:
+        """Count of products successfully ROLLED UP (an errored enabled product
+        is NOT counted here -- it is in `errors`)."""
+        return len(self.products)
+
+    @property
+    def n_disabled(self) -> int:
+        return len(self.disabled)
+
+    @property
+    def n_errors(self) -> int:
+        return len(self.errors)
+
+    @property
+    def total(self) -> int:
+        """Company total iterations = the SUM of every gathered product's `total`."""
+        return sum(p.total for p in self.products)
+
+    @property
+    def shipped(self) -> int:
+        """Company shipped = the SUM of every gathered product's `shipped`."""
+        return sum(p.shipped for p in self.products)
+
+    @property
+    def reverted(self) -> int:
+        """Company reverted = the SUM of every gathered product's `reverted`."""
+        return sum(p.reverted for p in self.products)
+
+    @property
+    def broken(self) -> int:
+        """Company broken = the SUM of every gathered product's `broken`."""
+        return sum(p.broken for p in self.products)
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable verdict, errors-first: `1` when `errors` is non-empty
+        (a structural read/parse failure -- the ONLY thing history gates on),
+        else `2` when NO products were gathered (every item disabled or
+        `work_items` empty -- reachable only with `errors` empty), else `0`.
+
+        A past `BROKEN` inside a team's ledger does NOT gate: company-history is
+        informational, exactly like per-product `history` (current attention is
+        `company-status`'s job)."""
+        if self.errors:
+            return 1
+        if self.n_products == 0:
+            return 2
+        return 0
+
+    @property
+    def verdict(self) -> str:
+        """The single human token for the current `exit_code` -- `"OK"` (0) /
+        `"ERRORS"` (1) / `"no enabled products"` (2). ONE source of truth for
+        both `render()`'s last line and the JSON `verdict` key, so the text and
+        the machine payload can never drift from the exit code."""
+        return {0: "OK", 1: "ERRORS", 2: "no enabled products"}[self.exit_code]
+
+    def render(self) -> str:
+        """A deterministic multi-line company ledger report (the CLI's contract).
+
+        Contains, as substrings: the `dispatch_path`; a counts line reporting the
+        number of GATHERED products, the disabled count, and the error count, PLUS
+        the company rollup `{total} iterations: {shipped} shipped, {reverted}
+        reverted, {broken} broken`; ONE line per gathered product with its
+        `product` name AND its OWN rollup (same `{total} iterations: ...` shape);
+        one line per disabled item with its name and `disabled`; one line per
+        error with its name, `ERROR`, and the message; and a final `verdict:` line
+        whose token EQUALS `verdict`."""
+        rollup = (f"{self.total} iterations: {self.shipped} shipped, "
+                  f"{self.reverted} reverted, {self.broken} broken")
+        lines = [
+            "foundry company-history",
+            f"  dispatch config: {self.dispatch_path}",
+            f"  products: {self.n_products} gathered, "
+            f"{self.n_disabled} disabled, {self.n_errors} error(s) -- {rollup}",
+        ]
+        for p in self.products:
+            p_rollup = (f"{p.total} iterations: {p.shipped} shipped, "
+                        f"{p.reverted} reverted, {p.broken} broken")
+            lines.append(f"  - {p.product}: {p_rollup}")
+        for name in self.disabled:
+            lines.append(f"  - {name}: disabled")
+        for name, message in self.errors:
+            lines.append(f"  - {name}: ERROR {message}")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe company roll-up for machine consumers -- a dashboard
+        / cron alert / the reporter. Every derived value REUSES the frozen
+        properties, so the payload can never disagree with `render()` or the exit
+        code, and every value is JSON-native, so it round-trips through
+        `json.loads(json.dumps(...))`. Pure: touches no filesystem."""
+        return {
+            "dispatch_config": self.dispatch_path,
+            "products": [p.to_dict() for p in self.products],
+            "disabled": list(self.disabled),
+            "errors": [{"product": name, "message": message}
+                       for name, message in self.errors],
+            "n_products": self.n_products,
+            "n_disabled": self.n_disabled,
+            "n_errors": self.n_errors,
+            "total": self.total,
+            "shipped": self.shipped,
+            "reverted": self.reverted,
+            "broken": self.broken,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+        }
+
+
+def summarize_company_history(*, dispatch_path: str,
+                              products: tuple[HistorySummary, ...],
+                              disabled: tuple[str, ...],
+                              errors: tuple[tuple[str, str], ...]
+                              ) -> CompanyHistory:
+    """Pure keyword-only constructor for a `CompanyHistory` (Behaviors 3-7).
+
+    A thin, total wrapper that packs the gathered ledgers into the frozen
+    roll-up -- keyword-only so a caller can never transpose the fields by
+    position, and it never raises for well-formed inputs (each `errors` entry is
+    a `(product, message)` 2-tuple, which the sole caller `company_history_cli`
+    guarantees; documenting the precondition keeps the "never raises" contract
+    airtight). Kept separate from `company_history_cli` so the decision core
+    stays a pure function the tester can drive without any filesystem."""
+    return CompanyHistory(
+        dispatch_path=dispatch_path,
+        products=tuple(products),
+        disabled=tuple(disabled),
+        errors=tuple((name, message) for name, message in errors))
+
+
+def company_history_cli(dispatch_path: str, limit: int | None = None,
+                        as_json: bool = False) -> int:
+    """On-demand CLI: roll every ENABLED team's ship ledger into ONE company view.
+
+    Reads the DISPATCH config at `dispatch_path` (`foundry.config.json`, NOT a
+    product config), then for each ENABLED work item substitutes a `{FOUNDRY}`
+    token in its config path to the foundry root and loads + gathers that
+    product's ledger via the `load_config` / `gather_history` seams (both called
+    by BARE name so a `monkeypatch.setattr(foundry, ...)` bites). `limit` flows
+    through to EVERY `gather_history(cfg, limit)` call (most-recent N per team).
+    A DISABLED item is recorded in `disabled` (by name) and never loaded.
+
+    Resilient (Behaviors 9-10): if reading/parsing the dispatch config fails
+    (missing / not JSON / not an object) it prints a report recording ONE
+    synthetic error and returns exit 1; if a single work item's `load_config` or
+    `gather_history` raises, that item is recorded in `errors` and the roll-up
+    CONTINUES gathering the rest (company exit 1). No exception ever propagates.
+
+    With `as_json=True` stdout is exactly ONE `json.dumps(to_dict(), indent=2)`
+    document; either way the RETURN value is the same `CompanyHistory.exit_code`
+    (0 gathered-no-errors / 1 errors / 2 no-enabled-products). Writes NOTHING to
+    disk -- a read-only report; with `load_config` monkeypatched the filesystem
+    is untouched."""
+    try:
+        dispatch = json.loads(
+            pathlib.Path(dispatch_path).expanduser().read_text())
+        if not isinstance(dispatch, dict):
+            raise ValueError("dispatch config is not a JSON object")
+    except Exception as exc:
+        # A missing / malformed dispatch config is a real operator problem, not a
+        # crash: surface it as ONE synthetic error (errors -> exit 1).
+        company = summarize_company_history(
+            dispatch_path=dispatch_path, products=(), disabled=(),
+            errors=((dispatch_path, str(exc)),))
+        print(json.dumps(company.to_dict(), indent=2) if as_json
+              else company.render())
+        return company.exit_code
+
+    products: list[HistorySummary] = []
+    disabled: list[str] = []
+    errors: list[tuple[str, str]] = []
+    for name, config, enabled in parse_dispatch_work_items(dispatch):
+        if not enabled:
+            disabled.append(name)      # deliberate; never loaded
+            continue
+        try:
+            # {FOUNDRY} -> foundry root BEFORE load_config, exactly as the
+            # dispatcher resolves each work item's config path.
+            cfg = load_config(config.replace("{FOUNDRY}", str(FOUNDRY)))
+            products.append(gather_history(cfg, limit))
+        except Exception as exc:
+            # One bad team never sinks the whole roll-up -- record + continue.
+            errors.append((name, str(exc)))
+    company = summarize_company_history(
+        dispatch_path=dispatch_path, products=tuple(products),
+        disabled=tuple(disabled), errors=tuple(errors))
+    print(json.dumps(company.to_dict(), indent=2) if as_json else company.render())
+    return company.exit_code
 
 
 # --------------------------------------------------------------------------- #
@@ -3822,6 +4080,27 @@ def main(argv: list[str] | None = None) -> int:
                      help="emit the company roll-up as one JSON document "
                           "(machine-readable) instead of the human report; "
                           "same 0/1/2 exit code")
+    # `company-history` rolls up EVERY enabled dispatch team's iter-17
+    # ship LEDGER into ONE company-wide view (total iterations / shipped /
+    # reverted / broken summed across all teams). Its `--config` points at the
+    # DISPATCH config (`foundry.config.json`), NOT a product config, and it
+    # does its own per-work-item `load_config` internally -- so, like
+    # `company-status`/`single-brain`/`lint-spec`, it is dispatched BEFORE the
+    # `load_config(args.config)` call below. Read-only + on-demand: the
+    # pipeline/dispatcher NEVER call it; it writes nothing. Exit 0
+    # gathered-no-errors / 1 errors / 2 no-enabled-products.
+    chi = sub.add_parser("company-history")
+    chi.add_argument("--config", default=str(FOUNDRY / "foundry.config.json"),
+                     help="path to the DISPATCH config (foundry.config.json), "
+                          "NOT a product config (default: the repo's "
+                          "foundry.config.json)")
+    chi.add_argument("--limit", type=int, default=None,
+                     help="show only the most-recent N iterations per team "
+                          "(default: all)")
+    chi.add_argument("--json", action="store_true",
+                     help="emit the company roll-up as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code, honours --limit")
     args = ap.parse_args(argv)
 
     if args.cmd == "lint-spec":
@@ -3830,6 +4109,9 @@ def main(argv: list[str] | None = None) -> int:
         return single_brain_cli(pattern=args.pattern, as_json=args.json)
     if args.cmd == "company-status":
         return company_status_cli(args.config, as_json=args.json)
+    if args.cmd == "company-history":
+        return company_history_cli(args.config, limit=args.limit,
+                                   as_json=args.json)
 
     cfg = load_config(args.config)
     if args.cmd == "doctor":
