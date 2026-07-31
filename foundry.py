@@ -3480,6 +3480,314 @@ def timing_cli(cfg: ProductConfig, limit: int | None = None,
 
 
 # --------------------------------------------------------------------------- #
+# Company-wide suite-wall-time roll-up (`company-timing`) -- roadmap item 7,
+# bite 2 (COMPLETES the feature; bite 1 shipped the `gather_timing` seam + the
+# `TimingSummary.measured_seconds` accessor in iter 39).
+#
+# The THROUGHPUT-axis complement to iter-30's `company-status` (health NOW) and
+# iter-31's `company-history` (ship LEDGER): `company-timing` answers "how is my
+# whole company's VERIFY time trending?". The dispatcher runs a whole COMPANY of
+# product teams (`foundry.config.json` `work_items`, each -> a product config)
+# round-robin at concurrency 1, but `foundry timing` (iter 18) reports the
+# suite-wall-time digest of exactly ONE product. An operator running N teams
+# otherwise runs `timing --config <cfg>` once per team and mentally pools the
+# numbers -- exactly the scattered babysitting the VISION says to eliminate.
+#
+# Purely additive + OFF the control path: it only reads the dispatch config and
+# each product's on-disk timing artifacts and prints; the pipeline / dispatcher
+# NEVER call it and it writes NOTHING. Same "compose existing frozen cores + a
+# shared gathering seam, add no new I/O seam" pattern iters 30/31 endorsed,
+# applied to the TIMING probe -- REUSING the already-shipped, tested
+# `parse_dispatch_work_items` (iter 30) and the frozen `TimingSummary` core +
+# its `gather_timing` seam and `measured_seconds` accessor (iter 39). Timing is
+# INFORMATIONAL like per-product `timing`: a slow-but-fixed suite does NOT gate
+# (raising a speed story is item-7-bite-2's PER-PRODUCT job); only a STRUCTURAL
+# read/parse error (unreadable dispatch config, or a team that failed to
+# load/gather) -> exit 1, exactly like `company-history`.
+# --------------------------------------------------------------------------- #
+@dataclasses.dataclass(frozen=True)
+class CompanyTiming:
+    """A one-shot COMPANY-wide suite-wall-time roll-up across a dispatch config.
+
+    Frozen so a computed roll-up can't be mutated after the fact (value equality
+    for free, matching the other pure cores). Every derived value is a pure
+    property over the stored fields, so the whole verdict -- including the
+    scriptable exit code -- follows deterministically from what was gathered, and
+    the JSON payload / render text can never disagree with the exit code.
+
+    Fields:
+      * `dispatch_path` -- the dispatch config path, echoed into `render()`.
+      * `products` -- the per-product `TimingSummary` digests that were
+        successfully gathered, IN dispatch-file order (an enabled product that
+        failed to load/gather is NOT here -- it lands in `errors`).
+      * `disabled` -- names of work items with `enabled=False` (never loaded).
+      * `errors` -- `(product, message)` 2-tuples for enabled items that raised
+        while loading/gathering (the sole caller guarantees each is a 2-tuple).
+      * `threshold` -- the company slow cutoff (`SUITE_SLOW_SECONDS` at call
+        time), echoed into the rollup `slow (>{threshold}s)` line.
+
+    Pooled `min`/`max`/`avg` fold over the CONCATENATED measured seconds of every
+    product (each product's `measured_seconds` in stored order); there is NO
+    company `last_seconds` (ill-defined across teams). `count_slow` is the SUM of
+    each product's own `count_slow` (each per-product count uses that product's
+    build-time threshold, which for a live roll-up is the same
+    `SUITE_SLOW_SECONDS` as the company threshold).
+    """
+    dispatch_path: str
+    products: tuple[TimingSummary, ...]
+    disabled: tuple[str, ...]
+    errors: tuple[tuple[str, str], ...]
+    threshold: float
+
+    @property
+    def n_products(self) -> int:
+        """Count of products successfully ROLLED UP (an errored enabled product
+        is NOT counted here -- it is in `errors`)."""
+        return len(self.products)
+
+    @property
+    def n_disabled(self) -> int:
+        return len(self.disabled)
+
+    @property
+    def n_errors(self) -> int:
+        return len(self.errors)
+
+    @property
+    def total(self) -> int:
+        """Company total iterations = the SUM of every gathered product's `total`."""
+        return sum(p.total for p in self.products)
+
+    @property
+    def measured(self) -> int:
+        """Company measured iterations = the SUM of every product's `measured`."""
+        return sum(p.measured for p in self.products)
+
+    @property
+    def count_slow(self) -> int:
+        """Company slow count = the SUM of every product's own `count_slow`
+        (each measured record STRICTLY over its build-time threshold)."""
+        return sum(p.count_slow for p in self.products)
+
+    @property
+    def _pool(self) -> list[float]:
+        """The POOLED measured wall-times of all products (each product's
+        `measured_seconds` concatenated in stored product order) -- the sample the
+        company min/max/avg fold over. An unmeasured product contributes nothing."""
+        pool: list[float] = []
+        for p in self.products:
+            pool.extend(p.measured_seconds)
+        return pool
+
+    @property
+    def min_seconds(self) -> float | None:
+        pool = self._pool
+        return min(pool) if pool else None
+
+    @property
+    def max_seconds(self) -> float | None:
+        pool = self._pool
+        return max(pool) if pool else None
+
+    @property
+    def avg_seconds(self) -> float | None:
+        pool = self._pool
+        return sum(pool) / len(pool) if pool else None
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable verdict, errors-first: `1` when `errors` is non-empty (a
+        structural read/parse failure -- the ONLY thing timing gates on), else `2`
+        when NO products were gathered (every item disabled or `work_items` empty
+        -- reachable only with `errors` empty), else `0`.
+
+        A gathered product with ZERO measured timings does NOT force exit 2 (it
+        still counts as a product -> exit 0); a company full of slow-but-fixed
+        timings still exits 0 (timing is informational, exactly like per-product
+        `timing` -- raising a speed story is item-7-bite-2's per-product job)."""
+        if self.errors:
+            return 1
+        if self.n_products == 0:
+            return 2
+        return 0
+
+    @property
+    def verdict(self) -> str:
+        """The single human token for the current `exit_code` -- `"OK"` (0) /
+        `"ERRORS"` (1) / `"no enabled products"` (2). ONE source of truth for
+        both `render()`'s last line and the JSON `verdict` key, so the text and
+        the machine payload can never drift from the exit code."""
+        return {0: "OK", 1: "ERRORS", 2: "no enabled products"}[self.exit_code]
+
+    def _rollup(self) -> str:
+        """The company timing rollup as a substring: `measured {measured}/{total}`
+        plus, when anything is measured company-wide, pooled `min`/`max`/`avg`
+        (two-decimal seconds) and `slow (>{threshold}s): {count_slow}`; with
+        NOTHING measured the literal `no measured timings yet` (no min/max/avg)."""
+        if self.measured == 0:
+            return f"measured {self.measured}/{self.total}: no measured timings yet"
+        return (
+            f"measured {self.measured}/{self.total}: "
+            f"min {self.min_seconds:.2f}s, max {self.max_seconds:.2f}s, "
+            f"avg {self.avg_seconds:.2f}s, "
+            f"slow (>{self.threshold:.2f}s): {self.count_slow}")
+
+    def render(self) -> str:
+        """A deterministic multi-line company timing report (the CLI's contract).
+
+        Contains, as substrings: the literal `foundry company-timing`; the
+        `dispatch_path`; a counts line reporting `{n_products} gathered`,
+        `{n_disabled} disabled`, `{n_errors} error(s)` PLUS the company rollup
+        (`measured {measured}/{total}` with pooled `min`/`max`/`avg` +
+        `slow (>{threshold}s): {count_slow}` when anything is measured, else the
+        literal `no measured timings yet`); ONE line per gathered product
+        beginning `  - {product}:` carrying its OWN `measured {p.measured}/
+        {p.total}` and, when it has measured timings, its `min`/`max`/`avg`/`last`
+        (two-decimal seconds) + `slow: {p.count_slow}` (else `no measured timings
+        yet`); one `  - {name}: disabled` line per disabled item; one
+        `  - {name}: ERROR {message}` line per error; and a final `verdict:` line
+        whose token EQUALS `verdict`."""
+        lines = [
+            "foundry company-timing",
+            f"  dispatch config: {self.dispatch_path}",
+            f"  products: {self.n_products} gathered, "
+            f"{self.n_disabled} disabled, {self.n_errors} error(s) -- "
+            f"{self._rollup()}",
+        ]
+        for p in self.products:
+            if p.measured == 0:
+                p_rollup = (f"measured {p.measured}/{p.total}: "
+                            "no measured timings yet")
+            else:
+                p_rollup = (
+                    f"measured {p.measured}/{p.total}: "
+                    f"min {p.min_seconds:.2f}s, max {p.max_seconds:.2f}s, "
+                    f"avg {p.avg_seconds:.2f}s, last {p.last_seconds:.2f}s, "
+                    f"slow: {p.count_slow}")
+            lines.append(f"  - {p.product}: {p_rollup}")
+        for name in self.disabled:
+            lines.append(f"  - {name}: disabled")
+        for name, message in self.errors:
+            lines.append(f"  - {name}: ERROR {message}")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe company roll-up for machine consumers -- a dashboard
+        / cron alert / the reporter. Every derived value REUSES the frozen
+        properties, so the payload can never disagree with `render()` or the exit
+        code, and every value is JSON-native, so it round-trips through
+        `json.loads(json.dumps(...))` -- including when the pooled stats are
+        `None` (nothing measured -> JSON `null`). Pure: touches no filesystem."""
+        return {
+            "dispatch_config": self.dispatch_path,
+            "products": [p.to_dict() for p in self.products],
+            "disabled": list(self.disabled),
+            "errors": [{"product": name, "message": message}
+                       for name, message in self.errors],
+            "n_products": self.n_products,
+            "n_disabled": self.n_disabled,
+            "n_errors": self.n_errors,
+            "total": self.total,
+            "measured": self.measured,
+            "count_slow": self.count_slow,
+            "min_seconds": self.min_seconds,
+            "max_seconds": self.max_seconds,
+            "avg_seconds": self.avg_seconds,
+            "threshold": self.threshold,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+        }
+
+
+def summarize_company_timing(*, dispatch_path: str,
+                             products: tuple[TimingSummary, ...],
+                             disabled: tuple[str, ...],
+                             errors: tuple[tuple[str, str], ...],
+                             threshold: float) -> CompanyTiming:
+    """Pure keyword-only constructor for a `CompanyTiming` (Behaviors 1-6).
+
+    A thin, total wrapper that packs the gathered digests into the frozen
+    roll-up -- keyword-only so a caller can never transpose the fields by
+    position, and it never raises for well-formed inputs (each `errors` entry is
+    a `(product, message)` 2-tuple, which the sole caller `company_timing_cli`
+    guarantees; documenting the precondition keeps the "never raises" contract
+    airtight). Kept separate from `company_timing_cli` so the decision core stays
+    a pure function the tester can drive without any filesystem."""
+    return CompanyTiming(
+        dispatch_path=dispatch_path,
+        products=tuple(products),
+        disabled=tuple(disabled),
+        errors=tuple((name, message) for name, message in errors),
+        threshold=threshold)
+
+
+def company_timing_cli(dispatch_path: str, limit: int | None = None,
+                       as_json: bool = False) -> int:
+    """On-demand CLI: roll every ENABLED team's suite-wall-time digest into ONE
+    company throughput lens (roadmap item 7, bite 2).
+
+    Reads the DISPATCH config at `dispatch_path` (`foundry.config.json`, NOT a
+    product config), then for each ENABLED work item substitutes a `{FOUNDRY}`
+    token in its config path to the foundry root and loads + gathers that
+    product's digest via the `load_config` / `gather_timing` seams (both called
+    by BARE name so a `monkeypatch.setattr(foundry, ...)` bites). `limit` flows
+    through to EVERY `gather_timing(cfg, limit)` call (most-recent N per team).
+    A DISABLED item is recorded in `disabled` (by name) and never loaded. The
+    company `threshold` is read from the module global `SUITE_SLOW_SECONDS` AT
+    CALL time (so a `monkeypatch.setattr(foundry, "SUITE_SLOW_SECONDS", ...)`
+    bites), exactly as `gather_timing` reads each product's own threshold.
+
+    Resilient (Behaviors 7-8): if reading/parsing the dispatch config fails
+    (missing / not JSON / not an object) it prints a report recording ONE
+    synthetic error and returns exit 1; if a single work item's `load_config` or
+    `gather_timing` raises, that item is recorded in `errors` and the roll-up
+    CONTINUES gathering the rest (company exit 1). No exception ever propagates.
+
+    With `as_json=True` stdout is exactly ONE `json.dumps(to_dict(), indent=2)`
+    document; either way the RETURN value is the same `CompanyTiming.exit_code`
+    (0 gathered-no-errors / 1 errors / 2 no-enabled-products). Writes NOTHING to
+    disk -- a read-only report; with `load_config` monkeypatched the filesystem
+    is untouched."""
+    threshold = SUITE_SLOW_SECONDS  # read at call time -- monkeypatch bites
+    try:
+        dispatch = json.loads(
+            pathlib.Path(dispatch_path).expanduser().read_text())
+        if not isinstance(dispatch, dict):
+            raise ValueError("dispatch config is not a JSON object")
+    except Exception as exc:
+        # A missing / malformed dispatch config is a real operator problem, not a
+        # crash: surface it as ONE synthetic error (errors -> exit 1).
+        company = summarize_company_timing(
+            dispatch_path=dispatch_path, products=(), disabled=(),
+            errors=((dispatch_path, str(exc)),), threshold=threshold)
+        print(json.dumps(company.to_dict(), indent=2) if as_json
+              else company.render())
+        return company.exit_code
+
+    products: list[TimingSummary] = []
+    disabled: list[str] = []
+    errors: list[tuple[str, str]] = []
+    for name, config, enabled in parse_dispatch_work_items(dispatch):
+        if not enabled:
+            disabled.append(name)      # deliberate; never loaded
+            continue
+        try:
+            # {FOUNDRY} -> foundry root BEFORE load_config, exactly as the
+            # dispatcher resolves each work item's config path.
+            cfg = load_config(config.replace("{FOUNDRY}", str(FOUNDRY)))
+            products.append(gather_timing(cfg, limit))
+        except Exception as exc:
+            # One bad team never sinks the whole roll-up -- record + continue.
+            errors.append((name, str(exc)))
+    company = summarize_company_timing(
+        dispatch_path=dispatch_path, products=tuple(products),
+        disabled=tuple(disabled), errors=tuple(errors), threshold=threshold)
+    print(json.dumps(company.to_dict(), indent=2) if as_json else company.render())
+    return company.exit_code
+
+
+# --------------------------------------------------------------------------- #
 # Machine-readable event reader (`events`) -- item 10, the READ half.
 #
 # iter 05 added the write-only `events.jsonl` stream ("for dashboards / the
@@ -4135,6 +4443,30 @@ def main(argv: list[str] | None = None) -> int:
                      help="emit the company roll-up as one JSON document "
                           "(machine-readable) instead of the human report; "
                           "same 0/1/2 exit code, honours --limit")
+    # `company-timing` rolls up EVERY enabled dispatch team's iter-18
+    # suite-wall-time DIGEST into ONE company throughput lens (pooled
+    # min/max/avg + summed measured/total/slow-count across all teams -- the
+    # THROUGHPUT complement to `company-status` health-NOW and `company-history`
+    # ship-LEDGER). Its `--config` points at the DISPATCH config
+    # (`foundry.config.json`), NOT a product config, and it does its own
+    # per-work-item `load_config` internally -- so, like `company-status`/
+    # `company-history`/`single-brain`/`lint-spec`, it is dispatched BEFORE the
+    # `load_config(args.config)` call below. Read-only + on-demand: the
+    # pipeline/dispatcher NEVER call it; it writes nothing. Timing is
+    # INFORMATIONAL and never gates on a slow suite -- exit 0
+    # gathered-no-errors / 1 errors / 2 no-enabled-products.
+    ctm = sub.add_parser("company-timing")
+    ctm.add_argument("--config", default=str(FOUNDRY / "foundry.config.json"),
+                     help="path to the DISPATCH config (foundry.config.json), "
+                          "NOT a product config (default: the repo's "
+                          "foundry.config.json)")
+    ctm.add_argument("--limit", type=int, default=None,
+                     help="show only the most-recent N iterations per team "
+                          "(default: all)")
+    ctm.add_argument("--json", action="store_true",
+                     help="emit the company roll-up as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code, honours --limit")
     args = ap.parse_args(argv)
 
     if args.cmd == "lint-spec":
@@ -4146,6 +4478,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "company-history":
         return company_history_cli(args.config, limit=args.limit,
                                    as_json=args.json)
+    if args.cmd == "company-timing":
+        return company_timing_cli(args.config, limit=args.limit,
+                                  as_json=args.json)
 
     cfg = load_config(args.config)
     if args.cmd == "doctor":
