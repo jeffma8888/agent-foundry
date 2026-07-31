@@ -647,6 +647,158 @@ def single_brain_cli(pattern: str = "dispatcher.py",
 
 
 # --------------------------------------------------------------------------- #
+# Composite LAUNCH preflight (`foundry preflight`) -- roadmap iter 28.
+#
+# The dispatcher LAUNCH is where the two most expensive unattended-run failures
+# are gated: (a) a broken environment (battery / no `uv` / missing agent CLI /
+# unreachable remote -- `doctor`, iter 01) and (b) a SECOND competing brain on
+# one model-API account starving the shared token budget (the VISION's HARD
+# single-brain constraint + the #1 OBSERVED live failure -- `single-brain`,
+# iter 24). Today those are TWO commands with DIFFERENT exit-code semantics, so
+# a launch wrapper must hand-combine them and a shell `&&` collapses
+# `single-brain`'s UNKNOWN(2) and `doctor`'s NOT-READY(1) into one
+# undifferentiated non-zero -- losing the actionable CAUTION ("env fine, I just
+# could not check for a rival brain, verify manually") vs NO-GO ("hard blocker,
+# do NOT launch") distinction. `foundry preflight` unifies both into ONE
+# three-way GO / NO-GO / CAUTION verdict (human text + `--json`). It COMPOSES the
+# existing frozen cores and adds NO new I/O seam; like `single-brain` it only
+# REPORTS (never kills/signals a competing dispatcher -- the operator decides)
+# and writes NOTHING.
+# --------------------------------------------------------------------------- #
+@dataclasses.dataclass(frozen=True)
+class PreflightSummary:
+    """A composite LAUNCH-preflight verdict combining env + single-brain.
+
+    Frozen so a computed verdict can't be mutated after the fact (value equality
+    for free, matching the other pure cores). Exactly two STORED fields -- the
+    doctor `checks` and the single-brain `brain` status -- and every signal below
+    is a PURE derivation of them, so the human `render()`, the three-way
+    `verdict` token, the scriptable `exit_code`, and the `to_dict()` payload
+    follow deterministically and can never disagree.
+
+    Fields:
+      * `checks` -- the doctor `Check`s (`[power, agent, uv, remote]`), stored as
+        a tuple in scan order.
+      * `brain` -- the `SingleBrainStatus` from the running-dispatcher scan.
+    """
+    checks: tuple[Check, ...]
+    brain: SingleBrainStatus
+
+    @property
+    def env_ready(self) -> bool:
+        """True iff EVERY stored doctor check passed. Mirrors `doctor_ok` -- an
+        EMPTY `checks` tuple is vacuously ready (`all(())` is True)."""
+        return all(c.ok for c in self.checks)
+
+    @property
+    def verdict(self) -> str:
+        """The single composite token, evaluated in a TOTAL fixed order so a hard
+        blocker ALWAYS dominates: NO-GO iff the env is not ready OR a competing
+        brain is confirmed (`brain.conflict`); else CAUTION iff the brain scan
+        could not run (`brain.unknown` -- env fine, verify the rival manually);
+        else GO. ONE source of truth for both `render()`'s last line and
+        `exit_code`, so they can never drift."""
+        if not self.env_ready or self.brain.conflict:
+            return "NO-GO"
+        if self.brain.unknown:
+            return "CAUTION"
+        return "GO"
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable verdict a launch wrapper gates on: `0` GO / `1` NO-GO /
+        `2` CAUTION. Derived from `verdict` so the code and the printed token are
+        always consistent."""
+        return {"GO": 0, "NO-GO": 1, "CAUTION": 2}[self.verdict]
+
+    def render(self) -> str:
+        """A deterministic, non-empty, multi-line human report that NEVER raises.
+
+        Names the composite verdict, states whether the env is READY, lists one
+        `[PASS]`/`[FAIL] <name>: <detail>` line per stored doctor check, echoes
+        the single-brain verdict token (`SAFE`/`CONFLICT`/`UNKNOWN`), and closes
+        with `verdict: <VERDICT> (exit <exit_code>)` as its LAST non-empty line so
+        the text and the scriptable code stay visibly in sync."""
+        lines = [f"foundry preflight: {self.verdict}",
+                 f"  env: {'READY' if self.env_ready else 'NOT READY'}"]
+        for c in self.checks:
+            lines.append(
+                f"    [{'PASS' if c.ok else 'FAIL'}] {c.name}: {c.detail}")
+        lines.append(f"  single-brain: {self.brain.verdict}")
+        lines.append(f"verdict: {self.verdict} (exit {self.exit_code})")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe composite verdict for machine consumers -- a launch
+        wrapper / cron / CI gate.
+
+        Returns EXACTLY 5 keys in a fixed order: `checks` (a JSON array of
+        `{"name","ok","detail"}` objects in the SAME order as the stored checks --
+        `Check` has no `to_dict`, so its three fields are projected explicitly),
+        the DERIVED `env_ready`, the nested `brain` (REUSING
+        `SingleBrainStatus.to_dict()`), and the DERIVED `verdict`/`exit_code`
+        (REUSING the frozen properties, never re-derived) so the payload can never
+        disagree with `render()` or the exit code. Every value is JSON-native
+        (list / bool / dict / str / int), so `json.dumps(...)` never raises and
+        the dict round-trips through `json.loads(json.dumps(...))`. Pure:
+        touches no filesystem and does not mutate the frozen summary."""
+        return {
+            "checks": [{"name": c.name, "ok": c.ok, "detail": c.detail}
+                       for c in self.checks],
+            "env_ready": self.env_ready,
+            "brain": self.brain.to_dict(),
+            "verdict": self.verdict,
+            "exit_code": self.exit_code,
+        }
+
+
+def summarize_preflight(*, checks: tuple[Check, ...],
+                        brain: SingleBrainStatus) -> PreflightSummary:
+    """Pure keyword-only constructor for a `PreflightSummary` (iter 28).
+
+    A total, side-effect-free composer: `checks` is normalised to `tuple(checks)`
+    (accepts any iterable of `Check`s -- like `summarize_single_brain` normalises
+    `pids`) and `brain` is stored verbatim. Kept separate from `preflight_cli` so
+    the decision core is a pure function the tester can drive with zero
+    filesystem/subprocess -- e.g. `summarize_preflight(checks=(),
+    brain=summarize_single_brain(()))` -> GO / exit 0. Deterministic (equal
+    inputs -> an EQUAL summary by frozen value equality) and never raises."""
+    return PreflightSummary(checks=tuple(checks), brain=brain)
+
+
+def preflight_cli(cfg: ProductConfig, pattern: str = "dispatcher.py",
+                  as_json: bool = False) -> int:
+    """On-demand composite LAUNCH preflight: env (`doctor`) + single-brain in ONE
+    three-way GO / NO-GO / CAUTION verdict.
+
+    Calls `run_doctor(cfg)` and the `running_dispatchers` scan by BARE module name
+    (so a `monkeypatch.setattr(foundry, "run_doctor"/"running_dispatchers", ...)`
+    in a test bites) -- adding NO new seam. The brain scan is GUARDED exactly like
+    `single_brain_cli`: a normal return builds a SAFE/CONFLICT status; ANY raised
+    exception is CAUGHT and degraded to an UNKNOWN status carrying the error text,
+    so a failed scan can never crash the launch preflight (it becomes CAUTION when
+    the env is ready, else the env blocker keeps it NO-GO -- a confirmed env
+    blocker is never downgraded to CAUTION). `pattern` is forwarded to the scan.
+
+    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
+    indent=2)` document; the default `as_json=False` prints `summary.render()`.
+    Either way the RETURN value is the same scriptable `summary.exit_code`
+    (0 GO / 1 NO-GO / 2 CAUTION). Writes NOTHING to disk -- purely a read-only
+    report; the operator (not this command) decides what to do about a competing
+    brain."""
+    checks = run_doctor(cfg)
+    try:
+        pids = running_dispatchers(pattern)
+        brain = summarize_single_brain(pids, scan_error=None)
+    except Exception as exc:  # a failed scan degrades to UNKNOWN, never crashes
+        brain = summarize_single_brain((), scan_error=str(exc))
+    summary = summarize_preflight(checks=checks, brain=brain)
+    print(json.dumps(summary.to_dict(), indent=2)
+          if as_json else summary.render())
+    return summary.exit_code
+
+
+# --------------------------------------------------------------------------- #
 # Bounded learnings digest (roadmap item 2, bite 1/2).
 #
 # `LEARNINGS.md` grows unbounded, so a fresh agent that reads it to learn what
@@ -3355,6 +3507,24 @@ def main(argv: list[str] | None = None) -> int:
     evt.add_argument("--json", action="store_true",
                      help="emit the digest as one JSON document (machine-readable) "
                           "instead of the human report; same 0/2 exit code, honours --kind/--limit")
+    # `preflight` is the composite LAUNCH gate: it runs the env preflight
+    # (`doctor`, iter 01) AND the single-brain scan (iter 24) and folds them into
+    # ONE three-way GO / NO-GO / CAUTION verdict (human or `--json`) an operator /
+    # launch wrapper checks before starting `dispatcher.py`. It needs `--config`
+    # (for `run_doctor`), so it is dispatched AFTER `load_config` below. Read-only
+    # + on-demand: the pipeline/dispatcher NEVER call it, it writes nothing, and it
+    # only REPORTS (never kills/signals a competing brain -- the operator decides).
+    # Exit 0 GO / 1 NO-GO / 2 CAUTION.
+    pfl = sub.add_parser("preflight")
+    pfl.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    pfl.add_argument("--pattern", default="dispatcher.py",
+                     help="process-command pattern to scan for a running "
+                          "dispatcher (default 'dispatcher.py')")
+    pfl.add_argument("--json", action="store_true",
+                     help="emit the composite verdict as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code")
     args = ap.parse_args(argv)
 
     if args.cmd == "lint-spec":
@@ -3383,6 +3553,8 @@ def main(argv: list[str] | None = None) -> int:
         return weak_tests_cli(cfg, files=args.files, as_json=args.json)
     if args.cmd == "events":
         return events_cli(cfg, kind=args.kind, limit=args.limit, as_json=args.json)
+    if args.cmd == "preflight":
+        return preflight_cli(cfg, pattern=args.pattern, as_json=args.json)
     if args.cmd == "once":
         res = run_iteration(cfg)
         print(json.dumps(res))
