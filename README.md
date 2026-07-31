@@ -80,6 +80,9 @@ uv run python foundry.py prd --config products/repolens/config.json
 
 # 8. Classify a diff's scope (coverage-only "light" vs "full"); DORMANT — the gate does not consult it yet:
 uv run python foundry.py gate-scope --config products/repolens/config.json  # [--base REF] [--files path ...]
+
+# 9. Company-health probe: latest iter + last ship's POSTRELEASE verdict + the HOTFIX/SPEED flags + prd (exit 0 healthy/1 attention/2 nothing shipped):
+uv run python foundry.py status --config products/repolens/config.json
 ```
 
 Stop any time: `touch STOP` (whole company) or `touch products/<name>/STOP`
