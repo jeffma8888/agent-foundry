@@ -520,6 +520,31 @@ class SingleBrainStatus:
         lines.append(f"verdict: {self.verdict} (exit {self.exit_code})")
         return "\n".join(lines)
 
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe launch-preflight verdict for machine consumers --
+        a launch wrapper / cron / CI gate (roadmap item 10's "machine-readable
+        status for dashboards / the reporter"), mirroring iter-19's
+        `StatusSummary.to_dict()` and the other read-only probes.
+
+        Returns EXACTLY 7 keys in a fixed order: the two STORED fields first --
+        `pids` (as a JSON ARRAY of ints in the SAME order as the tuple, so the
+        payload round-trips through `json.loads(json.dumps(...))` where a tuple
+        would not) and `scan_error` verbatim -- followed by the five DERIVED
+        values, each REUSING the frozen properties (`unknown`/`conflict`/`safe`/
+        `verdict`/`exit_code`) so the JSON can never disagree with what
+        `render()` prints or the exit code returns. Every value is JSON-native
+        (list[int] / str / None / bool / int), so `json.dumps(...)` never raises.
+        Pure: touches no filesystem and does not mutate the frozen status."""
+        return {
+            "pids": list(self.pids),
+            "scan_error": self.scan_error,
+            "unknown": self.unknown,
+            "conflict": self.conflict,
+            "safe": self.safe,
+            "verdict": self.verdict,
+            "exit_code": self.exit_code,
+        }
+
 
 def summarize_single_brain(pids: tuple[int, ...] = (), *,
                            scan_error: str | None = None) -> SingleBrainStatus:
@@ -535,7 +560,8 @@ def summarize_single_brain(pids: tuple[int, ...] = (), *,
     return SingleBrainStatus(pids=tuple(pids), scan_error=scan_error)
 
 
-def single_brain_cli(pattern: str = "dispatcher.py") -> int:
+def single_brain_cli(pattern: str = "dispatcher.py",
+                     as_json: bool = False) -> int:
     """On-demand launch preflight: report whether a dispatcher is ALREADY running.
 
     Calls the `running_dispatchers` seam by BARE name (so a
@@ -543,16 +569,22 @@ def single_brain_cli(pattern: str = "dispatcher.py") -> int:
     inside a guard: a normal return builds a SAFE/CONFLICT status from the PIDs
     (`scan_error=None`); ANY raised exception is CAUGHT and turned into an
     UNKNOWN status carrying the exception text -- a failed scan must never crash
-    the preflight, it degrades to "could not check". Prints `status.render()`
-    and returns the scriptable `status.exit_code` (0 SAFE / 1 CONFLICT / 2
-    UNKNOWN). Writes NOTHING to disk -- purely a read-only report a launch
-    wrapper can gate on."""
+    the preflight, it degrades to "could not check".
+
+    With `as_json=True` the entire stdout is ONE `json.dumps(status.to_dict(),
+    indent=2)` document (the machine contract a launch wrapper / CI gate parses
+    for the *why* -- which PIDs conflict or the scan error -- without brittly
+    reading `render()`); the default `as_json=False` is byte-for-byte the iter-24
+    human `render()` text. Either way the RETURN value is the same scriptable
+    `status.exit_code` (0 SAFE / 1 CONFLICT / 2 UNKNOWN). Writes NOTHING to disk
+    -- purely a read-only report; `--json` only ADDS a payload, it changes
+    nothing about the verdict or the default human path."""
     try:
         pids = running_dispatchers(pattern)
         status = summarize_single_brain(pids, scan_error=None)
     except Exception as exc:  # a failed scan degrades to UNKNOWN, never crashes
         status = summarize_single_brain((), scan_error=str(exc))
-    print(status.render())
+    print(json.dumps(status.to_dict(), indent=2) if as_json else status.render())
     return status.exit_code
 
 
@@ -2943,6 +2975,10 @@ def main(argv: list[str] | None = None) -> int:
     sgl.add_argument("--pattern", default="dispatcher.py",
                      help="process-command pattern to scan for "
                           "(default 'dispatcher.py')")
+    sgl.add_argument("--json", action="store_true",
+                     help="emit the preflight verdict as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code")
     # `prd` reports "N/M stories pass" from a product's prd.json machine roadmap
     # (cfg.prd). On-demand only -- the pipeline/dispatcher NEVER call it (bite 2
     # wires the same pure prd_status into the dispatcher for an automatic stop).
@@ -3016,7 +3052,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "lint-spec":
         return lint_spec_cli(args.file)
     if args.cmd == "single-brain":
-        return single_brain_cli(pattern=args.pattern)
+        return single_brain_cli(pattern=args.pattern, as_json=args.json)
 
     cfg = load_config(args.config)
     if args.cmd == "doctor":
