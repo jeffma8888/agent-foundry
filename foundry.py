@@ -393,6 +393,170 @@ def run_doctor_cli(cfg: ProductConfig) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Single-brain launch preflight (`foundry single-brain`) -- roadmap item 14.
+#
+# The VISION names single-brain as a HARD constraint: one foundry per model-API
+# account (the dispatcher serializes teams). The #1 OBSERVED live failure is a
+# violation of exactly this -- two continuous dispatchers on one model-API account
+# starve the shared token budget and BOTH stall ("Too many tokens" / 120s
+# time-to-first-token). `doctor` (item 1) answers "is my machine ready?" and its
+# 4-check contract is pinned by iter-01 tests, so a 5th check would regress them;
+# the iter-06 watchdog only enforces single-brain at RESURRECTION time. This is
+# the missing OPERATOR-launch preflight: a read-only, scriptable command a launch
+# wrapper can gate on by exit code (0 SAFE / 1 CONFLICT / 2 UNKNOWN). It only
+# REPORTS -- it never kills or signals a competing dispatcher (the operator
+# decides). The process scan is funnelled through ONE monkeypatchable seam,
+# `running_dispatchers`, exactly like `doctor`'s `power_state`/`head_of_branch`.
+# --------------------------------------------------------------------------- #
+def running_dispatchers(pattern: str = "dispatcher.py") -> tuple[int, ...]:
+    """Return the PIDs of currently-running dispatcher processes.
+
+    The REAL scan seam behind `foundry single-brain`: it looks in the process
+    table for commands whose FULL command line contains `pattern` (default the
+    dispatcher entrypoint filename) and returns their PIDs, or an empty tuple
+    when none are running -- the SAFE case.
+
+    WHY it is a single seam: like `check_uv`'s real `which` or `doctor`'s
+    `power_state`, its live subprocess behavior is out of offline scope; the
+    tester monkeypatches this function WHOLESALE so every `single_brain_cli`
+    branch is forced offline with zero real `pgrep`.
+
+    Contract: a NON-match is NOT an error -- `pgrep` exits 1 with empty output
+    when nothing matches, which maps to the empty tuple. It RAISES only when the
+    scan itself cannot be performed (e.g. `pgrep` missing -> `FileNotFoundError`,
+    or `TimeoutExpired`), so the caller can tell "no dispatcher running" (empty
+    tuple, SAFE) apart from "I could not check" (raise, UNKNOWN). It does NOT
+    exclude the current process: the `"dispatcher.py"` pattern never matches the
+    `foundry.py single-brain` invocation, and `pgrep` already omits its own PID.
+    """
+    proc = subprocess.run(["pgrep", "-f", pattern],
+                          capture_output=True, text=True, timeout=15)
+    pids: list[int] = []
+    for line in proc.stdout.splitlines():
+        token = line.strip()
+        if token.isdigit():
+            pids.append(int(token))
+    return tuple(pids)
+
+
+@dataclasses.dataclass(frozen=True)
+class SingleBrainStatus:
+    """A single-brain launch-preflight verdict (item 14).
+
+    Frozen so a computed verdict can't be mutated after the fact (value equality
+    for free, matching the other pure cores). Exactly two STORED fields; every
+    verdict signal below is a PURE derivation of them, so the human `render()`,
+    the `verdict` token and the scriptable `exit_code` follow deterministically
+    and can never disagree.
+
+    Fields:
+      * `pids` -- PIDs of dispatcher processes the scan found (empty == none).
+      * `scan_error` -- `None` on a successful scan; the error text when the scan
+        itself could not be performed. An unperformed scan can neither confirm
+        nor deny a competing brain, so it makes the verdict UNKNOWN (not SAFE).
+    """
+    pids: tuple[int, ...]
+    scan_error: str | None
+
+    @property
+    def unknown(self) -> bool:
+        """True iff the scan could not be performed (`scan_error` is set). When
+        unknown we make NO safe/conflict claim -- we simply could not check."""
+        return self.scan_error is not None
+
+    @property
+    def conflict(self) -> bool:
+        """True iff the scan SUCCEEDED and found >=1 dispatcher already running
+        (a second brain would starve the shared token budget). Never True when
+        `unknown` -- an unperformed scan is not a conflict."""
+        return not self.unknown and len(self.pids) >= 1
+
+    @property
+    def safe(self) -> bool:
+        """True iff the scan SUCCEEDED and found NO dispatcher running -- safe to
+        launch one brain. Never True when `unknown`. Whenever `unknown` is False
+        EXACTLY one of `safe`/`conflict` is True (they partition len(pids)==0)."""
+        return not self.unknown and len(self.pids) == 0
+
+    @property
+    def verdict(self) -> str:
+        """The single human token for the current state -- UNKNOWN first (an
+        unperformed scan dominates), else CONFLICT, else SAFE. ONE source of
+        truth for both `render()` and `exit_code`, so they can never drift."""
+        if self.unknown:
+            return "UNKNOWN"
+        return "CONFLICT" if self.conflict else "SAFE"
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable verdict a launch wrapper can gate on: `2` UNKNOWN / `1`
+        CONFLICT / `0` SAFE. Derived from `verdict` so the code and the printed
+        token are always consistent."""
+        return {"SAFE": 0, "CONFLICT": 1, "UNKNOWN": 2}[self.verdict]
+
+    def render(self) -> str:
+        """A deterministic, non-empty, multi-line human report that NEVER raises.
+
+        Always names the verdict. In CONFLICT it lists EVERY offending PID from
+        `pids`; in UNKNOWN it includes the `scan_error` text; in SAFE it states
+        that no dispatcher is running. The final line echoes the verdict token
+        and its exit code so the text and the scriptable code stay visibly in
+        sync."""
+        lines = [f"foundry single-brain: {self.verdict}"]
+        if self.unknown:
+            lines.append(
+                f"  could not check for a running dispatcher: {self.scan_error}")
+            lines.append("  verify manually before launching a brain, or re-run "
+                         "once the process scan works.")
+        elif self.conflict:
+            lines.append(f"  {len(self.pids)} dispatcher(s) already running -- "
+                         "do NOT start a second brain:")
+            for pid in self.pids:
+                lines.append(f"    pid {pid}")
+            lines.append("  a second dispatcher would starve the shared "
+                         "model-API token budget (both would stall).")
+        else:
+            lines.append("  no dispatcher is running -- safe to launch one brain.")
+        lines.append(f"verdict: {self.verdict} (exit {self.exit_code})")
+        return "\n".join(lines)
+
+
+def summarize_single_brain(pids: tuple[int, ...] = (), *,
+                           scan_error: str | None = None) -> SingleBrainStatus:
+    """Pure constructor for a `SingleBrainStatus` (item 14).
+
+    A total, side-effect-free wrapper that packs a scan result into the frozen
+    verdict: `pids` is normalised to `tuple(pids)` (accepts any iterable of ints)
+    and `scan_error` is stored verbatim. Kept separate from `single_brain_cli`
+    so the decision core is a pure function the tester can drive with zero
+    filesystem/subprocess -- e.g. `summarize_single_brain((123, 456))` ->
+    conflict / exit 1; `summarize_single_brain((), scan_error="no pgrep")` ->
+    unknown / exit 2. Never raises."""
+    return SingleBrainStatus(pids=tuple(pids), scan_error=scan_error)
+
+
+def single_brain_cli(pattern: str = "dispatcher.py") -> int:
+    """On-demand launch preflight: report whether a dispatcher is ALREADY running.
+
+    Calls the `running_dispatchers` seam by BARE name (so a
+    `monkeypatch.setattr(foundry, "running_dispatchers", ...)` in a test bites)
+    inside a guard: a normal return builds a SAFE/CONFLICT status from the PIDs
+    (`scan_error=None`); ANY raised exception is CAUGHT and turned into an
+    UNKNOWN status carrying the exception text -- a failed scan must never crash
+    the preflight, it degrades to "could not check". Prints `status.render()`
+    and returns the scriptable `status.exit_code` (0 SAFE / 1 CONFLICT / 2
+    UNKNOWN). Writes NOTHING to disk -- purely a read-only report a launch
+    wrapper can gate on."""
+    try:
+        pids = running_dispatchers(pattern)
+        status = summarize_single_brain(pids, scan_error=None)
+    except Exception as exc:  # a failed scan degrades to UNKNOWN, never crashes
+        status = summarize_single_brain((), scan_error=str(exc))
+    print(status.render())
+    return status.exit_code
+
+
+# --------------------------------------------------------------------------- #
 # Bounded learnings digest (roadmap item 2, bite 1/2).
 #
 # `LEARNINGS.md` grows unbounded, so a fresh agent that reads it to learn what
@@ -2767,6 +2931,18 @@ def main(argv: list[str] | None = None) -> int:
     lnt = sub.add_parser("lint-spec")
     lnt.add_argument("--file", required=True,
                      help="path to a PM spec (pm.md) to lint")
+    # `single-brain` is a read-only launch PREFLIGHT: it reports whether a
+    # dispatcher is ALREADY running so an operator (or a launch wrapper) can
+    # refuse to start a SECOND competing brain, which would starve the shared
+    # model-API token budget -- the #1 observed unattended-run failure. Like
+    # `lint-spec`, it needs NO --config (nothing product-specific), so it is
+    # dispatched BEFORE load_config below. On-demand only -- the pipeline /
+    # dispatcher NEVER call it; it writes nothing. Exit 0 SAFE / 1 CONFLICT /
+    # 2 UNKNOWN, so a wrapper can gate a launch on `[ $? -eq 0 ]`.
+    sgl = sub.add_parser("single-brain")
+    sgl.add_argument("--pattern", default="dispatcher.py",
+                     help="process-command pattern to scan for "
+                          "(default 'dispatcher.py')")
     # `prd` reports "N/M stories pass" from a product's prd.json machine roadmap
     # (cfg.prd). On-demand only -- the pipeline/dispatcher NEVER call it (bite 2
     # wires the same pure prd_status into the dispatcher for an automatic stop).
@@ -2839,6 +3015,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "lint-spec":
         return lint_spec_cli(args.file)
+    if args.cmd == "single-brain":
+        return single_brain_cli(pattern=args.pattern)
 
     cfg = load_config(args.config)
     if args.cmd == "doctor":

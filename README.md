@@ -92,6 +92,9 @@ uv run python foundry.py timing --config products/repolens/config.json  # [--lim
 
 # 12. Scan test files for assertion-free `test*` functions (a test that passes without validating anything = false green); DORMANT -- the pipeline/gate never consults it (exit 0 clean/1 weak-or-unparseable/2 nothing to scan); read-only:
 uv run python foundry.py weak-tests --config products/repolens/config.json  # [--files path ...] to scan exactly those files instead of walking the repo [--json for one machine-readable scan doc: dashboards/reporter/CI; same 0/1/2 exit code, honours --files]
+
+# 13. Launch preflight: refuse to start a SECOND brain -- report whether a dispatcher is ALREADY running before you launch (exit 0 SAFE/1 CONFLICT/2 UNKNOWN); needs NO --config, read-only, writes nothing:
+uv run python foundry.py single-brain  # [--pattern P] process-command pattern to scan for (default 'dispatcher.py'); gate a launch on `[ $? -eq 0 ]`
 ```
 
 Stop any time: `touch STOP` (whole company) or `touch products/<name>/STOP`
