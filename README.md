@@ -95,6 +95,9 @@ uv run python foundry.py weak-tests --config products/repolens/config.json  # [-
 
 # 13. Launch preflight: refuse to start a SECOND brain -- report whether a dispatcher is ALREADY running before you launch (exit 0 SAFE/1 CONFLICT/2 UNKNOWN); needs NO --config, read-only, writes nothing:
 uv run python foundry.py single-brain  # [--pattern P] process-command pattern to scan for (default 'dispatcher.py'); gate a launch on `[ $? -eq 0 ]` [--json for one machine-readable verdict doc: launch-wrapper/CI; same 0/1/2 exit code]
+
+# 14. Digest a product's typed events.jsonl: filter by kind, tail the most-recent N, count by kind (exit 0 something-shown/2 nothing shown); DORMANT -- the pipeline/dispatcher never call it, writes nothing; read-only:
+uv run python foundry.py events --config products/repolens/config.json  # [--kind K] exact-match filter [--limit N] tail most-recent N [--json for one machine-readable digest doc: dashboards/reporter; same 0/2 exit code, honours --kind/--limit]
 ```
 
 Stop any time: `touch STOP` (whole company) or `touch products/<name>/STOP`
