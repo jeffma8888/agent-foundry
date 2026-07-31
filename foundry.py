@@ -1617,6 +1617,249 @@ def status_cli(cfg: ProductConfig) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Multi-iteration ship ledger (`history`) -- item 13
+#
+# The read-only, offline TREND view that complements `status`: `status` answers
+# "is my company healthy RIGHT NOW?" from the latest snapshot; `history` answers
+# "what has my company actually DONE over its run?" -- a compact ledger of every
+# iteration's ship ACTION + POSTRELEASE outcome, built with the same proven
+# pattern (pure decision functions + a thin CLI over existing seams) and REUSING
+# `parse_postrelease_verdict` verbatim. Purely additive, off the control path:
+# the pipeline/dispatcher NEVER call it, so the gate and the running loop are
+# untouched. It writes NOTHING.
+# --------------------------------------------------------------------------- #
+def parse_ship_action(text: str) -> str | None:
+    """Extract the ship ACTION from a `final.md` body (pure, total).
+
+    The action is the FIRST token on the LAST non-empty line when that line reads
+    `ACTION: PUSHED <sha>` (-> `"PUSHED"`, the trailing sha ignored) or
+    `ACTION: REVERTED` (-> `"REVERTED"`) -- mirroring `parse_postrelease_verdict`
+    and the sentinel the Final Reviewer writes as the artifact's final line.
+    Trailing blank lines are ignored (the last NON-empty line wins) and
+    leading/trailing whitespace on the sentinel line is tolerated
+    (`  ACTION:  REVERTED  ` -> `"REVERTED"`).
+
+    Returns `None` -- never raising for ANY string -- when there is no action:
+    empty / whitespace-only text; no `ACTION:` line; an unrecognized token
+    (`ACTION: MAYBE`); or an `ACTION:` line that is NOT the last non-empty line
+    (prose follows it -- an in-progress or malformed artifact). Requiring the
+    sentinel to be LAST matches how the artifact is emitted, so a stray earlier
+    mention can never be misread.
+    """
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    if not lines:
+        return None
+    last = lines[-1]
+    prefix = "ACTION:"
+    if not last.startswith(prefix):
+        return None
+    # `.split()` collapses any run of whitespace after `ACTION:`, so the first
+    # element is the action token regardless of the spacing around it; a bare
+    # `ACTION:` with nothing after yields an empty list -> `None`.
+    tokens = last[len(prefix):].split()
+    if not tokens:
+        return None
+    action = tokens[0]
+    return action if action in ("PUSHED", "REVERTED") else None
+
+
+def iteration_numbers(names) -> list[int]:
+    """Parse an iterable of dir names into sorted-ascending UNIQUE iteration ints.
+
+    Keeps only names of the EXACT form `iter-<digits>` (2-digit zero-pad in
+    practice, but any run of decimal digits is accepted), maps each to its int,
+    de-dupes, and returns them sorted numerically -- so `iter-10` sorts AFTER
+    `iter-03`, not lexically before it. Every other name (`foo`, `iter-`,
+    `iter-xx`) is ignored. Uses `str.isdecimal()` (which is exactly the set
+    `int()` accepts for a bare digit run) so the function is TOTAL: it never
+    raises for any input, and an empty / no-match iterable returns `[]`.
+    """
+    prefix = "iter-"
+    seen: set[int] = set()
+    for name in names:
+        text = str(name)
+        if not text.startswith(prefix):
+            continue
+        digits = text[len(prefix):]
+        # `isdecimal()` is False for "", "iter-xx", "iter-+3" etc. and True only
+        # for a pure decimal-digit run, which `int()` then always parses.
+        if digits.isdecimal():
+            seen.add(int(digits))
+    return sorted(seen)
+
+
+@dataclasses.dataclass(frozen=True)
+class IterationRecord:
+    """One iteration's ship outcome (item 13).
+
+    Frozen so a computed record can't be mutated after the fact (value equality
+    for free, matching the other pure cores). Fields:
+      * `iteration` -- the iteration number (e.g. `3` for `iter-03`).
+      * `action` -- the ship action: `"PUSHED"` / `"REVERTED"` / `None`
+        (no `final.md` / no recognizable `ACTION:` sentinel).
+      * `postrelease` -- the ship's post-release verdict: `"HEALTHY"` /
+        `"BROKEN"` / `None` (no `postrelease.md`, i.e. a no-ship / older iter).
+    """
+    iteration: int
+    action: str | None
+    postrelease: str | None
+
+    @property
+    def label(self) -> str:
+        """A compact ASCII outcome word for the ledger row.
+
+        A REVERT is a REVERT regardless of any stray post-release verdict, so it
+        is tested FIRST; a PUSH is then qualified by its post-release health
+        (`BROKEN` is loud so it stays upper-case)."""
+        if self.action == "REVERTED":
+            return "reverted"
+        if self.action == "PUSHED":
+            if self.postrelease == "BROKEN":
+                return "shipped/BROKEN"
+            if self.postrelease == "HEALTHY":
+                return "shipped/healthy"
+            return "shipped"
+        return "no-ship"
+
+
+@dataclasses.dataclass(frozen=True)
+class HistorySummary:
+    """A multi-iteration ship ledger for one product (item 13).
+
+    Frozen (value equality, no post-hoc mutation). `records` is stored as a
+    `tuple` in the order to render. The four counts and `exit_code` are pure
+    derivations of `records`. `exit_code` is `2` iff there is NOTHING to report
+    (`total == 0`) else `0`: history is INFORMATIONAL -- a past-then-fixed
+    `BROKEN` never gates (that's `foundry status`'s current-attention job), so a
+    healthy-looking history and a history-with-old-breakage both exit `0`.
+    """
+    product: str
+    records: tuple["IterationRecord", ...]
+
+    @property
+    def total(self) -> int:
+        return len(self.records)
+
+    @property
+    def shipped(self) -> int:
+        return sum(1 for r in self.records if r.action == "PUSHED")
+
+    @property
+    def reverted(self) -> int:
+        return sum(1 for r in self.records if r.action == "REVERTED")
+
+    @property
+    def broken(self) -> int:
+        return sum(1 for r in self.records if r.postrelease == "BROKEN")
+
+    @property
+    def exit_code(self) -> int:
+        """`2` iff nothing to report else `0` -- history never gates on a
+        past-then-fixed breakage (current attention is `foundry status`'s job)."""
+        return 2 if self.total == 0 else 0
+
+    def render(self) -> str:
+        """A deterministic multi-line ledger carrying every per-iter outcome.
+
+        Contains, as substrings (the CLI's black-box contract): the `product`
+        name; for EACH record (in stored order) a row with `iter-NN` (2-digit
+        zero-pad), the record's `label`, and `post-release: HEALTHY|BROKEN|
+        unknown` (`unknown` when there is no verdict); and a final rollup line
+        `{total} iterations: {shipped} shipped, {reverted} reverted, {broken}
+        broken`. When there are no records it also carries `no iterations yet`
+        (and the rollup naturally shows `0 iterations`)."""
+        header = f"foundry history -- {self.product}"
+        rollup = (f"{self.total} iterations: {self.shipped} shipped, "
+                  f"{self.reverted} reverted, {self.broken} broken")
+        if not self.records:
+            return "\n".join([header, "  no iterations yet", rollup])
+        rows = []
+        for r in self.records:
+            pr = r.postrelease if r.postrelease is not None else "unknown"
+            rows.append(f"  iter-{r.iteration:02d}  {r.label}  "
+                        f"post-release: {pr}")
+        return "\n".join([header, *rows, rollup])
+
+
+def summarize_history(*, product: str, records) -> HistorySummary:
+    """Pure keyword-only constructor for a `HistorySummary` (item 13).
+
+    A thin, total wrapper that packs the product name + an iterable of
+    `IterationRecord` into the frozen ledger, materializing `records` as a
+    `tuple` (so the frozen dataclass stays hashable/immutable and a caller's
+    list can never be mutated out from under it). Keyword-only so the two fields
+    can never be transposed; it never raises. Kept separate from `history_cli`
+    so the decision core stays a pure function the tester can drive without any
+    filesystem (Behavior 7)."""
+    return HistorySummary(product=product, records=tuple(records))
+
+
+def _read_sentinel(path: pathlib.Path, parser) -> str | None:
+    """Read a sentinel artifact through `parser`, degrading to `None` on any
+    absent file or read error (never raising).
+
+    Both parsers (`parse_ship_action` / `parse_postrelease_verdict`) are already
+    total, so the only failure mode is the filesystem: a missing artifact or an
+    `OSError` on read reads as `None` ("unknown"), never crashing the read-only
+    probe. `parser` is passed in (rather than hard-wired) so the caller's
+    bare-name reference is resolved in the module globals at call time -- a
+    `monkeypatch.setattr(foundry, "parse_ship_action", ...)` still bites."""
+    try:
+        if path.exists():
+            return parser(path.read_text())
+    except OSError:
+        return None
+    return None
+
+
+def history_cli(cfg: ProductConfig, limit: int | None = None) -> int:
+    """On-demand CLI: print a multi-iteration ship ledger + a 0/2 exit code.
+
+    Gathers every signal through the EXISTING module-level seams -- called by
+    BARE name so a `monkeypatch.setattr(foundry, ...)` in a test bites:
+      * lists `cfg.state`'s dir names (guarded -- a missing state dir yields no
+        names, never an error) and derives the iteration numbers via
+        `iteration_numbers`;
+      * applies `limit` -- keep the highest-N iterations when `limit` is a
+        POSITIVE int, else ALL (a missing / non-positive `--limit` shows the full
+        run); the numbers stay ascending so the ledger reads oldest-first;
+      * for each iteration reads `state/iter-NN/final.md` through
+        `parse_ship_action` and `state/iter-NN/postrelease.md` through the
+        EXISTING `parse_postrelease_verdict`, both guarded to `None` on an absent
+        file / read error.
+    Hands the records to the pure `summarize_history`/`HistorySummary` core,
+    prints `render()`, and returns `exit_code`. Writes NOTHING to disk
+    (read-only) -- no decision logic of its own, so the printed rollup always
+    equals the `HistorySummary` fields."""
+    state = cfg.state
+    try:
+        names = [p.name for p in state.iterdir()] if state.exists() else []
+    except OSError:
+        # A read error on the state dir must degrade to "no iterations", never
+        # crash the probe (same no-news-is-good-news contract as the artifacts).
+        names = []
+    numbers = iteration_numbers(names)
+    if isinstance(limit, int) and limit > 0:
+        # `numbers` is ascending, so the most-recent N are the LAST N; the slice
+        # preserves ascending order for the ledger.
+        numbers = numbers[-limit:]
+    records = [
+        IterationRecord(
+            iteration=n,
+            action=_read_sentinel(state / f"iter-{n:02d}" / "final.md",
+                                  parse_ship_action),
+            postrelease=_read_sentinel(
+                state / f"iter-{n:02d}" / "postrelease.md",
+                parse_postrelease_verdict),
+        )
+        for n in numbers
+    ]
+    summary = summarize_history(product=cfg.name, records=records)
+    print(summary.render())
+    return summary.exit_code
+
+
+# --------------------------------------------------------------------------- #
 # Prompt + stage runner
 # --------------------------------------------------------------------------- #
 def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
@@ -1907,6 +2150,16 @@ def main(argv: list[str] | None = None) -> int:
     sts = sub.add_parser("status")
     sts.add_argument("--config", required=True,
                      help="path to product JSON config")
+    # `history` prints a read-only, offline multi-iteration ship LEDGER for
+    # one product: each iter's ACTION (from final.md) + POSTRELEASE verdict
+    # + a rollup, in ascending order. `--limit N` shows only the most-recent
+    # N. On-demand only -- the pipeline/dispatcher NEVER call it; it writes
+    # nothing. Exit 0 (has history) / 2 (nothing shipped yet).
+    his = sub.add_parser("history")
+    his.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    his.add_argument("--limit", type=int, default=None,
+                     help="show only the most-recent N iterations (default: all)")
     args = ap.parse_args(argv)
 
     if args.cmd == "lint-spec":
@@ -1925,6 +2178,8 @@ def main(argv: list[str] | None = None) -> int:
         return gate_scope_cli(cfg, files=args.files, base=args.base)
     if args.cmd == "status":
         return status_cli(cfg)
+    if args.cmd == "history":
+        return history_cli(cfg, limit=args.limit)
     if args.cmd == "once":
         res = run_iteration(cfg)
         print(json.dumps(res))

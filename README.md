@@ -83,6 +83,9 @@ uv run python foundry.py gate-scope --config products/repolens/config.json  # [-
 
 # 9. Company-health probe: latest iter + last ship's POSTRELEASE verdict + the HOTFIX/SPEED flags + prd (exit 0 healthy/1 attention/2 nothing shipped):
 uv run python foundry.py status --config products/repolens/config.json
+
+# 10. Multi-iteration ship ledger: each iteration's ACTION + POSTRELEASE outcome, ascending, + a rollup (exit 0 has-history/2 nothing shipped); read-only:
+uv run python foundry.py history --config products/repolens/config.json  # [--limit N]
 ```
 
 Stop any time: `touch STOP` (whole company) or `touch products/<name>/STOP`
