@@ -85,7 +85,7 @@ uv run python foundry.py gate-scope --config products/repolens/config.json  # [-
 uv run python foundry.py status --config products/repolens/config.json  # [--json for one machine-readable snapshot: dashboards/alerts; same 0/1/2 exit code]
 
 # 10. Multi-iteration ship ledger: each iteration's ACTION + POSTRELEASE outcome, ascending, + a rollup (exit 0 has-history/2 nothing shipped); read-only:
-uv run python foundry.py history --config products/repolens/config.json  # [--limit N]
+uv run python foundry.py history --config products/repolens/config.json  # [--limit N] [--json for one machine-readable ledger doc: dashboards/reporter; same 0/2 exit code, honours --limit]
 
 # 11. Per-iteration suite wall-time digest: each iter's fresh-clone suite seconds + a min/max/avg/last + slow-count rollup (exit 0 has-measured-timings/2 none measured); read-only:
 uv run python foundry.py timing --config products/repolens/config.json  # [--limit N]
