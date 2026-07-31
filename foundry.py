@@ -1765,6 +1765,25 @@ class IterationRecord:
             return "shipped"
         return "no-ship"
 
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of one ledger row for machine
+        consumers (roadmap item 10's "machine-readable status for dashboards /
+        the reporter").
+
+        Returns EXACTLY 4 keys in a fixed order: the three STORED fields verbatim
+        (`iteration`/`action`/`postrelease`) followed by the DERIVED `label`,
+        REUSING the frozen `label` property so the JSON row can never disagree
+        with what `render()` prints. Every value is JSON-native (int / str /
+        None), so `json.dumps(...)` never raises and the dict round-trips through
+        `json.loads(json.dumps(...))`. Pure: touches no filesystem, only the
+        already-computed record."""
+        return {
+            "iteration": self.iteration,
+            "action": self.action,
+            "postrelease": self.postrelease,
+            "label": self.label,
+        }
+
 
 @dataclasses.dataclass(frozen=True)
 class HistorySummary:
@@ -1824,6 +1843,30 @@ class HistorySummary:
                         f"post-release: {pr}")
         return "\n".join([header, *rows, rollup])
 
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of the whole ledger for machine
+        consumers (roadmap item 10's "machine-readable status for dashboards /
+        the reporter"), mirroring iter-19's `StatusSummary.to_dict()`.
+
+        Returns EXACTLY 7 keys in a fixed order: `product` verbatim, the four
+        counts + `exit_code` each REUSING the frozen properties (`total`/
+        `shipped`/`reverted`/`broken`/`exit_code`) so the payload can never
+        disagree with `render()`/the returned exit code, then `records` as a JSON
+        array of each record's `to_dict()` in the SAME order as `self.records`.
+        Every value is JSON-native (str / int / list of dicts), so
+        `json.dumps(...)` never raises and the dict round-trips through
+        `json.loads(json.dumps(...))`. Pure: touches no filesystem, only the
+        already-gathered records."""
+        return {
+            "product": self.product,
+            "total": self.total,
+            "shipped": self.shipped,
+            "reverted": self.reverted,
+            "broken": self.broken,
+            "exit_code": self.exit_code,
+            "records": [r.to_dict() for r in self.records],
+        }
+
 
 def summarize_history(*, product: str, records) -> HistorySummary:
     """Pure keyword-only constructor for a `HistorySummary` (item 13).
@@ -1856,8 +1899,16 @@ def _read_sentinel(path: pathlib.Path, parser) -> str | None:
     return None
 
 
-def history_cli(cfg: ProductConfig, limit: int | None = None) -> int:
+def history_cli(cfg: ProductConfig, limit: int | None = None,
+                as_json: bool = False) -> int:
     """On-demand CLI: print a multi-iteration ship ledger + a 0/2 exit code.
+
+    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
+    indent=2)` document (the stable machine contract for dashboards/reporters,
+    mirroring iter-19's `status --json`); the default `as_json=False` is
+    byte-for-byte the iter-17 human `render()` text. Either way the RETURN value
+    is the same `summary.exit_code`, `--limit` selection is identical, and
+    nothing is written to disk.
 
     Gathers every signal through the EXISTING module-level seams -- called by
     BARE name so a `monkeypatch.setattr(foundry, ...)` in a test bites:
@@ -1899,7 +1950,9 @@ def history_cli(cfg: ProductConfig, limit: int | None = None) -> int:
         for n in numbers
     ]
     summary = summarize_history(product=cfg.name, records=records)
-    print(summary.render())
+    # `--json` emits the pure ledger as a single JSON document (stdout-only, no
+    # decision logic added); the default stays the exact iter-17 human report.
+    print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
     return summary.exit_code
 
 
@@ -2423,6 +2476,9 @@ def main(argv: list[str] | None = None) -> int:
                      help="path to product JSON config")
     his.add_argument("--limit", type=int, default=None,
                      help="show only the most-recent N iterations (default: all)")
+    his.add_argument("--json", action="store_true",
+                     help="emit the ledger as one JSON document (machine-readable) "
+                          "instead of the human report; same 0/2 exit code, honours --limit")
     # `timing` prints a read-only, offline per-iteration suite-wall-time DIGEST
     # (min/max/avg/last/slow-count) for one product, parsed from each iter's
     # `postrelease.md` `suite_seconds` body line, ascending. `--limit N` shows
@@ -2452,7 +2508,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "status":
         return status_cli(cfg, as_json=args.json)
     if args.cmd == "history":
-        return history_cli(cfg, limit=args.limit)
+        return history_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "timing":
         return timing_cli(cfg, limit=args.limit)
     if args.cmd == "once":
