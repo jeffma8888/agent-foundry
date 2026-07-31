@@ -98,6 +98,9 @@ uv run python foundry.py single-brain  # [--pattern P] process-command pattern t
 
 # 14. Digest a product's typed events.jsonl: filter by kind, tail the most-recent N, count by kind (exit 0 something-shown/2 nothing shown); DORMANT -- the pipeline/dispatcher never call it, writes nothing; read-only:
 uv run python foundry.py events --config products/repolens/config.json  # [--kind K] exact-match filter [--limit N] tail most-recent N [--json for one machine-readable digest doc: dashboards/reporter; same 0/2 exit code, honours --kind/--limit]
+
+# 15. Composite LAUNCH gate: fold the env preflight (#0 doctor) AND the single-brain scan (#13) into ONE three-way GO / NO-GO / CAUTION verdict before starting the dispatcher (exit 0 GO / 1 NO-GO / 2 CAUTION); read-only, writes nothing, report-only (the operator decides):
+uv run python foundry.py preflight --config products/repolens/config.json  # [--pattern P] process-command pattern to scan for a running dispatcher (default 'dispatcher.py'); a confirmed env blocker or a rival brain is NO-GO(1), an uncheckable scan on a ready env is CAUTION(2); gate a launch on `[ $? -eq 0 ]` [--json for one machine-readable composite verdict doc: launch-wrapper/CI; same 0/1/2 exit code]
 ```
 
 Stop any time: `touch STOP` (whole company) or `touch products/<name>/STOP`
