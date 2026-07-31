@@ -178,7 +178,58 @@ def now() -> str:
     return dt.datetime.now().strftime("%m-%d %H:%M:%S")
 
 
-def emit_event(events_path: pathlib.Path, event: str, **fields) -> None:
+# Typed machine-readable events (roadmap item 10 -- the on-mission completion).
+# The foundry's ~17 `log()` messages are highly regular and their load-bearing
+# tokens are stable in the source (`SHIPPED`, `reverted`, `POSTRELEASE`,
+# `backing off`, `STOP requested`, ...). `classify_event` stamps a stable
+# semantic `kind` onto every `events.jsonl` record (via `log()`'s best-effort
+# mirror) so a dashboard / cron-alert / the reporter can FILTER by event type
+# ("all ships", "all reverts", "all backoffs", "all post-release verdicts")
+# instead of re-parsing the free-form prose `msg` -- exactly the brittle
+# text-parsing the read-only JSON surface (iters 19-25) was built to eliminate.
+#
+# Matching is lowercase-substring, FIRST rule wins, so order is load-bearing:
+# the specific verdicts (`ship`/`revert`/`postrelease`) precede the generic
+# boundary lines (`iteration`/`stage`) so a verdict is never shadowed. NOTE the
+# `ship` token is `"shipped"` (NOT `"ship"`), so "...WITHOUT ship (reverted...)"
+# correctly classifies as `revert`, not `ship`.
+EVENT_KIND_DEFAULT = "info"
+EVENT_KIND_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("ship", ("shipped",)),
+    ("revert", ("reverted",)),
+    ("postrelease", ("postrelease", "post-release")),
+    ("timing", ("suite wall-time",)),
+    ("backoff", ("backing off", "cooling down")),
+    ("stop", ("stop requested", "stop honored")),
+    ("lifecycle", ("foundry started", "foundry stopped")),
+    ("fix", ("fix pass",)),
+    ("iteration", ("iteration",)),
+    ("stage", ("attempt", "produced", "no output file")),
+)
+
+
+def classify_event(msg: str) -> str:
+    """Return a stable semantic ``kind`` for a foundry ``log()`` message.
+
+    Pure and total: lowercases ``msg`` once, then returns the kind of the FIRST
+    ``EVENT_KIND_RULES`` entry any of whose (lowercase) substrings occur in it;
+    falls back to ``EVENT_KIND_DEFAULT`` (``"info"``) when nothing matches
+    (including the empty string). Both module globals are looked up HERE, by bare
+    name, at CALL time -- never captured as def-time defaults -- so a
+    ``monkeypatch.setattr(foundry, "EVENT_KIND_RULES", ...)`` bites. It touches no
+    I/O and never raises, so the best-effort ``emit_event`` mirror in ``log()`` can
+    compute it inside its existing try/except with zero risk to the durable
+    NIGHT_LOG write. Purely additive + off every control path: nothing in the
+    pipeline branches on the result.
+    """
+    low = (msg or "").lower()
+    for kind, needles in EVENT_KIND_RULES:
+        if any(needle in low for needle in needles):
+            return kind
+    return EVENT_KIND_DEFAULT
+
+
+def emit_event(events_path: pathlib.Path, event: str, /, **fields) -> None:
     """Append ONE JSON object (one line) to the machine-readable event log.
 
     Why: the human NIGHT_LOG timeline is prose a person reads, but a dashboard
@@ -191,7 +242,10 @@ def emit_event(events_path: pathlib.Path, event: str, **fields) -> None:
         ``now()`` used for the human line) so machine events sort/compare
         unambiguously across timezones.
       * The reserved ``ts``/``event`` keys are stamped LAST, so a caller-supplied
-        ``ts=`` in ``**fields`` can never shadow the real timestamp.
+        ``ts=``/``event=`` in ``**fields`` can never shadow the real timestamp or
+        the positional ``event``. ``event`` is POSITIONAL-ONLY (note the ``/``) so
+        an ``event=`` keyword lands harmlessly in ``**fields`` (then loses to the
+        positional value) rather than raising a "multiple values" ``TypeError``.
       * ``default=str`` coerces any non-serializable field value to its string
         form, so a stray object in the payload can never raise mid-emit.
       * Parents are auto-created and the write is append-only, so earlier lines
@@ -216,8 +270,12 @@ def log(cfg: ProductConfig, msg: str) -> None:
     # error (or a monkeypatched-to-raise emit_event in tests) can never crash a
     # shipped/in-flight iteration, so the emit is fully wrapped. Called by BARE
     # module name so ``monkeypatch.setattr(foundry, "emit_event", ...)`` seams.
+    # `kind=classify_event(msg)` is computed INSIDE this try so even a classifier
+    # bug can never reach the durable NIGHT_LOG write above; `event="log"` stays
+    # UNCHANGED (backward compatible) -- `kind` is a purely ADDITIVE field.
     try:
-        emit_event(cfg.events_log, "log", product=cfg.name, msg=msg)
+        emit_event(cfg.events_log, "log", product=cfg.name, msg=msg,
+                   kind=classify_event(msg))
     except Exception:
         pass
 
