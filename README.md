@@ -89,6 +89,9 @@ uv run python foundry.py history --config products/repolens/config.json  # [--li
 
 # 11. Per-iteration suite wall-time digest: each iter's fresh-clone suite seconds + a min/max/avg/last + slow-count rollup (exit 0 has-measured-timings/2 none measured); read-only:
 uv run python foundry.py timing --config products/repolens/config.json  # [--limit N] [--json for one machine-readable digest doc: dashboards/reporter; same 0/2 exit code, honours --limit]
+
+# 12. Scan test files for assertion-free `test*` functions (a test that passes without validating anything = false green); DORMANT -- the pipeline/gate never consults it (exit 0 clean/1 weak-or-unparseable/2 nothing to scan); read-only:
+uv run python foundry.py weak-tests --config products/repolens/config.json  # [--files path ...] to scan exactly those files instead of walking the repo
 ```
 
 Stop any time: `touch STOP` (whole company) or `touch products/<name>/STOP`
