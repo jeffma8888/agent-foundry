@@ -1535,6 +1535,14 @@ class StatusSummary:
             return 2
         return 0
 
+    @property
+    def verdict(self) -> str:
+        """The single human token for the current `exit_code` -- `"OK"` (0) /
+        `"ATTENTION"` (1) / `"no iterations yet"` (2). ONE source of truth for
+        both `render()`'s last line and the JSON `verdict` key (Behavior 2), so
+        the text and the machine payload can never drift."""
+        return {0: "OK", 1: "ATTENTION", 2: "no iterations yet"}[self.exit_code]
+
     def render(self) -> str:
         """A deterministic multi-line report carrying every gathered signal.
 
@@ -1549,7 +1557,7 @@ class StatusSummary:
                      if self.latest_iter > 0 else "latest iteration: none")
         pr = self.postrelease if self.postrelease is not None else "unknown"
         prd = self.prd_line if self.prd_line is not None else "no prd.json"
-        verdict = {0: "OK", 1: "ATTENTION", 2: "no iterations yet"}[self.exit_code]
+        verdict = self.verdict
         return "\n".join([
             f"foundry status -- {self.product}",
             f"  repo: {self.repo}  branch {self.branch}",
@@ -1560,6 +1568,34 @@ class StatusSummary:
             f"  prd: {prd}",
             f"verdict: {verdict}",
         ])
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe health snapshot for machine consumers -- dashboards
+        / cron alerts / the reporter (roadmap item 10's "machine-readable status").
+
+        Returns EXACTLY 12 keys in a fixed order: the eight STORED fields
+        verbatim (`product`/`repo`/`branch`/`latest_iter`/`postrelease`/`hotfix`/
+        `speed_story`/`prd_line`) followed by the four DERIVED values, each
+        REUSING the frozen properties -- `attention`/`ok`/`exit_code`/`verdict`
+        -- so the JSON payload can never disagree with what `render()` prints or
+        the exit code returns. Every value is JSON-native (str / int / bool /
+        None), so `json.dumps(...)` never raises and the dict round-trips
+        through `json.loads(json.dumps(...))`. Pure: touches no filesystem, only
+        the already-gathered snapshot."""
+        return {
+            "product": self.product,
+            "repo": self.repo,
+            "branch": self.branch,
+            "latest_iter": self.latest_iter,
+            "postrelease": self.postrelease,
+            "hotfix": self.hotfix,
+            "speed_story": self.speed_story,
+            "prd_line": self.prd_line,
+            "attention": self.attention,
+            "ok": self.ok,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+        }
 
 
 def summarize_status(*, product: str, repo: str, branch: str, latest_iter: int,
@@ -1578,8 +1614,14 @@ def summarize_status(*, product: str, repo: str, branch: str, latest_iter: int,
         prd_line=prd_line)
 
 
-def status_cli(cfg: ProductConfig) -> int:
+def status_cli(cfg: ProductConfig, as_json: bool = False) -> int:
     """On-demand CLI: print a company-health snapshot + a 0/1/2 exit code.
+
+    With `as_json=True` the entire stdout is ONE `json.dumps(summary.
+    to_dict(), indent=2)` document (the stable machine contract for
+    dashboards/alerts); the default `as_json=False` is byte-for-byte the
+    iter-16 human `render()` text. Either way the RETURN value is the same
+    `summary.exit_code`, and nothing is written to disk.
 
     Gathers every signal through the EXISTING module-level seams -- called by
     BARE name so a `monkeypatch.setattr(foundry, ...)` in a test bites -- then
@@ -1612,7 +1654,9 @@ def status_cli(cfg: ProductConfig) -> int:
         hotfix=hotfix_flag_path(cfg).exists(),
         speed_story=speed_story_flag_path(cfg).exists(),
         prd_line=dispatch_progress_line(cfg))
-    print(summary.render())
+    # `--json` emits the pure snapshot as a single JSON document (stdout-only, no
+    # decision logic added); the default stays the exact iter-16 human report.
+    print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
     return summary.exit_code
 
 
@@ -2366,6 +2410,9 @@ def main(argv: list[str] | None = None) -> int:
     sts = sub.add_parser("status")
     sts.add_argument("--config", required=True,
                      help="path to product JSON config")
+    sts.add_argument("--json", action="store_true",
+                     help="emit the snapshot as one JSON document (machine-readable) "
+                          "instead of the human report; same 0/1/2 exit code")
     # `history` prints a read-only, offline multi-iteration ship LEDGER for
     # one product: each iter's ACTION (from final.md) + POSTRELEASE verdict
     # + a rollup, in ascending order. `--limit N` shows only the most-recent
@@ -2403,7 +2450,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "gate-scope":
         return gate_scope_cli(cfg, files=args.files, base=args.base)
     if args.cmd == "status":
-        return status_cli(cfg)
+        return status_cli(cfg, as_json=args.json)
     if args.cmd == "history":
         return history_cli(cfg, limit=args.limit)
     if args.cmd == "timing":
