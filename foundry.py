@@ -2291,18 +2291,18 @@ def summarize_status(*, product: str, repo: str, branch: str, latest_iter: int,
         prd_line=prd_line)
 
 
-def status_cli(cfg: ProductConfig, as_json: bool = False) -> int:
-    """On-demand CLI: print a company-health snapshot + a 0/1/2 exit code.
+def gather_status(cfg: ProductConfig) -> StatusSummary:
+    """Gather one product's live health signals into a `StatusSummary` (item 30).
 
-    With `as_json=True` the entire stdout is ONE `json.dumps(summary.
-    to_dict(), indent=2)` document (the stable machine contract for
-    dashboards/alerts); the default `as_json=False` is byte-for-byte the
-    iter-16 human `render()` text. Either way the RETURN value is the same
-    `summary.exit_code`, and nothing is written to disk.
+    Extracted verbatim from the iter-16 `status_cli` gathering so BOTH the
+    single-product `foundry status` and the new company-wide roll-up
+    (`company_status_cli`) share ONE gathering seam; a monkeypatch on this one
+    function then reshapes every consumer at once. Output-preserving: the
+    produced snapshot is byte-identical to what iter-16 built, so `foundry
+    status` is unchanged.
 
-    Gathers every signal through the EXISTING module-level seams -- called by
-    BARE name so a `monkeypatch.setattr(foundry, ...)` in a test bites -- then
-    hands them to the pure `summarize_status`/`StatusSummary` core:
+    Reads every signal through the EXISTING module-level seams -- each called by
+    BARE name so a `monkeypatch.setattr(foundry, ...)` in a test bites:
       * `latest_iter` = `next_iteration(cfg) - 1` (the highest shipped iter);
       * the latest iter's `state/iter-NN/postrelease.md` (2-digit zero-pad), read
         GUARDED through `parse_postrelease_verdict` (absent file / read error ->
@@ -2310,10 +2310,7 @@ def status_cli(cfg: ProductConfig, as_json: bool = False) -> int:
       * the two flag files via `hotfix_flag_path(cfg).exists()` /
         `speed_story_flag_path(cfg).exists()`;
       * the prd progress via `dispatch_progress_line(cfg)`.
-    Prints `summary.render()` and returns `summary.exit_code`. Writes NOTHING to
-    disk (read-only) -- a thin wrapper over the pure core that adds no decision
-    logic of its own, so the printed verdict always equals the `StatusSummary`
-    fields."""
+    Returns a frozen `StatusSummary`; writes NOTHING to disk (read-only)."""
     latest_iter = next_iteration(cfg) - 1
     postrelease: str | None = None
     if latest_iter > 0:
@@ -2325,16 +2322,299 @@ def status_cli(cfg: ProductConfig, as_json: bool = False) -> int:
             # A read error on the artifact must degrade to "unknown", never
             # crash the probe -- no-news-is-good-news, only BROKEN/hotfix alarm.
             postrelease = None
-    summary = summarize_status(
+    return summarize_status(
         product=cfg.name, repo=cfg.repo, branch=cfg.branch,
         latest_iter=latest_iter, postrelease=postrelease,
         hotfix=hotfix_flag_path(cfg).exists(),
         speed_story=speed_story_flag_path(cfg).exists(),
         prd_line=dispatch_progress_line(cfg))
+
+
+def status_cli(cfg: ProductConfig, as_json: bool = False) -> int:
+    """On-demand CLI: print a company-health snapshot + a 0/1/2 exit code.
+
+    With `as_json=True` the entire stdout is ONE `json.dumps(summary.
+    to_dict(), indent=2)` document (the stable machine contract for
+    dashboards/alerts); the default `as_json=False` is byte-for-byte the
+    iter-16 human `render()` text. Either way the RETURN value is the same
+    `summary.exit_code`, and nothing is written to disk.
+
+    Gathers every signal through the `gather_status(cfg)` seam (which reads the
+    live signals via the EXISTING module-level functions, called by BARE name so
+    a `monkeypatch.setattr(foundry, ...)` bites) then prints the pure
+    `StatusSummary` core. Prints `summary.render()` (or its `to_dict()` JSON) and
+    returns `summary.exit_code`. Writes NOTHING to disk (read-only) -- a thin
+    printer over the pure core that adds no decision logic of its own, so the
+    printed verdict always equals the `StatusSummary` fields."""
+    summary = gather_status(cfg)
     # `--json` emits the pure snapshot as a single JSON document (stdout-only, no
     # decision logic added); the default stays the exact iter-16 human report.
     print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
     return summary.exit_code
+
+
+# --------------------------------------------------------------------------- #
+# Company-wide health roll-up (`company-status`) -- roadmap iter 30.
+#
+# The dispatcher runs a whole COMPANY of product teams (`foundry.config.json`
+# `work_items`, each -> a product config) round-robin at concurrency 1, but
+# `foundry status` (iter 16) reports on exactly ONE product. An operator running
+# N teams had to run `status --config <cfg>` once per product and mentally roll
+# up the verdicts -- exactly the scattered babysitting the VISION says to
+# eliminate. `company_status_cli` closes iter-16's own half-delivered "company
+# health" promise by COMPOSING the already-frozen per-product `gather_status`
+# core across every ENABLED dispatch work item into ONE company verdict + a
+# scriptable 0 healthy / 1 needs-attention / 2 no-enabled exit code.
+#
+# Purely additive + OFF the control path: it only reads the dispatch config and
+# each product's live signals and prints; the pipeline / dispatcher NEVER call
+# it and it writes NOTHING. Same "compose existing frozen cores, add no new I/O
+# seam" pattern the read-only probe family (iters 16-28) is built on, applied to
+# the multi-product axis the dispatcher actually operates on.
+# --------------------------------------------------------------------------- #
+def parse_dispatch_work_items(
+        dispatch: dict) -> tuple[tuple[str, str, bool], ...]:
+    """Extract `(name, config, enabled)` triples from a DISPATCH config (pure).
+
+    Mirrors how `dispatcher.py` reads `foundry.config.json`: each `work_items`
+    entry is an object with a `name`, a `config` path, and an optional `enabled`
+    flag. Returns one triple per dict entry IN FILE ORDER -- `name`/`config`
+    default to `""` when the key is absent and `enabled` defaults to `True`
+    (matching the dispatcher's `w.get("enabled", True)`), coerced to `bool`.
+
+    Total + never-raises for ANY dict input (Behavior 2): a missing / `None` /
+    non-list `work_items` yields the empty tuple, and any non-dict entry in the
+    list is SKIPPED (a stray string / null in the array can't crash the roll-up).
+    Touches no filesystem -- a pure parse of the already-loaded dict."""
+    items = dispatch.get("work_items")
+    if not isinstance(items, list):
+        return ()
+    out: list[tuple[str, str, bool]] = []
+    for entry in items:
+        if not isinstance(entry, dict):
+            continue  # skip a stray scalar / null in the work_items array
+        out.append((entry.get("name", ""), entry.get("config", ""),
+                    bool(entry.get("enabled", True))))
+    return tuple(out)
+
+
+@dataclasses.dataclass(frozen=True)
+class CompanyStatus:
+    """A one-shot COMPANY-wide health roll-up across a dispatch config (item 30).
+
+    Frozen so a computed roll-up can't be mutated after the fact (value equality
+    for free, matching the other pure cores). Every derived value is a pure
+    property over the stored fields, so the whole verdict -- including the
+    scriptable exit code -- follows deterministically from what was gathered, and
+    the JSON payload / render text can never disagree with the exit code.
+
+    Fields:
+      * `dispatch_path` -- the dispatch config path, echoed into `render()`.
+      * `products` -- the per-product `StatusSummary` snapshots that were
+        successfully gathered, IN dispatch-file order (an enabled product that
+        failed to load/gather is NOT here -- it lands in `errors`).
+      * `disabled` -- names of work items with `enabled=False` (never loaded).
+      * `errors` -- `(product, message)` 2-tuples for enabled items that raised
+        while loading/gathering (the sole caller guarantees each is a 2-tuple).
+    """
+    dispatch_path: str
+    products: tuple[StatusSummary, ...]
+    disabled: tuple[str, ...]
+    errors: tuple[tuple[str, str], ...]
+
+    @property
+    def n_products(self) -> int:
+        """Count of products successfully ROLLED UP (an errored enabled product
+        is NOT counted here -- it is in `errors`)."""
+        return len(self.products)
+
+    @property
+    def n_ok(self) -> int:
+        """Count of gathered products whose own `StatusSummary` is `ok`."""
+        return sum(1 for p in self.products if p.ok)
+
+    @property
+    def n_attention(self) -> int:
+        """Count of gathered products that need attention (a raised hotfix flag
+        OR a BROKEN latest post-release)."""
+        return sum(1 for p in self.products if p.attention)
+
+    @property
+    def n_disabled(self) -> int:
+        return len(self.disabled)
+
+    @property
+    def n_errors(self) -> int:
+        return len(self.errors)
+
+    @property
+    def attention(self) -> bool:
+        """True iff SOMETHING needs an operator: ANY gathered product needs
+        attention, OR any enabled product failed to load/gather (a non-empty
+        `errors`). Disabled items are deliberate and never raise attention."""
+        return any(p.attention for p in self.products) or bool(self.errors)
+
+    @property
+    def ok(self) -> bool:
+        """The healthy mirror of `attention` (matches the per-product core)."""
+        return not self.attention
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable verdict, attention-first: `1` when `attention`, else `2`
+        when NO products were gathered (every item disabled or `work_items`
+        empty -- reachable only with `attention` False, so no errors either),
+        else `0` healthy."""
+        if self.attention:
+            return 1
+        if self.n_products == 0:
+            return 2
+        return 0
+
+    @property
+    def verdict(self) -> str:
+        """The single human token for the current `exit_code` -- `"OK"` (0) /
+        `"ATTENTION"` (1) / `"no enabled products"` (2). ONE source of truth for
+        both `render()`'s last line and the JSON `verdict` key, so the text and
+        the machine payload can never drift from the exit code."""
+        return {0: "OK", 1: "ATTENTION", 2: "no enabled products"}[self.exit_code]
+
+    def render(self) -> str:
+        """A deterministic multi-line company report (the CLI's black-box contract).
+
+        Contains, as substrings: the `dispatch_path`; a counts line reporting the
+        number of GATHERED products, the ok count, the attention count, the
+        disabled count, and the error count; ONE line per gathered product with
+        its name AND its `StatusSummary.verdict` token (plus `hotfix` iff that
+        product's hotfix flag is raised and/or `BROKEN` iff its post-release is
+        BROKEN, for an attention product); one line per disabled item with its
+        name and `disabled`; one line per error with its name, `ERROR`, and the
+        message; and a final `verdict:` line whose token EQUALS `verdict`."""
+        lines = [
+            "foundry company-status",
+            f"  dispatch config: {self.dispatch_path}",
+            f"  products: {self.n_products} gathered "
+            f"({self.n_ok} ok, {self.n_attention} attention), "
+            f"{self.n_disabled} disabled, {self.n_errors} error(s)",
+        ]
+        for p in self.products:
+            line = f"  - {p.product}: {p.verdict}"
+            if p.attention:
+                marks = []
+                if p.hotfix:
+                    marks.append("hotfix")
+                if p.postrelease == "BROKEN":
+                    marks.append("BROKEN")
+                if marks:
+                    line += f" [{', '.join(marks)}]"
+            lines.append(line)
+        for name in self.disabled:
+            lines.append(f"  - {name}: disabled")
+        for name, message in self.errors:
+            lines.append(f"  - {name}: ERROR {message}")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe company roll-up for machine consumers -- a dashboard
+        / cron alert / the reporter. Every derived value REUSES the frozen
+        properties, so the payload can never disagree with `render()` or the exit
+        code, and every value is JSON-native, so it round-trips through
+        `json.loads(json.dumps(...))`. Pure: touches no filesystem."""
+        return {
+            "dispatch_config": self.dispatch_path,
+            "products": [p.to_dict() for p in self.products],
+            "disabled": list(self.disabled),
+            "errors": [{"product": name, "message": message}
+                       for name, message in self.errors],
+            "n_products": self.n_products,
+            "n_ok": self.n_ok,
+            "n_attention": self.n_attention,
+            "n_disabled": self.n_disabled,
+            "n_errors": self.n_errors,
+            "attention": self.attention,
+            "ok": self.ok,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+        }
+
+
+def summarize_company(*, dispatch_path: str,
+                      products: tuple[StatusSummary, ...],
+                      disabled: tuple[str, ...],
+                      errors: tuple[tuple[str, str], ...]) -> CompanyStatus:
+    """Pure keyword-only constructor for a `CompanyStatus` (Behaviors 4-7).
+
+    A thin, total wrapper that packs the gathered signals into the frozen
+    roll-up -- keyword-only so a caller can never transpose the fields by
+    position, and it never raises for well-formed inputs (each `errors` entry is
+    a `(product, message)` 2-tuple, which the sole caller `company_status_cli`
+    guarantees; documenting the precondition keeps the "never raises" contract
+    airtight). Kept separate from `company_status_cli` so the decision core stays
+    a pure function the tester can drive without any filesystem."""
+    return CompanyStatus(
+        dispatch_path=dispatch_path,
+        products=tuple(products),
+        disabled=tuple(disabled),
+        errors=tuple((name, message) for name, message in errors))
+
+
+def company_status_cli(dispatch_path: str, as_json: bool = False) -> int:
+    """On-demand CLI: roll every ENABLED team's health into ONE company verdict.
+
+    Reads the DISPATCH config at `dispatch_path` (`foundry.config.json`, NOT a
+    product config), then for each ENABLED work item substitutes a `{FOUNDRY}`
+    token in its config path to the foundry root and loads + gathers that
+    product's health via the `load_config` / `gather_status` seams (both called
+    by BARE name so a `monkeypatch.setattr(foundry, ...)` bites). A DISABLED item
+    is recorded in `disabled` and never loaded.
+
+    Resilient (Behaviors 12-13): if reading/parsing the dispatch config fails
+    (missing / not JSON / not an object) it prints a report recording ONE
+    synthetic error and returns exit 1; if a single work item's `load_config` or
+    `gather_status` raises, that item is recorded in `errors` and the roll-up
+    CONTINUES gathering the rest (company exit 1). No exception ever propagates.
+
+    With `as_json=True` stdout is exactly ONE `json.dumps(to_dict(), indent=2)`
+    document; either way the RETURN value is the same `CompanyStatus.exit_code`
+    (0 healthy / 1 needs-attention / 2 no-enabled-products). Writes NOTHING to
+    disk -- a read-only report; with `load_config` monkeypatched the filesystem
+    is untouched."""
+    try:
+        dispatch = json.loads(
+            pathlib.Path(dispatch_path).expanduser().read_text())
+        if not isinstance(dispatch, dict):
+            raise ValueError("dispatch config is not a JSON object")
+    except Exception as exc:
+        # A missing / malformed dispatch config is a real operator problem, not a
+        # crash: surface it as ONE synthetic error (attention -> exit 1).
+        company = summarize_company(
+            dispatch_path=dispatch_path, products=(), disabled=(),
+            errors=((dispatch_path, str(exc)),))
+        print(json.dumps(company.to_dict(), indent=2) if as_json
+              else company.render())
+        return company.exit_code
+
+    products: list[StatusSummary] = []
+    disabled: list[str] = []
+    errors: list[tuple[str, str]] = []
+    for name, config, enabled in parse_dispatch_work_items(dispatch):
+        if not enabled:
+            disabled.append(name)      # deliberate; never loaded
+            continue
+        try:
+            # {FOUNDRY} -> foundry root BEFORE load_config, exactly as the
+            # dispatcher resolves each work item's config path.
+            cfg = load_config(config.replace("{FOUNDRY}", str(FOUNDRY)))
+            products.append(gather_status(cfg))
+        except Exception as exc:
+            # One bad team never sinks the whole roll-up -- record + continue.
+            errors.append((name, str(exc)))
+    company = summarize_company(
+        dispatch_path=dispatch_path, products=tuple(products),
+        disabled=tuple(disabled), errors=tuple(errors))
+    print(json.dumps(company.to_dict(), indent=2) if as_json else company.render())
+    return company.exit_code
 
 
 # --------------------------------------------------------------------------- #
@@ -3525,12 +3805,31 @@ def main(argv: list[str] | None = None) -> int:
                      help="emit the composite verdict as one JSON document "
                           "(machine-readable) instead of the human report; "
                           "same 0/1/2 exit code")
+    # `company-status` rolls up EVERY enabled dispatch team's iter-16
+    # `status` health into ONE company verdict. Its `--config` points at the
+    # DISPATCH config (`foundry.config.json`), NOT a product config, and it
+    # does its own per-work-item `load_config` internally -- so, like
+    # `single-brain`/`lint-spec`, it is dispatched BEFORE the
+    # `load_config(args.config)` call below. Read-only + on-demand: the
+    # pipeline/dispatcher NEVER call it; it writes nothing. Exit 0 healthy /
+    # 1 needs-attention / 2 no-enabled-products.
+    cst = sub.add_parser("company-status")
+    cst.add_argument("--config", default=str(FOUNDRY / "foundry.config.json"),
+                     help="path to the DISPATCH config (foundry.config.json), "
+                          "NOT a product config (default: the repo's "
+                          "foundry.config.json)")
+    cst.add_argument("--json", action="store_true",
+                     help="emit the company roll-up as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code")
     args = ap.parse_args(argv)
 
     if args.cmd == "lint-spec":
         return lint_spec_cli(args.file)
     if args.cmd == "single-brain":
         return single_brain_cli(pattern=args.pattern, as_json=args.json)
+    if args.cmd == "company-status":
+        return company_status_cli(args.config, as_json=args.json)
 
     cfg = load_config(args.config)
     if args.cmd == "doctor":

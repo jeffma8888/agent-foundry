@@ -101,6 +101,9 @@ uv run python foundry.py events --config products/repolens/config.json  # [--kin
 
 # 15. Composite LAUNCH gate: fold the env preflight (#0 doctor) AND the single-brain scan (#13) into ONE three-way GO / NO-GO / CAUTION verdict before starting the dispatcher (exit 0 GO / 1 NO-GO / 2 CAUTION); read-only, writes nothing, report-only (the operator decides):
 uv run python foundry.py preflight --config products/repolens/config.json  # [--pattern P] process-command pattern to scan for a running dispatcher (default 'dispatcher.py'); a confirmed env blocker or a rival brain is NO-GO(1), an uncheckable scan on a ready env is CAUTION(2); gate a launch on `[ $? -eq 0 ]` [--json for one machine-readable composite verdict doc: launch-wrapper/CI; same 0/1/2 exit code]
+
+# 16. Company-wide health roll-up (#9 status across the WHOLE company): read the DISPATCH config and roll every ENABLED product team's iter-16 `status` into ONE company verdict + a scriptable exit code (0 healthy / 1 needs-attention / 2 no-enabled-products); read-only, writes nothing:
+uv run python foundry.py company-status  # --config points at the DISPATCH config (foundry.config.json), NOT a product config (default: the repo's foundry.config.json); a disabled work item is never loaded; one bad team is recorded and the roll-up continues [--json for one machine-readable company roll-up doc: dashboards/cron; same 0/1/2 exit code]
 ```
 
 Stop any time: `touch STOP` (whole company) or `touch products/<name>/STOP`
