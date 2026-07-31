@@ -11,6 +11,9 @@ products/*/STOP
 # A transient post-release hotfix flag (raised on a BROKEN clean-room verify)
 # is runtime state, not source — never let it leak into a commit.
 products/*/HOTFIX_NEEDED.md
+# The advisory speed-story flag (raised when a genuine ship's fresh-clone suite
+# exceeds SUITE_SLOW_SECONDS, item 7 bite 2) is likewise per-run state, not source.
+products/*/SPEED_STORY_NEEDED.md
 
 # The live dispatcher config (copy of the .example) is machine-local
 foundry.config.json

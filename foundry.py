@@ -1131,6 +1131,70 @@ def clear_hotfix_flag(cfg: ProductConfig) -> None:
     hotfix_flag_path(cfg).unlink(missing_ok=True)
 
 
+# --------------------------------------------------------------------------- #
+# item 7, bite 2 (COMPLETES item 7): surface the SLOW-suite throughput signal
+# to the next single-shot PM the same way a BROKEN release is surfaced -- a
+# per-product flag file the PM checks at the top of its turn -- but ADVISORY
+# (NON-blocking). A slow suite is a throughput concern, not a release defect,
+# so this flag never forces the iteration's feature and is always subordinate
+# to `HOTFIX_NEEDED.md`. It mirrors the iter-03 hotfix flag lifecycle
+# (write on slow / clear on fast / leave-untouched on an un-timed skip), keyed
+# on the MEASURED fresh-clone suite wall-time, INDEPENDENT of `healthy`.
+# --------------------------------------------------------------------------- #
+def speed_story_needed(test_seconds: float | None, threshold: float) -> bool:
+    """Whether the measured fresh-clone suite wall-time warrants a speed story.
+
+    Pure + total: `True` iff a wall-time was actually measured AND it strictly
+    exceeds the threshold. `None` (no comparable measurement -- infra-skip,
+    disabled, or a verify error) is NOT slow; the boundary (seconds ==
+    threshold) is NOT slow either, matching `suite_timing_line`'s strictly-`>`
+    rule so a suite sitting right at the limit never nags. Never raises.
+    """
+    return test_seconds is not None and test_seconds > threshold
+
+
+def speed_story_flag_path(cfg: ProductConfig) -> pathlib.Path:
+    """Per-product ADVISORY speed-story flag: `<work_root>/SPEED_STORY_NEEDED.md`.
+
+    A DIFFERENT file from `hotfix_flag_path` -- the two have distinct lifecycles
+    (hotfix = blocking release defect; speed = advisory throughput signal) and
+    must never collide.
+    """
+    return pathlib.Path(cfg.work_root) / "SPEED_STORY_NEEDED.md"
+
+
+def write_speed_story_flag(cfg: ProductConfig, sha: str, seconds: float,
+                           threshold: float) -> None:
+    """Raise the ADVISORY speed-story flag after a SLOW post-release suite.
+
+    Overwrites any existing flag (newest measurement wins -- no append pile-up)
+    and embeds the pushed `sha`, the measured suite wall-time, and the threshold
+    it exceeded, so the next PM has the throughput evidence. UNLIKE
+    `HOTFIX_NEEDED.md`, this is NON-blocking: it merely suggests a speed /
+    throughput increment; it never forces the iteration's feature and is always
+    subordinate to a present hotfix flag. Auto-clears on the next genuine fast
+    ship. Never raises for a normal writable work_root.
+    """
+    path = speed_story_flag_path(cfg)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "# SPEED STORY NEEDED -- advisory (NON-blocking)\n\n"
+        f"- Pushed sha: {sha}\n"
+        f"- Fresh-clone suite wall-time: {seconds:.2f}s\n"
+        f"- Threshold (SUITE_SLOW_SECONDS): {threshold:.2f}s\n\n"
+        "This is an ADVISORY throughput signal, NOT a release defect. It is "
+        "NON-blocking and always subordinate to `HOTFIX_NEEDED.md` -- if a "
+        "hotfix flag is present, that wins. Prefer a speed / throughput "
+        "increment (split a slow suite, parallelize, or trim) when no clearly-"
+        "higher-value feature is warranted. You need NOT clear this manually; "
+        "it auto-clears on the next genuine fast ship.\n")
+
+
+def clear_speed_story_flag(cfg: ProductConfig) -> None:
+    """Remove the advisory speed-story flag if present; silent no-op when absent."""
+    speed_story_flag_path(cfg).unlink(missing_ok=True)
+
+
 def _write_postrelease_artifact(artifact: pathlib.Path, expected_sha: str,
                                 result: "PostReleaseResult") -> None:
     """Write the per-iteration `postrelease.md` sentinel artifact.
@@ -1204,6 +1268,24 @@ def postrelease_step(cfg: ProductConfig, iteration: int,
     # events.jsonl too.
     if result.test_seconds is not None:
         log(cfg, suite_timing_line(result.test_seconds, SUITE_SLOW_SECONDS))
+        # item 7, bite 2: apply the ADVISORY speed-story flag lifecycle keyed on
+        # the MEASURED wall-time vs the threshold, INDEPENDENT of `healthy` (a
+        # slow suite that also failed is still slow). SLOW -> raise the flag;
+        # not-slow -> clear it; the guard being False (test_seconds is None)
+        # leaves it untouched -- an unverified skip has no comparable number.
+        # Wrapped so a flag I/O error is SWALLOWED and never changes the returned
+        # result/sentinel or crashes the shipped iter: the advisory is off the
+        # control path and the commit is already pushed. (The hotfix write above
+        # stays UN-wrapped by design -- a swallowed hotfix write would hide a
+        # real breakage; only this informational advisory is swallow-safe.)
+        try:
+            if speed_story_needed(result.test_seconds, SUITE_SLOW_SECONDS):
+                write_speed_story_flag(
+                    cfg, expected_sha, result.test_seconds, SUITE_SLOW_SECONDS)
+            else:
+                clear_speed_story_flag(cfg)
+        except Exception:  # advisory I/O must never affect the release verdict
+            pass
 
     _write_postrelease_artifact(artifact, expected_sha, result)
     return result

@@ -109,6 +109,11 @@ Nothing is remembered in-context across stages. Durable memory is:
   N.NNs` line in NIGHT_LOG/events (flagged `SLOW` past `SUITE_SLOW_SECONDS`) and
   a `suite_seconds:` body line in `state/iter-NN/postrelease.md` — so unattended
   throughput is measurable. Diagnostic only, off every control path.
+  (item 7 bite 2) When that measured wall-time exceeds `SUITE_SLOW_SECONDS` on a
+  genuine ship, `postrelease_step` also raises a per-product advisory
+  `SPEED_STORY_NEEDED.md` flag (auto-cleared on the next genuine fast ship) so
+  the next single-shot PM sees the throughput signal — ADVISORY / NON-blocking
+  and subordinate to `HOTFIX_NEEDED.md`, off every control path.
 
 ## 6. Extending the foundry (platform team's charter)
 
@@ -133,3 +138,14 @@ Small, safe, reversible increments that keep `tests/` green and keep
   `None`) for every product until an operator adds a `prd.json`. So the live loop
   is byte-identical today and resumes cleanly on restart. The automatic global-stop
   half (bite 2b), which WOULD touch loop-termination/resume semantics, is deferred.
+- *iter 14:* item 7 bite 2 (COMPLETES item 7) — a new per-product advisory
+  `SPEED_STORY_NEEDED.md` flag raised inside `postrelease_step` when a genuine
+  ship's measured fresh-clone suite wall-time exceeds `SUITE_SLOW_SECONDS`
+  (auto-cleared on the next genuine fast ship), plus an ADVISORY `roles/pm.md`
+  duty (0b). ADDITIVE and off the control path: it introduces NO new sentinel,
+  its flag write/clear is swallow-wrapped so it never changes the returned
+  `PostReleaseResult` / `POSTRELEASE:` sentinel, and it does not touch the
+  `VERDICT:`/`RESULT:`/`ACTION:` contract, `res["status"]` branching,
+  iteration numbering, or the `state/iter-NN` layout. So a live loop is
+  byte-identical today and resumes cleanly on restart — the advisory activates
+  only on a clean restart.

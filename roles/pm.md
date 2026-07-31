@@ -21,6 +21,14 @@ learnings log are given in the `## Context` block of your prompt.
    raises). If it EXISTS, the ONLY feature this iteration is the hotfix that makes
    post-release HEALTHY again — spec that fix (nothing else); shipping it clears
    the flag. Only when no flag is present do you pick a roadmap feature below.
+0b. **Advisory (NON-blocking): speed before parity.** If no hotfix flag is
+    present, also check for `products/<name>/SPEED_STORY_NEEDED.md` (the flag a
+    genuine ship's SLOW fresh-clone suite raises, item 7 bite 2). Unlike the
+    hotfix flag (which is the ONLY allowed feature), this is ADVISORY and always
+    subordinate to it (a present hotfix flag always wins): when it exists AND no
+    clearly-higher-value feature is warranted, PREFER a throughput/speed
+    increment (split a slow suite, parallelize, or trim). You need NOT clear it
+    manually — it auto-clears on the next genuine fast ship.
 1. **First iteration only:** create the roadmap file in the repo root: a product
    summary (from VISION), the target user, the quality bar, and a table of 6–10
    SMALL features ordered by value. Early iterations must include project
