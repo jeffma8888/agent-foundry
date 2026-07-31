@@ -2756,6 +2756,242 @@ def timing_cli(cfg: ProductConfig, limit: int | None = None,
 
 
 # --------------------------------------------------------------------------- #
+# Machine-readable event reader (`events`) -- item 10, the READ half.
+#
+# iter 05 added the write-only `events.jsonl` stream ("for dashboards / the
+# reporter") and iter 26 stamped every record with a stable semantic `kind`.
+# This is the on-demand READER over that stream: filter by `kind`, tail to the
+# most-recent `N`, count by kind, human or JSON output -- so an operator (or the
+# periodic reporter) supervising a 24/7 run gets "the last 5 ships" / "how many
+# reverts?" without hand-parsing raw JSONL. Built with the same proven pattern
+# as `status`/`history`/`timing`/`weak-tests` (iters 16-25): pure decision
+# functions + a frozen summary + a thin CLI over an existing seam. Purely
+# additive and DORMANT: the pipeline / gate / dispatcher NEVER call it, it only
+# READS the EXISTING `cfg.events_log`, and it writes NOTHING.
+# --------------------------------------------------------------------------- #
+def parse_events_jsonl(text: str) -> tuple[tuple[dict, ...], int]:
+    """Parse an `events.jsonl` body into (records, parse_errors). Pure + total.
+
+    Returns a 2-tuple: `records` is a `tuple` of the JSON OBJECTS (each a `dict`)
+    parsed from `text`, one per non-blank line, in file (top-to-bottom) order;
+    `parse_errors` is the count of non-blank lines that either failed
+    `json.loads` OR parsed to a non-dict JSON value (array / number / string /
+    bool / null). A blank / whitespace-only line is SKIPPED and never counts as a
+    parse error, so `parse_events_jsonl("")` and an all-whitespace input both
+    return `((), 0)`.
+
+    Total by construction: `(text or "")` tolerates `None`, and every per-line
+    `json.loads` is wrapped so a malformed line is COUNTED, never raised -- a
+    mixed input of valid objects and junk returns exactly the valid objects (in
+    order) plus the correct error count. It touches no I/O and never mutates its
+    input, so the tester can drive it with pure strings."""
+    records: list[dict] = []
+    parse_errors = 0
+    for line in (text or "").splitlines():
+        if not line.strip():
+            # blank / whitespace-only lines are structural, not errors
+            continue
+        try:
+            obj = json.loads(line)
+        except (ValueError, TypeError):
+            parse_errors += 1
+            continue
+        # a JSON value that is not an object (array / scalar / null) is not an
+        # event record -- count it as malformed rather than storing it.
+        if isinstance(obj, dict):
+            records.append(obj)
+        else:
+            parse_errors += 1
+    return tuple(records), parse_errors
+
+
+@dataclasses.dataclass(frozen=True)
+class EventsSummary:
+    """A read-only digest over a slice of the typed `events.jsonl` stream.
+
+    Frozen so a computed summary can't be mutated after the fact (value equality
+    for free, matching the other pure cores -- two summaries built from equal
+    arguments compare equal). `records` is stored as a `tuple` of the SELECTED
+    event objects (post kind-filter + limit) in file order; `total` is the count
+    of ALL parseable records in the file, `matched` the count AFTER the kind
+    filter but BEFORE the limit, and `parse_errors` the malformed-line count.
+    `shown`/`kind_counts`/`exit_code` are pure derivations of the stored fields,
+    so `render()`, `to_dict()`, and the returned exit code can never disagree.
+    """
+    product: str
+    records: tuple[dict, ...]
+    total: int
+    matched: int
+    parse_errors: int
+    kind_filter: str | None
+
+    @property
+    def shown(self) -> int:
+        """How many records this summary actually carries (post-limit)."""
+        return len(self.records)
+
+    @property
+    def kind_counts(self) -> dict:
+        """Per-kind tally over the STORED (shown) records, first-encountered order.
+
+        A `dict[str, int]` keyed by each stored record's `kind`; a record missing
+        `kind`, or whose `kind` is not a `str`, is tallied under the sentinel key
+        `"(none)"` (distinct from any real kind). Dict insertion order is
+        preserved, so keys appear in the order first seen among the shown records.
+        Empty when nothing is shown."""
+        counts: dict[str, int] = {}
+        for rec in self.records:
+            kind = rec.get("kind")
+            key = kind if isinstance(kind, str) else "(none)"
+            counts[key] = counts.get(key, 0) + 1
+        return counts
+
+    @property
+    def exit_code(self) -> int:
+        """`0` when anything is shown, else `2` (nothing to show).
+
+        `parse_errors` NEVER affects the verdict: a file whose only good record is
+        shown alongside malformed lines still exits `0`, and an empty selection
+        exits `2` even when `parse_errors == 0`. Malformed lines are a rollup
+        DIAGNOSTIC, not a gate (this reader never fails a run)."""
+        return 0 if self.shown > 0 else 2
+
+    def render(self) -> str:
+        """A deterministic multi-line digest carrying every selected event.
+
+        Contains, as substrings (the CLI's black-box contract): a header
+        `foundry events -- {product}` that additionally carries `kind={kind_filter}`
+        iff a kind filter is set; then, for EACH stored record (in order), a line
+        carrying that record's `ts` value (or `?` when the `ts` key is absent),
+        its `kind` value (or `?` when absent), and its `msg` value (empty string
+        when absent) -- all three present as substrings on that record's line; and
+        a final rollup line. The rollup carries `showing {shown} of {matched}
+        matched`, `{total} total`, `{parse_errors} malformed`, plus each
+        `kind_counts` entry as `{kind}:{count}`. When NOTHING is shown the rollup
+        instead carries the substring `no events` and NO per-record line is
+        emitted."""
+        header = f"foundry events -- {self.product}"
+        if self.kind_filter is not None:
+            header += f"  kind={self.kind_filter}"
+        lines = [header]
+        for rec in self.records:
+            ts = rec["ts"] if "ts" in rec else "?"
+            kind = rec["kind"] if "kind" in rec else "?"
+            msg = rec["msg"] if "msg" in rec else ""
+            lines.append(f"  {ts}  {kind}  {msg}")
+        if self.shown == 0:
+            rollup = (f"no events -- {self.total} total, "
+                      f"{self.parse_errors} malformed")
+        else:
+            tally = "".join(f" {k}:{v}" for k, v in self.kind_counts.items())
+            rollup = (f"showing {self.shown} of {self.matched} matched, "
+                      f"{self.total} total, {self.parse_errors} malformed;"
+                      f"{tally}")
+        lines.append(rollup)
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of the whole digest for machine
+        consumers -- dashboards / cron / the reporter (roadmap item 10's
+        "machine-readable status for dashboards / the reporter"), mirroring
+        iter-19/20/21's `status`/`history`/`timing --json`.
+
+        Returns EXACTLY 9 keys in this fixed order: `product`, `kind_filter`,
+        `total`, `matched`, `shown`, `parse_errors`, `exit_code`, `kind_counts`,
+        `events`. `product`/`kind_filter`/`total`/`matched`/`parse_errors` are
+        the STORED fields verbatim; `shown`/`exit_code`/`kind_counts` each REUSE
+        the frozen properties (so the payload can never disagree with `render()`
+        / the returned exit code); `events` is a JSON array of the stored records
+        VERBATIM. Every value is
+        JSON-native (str / int / None / dict / list of dicts -- the records were
+        produced by `json.loads`), so `json.dumps(...)` never raises and
+        `json.loads(json.dumps(...))` round-trips to an equal structure, including
+        the empty case (`events == []`, `kind_counts == {}`). Pure: touches no
+        filesystem, only the already-gathered snapshot."""
+        return {
+            "product": self.product,
+            "kind_filter": self.kind_filter,
+            "total": self.total,
+            "matched": self.matched,
+            "shown": self.shown,
+            "parse_errors": self.parse_errors,
+            "exit_code": self.exit_code,
+            "kind_counts": self.kind_counts,
+            "events": list(self.records),
+        }
+
+
+def summarize_events(*, product: str, records, total: int, matched: int,
+                     parse_errors: int, kind_filter: str | None
+                     ) -> EventsSummary:
+    """Pure keyword-only constructor for an `EventsSummary` (item 10 reader).
+
+    A thin, total wrapper packing the selected event records + the three counts +
+    the active kind filter into the frozen digest, materializing `records` as a
+    `tuple` (so the frozen dataclass stays immutable and a caller's list cannot be
+    mutated out from under it). Keyword-only so the fields can never be transposed
+    by position; it never raises. Kept separate from `events_cli` so the decision
+    core stays a pure function the tester can drive with zero filesystem."""
+    return EventsSummary(
+        product=product, records=tuple(records), total=total,
+        matched=matched, parse_errors=parse_errors, kind_filter=kind_filter)
+
+
+def events_cli(cfg: ProductConfig, kind: str | None = None,
+               limit: int | None = None, as_json: bool = False) -> int:
+    """On-demand CLI: read/digest `cfg.events_log` + a 0/2 exit code.
+
+    Reads the EXISTING `cfg.events_log` (write half unchanged since iters 05/26)
+    and degrades gracefully: an ABSENT file or an `OSError` on read yields empty
+    content (no records, `parse_errors == 0`) and exit `2`, never raising. Writes
+    NOTHING to disk in any mode.
+
+    Every signal flows through the pure module-level seams -- each called by BARE
+    name so a `monkeypatch.setattr(foundry, ...)` in a test bites:
+      * `parse_events_jsonl` turns the file body into `(records, parse_errors)`;
+        `total` is the count of ALL parseable records;
+      * with `kind` set, keeps ONLY records whose `kind` equals it (exact string
+        match); `matched` is the post-filter, PRE-limit count;
+      * with a POSITIVE int `limit`, tails to the LAST `matched[-limit:]` records
+        while PRESERVING file order (`--kind` filters FIRST, then `--limit`
+        tails); a `None`/non-positive limit keeps all matched;
+      * hands the selection to the pure `summarize_events`.
+    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
+    indent=2)` document (the stable machine contract for dashboards/reporter/CI,
+    mirroring iter-19/20/21); the default `as_json=False` is the human `render()`
+    text. Either way the RETURN value is the same `summary.exit_code`, and the
+    kind-filter + limit selection is byte-identical between the two modes. A thin
+    wrapper over the pure core -- no decision logic beyond read -> filter -> tail
+    -> summarize -> format. DORMANT -- no control path calls it."""
+    try:
+        # `read_text` raises FileNotFoundError (an OSError) for an absent file,
+        # so the single except covers BOTH "absent" and "unreadable" -> empty.
+        text = cfg.events_log.read_text()
+    except OSError:
+        text = ""
+    records, parse_errors = parse_events_jsonl(text)
+    total = len(records)
+    if kind is not None:
+        matched_records = [r for r in records if r.get("kind") == kind]
+    else:
+        matched_records = list(records)
+    matched = len(matched_records)
+    # tail to the most-recent N (positive int only); the slice preserves the
+    # ascending file order so the digest still reads oldest-first.
+    if isinstance(limit, int) and limit > 0:
+        shown_records = matched_records[-limit:]
+    else:
+        shown_records = matched_records
+    summary = summarize_events(
+        product=cfg.name, records=shown_records, total=total,
+        matched=matched, parse_errors=parse_errors, kind_filter=kind)
+    # `--json` emits the pure digest as a single JSON document (stdout-only, no
+    # decision logic added); the default stays the human report.
+    print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
+    return summary.exit_code
+
+
+# --------------------------------------------------------------------------- #
 # Prompt + stage runner
 # --------------------------------------------------------------------------- #
 def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
@@ -3105,6 +3341,20 @@ def main(argv: list[str] | None = None) -> int:
     wkt.add_argument("--json", action="store_true",
                      help="emit the scan as one JSON document (machine-readable) "
                           "instead of the human report; same 0/1/2 exit code, honours --files")
+    # `events` reads/digests a product's typed `events.jsonl` (item 10, the READ
+    # half): filter by `--kind`, tail the most-recent `--limit N`, count by kind,
+    # human or `--json` output. Read-only + DORMANT -- the pipeline/dispatcher
+    # NEVER call it; it writes nothing. Exit 0 (>=1 shown) / 2 (nothing shown).
+    evt = sub.add_parser("events")
+    evt.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    evt.add_argument("--kind", default=None,
+                     help="show only records whose kind equals this exact string")
+    evt.add_argument("--limit", type=int, default=None,
+                     help="show only the most-recent N matched records (default: all)")
+    evt.add_argument("--json", action="store_true",
+                     help="emit the digest as one JSON document (machine-readable) "
+                          "instead of the human report; same 0/2 exit code, honours --kind/--limit")
     args = ap.parse_args(argv)
 
     if args.cmd == "lint-spec":
@@ -3131,6 +3381,8 @@ def main(argv: list[str] | None = None) -> int:
         return timing_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "weak-tests":
         return weak_tests_cli(cfg, files=args.files, as_json=args.json)
+    if args.cmd == "events":
+        return events_cli(cfg, kind=args.kind, limit=args.limit, as_json=args.json)
     if args.cmd == "once":
         res = run_iteration(cfg)
         print(json.dumps(res))
