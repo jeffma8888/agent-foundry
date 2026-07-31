@@ -1432,6 +1432,191 @@ def postrelease_step(cfg: ProductConfig, iteration: int,
 
 
 # --------------------------------------------------------------------------- #
+# Read-only company-health probe (roadmap item 12 -- `foundry status`).
+#
+# The VISION's single job is to run indefinitely "without babysitting each
+# step". Iteration by iteration the foundry grew a rich set of durable health
+# signals -- the `POSTRELEASE: HEALTHY|BROKEN` sentinel + the blocking
+# `HOTFIX_NEEDED.md` flag (iter 03), the `prd.json` progress line (iters 11/12),
+# the advisory `SPEED_STORY_NEEDED.md` flag (iters 13/14) -- but NO single
+# command answers "is my company healthy right now?". Today an operator must
+# hand-inspect the newest `state/iter-NN/postrelease.md`, `ls` for two flag
+# files, and run `foundry prd`: exactly the scattered babysitting the VISION
+# says to eliminate. `foundry status` is the read-only capstone that aggregates
+# those already-shipped primitives into ONE deterministic snapshot + a
+# scriptable 0/1/2 exit code. Same purely-additive, off-control-path,
+# on-demand-CLI class as doctor/learnings/agents/lint-spec/prd/gate-scope: the
+# pipeline NEVER calls it, it introduces no sentinel/config/artifact, and it
+# writes NOTHING -- so the gate and the running loop are entirely unchanged.
+# `parse_postrelease_verdict` is the pure verdict parser; `StatusSummary` +
+# `summarize_status` are the pure decision core; `status_cli` is the thin
+# operator seam that gathers the live signals through the EXISTING module-level
+# functions (so a `monkeypatch.setattr(foundry, ...)` bites) and prints them.
+# --------------------------------------------------------------------------- #
+def parse_postrelease_verdict(text: str) -> str | None:
+    """Extract the `POSTRELEASE:` verdict from a `postrelease.md` body (pure).
+
+    The verdict is the token on the LAST non-empty line when that line reads
+    `POSTRELEASE: HEALTHY` or `POSTRELEASE: BROKEN` -- mirroring the sentinel
+    contract `_write_postrelease_artifact` writes (the verdict is always the
+    artifact's final non-empty line). Trailing blank lines are ignored (the last
+    NON-empty line wins) and leading/trailing whitespace on the sentinel line
+    AND around the token is tolerated (`  POSTRELEASE:  BROKEN  ` -> `"BROKEN"`).
+
+    Returns `None` -- never raising for ANY string -- when there is no verdict:
+    empty / whitespace-only text; no `POSTRELEASE:` line; an unrecognized token
+    (`POSTRELEASE: MAYBE`); or a `POSTRELEASE:` line that is NOT the last
+    non-empty line (prose follows it -- a still-in-progress or malformed
+    artifact). Requiring the sentinel to be LAST matches how the artifact is
+    emitted, so stray earlier mentions of the word can never be misread.
+    """
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    if not lines:
+        return None
+    last = lines[-1]
+    prefix = "POSTRELEASE:"
+    if not last.startswith(prefix):
+        return None
+    token = last[len(prefix):].strip()
+    return token if token in ("HEALTHY", "BROKEN") else None
+
+
+@dataclasses.dataclass(frozen=True)
+class StatusSummary:
+    """A one-shot company-health snapshot for one product (item 12).
+
+    Frozen so a computed snapshot can't be mutated after the fact (value
+    equality for free, matching the other pure cores). The three properties are
+    pure derivations of the stored fields, so the whole verdict -- including the
+    scriptable exit code -- follows deterministically from what was gathered.
+
+    Fields:
+      * `product`/`repo`/`branch` -- identity, echoed into `render()`.
+      * `latest_iter` -- the highest shipped iteration number (`<= 0` == nothing
+        shipped yet).
+      * `postrelease` -- the latest ship's verdict: `"HEALTHY"` / `"BROKEN"` /
+        `None` (no `postrelease.md`, i.e. a no-ship / in-progress iteration).
+      * `hotfix` -- whether the blocking `HOTFIX_NEEDED.md` flag is raised.
+      * `speed_story` -- whether the ADVISORY `SPEED_STORY_NEEDED.md` flag is
+        raised (never affects `attention`/`exit_code` -- it is non-blocking).
+      * `prd_line` -- the `dispatch_progress_line` text, or `None` when there is
+        no `prd.json`.
+    """
+    product: str
+    repo: str
+    branch: str
+    latest_iter: int
+    postrelease: str | None
+    hotfix: bool
+    speed_story: bool
+    prd_line: str | None
+
+    @property
+    def attention(self) -> bool:
+        """True iff something needs an operator: a raised hotfix flag OR a
+        BROKEN latest post-release. The advisory `speed_story` NEVER counts --
+        a slow suite is throughput, not a release defect (mirrors the iter-14
+        non-blocking contract)."""
+        return bool(self.hotfix) or self.postrelease == "BROKEN"
+
+    @property
+    def ok(self) -> bool:
+        """The healthy mirror of `attention` -- True iff nothing needs attention."""
+        return not self.attention
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable verdict, attention-first: `1` when `attention` (even with
+        nothing shipped yet -- a raised flag matters more than the iter count),
+        else `2` when nothing has shipped (`latest_iter <= 0`), else `0`."""
+        if self.attention:
+            return 1
+        if self.latest_iter <= 0:
+            return 2
+        return 0
+
+    def render(self) -> str:
+        """A deterministic multi-line report carrying every gathered signal.
+
+        Contains, as substrings (the CLI's black-box contract): the product
+        name; `branch {branch}`; `latest iteration: N` (or `... none` when
+        nothing shipped); `post-release: HEALTHY|BROKEN|unknown` (`unknown` when
+        no verdict); `hotfix flag: RAISED|clear`; `speed-story flag:
+        RAISED|clear`; the `prd_line` verbatim or `no prd.json`; and a final
+        verdict token that MATCHES `exit_code` -- `OK` (0) / `ATTENTION` (1) /
+        `no iterations yet` (2)."""
+        iter_line = (f"latest iteration: {self.latest_iter}"
+                     if self.latest_iter > 0 else "latest iteration: none")
+        pr = self.postrelease if self.postrelease is not None else "unknown"
+        prd = self.prd_line if self.prd_line is not None else "no prd.json"
+        verdict = {0: "OK", 1: "ATTENTION", 2: "no iterations yet"}[self.exit_code]
+        return "\n".join([
+            f"foundry status -- {self.product}",
+            f"  repo: {self.repo}  branch {self.branch}",
+            f"  {iter_line}",
+            f"  post-release: {pr}",
+            f"  hotfix flag: {'RAISED' if self.hotfix else 'clear'}",
+            f"  speed-story flag: {'RAISED' if self.speed_story else 'clear'}",
+            f"  prd: {prd}",
+            f"verdict: {verdict}",
+        ])
+
+
+def summarize_status(*, product: str, repo: str, branch: str, latest_iter: int,
+                     postrelease: str | None, hotfix: bool, speed_story: bool,
+                     prd_line: str | None) -> StatusSummary:
+    """Pure keyword-only constructor for a `StatusSummary` (item 12).
+
+    A thin, total wrapper that just packs the gathered signals into the frozen
+    snapshot -- keyword-only so a caller can never transpose the eight fields by
+    position, and it never raises. Kept separate from `status_cli` so the
+    decision core stays a pure function the tester can drive without any
+    filesystem (Behavior 7)."""
+    return StatusSummary(
+        product=product, repo=repo, branch=branch, latest_iter=latest_iter,
+        postrelease=postrelease, hotfix=hotfix, speed_story=speed_story,
+        prd_line=prd_line)
+
+
+def status_cli(cfg: ProductConfig) -> int:
+    """On-demand CLI: print a company-health snapshot + a 0/1/2 exit code.
+
+    Gathers every signal through the EXISTING module-level seams -- called by
+    BARE name so a `monkeypatch.setattr(foundry, ...)` in a test bites -- then
+    hands them to the pure `summarize_status`/`StatusSummary` core:
+      * `latest_iter` = `next_iteration(cfg) - 1` (the highest shipped iter);
+      * the latest iter's `state/iter-NN/postrelease.md` (2-digit zero-pad), read
+        GUARDED through `parse_postrelease_verdict` (absent file / read error ->
+        `None`, so a no-ship iteration reads as `unknown`, never an error);
+      * the two flag files via `hotfix_flag_path(cfg).exists()` /
+        `speed_story_flag_path(cfg).exists()`;
+      * the prd progress via `dispatch_progress_line(cfg)`.
+    Prints `summary.render()` and returns `summary.exit_code`. Writes NOTHING to
+    disk (read-only) -- a thin wrapper over the pure core that adds no decision
+    logic of its own, so the printed verdict always equals the `StatusSummary`
+    fields."""
+    latest_iter = next_iteration(cfg) - 1
+    postrelease: str | None = None
+    if latest_iter > 0:
+        artifact = cfg.state / f"iter-{latest_iter:02d}" / "postrelease.md"
+        try:
+            if artifact.exists():
+                postrelease = parse_postrelease_verdict(artifact.read_text())
+        except OSError:
+            # A read error on the artifact must degrade to "unknown", never
+            # crash the probe -- no-news-is-good-news, only BROKEN/hotfix alarm.
+            postrelease = None
+    summary = summarize_status(
+        product=cfg.name, repo=cfg.repo, branch=cfg.branch,
+        latest_iter=latest_iter, postrelease=postrelease,
+        hotfix=hotfix_flag_path(cfg).exists(),
+        speed_story=speed_story_flag_path(cfg).exists(),
+        prd_line=dispatch_progress_line(cfg))
+    print(summary.render())
+    return summary.exit_code
+
+
+# --------------------------------------------------------------------------- #
 # Prompt + stage runner
 # --------------------------------------------------------------------------- #
 def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
@@ -1715,6 +1900,13 @@ def main(argv: list[str] | None = None) -> int:
                      help="git base ref to diff against (default origin/<branch>)")
     gsc.add_argument("--files", nargs="*", default=None,
                      help="classify these paths directly instead of a git diff")
+    # `status` prints a read-only company-health snapshot for one product (the
+    # latest iter + the last ship's POSTRELEASE verdict + the two flag files +
+    # the prd line) and returns 0 healthy / 1 needs-attention / 2 nothing-shipped.
+    # On-demand only -- the pipeline/dispatcher NEVER call it; it writes nothing.
+    sts = sub.add_parser("status")
+    sts.add_argument("--config", required=True,
+                     help="path to product JSON config")
     args = ap.parse_args(argv)
 
     if args.cmd == "lint-spec":
@@ -1731,6 +1923,8 @@ def main(argv: list[str] | None = None) -> int:
         return prd_status_cli(cfg)
     if args.cmd == "gate-scope":
         return gate_scope_cli(cfg, files=args.files, base=args.base)
+    if args.cmd == "status":
+        return status_cli(cfg)
     if args.cmd == "once":
         res = run_iteration(cfg)
         print(json.dumps(res))
