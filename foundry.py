@@ -1163,6 +1163,37 @@ class WeakTestSummary:
         lines.append(f"verdict: {self.verdict}")
         return "\n".join(lines)
 
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of the whole weak-test scan for
+        machine consumers (roadmap item 10's "machine-readable status for
+        dashboards / the reporter"), mirroring iter-19's `StatusSummary.
+        to_dict()` and iter-20's `HistorySummary.to_dict()`.
+
+        Returns EXACTLY 8 keys in a fixed order: `product`/`files_scanned` as
+        the stored fields verbatim, then the four DERIVED values each REUSING
+        the frozen properties -- `total_findings`/`clean`/`exit_code`/`verdict`
+        -- so the payload can never disagree with what `render()` prints or the
+        exit code returns (`to_dict` re-derives nothing), then `findings` as a
+        JSON array of ``{"file","test"}`` objects in the SAME order as
+        `self.findings` and `parse_errors` as a JSON array of
+        ``{"file","message"}`` objects in the SAME order as `self.parse_errors`.
+        Every value is JSON-native (str / int / bool / list of str-only dicts),
+        so `json.dumps(...)` never raises and the dict round-trips through
+        `json.loads(json.dumps(...))` -- including when both lists are empty.
+        Pure: touches no filesystem, only the already-gathered snapshot."""
+        return {
+            "product": self.product,
+            "files_scanned": self.files_scanned,
+            "total_findings": self.total_findings,
+            "clean": self.clean,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+            "findings": [{"file": path, "test": name}
+                         for path, name in self.findings],
+            "parse_errors": [{"file": path, "message": message}
+                             for path, message in self.parse_errors],
+        }
+
 
 def summarize_weak_tests(*, product: str, files_scanned: int,
                          findings: tuple[tuple[str, str], ...],
@@ -1201,7 +1232,7 @@ def _gather_weak_test_files(repo: str) -> list[pathlib.Path]:
     return sorted(seen)
 
 
-def weak_tests_cli(cfg: ProductConfig, files=None) -> int:
+def weak_tests_cli(cfg: ProductConfig, files=None, as_json: bool = False) -> int:
     """On-demand CLI: scan test files for assertion-free `test*` functions.
 
     Gathers the test files (from `files` if given -- scanning EXACTLY those and
@@ -1213,8 +1244,14 @@ def weak_tests_cli(cfg: ProductConfig, files=None) -> int:
     `exit_code` (0 clean / 1 weak-or-unparseable / 2 nothing to scan). Writes
     NOTHING to disk (Behavior 17). A thin wrapper over the pure core -- it adds
     no detection logic beyond (files or rglob) -> parse -> summarize -> format,
-    so the printed figures always match the `WeakTestSummary` fields. DORMANT --
-    no control path calls it."""
+    so the printed figures always match the `WeakTestSummary` fields.
+
+    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
+    indent=2)` document (the stable machine contract for dashboards/reporter/CI,
+    mirroring iter-19/20/21's `status`/`history`/`timing --json`); the default
+    `as_json=False` is byte-for-byte the iter-22 human `render()` text. Either
+    way the RETURN value is the same `summary.exit_code`, and `--files`
+    selection is identical in both modes. DORMANT -- no control path calls it."""
     if files is None:
         paths = _gather_weak_test_files(cfg.repo)
     else:
@@ -1232,7 +1269,9 @@ def weak_tests_cli(cfg: ProductConfig, files=None) -> int:
     summary = summarize_weak_tests(
         product=cfg.name, files_scanned=len(paths),
         findings=tuple(findings), parse_errors=tuple(parse_errors))
-    print(summary.render())
+    # `--json` emits the pure snapshot as a single JSON document (stdout-only, no
+    # decision logic added); the default stays the exact iter-22 human report.
+    print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
     return summary.exit_code
 
 
@@ -2793,6 +2832,9 @@ def main(argv: list[str] | None = None) -> int:
                      help="path to product JSON config")
     wkt.add_argument("--files", nargs="*", default=None,
                      help="scan these test files directly instead of walking the repo")
+    wkt.add_argument("--json", action="store_true",
+                     help="emit the scan as one JSON document (machine-readable) "
+                          "instead of the human report; same 0/1/2 exit code, honours --files")
     args = ap.parse_args(argv)
 
     if args.cmd == "lint-spec":
@@ -2816,7 +2858,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "timing":
         return timing_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "weak-tests":
-        return weak_tests_cli(cfg, files=args.files)
+        return weak_tests_cli(cfg, files=args.files, as_json=args.json)
     if args.cmd == "once":
         res = run_iteration(cfg)
         print(json.dumps(res))
