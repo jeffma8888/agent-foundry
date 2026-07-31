@@ -32,6 +32,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import ast
 import dataclasses
 import datetime as dt
 import json
@@ -1003,6 +1004,237 @@ def gate_scope_cli(cfg: ProductConfig, files=None, base=None) -> int:
           f"doc: {len(result.doc)}  source: {len(result.source)}")
     print(f"scope: {result.scope}")
     return 0 if result.light else 1
+
+
+# --------------------------------------------------------------------------- #
+# Assertion-free test detector (DORMANT — roadmap item 6, offline slice).
+#
+# Item 6's own failure mode: a fresh Tester agent writes a `test*` function that
+# CANNOT fail (no assertion) -> a false green. The full remedy (mutation testing
+# via `mutmut`) stays blocked -- it needs a network install and is not
+# offline-deterministic (VISION bar). This is the offline, deterministic slice
+# that lands today: a pure `ast` scan that flags every `test*` function whose
+# body carries NO assertion signal. That is not a heuristic -- an assertion-free
+# test validates nothing yet reports green, so the check is precise + low-false-
+# positive. Same purely-additive, off-control-path, on-demand-CLI class as
+# doctor/lint-spec/prd/gate-scope: the pipeline NEVER calls it, so
+# build_prompt/run_stage/run_iteration/run_continuous/dispatcher.py are
+# untouched, NO sentinel/config field/artifact is added, and the CLI writes
+# NOTHING. The two constants are module-level + patchable so the globs and the
+# context-manager assertion names stay tunable per box AND are read at CALL time
+# (not captured at import) -- see Behaviors 8/10.
+# --------------------------------------------------------------------------- #
+WEAK_TEST_GLOBS: tuple[str, ...] = ("test_*.py", "*_test.py")
+WEAK_TEST_ASSERTION_CALLS: frozenset[str] = frozenset({"raises", "warns", "fail"})
+
+
+def _callee_trailing_name(func_node: ast.expr) -> str | None:
+    """The trailing name of a call's callee, or None (pure, total).
+
+    `a.b.c(...)` -> ``"c"`` (the `ast.Attribute.attr`); `f(...)` -> ``"f"`` (the
+    `ast.Name.id`). Any other callee shape (`obj[k]()`, `f()()`, a lambda) has no
+    stable name, so returns None -- such a call is never an assertion signal by
+    name. Never raises for any expression node.
+    """
+    if isinstance(func_node, ast.Name):
+        return func_node.id
+    if isinstance(func_node, ast.Attribute):
+        return func_node.attr
+    return None
+
+
+def _has_assertion_signal(func: ast.AST) -> bool:
+    """True iff `func`'s own AST subtree carries ANY assertion signal.
+
+    A signal is: (a) an `assert` statement, (b) a `raise` statement, (c) a call
+    whose callee trailing-name starts with the literal ``"assert"`` (covers
+    `self.assertEqual`, `assertTrue`, ...), or (d) a call whose callee
+    trailing-name is a member of `WEAK_TEST_ASSERTION_CALLS` (covers the pytest
+    `with pytest.raises(...)` / `warns` / `fail` context managers). Reads
+    `WEAK_TEST_ASSERTION_CALLS` at CALL time so a monkeypatch of the module
+    constant re-decides subsequent calls (Behavior 10). `ast.walk` includes
+    `func` itself, so signals inside a nested body still count -- matching the
+    contract's "ANY node in that function's own AST subtree". Pure: no I/O.
+    """
+    calls = WEAK_TEST_ASSERTION_CALLS
+    for node in ast.walk(func):
+        if isinstance(node, (ast.Assert, ast.Raise)):
+            return True
+        if isinstance(node, ast.Call):
+            name = _callee_trailing_name(node.func)
+            if name is not None and (name.startswith("assert") or name in calls):
+                return True
+    return False
+
+
+def find_assertionless_tests(source: str) -> tuple[str, ...]:
+    """Names of every `test*` function in `source` with no assertion signal.
+
+    Pure AST scan -- no filesystem/subprocess/network/clock, so fully
+    offline-testable. Considers EVERY `def`/`async def` (top-level OR a class
+    method) whose name starts with the literal ``"test"`` (Behaviors 3/6/8), and
+    flags those whose subtree has NO assertion signal per `_has_assertion_signal`
+    (Behaviors 1/2/4/5). Results are returned in ASCENDING SOURCE ORDER by line
+    number, NOT alphabetically (Behavior 7). Raises `SyntaxError` verbatim when
+    `source` is not valid Python (Behavior 9) -- the caller decides how to
+    degrade (the CLI turns it into a graceful parse-error entry).
+    """
+    tree = ast.parse(source)
+    funcs = [
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name.startswith("test")
+    ]
+    flagged = [f for f in funcs if not _has_assertion_signal(f)]
+    flagged.sort(key=lambda f: f.lineno)
+    return tuple(f.name for f in flagged)
+
+
+@dataclasses.dataclass(frozen=True)
+class WeakTestSummary:
+    """The result of one weak-test scan over a product's test files (item 6).
+
+    Frozen so a computed summary can't be mutated after the fact (value equality
+    for free, matching the other pure cores). `findings` is a tuple of
+    ``(file_path, test_name)`` pairs (one per assertion-free test) and
+    `parse_errors` a tuple of ``(file_path, message)`` pairs (files that would
+    not parse / read) -- both hashable + order-stable. The three properties are
+    pure derivations of the stored fields, so the scriptable exit code follows
+    deterministically from what was gathered.
+    """
+    product: str
+    files_scanned: int
+    findings: tuple[tuple[str, str], ...]
+    parse_errors: tuple[tuple[str, str], ...]
+
+    @property
+    def total_findings(self) -> int:
+        """How many assertion-free `test*` functions were flagged."""
+        return len(self.findings)
+
+    @property
+    def clean(self) -> bool:
+        """True iff >=1 file was scanned AND nothing was flagged or unparseable.
+
+        Scanning zero files is NOT clean (there was nothing to certify), so the
+        operator can distinguish "verified clean" from "found nothing to look
+        at" -- see Behavior 16."""
+        return (self.files_scanned > 0 and not self.findings
+                and not self.parse_errors)
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable verdict: ``2`` when nothing was scanned, else ``1`` when
+        anything was flagged OR failed to parse, else ``0`` (clean). Nothing-to-
+        scan is checked FIRST so an empty run is `2`, never a false `0`."""
+        if self.files_scanned == 0:
+            return 2
+        if self.findings or self.parse_errors:
+            return 1
+        return 0
+
+    @property
+    def verdict(self) -> str:
+        """The single human token for the current `exit_code` -- ONE source of
+        truth for `render()`'s last line so text + exit code never drift."""
+        return {0: "clean", 1: "WEAK TESTS FOUND",
+                2: "nothing to scan"}[self.exit_code]
+
+    def render(self) -> str:
+        """A deterministic multi-line report carrying every gathered signal.
+
+        Contains, as substrings (the CLI's black-box contract): the product
+        name; ``files scanned: N``; ``assertion-free tests: N``; one
+        ``  <file> :: <test_name>`` line per finding (so a dirty report names
+        BOTH the file path and the test -- Behavior 11); ``parse errors: N``
+        with one ``  <file>: <message>`` line each (Behavior 15); and a final
+        ``verdict:`` token matching `exit_code`. When clean, no test-function
+        name is printed (Behavior 12)."""
+        lines = [
+            f"foundry weak-tests -- {self.product}",
+            f"  files scanned: {self.files_scanned}",
+            f"  assertion-free tests: {self.total_findings}",
+        ]
+        for path, name in self.findings:
+            lines.append(f"  {path} :: {name}")
+        lines.append(f"  parse errors: {len(self.parse_errors)}")
+        for path, message in self.parse_errors:
+            lines.append(f"  {path}: {message}")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+
+def summarize_weak_tests(*, product: str, files_scanned: int,
+                         findings: tuple[tuple[str, str], ...],
+                         parse_errors: tuple[tuple[str, str], ...]
+                         ) -> WeakTestSummary:
+    """Pure keyword-only constructor for a `WeakTestSummary` (Behavior 16).
+
+    A thin, total wrapper that packs the gathered signals into the frozen
+    summary -- keyword-only so a caller can never transpose the fields by
+    position, and it never raises. Kept separate from `weak_tests_cli` so the
+    decision core stays a pure function the tester can drive without any
+    filesystem."""
+    return WeakTestSummary(
+        product=product, files_scanned=files_scanned,
+        findings=tuple(findings), parse_errors=tuple(parse_errors))
+
+
+def _gather_weak_test_files(repo: str) -> list[pathlib.Path]:
+    """Test files under `repo` matching `WEAK_TEST_GLOBS`, sorted + deduped.
+
+    Recursively globs each pattern (read at CALL time), skips any path with a
+    hidden or `.git` directory component, keeps only regular files, dedupes (a
+    file could match two globs), and returns a deterministic sorted list. Pure
+    filesystem read -- creates/modifies nothing.
+    """
+    root = pathlib.Path(repo)
+    seen: set[pathlib.Path] = set()
+    for pattern in WEAK_TEST_GLOBS:
+        for path in root.rglob(pattern):
+            if not path.is_file():
+                continue
+            rel_parts = path.relative_to(root).parts
+            if any(part == ".git" or part.startswith(".") for part in rel_parts):
+                continue
+            seen.add(path)
+    return sorted(seen)
+
+
+def weak_tests_cli(cfg: ProductConfig, files=None) -> int:
+    """On-demand CLI: scan test files for assertion-free `test*` functions.
+
+    Gathers the test files (from `files` if given -- scanning EXACTLY those and
+    NOT walking the repo, Behavior 14 -- else an rglob of `cfg.repo` via
+    `_gather_weak_test_files`), parses each through `find_assertionless_tests`
+    (turning a `SyntaxError`/`OSError` into a graceful `parse_errors` entry
+    rather than crashing -- Behavior 15), builds the summary via the pure
+    bare-name `summarize_weak_tests`, prints `render()`, and returns its
+    `exit_code` (0 clean / 1 weak-or-unparseable / 2 nothing to scan). Writes
+    NOTHING to disk (Behavior 17). A thin wrapper over the pure core -- it adds
+    no detection logic beyond (files or rglob) -> parse -> summarize -> format,
+    so the printed figures always match the `WeakTestSummary` fields. DORMANT --
+    no control path calls it."""
+    if files is None:
+        paths = _gather_weak_test_files(cfg.repo)
+    else:
+        paths = [pathlib.Path(f) for f in files]
+    findings: list[tuple[str, str]] = []
+    parse_errors: list[tuple[str, str]] = []
+    for path in paths:
+        try:
+            names = find_assertionless_tests(path.read_text())
+        except (SyntaxError, OSError) as exc:
+            parse_errors.append((str(path), f"{type(exc).__name__}: {exc}"))
+            continue
+        for name in names:
+            findings.append((str(path), name))
+    summary = summarize_weak_tests(
+        product=cfg.name, files_scanned=len(paths),
+        findings=tuple(findings), parse_errors=tuple(parse_errors))
+    print(summary.render())
+    return summary.exit_code
+
 
 
 # --------------------------------------------------------------------------- #
@@ -2550,6 +2782,17 @@ def main(argv: list[str] | None = None) -> int:
     tmg.add_argument("--json", action="store_true",
                      help="emit the digest as one JSON document (machine-readable) "
                           "instead of the human report; same 0/2 exit code, honours --limit")
+    # `weak-tests` scans a product's test files for assertion-free `test*`
+    # functions (a test with no assertion passes without validating anything --
+    # a false green). DORMANT / on-demand only -- the pipeline/gate/dispatcher
+    # NEVER call it; it writes nothing. `--files` scans EXACTLY those paths
+    # instead of walking `cfg.repo`. Exit 0 clean / 1 weak-or-unparseable / 2
+    # nothing to scan.
+    wkt = sub.add_parser("weak-tests")
+    wkt.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    wkt.add_argument("--files", nargs="*", default=None,
+                     help="scan these test files directly instead of walking the repo")
     args = ap.parse_args(argv)
 
     if args.cmd == "lint-spec":
@@ -2572,6 +2815,8 @@ def main(argv: list[str] | None = None) -> int:
         return history_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "timing":
         return timing_cli(cfg, limit=args.limit, as_json=args.json)
+    if args.cmd == "weak-tests":
+        return weak_tests_cli(cfg, files=args.files)
     if args.cmd == "once":
         res = run_iteration(cfg)
         print(json.dumps(res))
