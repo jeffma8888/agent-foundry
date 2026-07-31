@@ -102,8 +102,14 @@ Nothing is remembered in-context across stages. Durable memory is:
   per shift for any product that has a `prd.json` (item 1); a no-op until one exists.
 - `products/<name>/events.jsonl` — a machine-readable JSONL mirror of the
   NIGHT_LOG timeline (one `{ts, event, ...}` JSON object per line, `ts` is a
-  tz-aware UTC ISO-8601 instant). Written best-effort alongside every NIGHT_LOG
-  line; purely diagnostic (never read on a control path) and git-ignored.
+  tz-aware UTC ISO-8601 instant). Each record emitted from `log()` also carries a
+  semantic `kind` (one of ship / revert / postrelease / timing / backoff / stop /
+  lifecycle / fix / iteration / stage / info) derived by the pure
+  `classify_event(msg)` (item 10), so the stream is FILTERABLE by event type
+  without re-parsing the free-form `msg`; `event` stays `"log"` (backward
+  compatible) and historical lines without `kind` remain valid JSON. Written
+  best-effort alongside every NIGHT_LOG line; purely diagnostic (never read on a
+  control path) and git-ignored.
 - Per-ship suite wall-time (item 7): on every genuine ship `postrelease_step`
   records the fresh-clone test-suite seconds — a `fresh-clone suite wall-time:
   N.NNs` line in NIGHT_LOG/events (flagged `SLOW` past `SUITE_SLOW_SECONDS`) and
