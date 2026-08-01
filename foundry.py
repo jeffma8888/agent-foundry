@@ -1432,6 +1432,12 @@ def gate_scope_cli(cfg: ProductConfig, files=None, base=None) -> int:
 # --------------------------------------------------------------------------- #
 WEAK_TEST_GLOBS: tuple[str, ...] = ("test_*.py", "*_test.py")
 WEAK_TEST_ASSERTION_CALLS: frozenset[str] = frozenset({"raises", "warns", "fail"})
+# Trailing decorator names that ALWAYS skip a test regardless of args or dotted
+# path (`@skip`, `@pytest.mark.skip`, `@unittest.skip`). Module-level + patchable
+# + read at CALL time (not captured at import) so a monkeypatch bites -- mirror
+# `WEAK_TEST_ASSERTION_CALLS`. `skipif`/`skipIf`/`skipUnless` are NOT decided by
+# membership here; their constant condition is judged in `_is_always_skip_decorator`.
+WEAK_TEST_SKIP_NAMES: frozenset[str] = frozenset({"skip"})
 
 
 def _callee_trailing_name(func_node: ast.expr) -> str | None:
@@ -1565,6 +1571,86 @@ def find_constant_assert_tests(source: str) -> tuple[str, ...]:
         has_constant_assert, has_real_signal = _assert_signals(f)
         if has_constant_assert and not has_real_signal:
             flagged.append(f)
+    flagged.sort(key=lambda f: f.lineno)
+    return tuple(f.name for f in flagged)
+
+
+def _is_always_skip_decorator(decorator: ast.expr) -> bool:
+    """True iff `decorator` UNCONDITIONALLY skips the test it decorates.
+
+    Handles a decorator in any of its three shapes -- a bare name (`@skip`), a
+    dotted attribute (`@pytest.mark.skip`, `@unittest.skip`), or a call of either
+    (`@pytest.mark.skip(reason=...)`, `@unittest.skipIf(True, ...)`) -- resolving
+    the callee's trailing name via `_callee_trailing_name` (Behavior 1). A
+    trailing name in `WEAK_TEST_SKIP_NAMES` (default `{"skip"}`) ALWAYS skips,
+    regardless of args or dotted path. A `skipif`/`skipIf` skips ONLY when its
+    first positional arg is a constant-TRUTHY `ast.Constant` (Behavior 2); a
+    `skipUnless` skips ONLY when its first positional arg is a constant-FALSY
+    `ast.Constant` (Behavior 3). A non-constant condition (`sys.platform == ...`,
+    `HAVE_LIB`) -- or no positional arg at all -- is UNKNOWN, so conservatively
+    NOT a skip, so a legitimate runtime platform/capability guard is never a
+    false positive. Reads `WEAK_TEST_SKIP_NAMES` at CALL time (not captured at
+    def-time) so a monkeypatch of the module constant re-decides subsequent calls
+    (Behavior 8). Pure: no I/O, and never raises for any decorator expression node.
+    """
+    if isinstance(decorator, ast.Call):
+        name = _callee_trailing_name(decorator.func)
+        args = decorator.args
+    else:
+        name = _callee_trailing_name(decorator)
+        args = []
+    if name is None:
+        return False
+    # A bare/dotted/called `skip` (any member of the patchable set) always skips.
+    if name in WEAK_TEST_SKIP_NAMES:
+        return True
+    # A conditional skip is statically decidable ONLY when its first positional
+    # arg is a literal `ast.Constant`; a runtime value (name/compare/call) is
+    # UNKNOWN, so it is conservatively NOT flagged.
+    first = args[0] if args else None
+    if not isinstance(first, ast.Constant):
+        return False
+    truthy = bool(first.value)
+    if name in ("skipif", "skipIf"):
+        return truthy
+    if name == "skipUnless":
+        return not truthy
+    return False
+
+
+def find_always_skipped_tests(source: str) -> tuple[str, ...]:
+    """Names of every `test*` function unconditionally skipped by a decorator.
+
+    Pure AST scan -- no filesystem/subprocess/network/clock, so fully
+    offline-testable. The 3rd member of the item-6 weak-test detector family
+    (after `find_assertionless_tests` and `find_constant_assert_tests`): a test
+    carrying an UNCONDITIONAL skip decorator (`@pytest.mark.skip`,
+    `@unittest.skip`, a constant-condition `skipif(True)` / `skipUnless(False)`)
+    never runs, validates nothing, yet reports the suite green -- the degenerate
+    "no assertion runs at all" case, and a real way a fresh Tester/Engineer fakes
+    a green suite that the item-11 fresh-clone re-run does not catch (a skipped
+    test passes there too). A `test*` function is flagged iff ANY of its
+    decorators is an always-skip per `_is_always_skip_decorator` (Behaviors
+    1/2/3/4), so a test with multiple decorators including one skip is flagged
+    exactly ONCE (Behavior 6). Considers EVERY `def`/`async def` (top-level OR a
+    class method) whose name starts with the literal ``"test"`` (Behavior 5);
+    results in ASCENDING SOURCE ORDER by line number, NOT alphabetically
+    (Behavior 6). Runtime `pytest.skip()` / `self.skipTest()` body CALLS are OUT
+    of scope -- a body-level call may be guarded by an `if`, so it is not
+    statically "always-skip". Raises `SyntaxError` verbatim when `source` is not
+    valid Python (Behavior 7) -- the caller decides how to degrade. Never
+    referenced on any run path this iteration (dormant, Behavior 8).
+    """
+    tree = ast.parse(source)
+    funcs = [
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name.startswith("test")
+    ]
+    flagged = [
+        f for f in funcs
+        if any(_is_always_skip_decorator(d) for d in f.decorator_list)
+    ]
     flagged.sort(key=lambda f: f.lineno)
     return tuple(f.name for f in flagged)
 
