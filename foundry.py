@@ -1102,6 +1102,273 @@ def lint_spec_cli(path: str) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Product-config linter (`foundry lint-config`) -- the CONFIG-validation
+# complement to `doctor`'s ENV validation (item 9) and `lint-spec`'s SPEC
+# validation (item 5).
+#
+# `doctor` answers "is my machine ready?" and `lint-spec` answers "is this PM
+# spec complete + right-sized?", but NOTHING validates the PRODUCT CONFIG
+# itself. A typo'd `vision`/`roadmap` path, a `repo` that is not a git
+# repository, an empty `test_cmd`, a missing `roles_dir`, or -- a SAFETY problem
+# -- an empty `allowed_push_repo` while `push_enabled` is true (the push guard
+# then blocks EVERY ship, so a shipping loop can never ship) each degrade or
+# silently break a shift with no early signal. `lint_config` is the
+# deterministic, OFFLINE core: a `ProductConfig` in, a `ConfigLint` verdict out
+# -- filesystem-existence + string checks ONLY (NO network; remote reachability
+# stays `doctor`'s job), it NEVER raises, and it emits findings in a FIXED check
+# order. `lint_config_cli` is the operator-facing seam (load a config -> lint it
+# -> print the report; exit 0 OK-or-warnings-only / 1 config-errors / 2
+# unreadable config), so a launch wrapper can lint a config once before
+# committing a shift. DORMANT / on-demand only -- the pipeline/gate/dispatcher
+# NEVER call it; it writes nothing (the only filesystem touch is `load_config`'s
+# own work_root mkdir, shared by every --config command). It changes NO control
+# flow, NO existing CLI, and NO running-loop semantics.
+# --------------------------------------------------------------------------- #
+@dataclasses.dataclass(frozen=True)
+class ConfigFinding:
+    """One leveled misconfiguration found in a `ProductConfig`.
+
+    Frozen (value equality for free, matching the other verdict cores). `field`
+    is the config field the problem concerns (`"name"`, `"repo"`,
+    `"allowed_push_repo"`, `"test_cmd"`, `"roles_dir"`, `"vision"`, `"roadmap"`,
+    `"quality_ref"`); `level` is `"error"` (breaks or silently defeats a shift)
+    or `"warn"` (degraded but a shift can still run); `detail` is a human
+    sentence naming the specific problem.
+    """
+    field: str
+    level: str
+    detail: str
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe `{"field","level","detail"}` triple (fixed order)."""
+        return {"field": self.field, "level": self.level, "detail": self.detail}
+
+
+@dataclasses.dataclass(frozen=True)
+class ConfigLint:
+    """A lint verdict for one product config (the CONFIG-validation axis).
+
+    Frozen so a computed verdict can't be mutated after the fact, which also
+    gives value-equality for free. The two stored fields are the raw inputs --
+    the linted config's identity (`config_path`) and the `findings` emitted in
+    a fixed check order -- and EVERY count/verdict/exit-code is a PURE property
+    over `findings`, so `render()` / `to_dict()` / the exit code can never
+    disagree (single source of truth). A WARNING never fails the verdict -- only
+    an ERROR does -- because a warning names a degraded-but-runnable config (a
+    missing roadmap the PM creates on the first iteration) while an error names a
+    config that breaks or silently defeats a shift.
+    """
+    config_path: str
+    findings: tuple[ConfigFinding, ...]
+
+    @property
+    def errors(self) -> tuple[ConfigFinding, ...]:
+        """The error-level findings, in check (fix) order."""
+        return tuple(f for f in self.findings if f.level == "error")
+
+    @property
+    def warnings(self) -> tuple[ConfigFinding, ...]:
+        """The warning-level findings, in check (fix) order."""
+        return tuple(f for f in self.findings if f.level == "warn")
+
+    @property
+    def n_errors(self) -> int:
+        """How many error-level findings there are."""
+        return len(self.errors)
+
+    @property
+    def n_warnings(self) -> int:
+        """How many warning-level findings there are."""
+        return len(self.warnings)
+
+    @property
+    def ok(self) -> bool:
+        """True iff there are NO errors (warnings alone still pass -- a
+        warnings-only config can still run a shift)."""
+        return self.n_errors == 0
+
+    @property
+    def verdict(self) -> str:
+        """The operator-facing token: `"PROBLEMS"` if any error, else
+        `"WARNINGS"` if any warning, else `"OK"` -- ONE source of truth for
+        `render()`'s last line so text + exit code never drift."""
+        if self.n_errors:
+            return "PROBLEMS"
+        if self.n_warnings:
+            return "WARNINGS"
+        return "OK"
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable verdict: `1` iff any error (`not ok`), else `0` (clean OR
+        warnings-only). The unreadable-config `2` is the CLI's concern, never a
+        `ConfigLint`'s (a `ConfigLint` only exists once a config has loaded)."""
+        return 0 if self.ok else 1
+
+    def render(self) -> str:
+        """A deterministic multi-line report.
+
+        The FIRST line names the linted config (the CLI's black-box contract)
+        and the LAST line is exactly `verdict: <TOKEN>` (`OK`/`WARNINGS`/
+        `PROBLEMS`). Between them: an `errors`/`warnings` count line, then one
+        `  [error] <field>: <detail>` line per error and one
+        `  [warn] <field>: <detail>` line per warning (check order). A clean
+        config lists NO finding lines yet still ends `verdict: OK`. Detail
+        above the sentinel, so "last non-empty line == verdict" always holds."""
+        lines = [
+            f"foundry lint-config -- {self.config_path}",
+            f"  errors: {self.n_errors}  warnings: {self.n_warnings}",
+        ]
+        for f in self.errors:
+            lines.append(f"  [error] {f.field}: {f.detail}")
+        for f in self.warnings:
+            lines.append(f"  [warn] {f.field}: {f.detail}")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization.
+
+        Returns EXACTLY these keys in this fixed order: `config_path`,
+        `findings` (a list of `{"field","level","detail"}` dicts in finding
+        order), `n_errors`, `n_warnings`, `ok`, `verdict`, `exit_code`. Every
+        value is JSON-native so `json.dumps(...)` never raises and the dict
+        round-trips through `json.loads(json.dumps(...))`. Pure: no filesystem."""
+        return {
+            "config_path": self.config_path,
+            "findings": [f.to_dict() for f in self.findings],
+            "n_errors": self.n_errors,
+            "n_warnings": self.n_warnings,
+            "ok": self.ok,
+            "verdict": self.verdict,
+            "exit_code": self.exit_code,
+        }
+
+
+def lint_config(cfg: ProductConfig) -> ConfigLint:
+    """Lint one product config for the misconfigurations that silently waste a
+    shift or defeat the push guard (the pure core behind `foundry lint-config`).
+
+    Deterministic + OFFLINE: filesystem-existence (`Path.exists()`) + string
+    checks ONLY -- no network (remote reachability stays `doctor`'s job), no
+    subprocess, no clock -- so it is fully offline-testable and NEVER raises for
+    any `ProductConfig`. Findings are emitted in a FIXED check order (name,
+    repo, allowed_push_repo, test_cmd, roles_dir, vision, roadmap, quality_ref)
+    so the verdict is deterministic.
+
+    Works on a RESOLVED COPY (`dataclasses.replace` then `.resolve()`, inside a
+    guard so a pathological `~`-expansion can never raise) so `{FOUNDRY}`/`~` are
+    expanded and empty path fields take their defaults (an empty `roles_dir`
+    becomes `<foundry>/roles`) WITHOUT mutating the caller's config; `.resolve()`
+    is a no-op on the absolute paths the pure tests construct, and it is
+    idempotent on the already-resolved config the CLI passes.
+
+    Levels: an ERROR names a config that breaks or silently defeats a shift (an
+    empty `name`, a missing/non-git `repo`, an empty `test_cmd`, a missing
+    `roles_dir`, a missing `vision` FILE, or -- the SAFETY case -- an empty
+    `allowed_push_repo` while `push_enabled` is true, which makes the push guard
+    block EVERY ship); a WARN names a degraded-but-runnable config (an unset
+    `vision`, or a missing `roadmap`/`quality_ref` FILE -- the PM creates the
+    roadmap on the first iteration). An empty (unset) `roadmap`/`quality_ref` is
+    optional and produces no finding.
+    """
+    try:
+        resolved = dataclasses.replace(cfg).resolve()
+    except Exception:
+        # `.resolve()` only touches strings and never hits the network, so the
+        # sole theoretical raise is a `~`-expansion with no home directory. Fall
+        # back to the config as-given rather than break the "never raises"
+        # contract; in practice this branch is unreachable for a real config.
+        resolved = cfg
+    findings: list[ConfigFinding] = []
+
+    if not resolved.name.strip():
+        findings.append(ConfigFinding(
+            "name", "error", "product name is empty"))
+
+    repo = pathlib.Path(resolved.repo) if resolved.repo else None
+    if repo is None or not repo.exists():
+        findings.append(ConfigFinding(
+            "repo", "error", f"repo path does not exist: {resolved.repo!r}"))
+    elif not (repo / ".git").exists():
+        findings.append(ConfigFinding(
+            "repo", "error",
+            f"repo is not a git repository (no .git entry): {resolved.repo!r}"))
+
+    if resolved.push_enabled and not resolved.allowed_push_repo.strip():
+        findings.append(ConfigFinding(
+            "allowed_push_repo", "error",
+            "allowed_push_repo is empty while push_enabled is true -- the push "
+            "guard would block EVERY ship"))
+
+    if not resolved.test_cmd.strip():
+        findings.append(ConfigFinding(
+            "test_cmd", "error",
+            "test_cmd is empty (no quality-check command)"))
+
+    if not resolved.roles_dir or not pathlib.Path(resolved.roles_dir).exists():
+        findings.append(ConfigFinding(
+            "roles_dir", "error",
+            f"roles_dir does not exist: {resolved.roles_dir!r}"))
+
+    if not resolved.vision:
+        findings.append(ConfigFinding(
+            "vision", "warn",
+            "vision path is unset (no fixed product intent to hold to)"))
+    elif not pathlib.Path(resolved.vision).exists():
+        findings.append(ConfigFinding(
+            "vision", "error",
+            f"vision file does not exist: {resolved.vision!r}"))
+
+    if resolved.roadmap and not pathlib.Path(resolved.roadmap).exists():
+        findings.append(ConfigFinding(
+            "roadmap", "warn",
+            f"roadmap file does not exist yet: {resolved.roadmap!r} "
+            "(the PM creates it on the first iteration)"))
+
+    if resolved.quality_ref and not pathlib.Path(resolved.quality_ref).exists():
+        findings.append(ConfigFinding(
+            "quality_ref", "warn",
+            f"quality_ref path does not exist: {resolved.quality_ref!r}"))
+
+    return ConfigLint(config_path=resolved.name, findings=tuple(findings))
+
+
+def lint_config_cli(config_path: str, as_json: bool = False) -> int:
+    """On-demand CLI: lint a PRODUCT config file for misconfigurations.
+
+    Loads the config at `config_path` INSIDE a try so an unreadable or
+    invalid-JSON file returns `2` (distinct from a lint PROBLEMS=1) after
+    printing a `lint-config: ...` diagnostic, without letting the load exception
+    propagate. On a successful load it runs the pure `lint_config` core and
+    prints the human `render()` (or, with `as_json=True`, one
+    `json.dumps(to_dict())` document -- a single parseable doc), returning the
+    `ConfigLint.exit_code` (0 OK-or-warnings-only / 1 config-errors). Writes
+    nothing itself (the only filesystem touch is `load_config`'s own work_root
+    mkdir, shared by every --config command). A thin wrapper over the pure core:
+    it adds no lint logic beyond load -> `lint_config` -> format, so the printed
+    verdict always matches the `ConfigLint` fields.
+    """
+    try:
+        cfg = load_config(config_path)
+    except Exception as exc:
+        message = (f"lint-config: cannot read config {config_path}: "
+                   f"{type(exc).__name__}: {exc}")
+        if as_json:
+            print(json.dumps({"config_path": config_path,
+                              "error": message, "exit_code": 2}))
+        else:
+            print(message)
+        return 2
+    lint = lint_config(cfg)
+    if as_json:
+        print(json.dumps(lint.to_dict(), indent=2))
+    else:
+        print(lint.render())
+    return lint.exit_code
+
+
+# --------------------------------------------------------------------------- #
 # prd.json machine-roadmap status (roadmap item 1, bite 1/2).
 #
 # Right now the only record of what a product has shipped is the prose
@@ -6719,6 +6986,25 @@ def main(argv: list[str] | None = None) -> int:
     lnt = sub.add_parser("lint-spec")
     lnt.add_argument("--file", required=True,
                      help="path to a PM spec (pm.md) to lint")
+    # `lint-config` is the CONFIG-validation complement to `doctor` (env, #0)
+    # and `lint-spec` (spec, #6): an offline, deterministic linter that inspects
+    # a resolved product config for the misconfigurations that silently waste a
+    # shift or defeat the push guard (a missing/non-git `repo`, an empty
+    # `test_cmd`, a missing `roles_dir`, a missing `vision`, or -- the SAFETY
+    # case -- an empty `allowed_push_repo` while push_enabled is true). It takes
+    # a product `--config` but manages its OWN load (so an unreadable/invalid
+    # config maps to exit 2, distinct from a lint PROBLEMS=1), so like
+    # `lint-spec`/`single-brain`/the `company-*` commands it is dispatched BEFORE
+    # the top-level `load_config` below. On-demand only -- the pipeline/gate/
+    # dispatcher NEVER call it; it writes nothing. Exit 0 OK-or-warnings-only /
+    # 1 config-errors / 2 unreadable-config.
+    lcfg = sub.add_parser("lint-config")
+    lcfg.add_argument("--config", required=True,
+                      help="path to the PRODUCT JSON config to lint")
+    lcfg.add_argument("--json", action="store_true",
+                      help="emit the lint verdict as one JSON document "
+                           "(machine-readable) instead of the human report; "
+                           "same 0/1/2 exit code")
     # `single-brain` is a read-only launch PREFLIGHT: it reports whether a
     # dispatcher is ALREADY running so an operator (or a launch wrapper) can
     # refuse to start a SECOND competing brain, which would starve the shared
@@ -7093,6 +7379,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "lint-spec":
         return lint_spec_cli(args.file)
+    if args.cmd == "lint-config":
+        return lint_config_cli(args.config, as_json=args.json)
     if args.cmd == "single-brain":
         return single_brain_cli(pattern=args.pattern, as_json=args.json)
     if args.cmd == "company-status":
