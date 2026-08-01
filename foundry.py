@@ -4936,6 +4936,313 @@ def company_constant_asserts_cli(dispatch_path: str, as_json: bool = False) -> i
 
 
 # --------------------------------------------------------------------------- #
+# Company-wide always-skipped-test roll-up (`company-skipped-tests`) -- roadmap
+# item 6, the company view on the iter-56 `gather_skipped_tests` foundation
+# (the 7th `company-*` family member).
+#
+# The QUALITY-axis complement to iter-30's `company-status` (health NOW),
+# iter-31's `company-history` (ship LEDGER), iter-40's `company-timing`
+# (THROUGHPUT), iter-43's `company-weak-tests` (assertion-FREE tests),
+# iter-46's `company-events` (ACTIVITY) and iter-54's `company-constant-asserts`
+# (CONSTANT-assert tests): `company-skipped-tests` answers "does ANY team have
+# an ALWAYS-SKIPPED test?" -- a `test*` that is UNCONDITIONALLY skipped by
+# decorator (`@pytest.mark.skip` / `@unittest.skip`, or a constant-condition
+# `@skipif(True)` / `@skipUnless(False)`), so it NEVER runs, validates nothing,
+# yet reports the suite green, and no existing gate catches it (the item-11
+# fresh-clone re-run passes a skipped test too). It reads the DISPATCH config and
+# folds every ENABLED team's iter-56 `skipped-tests` scan into ONE company view
+# (summed files-scanned / always-skipped-tests / parse-errors + a per-product
+# breakdown), reusing the SHIPPED `gather_skipped_tests` (iter 56) /
+# `parse_dispatch_work_items` (iter 30) / frozen `SkippedTestSummary` (iter 56)
+# seams -- adds NO new I/O seam, sentinel, config field, or artifact. Purely
+# additive and DORMANT: the pipeline / gate / dispatcher NEVER call it and it
+# WRITES NOTHING (read-only). UNLIKE the INFORMATIONAL history/timing/events
+# roll-ups, it GATES on findings (mirroring the per-product `skipped-tests`
+# gate): an always-skipped test OR an unparseable file OR a structural gather
+# error ANYWHERE -> exit 1.
+#
+# ONE correctness divergence from the `company-constant-asserts` reference (NOT
+# a copy-paste of its "disjoint" framing): `company-constant-asserts` is DISJOINT
+# from `company-weak-tests` by the detectors' construction (a constant assert
+# CARRIES an assert node, so an assertion-free scan can never also flag it). But
+# an always-skipped test CAN also be assertion-free, so `company-skipped-tests`
+# findings CAN OVERLAP both `company-weak-tests` and `company-constant-asserts`.
+# It is a THIRD COMPLEMENTARY company lens catching a DIFFERENT antipattern -- a
+# test that never RUNS at all -- not a disjoint partition.
+# --------------------------------------------------------------------------- #
+@dataclasses.dataclass(frozen=True)
+class CompanySkippedTests:
+    """A one-shot COMPANY-wide always-skipped-test roll-up across a dispatch config.
+
+    Frozen so a computed roll-up can't be mutated after the fact (value equality
+    for free, matching the other pure cores). Every derived value is a pure
+    property over the stored fields, so the whole verdict -- including the
+    scriptable exit code -- follows deterministically from what was gathered, and
+    the JSON payload / render text can never disagree with the exit code.
+
+    Fields:
+      * `dispatch_path` -- the dispatch config path, echoed into `render()`.
+      * `products` -- the per-product `SkippedTestSummary` scans that were
+        successfully gathered, IN dispatch-file order (an enabled product that
+        failed to load/gather is NOT here -- it lands in `errors`).
+      * `disabled` -- names of work items with `enabled=False` (never loaded).
+      * `errors` -- `(product, message)` 2-tuples for enabled items that raised
+        while loading/gathering (the sole caller guarantees each is a 2-tuple).
+
+    The company totals are SUMS over the gathered products: `files_scanned` /
+    `total_findings` sum the same-named per-product fields, `total_parse_errors`
+    sums each product's `len(parse_errors)`. `n_flagged` counts gathered products
+    that have a finding OR a parse error (the per-product "not clean but scanned"
+    signal), giving the operator "how many teams need looking at" at a glance.
+
+    A structural mirror of `CompanyConstantAsserts` (iter 54) differing ONLY in
+    the per-product summary type (`SkippedTestSummary` not `ConstantAssertSummary`),
+    the gather seam its CLI drives (`gather_skipped_tests`), and the human labels.
+    Its ONE correctness divergence from that reference: UNLIKE the DISJOINT
+    constant-assert roll-up, an always-skipped test CAN also be assertion-free, so
+    this roll-up's findings can OVERLAP `company-weak-tests` /
+    `company-constant-asserts` -- a THIRD COMPLEMENTARY company lens catching a
+    DIFFERENT antipattern (a test that never RUNS at all), not a disjoint scan.
+    """
+    dispatch_path: str
+    products: tuple[SkippedTestSummary, ...]
+    disabled: tuple[str, ...]
+    errors: tuple[tuple[str, str], ...]
+
+    @property
+    def n_products(self) -> int:
+        """Count of products successfully ROLLED UP (an errored enabled product
+        is NOT counted here -- it is in `errors`)."""
+        return len(self.products)
+
+    @property
+    def n_disabled(self) -> int:
+        return len(self.disabled)
+
+    @property
+    def n_errors(self) -> int:
+        return len(self.errors)
+
+    @property
+    def files_scanned(self) -> int:
+        """Company files scanned = the SUM of every gathered product's
+        `files_scanned`."""
+        return sum(p.files_scanned for p in self.products)
+
+    @property
+    def total_findings(self) -> int:
+        """Company always-skipped tests = the SUM of every product's
+        `total_findings`."""
+        return sum(p.total_findings for p in self.products)
+
+    @property
+    def total_parse_errors(self) -> int:
+        """Company parse errors = the SUM of every product's own
+        `len(parse_errors)` (files that would not parse / read anywhere)."""
+        return sum(len(p.parse_errors) for p in self.products)
+
+    @property
+    def n_flagged(self) -> int:
+        """How many GATHERED products have a finding OR a parse error -- the
+        per-product "scanned but not clean" signal, so an operator sees "how many
+        teams need looking at" without expanding the breakdown."""
+        return sum(1 for p in self.products
+                   if p.total_findings > 0 or p.parse_errors)
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable verdict, findings-first (UNLIKE informational
+        history/timing/events): `1` when `errors` is non-empty (a structural
+        gather failure) OR `total_findings > 0` (an always-skipped test) OR
+        `total_parse_errors > 0` (an unparseable file) ANYWHERE -- all three
+        gate, mirroring the per-product `skipped-tests` exit code; else `2`
+        when NO products were gathered (every item disabled or `work_items` empty
+        -- reachable only with `errors` empty and no findings); else `0` (clean).
+
+        A gathered product that scanned ZERO test files (its own
+        `SkippedTestSummary.exit_code == 2`) does NOT force company exit 2 --
+        it still counts in `n_products`, so with no findings/parse-errors/
+        structural-errors the company exits 0 (mirroring `company-constant-asserts`
+        / `company-weak-tests`, where a product with zero scanned files does not
+        force exit 2)."""
+        if self.errors or self.total_findings > 0 or self.total_parse_errors > 0:
+            return 1
+        if self.n_products == 0:
+            return 2
+        return 0
+
+    @property
+    def verdict(self) -> str:
+        """The single human token for the current `exit_code` -- `"clean"` (0) /
+        `"ATTENTION"` (1) / `"no enabled products"` (2). ONE source of truth for
+        both `render()`'s last line and the JSON `verdict` key, so the text and
+        the machine payload can never drift from the exit code. NOTE these are the
+        COMPANY tokens, NOT the per-product `SkippedTestSummary` token
+        `"ALWAYS-SKIPPED TESTS FOUND"`."""
+        return {0: "clean", 1: "ATTENTION", 2: "no enabled products"}[self.exit_code]
+
+    def _rollup(self) -> str:
+        """The company always-skipped rollup as a substring: `{files_scanned}
+        files scanned, {total_findings} always-skipped tests, {total_parse_errors}
+        parse errors` -- the summed counts only (per-team leaf findings live in
+        the per-product breakdown / `to_dict()`, keeping the report bounded like
+        `company-constant-asserts` / `company-weak-tests`)."""
+        return (f"{self.files_scanned} files scanned, "
+                f"{self.total_findings} always-skipped tests, "
+                f"{self.total_parse_errors} parse errors")
+
+    def render(self) -> str:
+        """A deterministic multi-line company always-skipped report (the CLI's
+        contract).
+
+        Contains, as substrings: the literal `foundry company-skipped-tests`;
+        the `dispatch_path`; a counts line reporting `{n_products} gathered`,
+        `{n_disabled} disabled`, `{n_errors} error(s)` PLUS the company rollup
+        (`{files_scanned} files scanned, {total_findings} always-skipped tests,
+        {total_parse_errors} parse errors`); ONE line per gathered product
+        beginning `  - {product}:` carrying its OWN `{p.files_scanned} files
+        scanned, {p.total_findings} always-skipped, {len(p.parse_errors)} parse
+        error(s)` (per-product COUNTS only, NOT each `(file :: test)` leaf); one
+        `  - {name}: disabled` line per disabled item; one `  - {name}: ERROR
+        {message}` line per error; and a final `verdict:` line whose token EQUALS
+        `verdict`."""
+        lines = [
+            "foundry company-skipped-tests",
+            f"  dispatch config: {self.dispatch_path}",
+            f"  products: {self.n_products} gathered, "
+            f"{self.n_disabled} disabled, {self.n_errors} error(s) -- "
+            f"{self._rollup()}",
+        ]
+        for p in self.products:
+            lines.append(
+                f"  - {p.product}: {p.files_scanned} files scanned, "
+                f"{p.total_findings} always-skipped, "
+                f"{len(p.parse_errors)} parse error(s)")
+        for name in self.disabled:
+            lines.append(f"  - {name}: disabled")
+        for name, message in self.errors:
+            lines.append(f"  - {name}: ERROR {message}")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe company roll-up for machine consumers -- a dashboard
+        / cron alert / the reporter. `products` carries the FULL per-product
+        `SkippedTestSummary.to_dict()` payload (the 8-key per-team detail
+        INCLUDING each team's `findings`/`parse_errors` leaf arrays) in stored
+        order, so no leaf detail is lost even though `render()` prints per-product
+        counts only. Every derived value REUSES the frozen properties, so the
+        payload can never disagree with `render()` or the exit code, and every
+        value is JSON-native, so it round-trips through
+        `json.loads(json.dumps(...))` -- including when `products`/`disabled`/
+        `errors` are all empty. Pure: touches no filesystem."""
+        return {
+            "dispatch_config": self.dispatch_path,
+            "products": [p.to_dict() for p in self.products],
+            "disabled": list(self.disabled),
+            "errors": [{"product": name, "message": message}
+                       for name, message in self.errors],
+            "n_products": self.n_products,
+            "n_disabled": self.n_disabled,
+            "n_errors": self.n_errors,
+            "n_flagged": self.n_flagged,
+            "files_scanned": self.files_scanned,
+            "total_findings": self.total_findings,
+            "total_parse_errors": self.total_parse_errors,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+        }
+
+
+def summarize_company_skipped_tests(*, dispatch_path: str,
+                                    products: tuple[SkippedTestSummary, ...],
+                                    disabled: tuple[str, ...],
+                                    errors: tuple[tuple[str, str], ...],
+                                    ) -> CompanySkippedTests:
+    """Pure keyword-only constructor for a `CompanySkippedTests` (Behaviors 1-5).
+
+    A thin, total wrapper that packs the gathered scans into the frozen roll-up
+    -- keyword-only so a caller can never transpose the fields by position, and
+    it never raises for well-formed inputs (each `errors` entry is a
+    `(product, message)` 2-tuple, which the sole caller
+    `company_skipped_tests_cli` guarantees; documenting the precondition keeps
+    the "never raises" contract airtight). Kept separate from
+    `company_skipped_tests_cli` so the decision core stays a pure function the
+    tester can drive without any filesystem."""
+    return CompanySkippedTests(
+        dispatch_path=dispatch_path,
+        products=tuple(products),
+        disabled=tuple(disabled),
+        errors=tuple((name, message) for name, message in errors))
+
+
+def company_skipped_tests_cli(dispatch_path: str, as_json: bool = False) -> int:
+    """On-demand CLI: roll every ENABLED team's always-skipped-test scan into ONE
+    company quality view (roadmap item 6, the 7th `company-*` member).
+
+    Reads the DISPATCH config at `dispatch_path` (`foundry.config.json`, NOT a
+    product config), then for each ENABLED work item substitutes a `{FOUNDRY}`
+    token in its config path to the foundry root and loads + scans that product
+    via the `load_config` / `gather_skipped_tests` seams (both called by BARE
+    name so a `monkeypatch.setattr(foundry, ...)` bites). A DISABLED item is
+    recorded in `disabled` (by name) and never loaded.
+
+    Resilient (Behaviors 6-7): if reading/parsing the dispatch config fails
+    (missing / not JSON / not an object) it prints a report recording ONE
+    synthetic error and returns exit 1; if a single work item's `load_config` or
+    `gather_skipped_tests` raises, that item is recorded in `errors` and the
+    roll-up CONTINUES scanning the rest (company exit 1). No exception ever
+    propagates.
+
+    With `as_json=True` stdout is exactly ONE `json.dumps(to_dict(), indent=2)`
+    document; either way the RETURN value is the same
+    `CompanySkippedTests.exit_code` (0 clean / 1 findings-or-parse-errors-or-
+    team-errored / 2 no-enabled-products). Writes NOTHING to disk -- a read-only
+    report; with `load_config` monkeypatched the filesystem is untouched.
+
+    UNLIKE the DISJOINT `company-constant-asserts`, an always-skipped test CAN
+    also be assertion-free, so this roll-up's findings can OVERLAP
+    `company-weak-tests` / `company-constant-asserts` -- a THIRD COMPLEMENTARY
+    company lens catching a DIFFERENT antipattern (a test that never RUNS at
+    all)."""
+    try:
+        dispatch = json.loads(
+            pathlib.Path(dispatch_path).expanduser().read_text())
+        if not isinstance(dispatch, dict):
+            raise ValueError("dispatch config is not a JSON object")
+    except Exception as exc:
+        # A missing / malformed dispatch config is a real operator problem, not a
+        # crash: surface it as ONE synthetic error (errors -> exit 1).
+        company = summarize_company_skipped_tests(
+            dispatch_path=dispatch_path, products=(), disabled=(),
+            errors=((dispatch_path, str(exc)),))
+        print(json.dumps(company.to_dict(), indent=2) if as_json
+              else company.render())
+        return company.exit_code
+
+    products: list[SkippedTestSummary] = []
+    disabled: list[str] = []
+    errors: list[tuple[str, str]] = []
+    for name, config, enabled in parse_dispatch_work_items(dispatch):
+        if not enabled:
+            disabled.append(name)      # deliberate; never loaded
+            continue
+        try:
+            # {FOUNDRY} -> foundry root BEFORE load_config, exactly as the
+            # dispatcher resolves each work item's config path.
+            cfg = load_config(config.replace("{FOUNDRY}", str(FOUNDRY)))
+            products.append(gather_skipped_tests(cfg))
+        except Exception as exc:
+            # One bad team never sinks the whole roll-up -- record + continue.
+            errors.append((name, str(exc)))
+    company = summarize_company_skipped_tests(
+        dispatch_path=dispatch_path, products=tuple(products),
+        disabled=tuple(disabled), errors=tuple(errors))
+    print(json.dumps(company.to_dict(), indent=2) if as_json else company.render())
+    return company.exit_code
+
+
+# --------------------------------------------------------------------------- #
 # Machine-readable event reader (`events`) -- item 10, the READ half.
 #
 # iter 05 added the write-only `events.jsonl` stream ("for dashboards / the
@@ -6065,6 +6372,32 @@ def main(argv: list[str] | None = None) -> int:
                      help="emit the company roll-up as one JSON document "
                           "(machine-readable) instead of the human report; "
                           "same 0/1/2 exit code")
+    # `company-skipped-tests` rolls up EVERY enabled dispatch team's iter-23
+    # `skipped-tests` scan into ONE company view (summed files-scanned /
+    # always-skipped-tests / parse-errors + a per-product breakdown -- the
+    # QUALITY complement to `company-weak-tests`/`company-constant-asserts`; the
+    # 7th company-* member). UNLIKE the DISJOINT `company-constant-asserts`, an
+    # always-skipped test CAN also be assertion-free, so its findings CAN OVERLAP
+    # `company-weak-tests`/`company-constant-asserts` -- a THIRD COMPLEMENTARY
+    # lens catching a DIFFERENT antipattern (a test that never RUNS at all). Its
+    # `--config` points at the DISPATCH config (`foundry.config.json`), NOT a
+    # product config, and it does its own per-work-item `load_config` internally
+    # -- so, like the other `company-*` commands, it is dispatched BEFORE the
+    # `load_config(args.config)` call below. Read-only + on-demand: the
+    # pipeline/dispatcher NEVER call it; it writes nothing. UNLIKE informational
+    # history/timing/events it GATES on findings -- an always-skipped test OR an
+    # unparseable file OR a team error ANYWHERE -> exit 1; else 0 clean / 2
+    # no-enabled-products. NO --limit and NO --files (a scan is whole-suite; each
+    # team walks its own repo).
+    cst = sub.add_parser("company-skipped-tests")
+    cst.add_argument("--config", default=str(FOUNDRY / "foundry.config.json"),
+                     help="path to the DISPATCH config (foundry.config.json), "
+                          "NOT a product config (default: the repo's "
+                          "foundry.config.json)")
+    cst.add_argument("--json", action="store_true",
+                     help="emit the company roll-up as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code")
     args = ap.parse_args(argv)
 
     if args.cmd == "lint-spec":
@@ -6086,6 +6419,8 @@ def main(argv: list[str] | None = None) -> int:
                                   limit=args.limit, as_json=args.json)
     if args.cmd == "company-constant-asserts":
         return company_constant_asserts_cli(args.config, as_json=args.json)
+    if args.cmd == "company-skipped-tests":
+        return company_skipped_tests_cli(args.config, as_json=args.json)
 
     cfg = load_config(args.config)
     if args.cmd == "doctor":
