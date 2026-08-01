@@ -4357,6 +4357,305 @@ def events_cli(cfg: ProductConfig, kind: str | None = None,
 
 
 # --------------------------------------------------------------------------- #
+# Company-wide event roll-up (`company-events`) -- roadmap item 10, bite 2 of 2
+# (the company view on the iter-44 `gather_events` foundation).
+#
+# The ACTIVITY-axis complement of `company-status` (health NOW), `company-history`
+# (ship LEDGER), `company-timing` (THROUGHPUT) and `company-weak-tests` (QUALITY):
+# `company-events` folds every ENABLED team's iter-27 typed `events.jsonl` digest
+# into ONE company view -- summed total/matched/shown/malformed + a merged
+# per-`kind` tally + a per-product breakdown -- so an operator running N teams
+# reads "how many ships/reverts/backoffs across the WHOLE company" in one shot
+# instead of running `events` once per team and summing by hand. It reuses the
+# SHIPPED `gather_events` (iter 44) / `parse_dispatch_work_items` (iter 30) /
+# frozen `EventsSummary` (iter 27) seams -- adds NO new I/O seam, sentinel, config
+# field, or artifact. Purely additive + DORMANT: the pipeline / gate / dispatcher
+# NEVER call it and it WRITES NOTHING (read-only). Like the INFORMATIONAL
+# history/timing roll-ups (UNLIKE gating weak-tests) it never gates on a malformed
+# line or a quiet team; only a STRUCTURAL gather failure gates (exit 1). This is
+# the 5th and LAST `company-*` member.
+# --------------------------------------------------------------------------- #
+@dataclasses.dataclass(frozen=True)
+class CompanyEvents:
+    """A one-shot COMPANY-wide typed-event roll-up across a dispatch config.
+
+    Frozen so a computed roll-up can't be mutated after the fact (value equality
+    for free, matching the other pure cores). Every derived value is a pure
+    property over the stored fields, so the whole verdict -- including the
+    scriptable exit code -- follows deterministically from what was gathered, and
+    the JSON payload / render text can never disagree with the exit code.
+
+    Fields:
+      * `dispatch_path` -- the dispatch config path, echoed into `render()`.
+      * `products` -- the per-product `EventsSummary` digests that were
+        successfully gathered, IN dispatch-file order (an enabled product that
+        failed to load/gather is NOT here -- it lands in `errors`).
+      * `disabled` -- names of work items with `enabled=False` (never loaded).
+      * `errors` -- `(product, message)` 2-tuples for enabled items that raised
+        while loading/gathering (the sole caller guarantees each is a 2-tuple).
+      * `kind_filter` -- the `--kind` applied to EVERY team's gather (or `None`),
+        echoed into `render()` and carried in `to_dict()`.
+
+    The company counts are SUMS over the gathered products: `total`/`matched`/
+    `shown`/`parse_errors` sum the same-named per-product fields (`EventsSummary.
+    parse_errors` is an INT count, so these SUM ints -- they never concatenate).
+    `kind_counts` MERGES every product's per-kind tally into one, summing counts
+    per key with keys in first-encountered order across products in stored order.
+    `n_active` counts gathered products that actually showed an event.
+    """
+    dispatch_path: str
+    products: tuple[EventsSummary, ...]
+    disabled: tuple[str, ...]
+    errors: tuple[tuple[str, str], ...]
+    kind_filter: str | None
+
+    @property
+    def n_products(self) -> int:
+        """Count of products successfully ROLLED UP (an errored enabled product
+        is NOT counted here -- it is in `errors`)."""
+        return len(self.products)
+
+    @property
+    def n_disabled(self) -> int:
+        return len(self.disabled)
+
+    @property
+    def n_errors(self) -> int:
+        return len(self.errors)
+
+    @property
+    def total(self) -> int:
+        """Company total events = the SUM of every gathered product's `total`."""
+        return sum(p.total for p in self.products)
+
+    @property
+    def matched(self) -> int:
+        """Company matched events = the SUM of every product's `matched`."""
+        return sum(p.matched for p in self.products)
+
+    @property
+    def shown(self) -> int:
+        """Company shown events = the SUM of every product's `shown`."""
+        return sum(p.shown for p in self.products)
+
+    @property
+    def parse_errors(self) -> int:
+        """Company malformed lines = the SUM of every product's `parse_errors`
+        (an INT count on `EventsSummary`, NOT a tuple -- so this SUMS, never
+        concatenates)."""
+        return sum(p.parse_errors for p in self.products)
+
+    @property
+    def kind_counts(self) -> dict:
+        """The MERGED per-kind tally over all products' `kind_counts` -- a
+        `dict[str, int]` summing counts per key, keys in first-encountered order
+        across products in stored product order (dict insertion order preserves
+        it). Empty when nothing is shown company-wide."""
+        merged: dict[str, int] = {}
+        for p in self.products:
+            for key, count in p.kind_counts.items():
+                merged[key] = merged.get(key, 0) + count
+        return merged
+
+    @property
+    def n_active(self) -> int:
+        """How many GATHERED products actually showed >=1 event -- "how many
+        teams have recent activity" at a glance, without expanding the breakdown."""
+        return sum(1 for p in self.products if p.shown > 0)
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable verdict, errors-first (INFORMATIONAL like history/timing,
+        UNLIKE gating weak-tests): `1` when `errors` is non-empty (a structural
+        gather failure -- the ONLY thing events gates on), else `2` when NO
+        products were gathered (every item disabled or `work_items` empty --
+        reachable only with `errors` empty), else `0`.
+
+        `parse_errors` NEVER changes the verdict (a malformed line is a
+        diagnostic, not a gate). A gathered product that showed ZERO events (its
+        own `EventsSummary.exit_code == 2`) does NOT force company exit 2 -- it
+        still counts in `n_products`, so with no structural errors the company
+        exits 0 (mirroring `company-timing`, where a product with zero measured
+        timings does not force exit 2)."""
+        if self.errors:
+            return 1
+        if self.n_products == 0:
+            return 2
+        return 0
+
+    @property
+    def verdict(self) -> str:
+        """The single human token for the current `exit_code` -- `"OK"` (0) /
+        `"ERRORS"` (1) / `"no enabled products"` (2). ONE source of truth for
+        both `render()`'s last line and the JSON `verdict` key, so the text and
+        the machine payload can never drift from the exit code."""
+        return {0: "OK", 1: "ERRORS", 2: "no enabled products"}[self.exit_code]
+
+    def _rollup(self) -> str:
+        """The company events rollup as a substring: `{shown} shown of {matched}
+        matched, {total} total, {parse_errors} malformed` followed by each merged
+        `kind_counts` entry as ` {kind}:{count}` (a `;` separates the counts from
+        the tally, mirroring `EventsSummary.render()`). Company COUNTS only --
+        per-team leaf events live in `to_dict()`, keeping the report bounded like
+        the other `company-*` members."""
+        tally = "".join(f" {k}:{v}" for k, v in self.kind_counts.items())
+        return (f"{self.shown} shown of {self.matched} matched, "
+                f"{self.total} total, {self.parse_errors} malformed;{tally}")
+
+    def render(self) -> str:
+        """A deterministic multi-line company events report (the CLI's contract).
+
+        Contains, as substrings: the literal `foundry company-events`; the
+        `dispatch_path`; when `kind_filter is not None`, additionally
+        `kind={kind_filter}`; a counts line reporting `{n_products} gathered`,
+        `{n_disabled} disabled`, `{n_errors} error(s)` PLUS the company rollup
+        (`{shown} shown of {matched} matched, {total} total, {parse_errors}
+        malformed` + each merged `kind_counts` entry as ` {kind}:{count}`); ONE
+        line per gathered product beginning `  - {product}:` carrying its OWN
+        `{p.shown} shown of {p.matched} matched, {p.total} total, {p.parse_errors}
+        malformed` (per-product COUNTS only, NOT each event line); one
+        `  - {name}: disabled` line per disabled item; one `  - {name}: ERROR
+        {message}` line per error; and a final `verdict:` line whose token EQUALS
+        `verdict`."""
+        header = "foundry company-events"
+        if self.kind_filter is not None:
+            header += f"  kind={self.kind_filter}"
+        lines = [
+            header,
+            f"  dispatch config: {self.dispatch_path}",
+            f"  products: {self.n_products} gathered, "
+            f"{self.n_disabled} disabled, {self.n_errors} error(s) -- "
+            f"{self._rollup()}",
+        ]
+        for p in self.products:
+            lines.append(
+                f"  - {p.product}: {p.shown} shown of {p.matched} matched, "
+                f"{p.total} total, {p.parse_errors} malformed")
+        for name in self.disabled:
+            lines.append(f"  - {name}: disabled")
+        for name, message in self.errors:
+            lines.append(f"  - {name}: ERROR {message}")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe company roll-up for machine consumers -- a dashboard
+        / cron alert / the reporter. `products` carries the FULL per-product
+        `EventsSummary.to_dict()` payload (the 9-key per-team detail INCLUDING
+        each team's `events` array) in stored order, so no leaf detail is lost
+        even though `render()` prints per-product counts only. Every derived value
+        REUSES the frozen properties, so the payload can never disagree with
+        `render()` or the exit code, and every value is JSON-native, so it
+        round-trips through `json.loads(json.dumps(...))` -- including when
+        `products`/`disabled`/`errors` are all empty (`kind_counts == {}`). Pure:
+        touches no filesystem."""
+        return {
+            "dispatch_config": self.dispatch_path,
+            "kind_filter": self.kind_filter,
+            "products": [p.to_dict() for p in self.products],
+            "disabled": list(self.disabled),
+            "errors": [{"product": name, "message": message}
+                       for name, message in self.errors],
+            "n_products": self.n_products,
+            "n_disabled": self.n_disabled,
+            "n_errors": self.n_errors,
+            "n_active": self.n_active,
+            "total": self.total,
+            "matched": self.matched,
+            "shown": self.shown,
+            "parse_errors": self.parse_errors,
+            "kind_counts": self.kind_counts,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+        }
+
+
+def summarize_company_events(*, dispatch_path: str,
+                             products: tuple[EventsSummary, ...],
+                             disabled: tuple[str, ...],
+                             errors: tuple[tuple[str, str], ...],
+                             kind_filter: str | None) -> CompanyEvents:
+    """Pure keyword-only constructor for a `CompanyEvents` (Behaviors 1-7).
+
+    A thin, total wrapper that packs the gathered digests into the frozen
+    roll-up -- keyword-only so a caller can never transpose the fields by
+    position, and it never raises for well-formed inputs (each `errors` entry is
+    a `(product, message)` 2-tuple, which the sole caller `company_events_cli`
+    guarantees). Kept separate from `company_events_cli` so the decision core
+    stays a pure function the tester can drive without any filesystem."""
+    return CompanyEvents(
+        dispatch_path=dispatch_path,
+        products=tuple(products),
+        disabled=tuple(disabled),
+        errors=tuple((name, message) for name, message in errors),
+        kind_filter=kind_filter)
+
+
+def company_events_cli(dispatch_path: str, kind: str | None = None,
+                       limit: int | None = None, as_json: bool = False) -> int:
+    """On-demand CLI: roll every ENABLED team's typed-event digest into ONE
+    company activity lens (roadmap item 10, bite 2).
+
+    Reads the DISPATCH config at `dispatch_path` (`foundry.config.json`, NOT a
+    product config), then for each ENABLED work item substitutes a `{FOUNDRY}`
+    token in its config path to the foundry root and loads + gathers that
+    product's digest via the `load_config` / `gather_events` seams (both called
+    by BARE name so a `monkeypatch.setattr(foundry, ...)` bites). `kind` and
+    `limit` flow THROUGH to EVERY `gather_events(cfg, kind, limit)` call (kind =
+    exact-match filter, limit = most-recent N per team). A DISABLED item is
+    recorded in `disabled` (by name) and never loaded. The company `kind_filter`
+    is the `kind` argument (so `render()`/`to_dict()` echo the filter applied to
+    every team).
+
+    Resilient (Behaviors 6-8): if reading/parsing the dispatch config fails
+    (missing / not JSON / not an object) it prints a report recording ONE
+    synthetic error and returns exit 1; if a single work item's `load_config` or
+    `gather_events` raises, that item is recorded in `errors` and the roll-up
+    CONTINUES gathering the rest (company exit 1). No exception ever propagates.
+
+    With `as_json=True` stdout is exactly ONE `json.dumps(to_dict(), indent=2)`
+    document; either way the RETURN value is the same `CompanyEvents.exit_code`
+    (0 gathered-no-errors / 1 errors / 2 no-enabled-products). Writes NOTHING to
+    disk -- a read-only report; with `load_config` monkeypatched the filesystem
+    is untouched."""
+    try:
+        dispatch = json.loads(
+            pathlib.Path(dispatch_path).expanduser().read_text())
+        if not isinstance(dispatch, dict):
+            raise ValueError("dispatch config is not a JSON object")
+    except Exception as exc:
+        # A missing / malformed dispatch config is a real operator problem, not a
+        # crash: surface it as ONE synthetic error (errors -> exit 1).
+        company = summarize_company_events(
+            dispatch_path=dispatch_path, products=(), disabled=(),
+            errors=((dispatch_path, str(exc)),), kind_filter=kind)
+        print(json.dumps(company.to_dict(), indent=2) if as_json
+              else company.render())
+        return company.exit_code
+
+    products: list[EventsSummary] = []
+    disabled: list[str] = []
+    errors: list[tuple[str, str]] = []
+    for name, config, enabled in parse_dispatch_work_items(dispatch):
+        if not enabled:
+            disabled.append(name)      # deliberate; never loaded
+            continue
+        try:
+            # {FOUNDRY} -> foundry root BEFORE load_config, exactly as the
+            # dispatcher resolves each work item's config path.
+            cfg = load_config(config.replace("{FOUNDRY}", str(FOUNDRY)))
+            products.append(gather_events(cfg, kind, limit))
+        except Exception as exc:
+            # One bad team never sinks the whole roll-up -- record + continue.
+            errors.append((name, str(exc)))
+    company = summarize_company_events(
+        dispatch_path=dispatch_path, products=tuple(products),
+        disabled=tuple(disabled), errors=tuple(errors), kind_filter=kind)
+    print(json.dumps(company.to_dict(), indent=2) if as_json else company.render())
+    return company.exit_code
+
+
+# --------------------------------------------------------------------------- #
 # Prompt + stage runner
 # --------------------------------------------------------------------------- #
 def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
@@ -4822,6 +5121,36 @@ def main(argv: list[str] | None = None) -> int:
                      help="emit the company roll-up as one JSON document "
                           "(machine-readable) instead of the human report; "
                           "same 0/1/2 exit code")
+    # `company-events` rolls up EVERY enabled dispatch team's iter-27 `events`
+    # digest into ONE company view (summed total/matched/shown/malformed + a
+    # merged per-kind tally + a per-product breakdown -- the ACTIVITY complement
+    # to `company-status` health-NOW, `company-history` ship-LEDGER,
+    # `company-timing` THROUGHPUT and `company-weak-tests` QUALITY; the 5th and
+    # LAST company-* member). Its `--config` points at the DISPATCH config
+    # (`foundry.config.json`), NOT a product config, and it does its own
+    # per-work-item `load_config` internally -- so, like `company-status`/
+    # `company-history`/`company-timing`/`company-weak-tests`/`single-brain`/
+    # `lint-spec`, it is dispatched BEFORE the `load_config(args.config)` call
+    # below. Read-only + on-demand: the pipeline/dispatcher NEVER call it; it
+    # writes nothing. INFORMATIONAL like history/timing -- a malformed line or a
+    # quiet team never gates; only a structural gather error -> exit 1; else 0
+    # gathered-no-errors / 2 no-enabled-products. `--kind`/`--limit` pass through
+    # to every team's gather.
+    cev = sub.add_parser("company-events")
+    cev.add_argument("--config", default=str(FOUNDRY / "foundry.config.json"),
+                     help="path to the DISPATCH config (foundry.config.json), "
+                          "NOT a product config (default: the repo's "
+                          "foundry.config.json)")
+    cev.add_argument("--kind", default=None,
+                     help="show only records whose kind equals this exact string "
+                          "(applied to every team's gather)")
+    cev.add_argument("--limit", type=int, default=None,
+                     help="show only the most-recent N matched records per team "
+                          "(default: all)")
+    cev.add_argument("--json", action="store_true",
+                     help="emit the company roll-up as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code, honours --kind/--limit")
     args = ap.parse_args(argv)
 
     if args.cmd == "lint-spec":
@@ -4838,6 +5167,9 @@ def main(argv: list[str] | None = None) -> int:
                                   as_json=args.json)
     if args.cmd == "company-weak-tests":
         return company_weak_tests_cli(args.config, as_json=args.json)
+    if args.cmd == "company-events":
+        return company_events_cli(args.config, kind=args.kind,
+                                  limit=args.limit, as_json=args.json)
 
     cfg = load_config(args.config)
     if args.cmd == "doctor":

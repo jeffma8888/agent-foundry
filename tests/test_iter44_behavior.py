@@ -510,18 +510,21 @@ def test_b5_only_caller_of_gather_events_is_events_cli():
     assert "gather_events" in names, "events_cli is the sole caller of gather_events"
 
 
-def test_b5_no_new_company_events_subcommand_this_bite(capsys):
-    """Bite 1 adds NO new subcommand: --help still lists `events` + the existing
-    company-* members, but NOT `company-events` (deferred to bite 2). This guard
-    flips in bite 2 (mirrors how iter 40/43 flipped the iter 39/42 guards)."""
+def test_b5_company_events_subcommand_present_after_bite2(capsys):
+    """Bite 2 SHIPS the subcommand: --help still lists `events` + the existing
+    company-* members AND now `company-events` too (this guard was flipped from
+    its bite-1 "absent" assertion, mirroring how iter 40/43 flipped the iter
+    39/42 guards -- the sanctioned, precedented scope-guard flip). The OTHER two
+    iter-44 off-control-path guards (the `company-events` literal absent from
+    CONTROL_FLOW_FNS + from dispatcher) stay UNTOUCHED and green."""
     with pytest.raises(SystemExit) as ei:
         foundry.main(["--help"])
     assert ei.value.code == 0
     out = capsys.readouterr().out
     for sub in ("events", "company-status", "company-history", "company-timing", "company-weak-tests"):
         assert sub in out, f"existing subcommand {sub!r} missing from --help:\n{out}"
-    assert "company-events" not in out, \
-        "bite 1 must NOT add the company-events subcommand (that is bite 2)"
+    assert "company-events" in out, \
+        "bite 2 must ADD the company-events subcommand"
 
 
 def test_b5_running_events_writes_nothing(cfg, tmp_path):
