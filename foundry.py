@@ -2276,6 +2276,260 @@ def skipped_tests_cli(cfg: ProductConfig, files=None,
     return summary.exit_code
 
 
+@dataclasses.dataclass(frozen=True)
+class TestQualitySummary:
+    """Composite of the THREE offline "validates-nothing" scans for one product.
+
+    Folds `WeakTestSummary` (assertion-free, iter 22), `ConstantAssertSummary`
+    (constant/tautological assert, iter 48) and `SkippedTestSummary` (never
+    runs, iter 56) into ONE frozen quality gate over a product's test files
+    (roadmap item 6 -- a false-green test is the foundry's #1 verification
+    failure). It is the QUALITY-axis parallel of iter-28's LAUNCH `preflight`
+    composite (which folds `doctor` + `single-brain` into ONE GO/NO-GO/CAUTION
+    verdict): to certify a product against all three test antipatterns an
+    operator would otherwise run three commands, each re-walking the repo with
+    its own 0/1/2 exit code, and a shell `weak-tests && constant-asserts &&
+    skipped-tests` collapses those into ONE undifferentiated non-zero (losing
+    both the nothing-to-scan(2) vs issues-found(1) distinction AND the
+    per-category breakdown). This gives ONE verdict + a per-CATEGORY triage
+    breakdown in one pass.
+
+    Frozen (value equality for free, matching the sub-cores). EVERY derived
+    property REUSES the frozen sub-`WeakTestSummary`/`ConstantAssertSummary`/
+    `SkippedTestSummary` props, so `render()` / `to_dict()` / the exit code can
+    never disagree with the sub-scans.
+
+    OVERLAP note (a first-class correctness item, per the iter-56/57 disjoint-vs-
+    overlap lesson): `constant-asserts` is DISJOINT from `weak-tests` by the
+    detectors' construction (a constant assert CARRIES an assert node, so an
+    assertion-free scan can never also flag it), BUT an always-skipped test CAN
+    also be assertion-free AND can carry a constant assert -- so `skipped`
+    findings can OVERLAP `weak` and `constant`. Therefore `total_findings` is a
+    per-CATEGORY triage total in which a test flagged by two lenses counts once
+    in EACH category (intentionally NOT a de-duplicated distinct-test count).
+    """
+    product: str
+    weak: WeakTestSummary
+    constant: ConstantAssertSummary
+    skipped: SkippedTestSummary
+
+    @property
+    def files_scanned(self) -> int:
+        """Files scanned by the composite -- the weak sub-scan's count.
+
+        All three sub-scans walk the IDENTICAL file set (`_gather_weak_test_files
+        (cfg.repo)` when `files is None`, else `[Path(f) for f in files]`), so
+        the weak sub's `files_scanned` is representative -- a documented
+        invariant, not an approximation."""
+        return self.weak.files_scanned
+
+    @property
+    def weak_findings(self) -> int:
+        """How many assertion-free `test*` functions the weak lens flagged."""
+        return self.weak.total_findings
+
+    @property
+    def constant_findings(self) -> int:
+        """How many constant-assert `test*` functions the constant lens flagged."""
+        return self.constant.total_findings
+
+    @property
+    def skipped_findings(self) -> int:
+        """How many always-skipped `test*` functions the skipped lens flagged."""
+        return self.skipped.total_findings
+
+    @property
+    def total_findings(self) -> int:
+        """CATEGORY-WEIGHTED sum of the three lenses' findings.
+
+        NOT a de-duplicated union: because `skipped` findings can OVERLAP `weak`
+        and `constant` (see the class OVERLAP note), a test flagged by two
+        lenses counts once in EACH category. This is a triage total answering
+        "how many category-hits are there", not "how many distinct tests"."""
+        return (self.weak_findings + self.constant_findings
+                + self.skipped_findings)
+
+    @property
+    def parse_errors(self) -> tuple[tuple[str, str], ...]:
+        """The DISTINCT `(file, message)` parse errors across the three lenses,
+        in first-seen order (weak, then constant, then skipped).
+
+        All three sub-scans fold a `SyntaxError`/`OSError` into the IDENTICAL
+        `(str(path), f"{type(exc).__name__}: {exc}")` entry, so in a real run a
+        genuinely unparseable file yields a byte-identical entry in all three
+        lists and this dedup collapses them to ONE (no triple-count). The dedup
+        also keeps the union correct if a test constructs the three sub-summaries
+        with DIFFERENT parse errors."""
+        seen: set[tuple[str, str]] = set()
+        merged: list[tuple[str, str]] = []
+        for sub in (self.weak, self.constant, self.skipped):
+            for entry in sub.parse_errors:
+                if entry not in seen:
+                    seen.add(entry)
+                    merged.append(entry)
+        return tuple(merged)
+
+    @property
+    def total_parse_errors(self) -> int:
+        """How many DISTINCT parse errors the composite carries."""
+        return len(self.parse_errors)
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable composite verdict derived from the THREE sub exit codes.
+
+        Let `codes = (weak.exit_code, constant.exit_code, skipped.exit_code)`:
+        return ``2`` iff EVERY lens had nothing to scan (`all(c == 2)`), else
+        ``1`` iff ANY lens flagged a finding or parse error (`1 in codes`), else
+        ``0`` (clean). Derived from the sub exit codes rather than re-aggregating
+        `files_scanned`, so it stays correct even when a test constructs the
+        three sub-summaries independently."""
+        codes = (self.weak.exit_code, self.constant.exit_code,
+                 self.skipped.exit_code)
+        if all(c == 2 for c in codes):
+            return 2
+        if 1 in codes:
+            return 1
+        return 0
+
+    @property
+    def clean(self) -> bool:
+        """True iff the composite `exit_code` is 0 -- the SINGLE source of truth
+        (no independent re-derivation, so `clean` can never disagree with the
+        exit code)."""
+        return self.exit_code == 0
+
+    @property
+    def verdict(self) -> str:
+        """The single human token for the current `exit_code` -- ONE source of
+        truth for `render()`'s last line so text + exit code never drift. The
+        composite token set is `clean`/`QUALITY ISSUES FOUND`/`nothing to scan`,
+        NOT the sub-scans' `WEAK TESTS FOUND`/etc."""
+        return {0: "clean", 1: "QUALITY ISSUES FOUND",
+                2: "nothing to scan"}[self.exit_code]
+
+    def render(self) -> str:
+        """A deterministic multi-line composite report carrying every lens's
+        signal.
+
+        Contains, as substrings (the CLI's black-box contract): the literal
+        ``foundry test-quality -- <product>``; ``files scanned: N``;
+        ``assertion-free tests: A``; ``constant-assert tests: B``;
+        ``always-skipped tests: C``; ``total quality findings: T`` (T ==
+        `total_findings`); one ``  [assertion-free] <file> :: <test>`` line per
+        weak finding, one ``  [constant-assert] <file> :: <test>`` per constant
+        finding, one ``  [always-skipped] <file> :: <test>`` per skipped finding
+        (each tag names WHICH lens flagged it, so an OVERLAPPING test appears
+        under BOTH tags); ``parse errors: P`` with one ``  <file>: <message>``
+        line each (the deduped union); and a final ``verdict:`` token matching
+        `exit_code` as the LAST non-empty line. A clean composite prints NO
+        finding lines."""
+        lines = [
+            f"foundry test-quality -- {self.product}",
+            f"  files scanned: {self.files_scanned}",
+            f"  assertion-free tests: {self.weak_findings}",
+            f"  constant-assert tests: {self.constant_findings}",
+            f"  always-skipped tests: {self.skipped_findings}",
+            f"  total quality findings: {self.total_findings}",
+        ]
+        for path, name in self.weak.findings:
+            lines.append(f"  [assertion-free] {path} :: {name}")
+        for path, name in self.constant.findings:
+            lines.append(f"  [constant-assert] {path} :: {name}")
+        for path, name in self.skipped.findings:
+            lines.append(f"  [always-skipped] {path} :: {name}")
+        lines.append(f"  parse errors: {self.total_parse_errors}")
+        for path, message in self.parse_errors:
+            lines.append(f"  {path}: {message}")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of the whole composite scan.
+
+        Returns EXACTLY these keys in a fixed order: `product`; then the scalar
+        derived fields `files_scanned`/`weak_findings`/`constant_findings`/
+        `skipped_findings`/`total_findings`/`total_parse_errors`/`clean`/
+        `exit_code`/`verdict`, each REUSING the frozen properties (so the payload
+        can never disagree with `render()`/the exit code); then the three
+        sub-documents `weak`/`constant`/`skipped` as their respective
+        `to_dict()` VERBATIM (so a machine consumer can drill into any lens); and
+        `parse_errors` as a JSON array of ``{"file","message"}`` objects (the
+        deduped union, same order as `self.parse_errors`). Every value is
+        JSON-native, so `json.dumps(...)` never raises and the dict round-trips
+        through `json.loads(json.dumps(...))`. Pure: touches no filesystem, only
+        the already-gathered sub-summaries."""
+        return {
+            "product": self.product,
+            "files_scanned": self.files_scanned,
+            "weak_findings": self.weak_findings,
+            "constant_findings": self.constant_findings,
+            "skipped_findings": self.skipped_findings,
+            "total_findings": self.total_findings,
+            "total_parse_errors": self.total_parse_errors,
+            "clean": self.clean,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+            "weak": self.weak.to_dict(),
+            "constant": self.constant.to_dict(),
+            "skipped": self.skipped.to_dict(),
+            "parse_errors": [{"file": path, "message": message}
+                             for path, message in self.parse_errors],
+        }
+
+
+def summarize_test_quality(*, product: str, weak: WeakTestSummary,
+                           constant: ConstantAssertSummary,
+                           skipped: SkippedTestSummary) -> TestQualitySummary:
+    """Pure keyword-only constructor for a `TestQualitySummary` (Behavior 1).
+
+    A thin, total wrapper (mirror of `summarize_skipped_tests`) that packs the
+    three sub-summaries into the frozen composite -- keyword-only so a caller can
+    never transpose the fields by position, and it never raises. Kept separate
+    from `test_quality_cli` so the decision core stays a pure function the tester
+    can drive without any filesystem."""
+    return TestQualitySummary(product=product, weak=weak,
+                              constant=constant, skipped=skipped)
+
+
+def test_quality_cli(cfg: ProductConfig, files=None,
+                     as_json: bool = False) -> int:
+    """On-demand COMPOSITE CLI: fold all THREE offline "validates-nothing" scans
+    over one product's test files into ONE verdict / ONE exit code / ONE report.
+
+    The QUALITY-axis parallel of iter-28's LAUNCH `preflight` (which composes
+    `doctor` + `single-brain`): rather than run `weak-tests`, `constant-asserts`
+    and `skipped-tests` separately -- each re-walking the repo, each with its own
+    0/1/2 exit code a shell `&&` would collapse into one undifferentiated
+    non-zero -- this scans once and reports a per-CATEGORY breakdown.
+
+    Composes the three SHIPPED gather seams -- `gather_weak_tests`,
+    `gather_constant_asserts`, `gather_skipped_tests` (iters 42/48/56) -- each
+    called by BARE module name so a `monkeypatch.setattr(foundry, ...)` in a
+    test bites, and each passed the SAME `files` so all three scan the identical
+    set. It adds NO new I/O seam of its own (the iter-28/30 endorsed "compose
+    existing frozen cores" pattern). Prints the pure `TestQualitySummary` core
+    and returns its `exit_code` (0 clean / 1 quality-issues / 2 nothing to scan).
+
+    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
+    indent=2)` document (embedding the three sub-docs); the default `as_json=
+    False` is the human `render()` text. Either way the RETURN value is the same
+    `summary.exit_code`, and `--files` selection is identical in both modes.
+    Writes NOTHING to disk. A thin printer that adds no decision logic of its
+    own, so the printed figures always match the `TestQualitySummary` fields.
+    DORMANT -- no control path calls it; only `main()`'s argparse dispatch."""
+    summary = summarize_test_quality(
+        product=cfg.name,
+        weak=gather_weak_tests(cfg, files),
+        constant=gather_constant_asserts(cfg, files),
+        skipped=gather_skipped_tests(cfg, files),
+    )
+    # `--json` emits the pure snapshot as a single JSON document (stdout-only,
+    # no decision logic added); the default stays the human report.
+    print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
+    return summary.exit_code
+
+
 
 # --------------------------------------------------------------------------- #
 # Post-release fresh-clone verification (DORMANT — item 11, bite 1/2).
@@ -6201,6 +6455,27 @@ def main(argv: list[str] | None = None) -> int:
     skt.add_argument("--json", action="store_true",
                      help="emit the scan as one JSON document (machine-readable) "
                           "instead of the human report; same 0/1/2 exit code, honours --files")
+    # `test-quality` is the per-product COMPOSITE gate: it folds all THREE
+    # offline "validates-nothing" scans -- #12 `weak-tests` (assertion-free),
+    # #21 `constant-asserts` (constant/tautological assert), #23 `skipped-tests`
+    # (never runs) -- into ONE scan / ONE 0/1/2 exit code / ONE three-way verdict
+    # / ONE JSON doc, the QUALITY-axis parallel of the #15 launch `preflight`
+    # composite. #21 is DISJOINT from #12, but a #23 always-skipped test may ALSO
+    # be assertion-free AND carry a constant assert, so its findings can OVERLAP
+    # #12/#21 -- therefore `total quality findings` is a per-CATEGORY triage
+    # total (a test flagged by two lenses counts once per category), NOT a
+    # de-duplicated distinct-test count. DORMANT / on-demand only -- the
+    # pipeline/gate/dispatcher NEVER call it; it writes nothing. `--files` scans
+    # EXACTLY those paths instead of walking `cfg.repo`. Exit 0 clean / 1
+    # quality-issues / 2 nothing to scan.
+    tq = sub.add_parser("test-quality")
+    tq.add_argument("--config", required=True,
+                    help="path to product JSON config")
+    tq.add_argument("--files", nargs="*", default=None,
+                    help="scan these test files directly instead of walking the repo")
+    tq.add_argument("--json", action="store_true",
+                    help="emit the composite scan as one JSON document (machine-readable) "
+                         "instead of the human report; same 0/1/2 exit code, honours --files")
     # `events` reads/digests a product's typed `events.jsonl` (item 10, the READ
     # half): filter by `--kind`, tail the most-recent `--limit N`, count by kind,
     # human or `--json` output. Read-only + DORMANT -- the pipeline/dispatcher
@@ -6445,6 +6720,8 @@ def main(argv: list[str] | None = None) -> int:
         return constant_asserts_cli(cfg, files=args.files, as_json=args.json)
     if args.cmd == "skipped-tests":
         return skipped_tests_cli(cfg, files=args.files, as_json=args.json)
+    if args.cmd == "test-quality":
+        return test_quality_cli(cfg, files=args.files, as_json=args.json)
     if args.cmd == "events":
         return events_cli(cfg, kind=args.kind, limit=args.limit, as_json=args.json)
     if args.cmd == "preflight":
