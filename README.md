@@ -110,6 +110,9 @@ uv run python foundry.py company-history  # --config points at the DISPATCH conf
 
 # 18. Company-wide suite-wall-time roll-up (#11 timing across the WHOLE company -- the THROUGHPUT complement to #16/#17): read the DISPATCH config and fold every ENABLED product team's iter-11 `timing` digest into ONE company measured/total + pooled min/max/avg + summed slow-count + a per-product breakdown + a scriptable exit code (0 OK / 1 a team errored / 2 no-enabled-products); read-only, writes nothing:
 uv run python foundry.py company-timing  # --config points at the DISPATCH config (foundry.config.json), NOT a product config (default: the repo's foundry.config.json); a disabled work item is never loaded; one bad team is recorded and the roll-up continues; a slow-but-fixed suite is informational and never gates [--limit N per team] [--json for one machine-readable company timing doc: dashboards/cron; same 0/1/2 exit code, honours --limit]
+
+# 19. Company-wide weak-test roll-up (#6 weak-tests across the WHOLE company -- the QUALITY complement to #16/#17/#18): read the DISPATCH config and fold every ENABLED product team's iter-6 `weak-tests` scan into ONE company files-scanned/assertion-free-tests/parse-errors total + a per-product breakdown + a scriptable exit code; UNLIKE informational history/timing it GATES on findings (0 clean / 1 a worthless test OR an unparseable file OR a team errored ANYWHERE / 2 no-enabled-products); read-only, writes nothing:
+uv run python foundry.py company-weak-tests  # --config points at the DISPATCH config (foundry.config.json), NOT a product config (default: the repo's foundry.config.json); a disabled work item is never loaded; one bad team is recorded and the roll-up continues; a worthless test anywhere gates the company (exit 1) [--json for one machine-readable company weak-test doc: dashboards/cron; same 0/1/2 exit code]
 ```
 
 Stop any time: `touch STOP` (whole company) or `touch products/<name>/STOP`
