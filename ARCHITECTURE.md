@@ -174,6 +174,9 @@ them, so `foundry.py` / `dispatcher.py` / `roles/` are untouched):
   guard script is entirely absent (item 16 bite 2b).
 
 The armed hook blocks a leaky push locally. The **hard in-loop final-gate
-pre-push check** — the `final` role running the scanner so the loop self-blocks
-a leaky ship even without a hook — is **not yet wired**; it is the remaining
-bite (roadmap item 16 bite 3).
+pre-push check** — the `final` role running the scanner (`python3 <repo>/scripts/leak_guard.py --ref HEAD --repo <repo>`) after the commit and
+before the push, so the loop self-blocks a leaky ship even without a hook — is now
+**WIRED** into `roles/final.md` as a repo-agnostic gate step: it is skipped when the
+product repo lacks the scanner, and a non-zero exit fails CLOSED to the revert path.
+This is the belt-and-suspenders second block; the installed git `pre-push` hook is the
+primary. This completes roadmap item 16 (bite 3 of 3).
