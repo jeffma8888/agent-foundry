@@ -389,3 +389,38 @@ relax toward 10 once history shows steering is rarely needed).
 - [ ] Review emits a valid manifest diff under hysteresis rules with tests;
       the N=5 fallback fires in a simulated quiet run and resets; `tests/`
       green; ARCHITECTURE.md notes the new stages + a migration note here.
+
+---
+
+## Epic (added 2026-08-01): extract the resilience primitives into `resilient-agent-loop-primitives`, then depend on it (strangler)
+
+**Goal:** make `github.com/jeffma8888/resilient-agent-loop-primitives` the single
+source of truth for the three reliability primitives, and have this platform DEPEND
+on it instead of keeping inline copies. Do this AFTER that library's product team
+has shipped the corresponding modules (scheduler, runner, watchdog).
+
+Strangler steps (each a small, separately-shippable, behavior-preserving iteration):
+1. Add `resilient-agent-loop-primitives` as a dependency of the foundry (uv add;
+   it is stdlib-only so no transitive weight).
+2. **dispatcher.py -> scheduler:** replace the inline round-robin/STOP/priority loop
+   with a call into the library's `scheduler`. Keep dispatcher.py's config parsing +
+   logging; delegate only the scheduling core. Prove equivalence: existing dispatcher
+   tests stay green byte-for-byte.
+3. **foundry.run_stage -> runner:** replace the inline retry/backoff/timeout/
+   output-file-success logic with the library's `runner`. Keep the stage prompt build
+   + logging. Existing run_stage tests stay green.
+4. **watchdog.py -> watchdog:** replace the inline decide/relaunch with the library's
+   `watchdog`. Existing watchdog tests stay green.
+5. Delete the now-dead inline copies. Confirm `python -c import foundry` and the full
+   `tests/` suite are green, and ARCHITECTURE.md invariants still hold.
+
+Invariant: NEVER regress behavior. Each step lands only if the full suite is green and
+the change is a pure delegation (no semantic change). If the library's API is missing
+something, prefer extending the LIBRARY (its own product team) over forking behavior here.
+
+## Feature (added 2026-08-01): dual PM-scout candidate generation (optional, flag-gated)
+See `docs/DUAL_PM_SCOUT_SPEC.md` for the full spec. Add an
+optional two-scout pre-stage (config flag `dual_pm_scouts`, default off) before the PM
+lead: `pm_scout_a` (new-capability lens) + `pm_scout_b` (hardening/DX lens) run
+sequentially, then the PM lead triages both slates and picks one feature. Backward-
+compatible; the disabled path must be byte-identical to today. Add tests.
