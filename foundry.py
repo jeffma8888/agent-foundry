@@ -1785,6 +1785,206 @@ def weak_tests_cli(cfg: ProductConfig, files=None, as_json: bool = False) -> int
     return summary.exit_code
 
 
+@dataclasses.dataclass(frozen=True)
+class ConstantAssertSummary:
+    """The result of one constant-assert scan over a product's test files.
+
+    Frozen structural mirror of `WeakTestSummary` (iter 22) that surfaces the
+    iter-47 `find_constant_assert_tests` detector: `test*` functions whose ONLY
+    assertion signal is a constant/tautological assert (`assert True`,
+    `assert 1`, `assert "x"`). Such a test reports green yet validates nothing,
+    and it slips past `find_assertionless_tests` -- and thus `foundry
+    weak-tests` -- because the `assert` node itself reads as "has a signal", so
+    this is the exact false-green class `weak-tests` structurally MISSES.
+    `findings` is a tuple of ``(file_path, test_name)`` pairs (one per
+    constant-assert test) and `parse_errors` a tuple of ``(file_path,
+    message)`` pairs (files that would not parse / read) -- both hashable +
+    order-stable. The three properties are pure derivations of the stored
+    fields, so the scriptable exit code follows deterministically from what was
+    gathered.
+    """
+    product: str
+    files_scanned: int
+    findings: tuple[tuple[str, str], ...]
+    parse_errors: tuple[tuple[str, str], ...]
+
+    @property
+    def total_findings(self) -> int:
+        """How many constant-assert `test*` functions were flagged."""
+        return len(self.findings)
+
+    @property
+    def clean(self) -> bool:
+        """True iff >=1 file was scanned AND nothing was flagged or unparseable.
+
+        Scanning zero files is NOT clean (there was nothing to certify), so the
+        operator can distinguish "verified clean" from "found nothing to look
+        at" -- mirroring `WeakTestSummary.clean` (Behavior 2)."""
+        return (self.files_scanned > 0 and not self.findings
+                and not self.parse_errors)
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable verdict: ``2`` when nothing was scanned, else ``1`` when
+        anything was flagged OR failed to parse, else ``0`` (clean). Nothing-to-
+        scan is checked FIRST so an empty run is `2`, never a false `0`
+        (Behavior 2)."""
+        if self.files_scanned == 0:
+            return 2
+        if self.findings or self.parse_errors:
+            return 1
+        return 0
+
+    @property
+    def verdict(self) -> str:
+        """The single human token for the current `exit_code` -- ONE source of
+        truth for `render()`'s last line so text + exit code never drift
+        (Behavior 2)."""
+        return {0: "clean", 1: "CONSTANT ASSERTS FOUND",
+                2: "nothing to scan"}[self.exit_code]
+
+    def render(self) -> str:
+        """A deterministic multi-line report carrying every gathered signal.
+
+        Contains, as substrings (the CLI's black-box contract): the literal
+        ``foundry constant-asserts -- <product>``; ``files scanned: N``;
+        ``constant-assert tests: N``; one ``  <file> :: <test_name>`` line per
+        finding (so a dirty report names BOTH the file path and the test);
+        ``parse errors: N`` with one ``  <file>: <message>`` line each; and a
+        final ``verdict:`` token matching `exit_code` as the LAST non-empty
+        line. When clean, no test-function name is printed (Behavior 3)."""
+        lines = [
+            f"foundry constant-asserts -- {self.product}",
+            f"  files scanned: {self.files_scanned}",
+            f"  constant-assert tests: {self.total_findings}",
+        ]
+        for path, name in self.findings:
+            lines.append(f"  {path} :: {name}")
+        lines.append(f"  parse errors: {len(self.parse_errors)}")
+        for path, message in self.parse_errors:
+            lines.append(f"  {path}: {message}")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of the whole constant-assert scan for
+        machine consumers, mirroring `WeakTestSummary.to_dict()` (iter 22).
+
+        Returns EXACTLY 8 keys in a fixed order: `product`/`files_scanned` as
+        the stored fields verbatim, then the four DERIVED values each REUSING
+        the frozen properties -- `total_findings`/`clean`/`exit_code`/`verdict`
+        -- so the payload can never disagree with what `render()` prints or the
+        exit code returns (`to_dict` re-derives nothing), then `findings` as a
+        JSON array of ``{"file","test"}`` objects in the SAME order as
+        `self.findings` and `parse_errors` as a JSON array of
+        ``{"file","message"}`` objects in the SAME order as `self.parse_errors`.
+        Every value is JSON-native (str / int / bool / list of str-only dicts),
+        so `json.dumps(...)` never raises and the dict round-trips through
+        `json.loads(json.dumps(...))` -- including when both lists are empty
+        (Behavior 4). Pure: touches no filesystem, only the already-gathered
+        snapshot."""
+        return {
+            "product": self.product,
+            "files_scanned": self.files_scanned,
+            "total_findings": self.total_findings,
+            "clean": self.clean,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+            "findings": [{"file": path, "test": name}
+                         for path, name in self.findings],
+            "parse_errors": [{"file": path, "message": message}
+                             for path, message in self.parse_errors],
+        }
+
+
+def summarize_constant_asserts(*, product: str, files_scanned: int,
+                               findings: tuple[tuple[str, str], ...],
+                               parse_errors: tuple[tuple[str, str], ...]
+                               ) -> ConstantAssertSummary:
+    """Pure keyword-only constructor for a `ConstantAssertSummary` (Behavior 1).
+
+    A thin, total wrapper (mirror of `summarize_weak_tests`) that packs the
+    gathered signals into the frozen summary -- keyword-only so a caller can
+    never transpose the fields by position, and it never raises. Kept separate
+    from `constant_asserts_cli` so the decision core stays a pure function the
+    tester can drive without any filesystem."""
+    return ConstantAssertSummary(
+        product=product, files_scanned=files_scanned,
+        findings=tuple(findings), parse_errors=tuple(parse_errors))
+
+
+def gather_constant_asserts(cfg: ProductConfig, files=None) -> ConstantAssertSummary:
+    """Gather one product's constant-assert scan into a `ConstantAssertSummary`.
+
+    The FIRST real call site of the iter-47 `find_constant_assert_tests`
+    detector (shipped DORMANT with zero callers). A structural mirror of
+    `gather_weak_tests` (iter 42) that differs ONLY in the detector it parses
+    each file through -- `find_constant_assert_tests` (a `test*` whose only
+    signal is a constant assert) instead of `find_assertionless_tests` (a
+    `test*` with no signal at all). The two scans are DISJOINT by the detectors'
+    construction, so `foundry constant-asserts` COMPLEMENTS `foundry weak-tests`
+    rather than overlapping it.
+
+    Reads every signal through the EXISTING module-level seams -- each called by
+    BARE name so a `monkeypatch.setattr(foundry, ...)` in a test bites: gathers
+    the paths from `files` if given (scanning EXACTLY those `pathlib.Path(f)`
+    and NOT walking the repo -- the iter-22/14 `--files` contract) else an
+    rglob of `cfg.repo` via the REUSED `_gather_weak_test_files` (same
+    `WEAK_TEST_GLOBS` / skip-hidden/`.git` rules); parses each path's text
+    through `find_constant_assert_tests` (folding a raised `SyntaxError`/
+    `OSError` into a graceful `parse_errors` entry `(str(path),
+    f"{type(exc).__name__}: {exc}")` rather than crashing, and CONTINUING to
+    the next path, never propagating -- Behavior 5); collects each
+    constant-assert finding as `(str(path), name)`; hands them to the pure
+    bare-name `summarize_constant_asserts`; and returns the frozen
+    `ConstantAssertSummary` core. Writes NOTHING to disk (read-only)."""
+    if files is None:
+        paths = _gather_weak_test_files(cfg.repo)
+    else:
+        paths = [pathlib.Path(f) for f in files]
+    findings: list[tuple[str, str]] = []
+    parse_errors: list[tuple[str, str]] = []
+    for path in paths:
+        try:
+            names = find_constant_assert_tests(path.read_text())
+        except (SyntaxError, OSError) as exc:
+            parse_errors.append((str(path), f"{type(exc).__name__}: {exc}"))
+            continue
+        for name in names:
+            findings.append((str(path), name))
+    return summarize_constant_asserts(
+        product=cfg.name, files_scanned=len(paths),
+        findings=tuple(findings), parse_errors=tuple(parse_errors))
+
+
+def constant_asserts_cli(cfg: ProductConfig, files=None,
+                         as_json: bool = False) -> int:
+    """On-demand CLI: scan test files for constant-assert `test*` functions.
+
+    Gathers the scan through the `gather_constant_asserts(cfg, files)` seam
+    (which walks `cfg.repo` via `_gather_weak_test_files` or scans EXACTLY
+    `files`, parses each through `find_constant_assert_tests`, folds a
+    `SyntaxError`/`OSError` into a graceful `parse_errors` entry rather than
+    crashing, and builds the summary via the pure bare-name
+    `summarize_constant_asserts`) then prints the pure `ConstantAssertSummary`
+    core and returns its `exit_code` (0 clean / 1 constant-assert-or-unparseable
+    / 2 nothing to scan).
+
+    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
+    indent=2)` document (the stable machine contract for dashboards/reporter/CI,
+    mirroring `weak_tests_cli --json`); the default `as_json=False` is the human
+    `render()` text. Either way the RETURN value is the same `summary.exit_code`,
+    and `--files` selection is identical in both modes. Writes NOTHING to disk.
+    A thin printer over the pure gather seam that adds no decision logic of its
+    own, so the printed figures always match the `ConstantAssertSummary` fields.
+    DORMANT -- no control path calls it; only `main()`'s argparse dispatch."""
+    summary = gather_constant_asserts(cfg, files)
+    # `--json` emits the pure snapshot as a single JSON document (stdout-only,
+    # no decision logic added); the default stays the human report.
+    print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
+    return summary.exit_code
+
+
 
 # --------------------------------------------------------------------------- #
 # Post-release fresh-clone verification (DORMANT — item 11, bite 1/2).
@@ -5080,6 +5280,24 @@ def main(argv: list[str] | None = None) -> int:
     wkt.add_argument("--json", action="store_true",
                      help="emit the scan as one JSON document (machine-readable) "
                           "instead of the human report; same 0/1/2 exit code, honours --files")
+    # `constant-asserts` scans a product's test files for `test*` functions
+    # whose ONLY assertion signal is a constant/tautological assert (`assert
+    # True`, `assert 1`, `assert "x"`) -- a false green that `weak-tests`
+    # structurally MISSES (a constant assert CARRIES an assert node, so
+    # `find_assertionless_tests` reads it as a signal). The FIRST call site of
+    # the iter-47 `find_constant_assert_tests` detector; DISJOINT from
+    # `weak-tests` by construction. DORMANT / on-demand only -- the
+    # pipeline/gate/dispatcher NEVER call it; it writes nothing. `--files` scans
+    # EXACTLY those paths instead of walking `cfg.repo`. Exit 0 clean / 1
+    # constant-assert-or-unparseable / 2 nothing to scan.
+    cas = sub.add_parser("constant-asserts")
+    cas.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    cas.add_argument("--files", nargs="*", default=None,
+                     help="scan these test files directly instead of walking the repo")
+    cas.add_argument("--json", action="store_true",
+                     help="emit the scan as one JSON document (machine-readable) "
+                          "instead of the human report; same 0/1/2 exit code, honours --files")
     # `events` reads/digests a product's typed `events.jsonl` (item 10, the READ
     # half): filter by `--kind`, tail the most-recent `--limit N`, count by kind,
     # human or `--json` output. Read-only + DORMANT -- the pipeline/dispatcher
@@ -5265,6 +5483,8 @@ def main(argv: list[str] | None = None) -> int:
         return timing_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "weak-tests":
         return weak_tests_cli(cfg, files=args.files, as_json=args.json)
+    if args.cmd == "constant-asserts":
+        return constant_asserts_cli(cfg, files=args.files, as_json=args.json)
     if args.cmd == "events":
         return events_cli(cfg, kind=args.kind, limit=args.limit, as_json=args.json)
     if args.cmd == "preflight":
