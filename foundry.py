@@ -1496,6 +1496,81 @@ def find_assertionless_tests(source: str) -> tuple[str, ...]:
     return tuple(f.name for f in flagged)
 
 
+def _assert_signals(func: ast.AST) -> tuple[bool, bool]:
+    """`(has_constant_assert, has_real_signal)` over `func`'s own AST subtree.
+
+    A "constant assert" is an `ast.Assert` whose `.test` is a plain
+    `ast.Constant` (`assert True`, `assert 1`, `assert "x"`, `assert None`): it
+    reports green yet validates nothing, so it slips past
+    `find_assertionless_tests` (which sees the `assert` node itself as a signal).
+    A "real signal" is any genuine check: an `ast.Assert` whose `.test` is NOT a
+    plain `ast.Constant` (`assert x`, `assert x == 1`, `assert func()`, and --
+    conservatively -- `assert not True`, a `UnaryOp`), an `ast.Raise`, a call
+    whose callee trailing-name starts with the literal ``"assert"``
+    (`self.assertEqual`, `assertTrue`), or a call whose trailing-name is a member
+    of `WEAK_TEST_ASSERTION_CALLS` (the pytest `raises`/`warns`/`fail` context
+    managers). Only the assert's `.test` is inspected, never its `.msg`, so
+    `assert True, "boom"` is still purely constant. Reads
+    `WEAK_TEST_ASSERTION_CALLS` at CALL time so a monkeypatch of the module
+    constant re-decides subsequent calls (Behavior 6). `ast.walk` includes `func`
+    itself, so signals inside a nested body still count -- mirroring
+    `_has_assertion_signal`. Pure: no I/O.
+    """
+    calls = WEAK_TEST_ASSERTION_CALLS
+    has_constant_assert = False
+    has_real_signal = False
+    for node in ast.walk(func):
+        if isinstance(node, ast.Assert):
+            if isinstance(node.test, ast.Constant):
+                has_constant_assert = True
+            else:
+                has_real_signal = True
+        elif isinstance(node, ast.Raise):
+            has_real_signal = True
+        elif isinstance(node, ast.Call):
+            name = _callee_trailing_name(node.func)
+            if name is not None and (name.startswith("assert") or name in calls):
+                has_real_signal = True
+    return has_constant_assert, has_real_signal
+
+
+def find_constant_assert_tests(source: str) -> tuple[str, ...]:
+    """Names of `test*` functions whose ONLY validation is a constant assert.
+
+    Pure AST scan -- no filesystem/subprocess/network/clock, so fully
+    offline-testable. Complements the shipped `find_assertionless_tests`: that
+    detector flags tests with NO assertion signal at all, while this one flags
+    the classic LLM-emitted weak test that DOES carry an `assert` node yet checks
+    nothing -- a bare-literal `assert True`/`assert 1`/`assert "x"` (Behavior 1).
+    A `test*` function is flagged iff its subtree has >=1 constant `assert` AND no
+    real assertion signal per `_assert_signals` (Behaviors 1/2). By construction
+    the two detectors are DISJOINT -- an assertion-free test has no constant
+    assert (so only `find_assertionless_tests` sees it), and a test carrying a
+    real check has a real signal (so neither flags a constant assert it also
+    holds), so a given `test*` name lands in at most one (Behavior 3). Considers
+    EVERY `def`/`async def` (top-level OR a class method) whose name starts with
+    the literal ``"test"`` (Behavior 4); results in ASCENDING SOURCE ORDER by line
+    number, NOT alphabetically (Behavior 5). Raises `SyntaxError` verbatim when
+    `source` is not valid Python (Behavior 7) -- the caller decides how to degrade.
+    Never referenced on any run path this iteration (dormant, Behavior 8).
+    """
+    tree = ast.parse(source)
+    funcs = [
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name.startswith("test")
+    ]
+    flagged = []
+    for f in funcs:
+        has_constant_assert, has_real_signal = _assert_signals(f)
+        if has_constant_assert and not has_real_signal:
+            flagged.append(f)
+    flagged.sort(key=lambda f: f.lineno)
+    return tuple(f.name for f in flagged)
+
+
+
+
 @dataclasses.dataclass(frozen=True)
 class WeakTestSummary:
     """The result of one weak-test scan over a product's test files (item 6).
