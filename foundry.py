@@ -4267,32 +4267,38 @@ def summarize_events(*, product: str, records, total: int, matched: int,
         matched=matched, parse_errors=parse_errors, kind_filter=kind_filter)
 
 
-def events_cli(cfg: ProductConfig, kind: str | None = None,
-               limit: int | None = None, as_json: bool = False) -> int:
-    """On-demand CLI: read/digest `cfg.events_log` + a 0/2 exit code.
+def gather_events(cfg: ProductConfig, kind: str | None = None,
+                  limit: int | None = None) -> EventsSummary:
+    """Gather one product's typed `events.jsonl` stream into an `EventsSummary`
+    (item 10 reader).
 
-    Reads the EXISTING `cfg.events_log` (write half unchanged since iters 05/26)
-    and degrades gracefully: an ABSENT file or an `OSError` on read yields empty
-    content (no records, `parse_errors == 0`) and exit `2`, never raising. Writes
-    NOTHING to disk in any mode.
+    Extracted output-preservingly from the iter-27 `events_cli` gathering so BOTH
+    the single-product `foundry events` and the coming company-wide roll-up
+    (bite 2's `company_events_cli`) share ONE gathering seam; a monkeypatch on
+    this one function then reshapes every consumer at once. Output-preserving: the
+    records / summary it builds are byte-identical to what iter 27 built, so
+    `foundry events` is unchanged (mirroring iter-30's `gather_status` extraction
+    from `status_cli`, iter-31's `gather_history` from `history_cli`, iter-39's
+    `gather_timing` from `timing_cli`, and iter-42's `gather_weak_tests` from
+    `weak_tests_cli`).
 
-    Every signal flows through the pure module-level seams -- each called by BARE
-    name so a `monkeypatch.setattr(foundry, ...)` in a test bites:
+    Reads every signal through the EXISTING module-level seams -- each called by
+    BARE name so a `monkeypatch.setattr(foundry, ...)` in a test bites:
+      * reads `cfg.events_log.read_text()` -- an ABSENT file (FileNotFoundError)
+        or any `OSError` on read degrades to empty content (no records,
+        `parse_errors == 0`), never propagating the exception;
       * `parse_events_jsonl` turns the file body into `(records, parse_errors)`;
         `total` is the count of ALL parseable records;
       * with `kind` set, keeps ONLY records whose `kind` equals it (exact string
-        match); `matched` is the post-filter, PRE-limit count;
+        match via `r.get("kind") == kind`); `matched` is the post-filter,
+        PRE-limit count;
       * with a POSITIVE int `limit`, tails to the LAST `matched[-limit:]` records
-        while PRESERVING file order (`--kind` filters FIRST, then `--limit`
-        tails); a `None`/non-positive limit keeps all matched;
+        while PRESERVING file order (`kind` filters FIRST, then `limit` tails); a
+        `None` / non-positive `limit` keeps all matched;
       * hands the selection to the pure `summarize_events`.
-    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
-    indent=2)` document (the stable machine contract for dashboards/reporter/CI,
-    mirroring iter-19/20/21); the default `as_json=False` is the human `render()`
-    text. Either way the RETURN value is the same `summary.exit_code`, and the
-    kind-filter + limit selection is byte-identical between the two modes. A thin
-    wrapper over the pure core -- no decision logic beyond read -> filter -> tail
-    -> summarize -> format. DORMANT -- no control path calls it."""
+    Returns the frozen `EventsSummary` core; writes NOTHING to disk (read-only) --
+    a thin gatherer over the pure helpers that adds no decision logic beyond
+    read -> parse -> filter -> tail -> summarize."""
     try:
         # `read_text` raises FileNotFoundError (an OSError) for an absent file,
         # so the single except covers BOTH "absent" and "unreadable" -> empty.
@@ -4312,9 +4318,38 @@ def events_cli(cfg: ProductConfig, kind: str | None = None,
         shown_records = matched_records[-limit:]
     else:
         shown_records = matched_records
-    summary = summarize_events(
+    return summarize_events(
         product=cfg.name, records=shown_records, total=total,
         matched=matched, parse_errors=parse_errors, kind_filter=kind)
+
+
+def events_cli(cfg: ProductConfig, kind: str | None = None,
+               limit: int | None = None, as_json: bool = False) -> int:
+    """On-demand CLI: read/digest `cfg.events_log` + a 0/2 exit code.
+
+    Reads the EXISTING `cfg.events_log` (write half unchanged since iters 05/26)
+    and degrades gracefully: an ABSENT file or an `OSError` on read yields empty
+    content (no records, `parse_errors == 0`) and exit `2`, never raising. Writes
+    NOTHING to disk in any mode.
+
+    Gathers the digest through the `gather_events(cfg, kind, limit)` seam (iter 44
+    -- which reads `cfg.events_log` and runs the read -> parse -> kind-filter ->
+    limit-tail -> summarize pipeline via the EXISTING module-level functions,
+    called by BARE name so a `monkeypatch.setattr(foundry, ...)` bites) then
+    prints the pure `EventsSummary` core:
+      * `--kind` keeps ONLY records whose `kind` equals it (exact match), applied
+        FIRST; `--limit` then tails to the LAST N while preserving file order;
+      * with `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
+        indent=2)` document (the stable machine contract for dashboards / reporter
+        / CI, mirroring iter-19/20/21); the default `as_json=False` is the human
+        `render()` text.
+    Either way the RETURN value is the same `summary.exit_code`, and the
+    kind-filter + limit selection is byte-identical between the two modes.
+    Output-preserving: the printed report / JSON / exit code are byte-identical to
+    iter 27. A thin printer over the pure core -- no decision logic of its own, so
+    the printed rollup always equals the `EventsSummary` fields. DORMANT -- its
+    ONLY caller is `main()`, no control path calls it."""
+    summary = gather_events(cfg, kind, limit)
     # `--json` emits the pure digest as a single JSON document (stdout-only, no
     # decision logic added); the default stays the human report.
     print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
