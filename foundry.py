@@ -1387,6 +1387,311 @@ def gather_config_lint(cfg: ProductConfig) -> ConfigLint:
 
 
 # --------------------------------------------------------------------------- #
+# Bench role-card linter (`foundry lint-bench`) -- the BENCH-facing sibling of
+# `doctor` (env #0), `lint-spec` (spec #6), and `lint-config` (config #27), and
+# the FIRST item of the org-design track (roadmap item 17). `roles/bench/` holds
+# the hand-written role-cards the kickoff council staffs from; the later
+# manifest-driven items (18 `lint-manifest`, 19 the manifest-driven pipeline)
+# cannot trust a card as machine-readable unless SOMETHING enforces its shape,
+# and today nothing does -- so a card drifts silently as it is edited. This is
+# the missing enforcement: a pure `lint_bench_card(text) -> findings` core that
+# checks a card against the FIXED 7-marker contract (a `# Bench role card:`
+# title H1, `Status:`/`Model note:` line-start header fields, `Activation:`/
+# `Tenure:` substrings, and the `## Mission` + `## I/O contract` sections),
+# emitting one finding per missing marker in a FIXED order; a `lint_bench`
+# dir-walker that skips the non-card `README.md` by basename and folds the
+# per-card findings into a `BenchLint` verdict (exit 0 clean / 1 findings-or-
+# parse-errors / 2 no-cards); and a thin `lint_bench_cli` that defaults to the
+# foundry's OWN `roles/bench` so `foundry lint-bench` validates the live bench.
+# Deterministic + OFFLINE (string checks + a dir glob only; NO network, NO
+# subprocess, NO clock) and it NEVER raises for a card (an unreadable file is a
+# recorded parse error, not an exception). DORMANT / on-demand only -- the
+# pipeline/gate/dispatcher NEVER call it; it writes nothing. It changes NO
+# control flow, NO existing CLI, and NO running-loop semantics.
+# --------------------------------------------------------------------------- #
+
+# The title H1 every well-formed bench card must open with. Kept as a module
+# constant so the pure core, its docstrings, and any future manifest tooling
+# name the same literal (single source of truth for the contract).
+BENCH_CARD_TITLE_PREFIX = "# Bench role card:"
+
+
+@dataclasses.dataclass(frozen=True)
+class BenchCardFinding:
+    """One missing REQUIRED marker in a single bench role-card.
+
+    Frozen (value equality for free, matching the other verdict cores). `card`
+    is the card's name (basename when walked from a dir, or the caller-supplied
+    label for the pure core); `line` is always ``1`` -- a missing marker has no
+    natural source location, so line 1 is the deterministic convention that
+    still lets the report emit a `card:line` prefix; `requirement` is the exact
+    contract token that is absent (`"title"`, `"Status:"`, `"Activation:"`,
+    `"Tenure:"`, `"Model note:"`, `"## Mission"`, `"## I/O contract"`);
+    `message` is a human sentence naming what to add.
+    """
+    card: str
+    line: int
+    requirement: str
+    message: str
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe `{"card","line","requirement","message"}` (fixed order)."""
+        return {"card": self.card, "line": self.line,
+                "requirement": self.requirement, "message": self.message}
+
+
+@dataclasses.dataclass(frozen=True)
+class BenchParseError:
+    """A bench card file that could not be read (e.g. a permission error).
+
+    Frozen. A parse error is a real problem (an unreadable card validates
+    nothing yet is a card the bench claims to declare), so it gates the verdict
+    like a finding -- but it is tracked separately from `BenchCardFinding`
+    because it has no contract `requirement`, only the card name and the reason.
+    """
+    card: str
+    message: str
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe `{"card","message"}` pair (fixed order)."""
+        return {"card": self.card, "message": self.message}
+
+
+def lint_bench_card(text: str, card: str = "<card>") -> tuple[BenchCardFinding, ...]:
+    """Lint ONE bench role-card's text against the FIXED 7-marker contract.
+
+    Pure + deterministic + OFFLINE (string inspection only -- no filesystem, no
+    network, no clock) and it NEVER raises. Returns one `BenchCardFinding` per
+    ABSENT required marker, in this FIXED check order so the verdict is stable:
+    `title`, `Status:`, `Activation:`, `Tenure:`, `Model note:`, `## Mission`,
+    `## I/O contract`. A fully-compliant card returns an empty tuple.
+
+    The marker predicates are deliberately DIFFERENT kinds, matching how the
+    real cards are written (verified against all 11 shipped cards):
+
+    * `title` -- the file's FIRST markdown H1 (the first line whose STRIPPED
+      form starts with ``"# "``, which excludes ``"## "`` headings because
+      ``"## x".startswith("# ")`` is False) must start with
+      ``BENCH_CARD_TITLE_PREFIX``. A card with no H1, or whose first H1 is a
+      different title (e.g. ``# The bench``), is flagged.
+    * `Status:` / `Model note:` -- some line whose STRIPPED form STARTS WITH the
+      token (they are their own lines in every card).
+    * `Activation:` / `Tenure:` -- a raw SUBSTRING of the text (they live inline
+      on the ``Status:`` line, so a line-start check would miss them).
+    * `## Mission` / `## I/O contract` -- some line whose STRIPPED form EQUALS
+      the heading EXACTLY, so a bare word ``Mission`` in prose or a ``# Mission``
+      H1 does NOT satisfy it (exact-heading match, not substring).
+
+    Every finding carries `line == 1` and the passed-in `card` name.
+    """
+    stripped = [ln.strip() for ln in text.splitlines()]
+    findings: list[BenchCardFinding] = []
+
+    # title: the FIRST H1 line must open with the bench-card prefix.
+    first_h1 = next((s for s in stripped if s.startswith("# ")), None)
+    if first_h1 is None or not first_h1.startswith(BENCH_CARD_TITLE_PREFIX):
+        findings.append(BenchCardFinding(
+            card, 1, "title",
+            f"first H1 must start with {BENCH_CARD_TITLE_PREFIX!r} "
+            "(the card must name the role)"))
+
+    # Status: / Model note: -- line-start header fields.
+    if not any(s.startswith("Status:") for s in stripped):
+        findings.append(BenchCardFinding(
+            card, 1, "Status:",
+            "no line starting 'Status:' (the card's status/lifecycle field)"))
+
+    # Activation: / Tenure: -- inline substrings (they share the Status line).
+    if "Activation:" not in text:
+        findings.append(BenchCardFinding(
+            card, 1, "Activation:",
+            "missing the 'Activation:' field (when this role activates)"))
+    if "Tenure:" not in text:
+        findings.append(BenchCardFinding(
+            card, 1, "Tenure:",
+            "missing the 'Tenure:' field (how long this role is seated)"))
+
+    if not any(s.startswith("Model note:") for s in stripped):
+        findings.append(BenchCardFinding(
+            card, 1, "Model note:",
+            "no line starting 'Model note:' (the model-choice guidance)"))
+
+    # ## Mission / ## I/O contract -- exact-heading sections.
+    if not any(s == "## Mission" for s in stripped):
+        findings.append(BenchCardFinding(
+            card, 1, "## Mission",
+            "missing the '## Mission' section heading"))
+    if not any(s == "## I/O contract" for s in stripped):
+        findings.append(BenchCardFinding(
+            card, 1, "## I/O contract",
+            "missing the '## I/O contract' section heading"))
+
+    return tuple(findings)
+
+
+@dataclasses.dataclass(frozen=True)
+class BenchLint:
+    """A lint verdict for a whole bench directory of role-cards.
+
+    Frozen so a computed verdict can't be mutated after the fact (value equality
+    for free). The stored fields are the raw walk results -- the `bench_dir`
+    linted, the `cards_scanned` count (non-`README.md` `*.md` files, readable or
+    not), the `skipped` basenames (the non-card `README.md`), the flattened
+    `findings` (each card's missing-marker findings in walk order), and the
+    `parse_errors` (unreadable cards) -- and every count/verdict/exit-code is a
+    PURE property, so `render()` / `to_dict()` / the exit code can never disagree
+    (single source of truth). A parse error gates the verdict like a finding (an
+    unreadable card validates nothing).
+    """
+    bench_dir: str
+    cards_scanned: int
+    skipped: tuple[str, ...]
+    findings: tuple[BenchCardFinding, ...]
+    parse_errors: tuple[BenchParseError, ...]
+
+    @property
+    def total_findings(self) -> int:
+        """How many missing-marker findings there are across all cards."""
+        return len(self.findings)
+
+    @property
+    def clean(self) -> bool:
+        """True iff NO findings AND NO parse errors (every scanned card
+        satisfies the contract and was readable)."""
+        return not self.findings and not self.parse_errors
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable verdict, DIR-scan model: `2` iff NOTHING to scan (no card
+        files -- checked FIRST, so an empty/README-only dir is 2 not 0), else
+        `1` iff any finding OR any parse error, else `0` clean. A parse error is
+        a real problem (an unreadable card), NOT 'nothing to scan'."""
+        if self.cards_scanned == 0:
+            return 2
+        if self.findings or self.parse_errors:
+            return 1
+        return 0
+
+    @property
+    def verdict(self) -> str:
+        """The operator-facing token -- ONE source of truth for `render()`'s
+        last line so text + exit code never drift: `"NO CARDS"` (exit 2),
+        `"CARD ISSUES FOUND"` (exit 1), or `"OK"` (exit 0)."""
+        code = self.exit_code
+        if code == 2:
+            return "NO CARDS"
+        if code == 1:
+            return "CARD ISSUES FOUND"
+        return "OK"
+
+    def render(self) -> str:
+        """A deterministic multi-line report.
+
+        The FIRST line names the linted bench dir and the LAST non-empty line is
+        exactly `verdict: <TOKEN>` (`OK` / `CARD ISSUES FOUND` / `NO CARDS`).
+        Between them: a scan-count line, then one `  <card>:<line> [<req>] <msg>`
+        line per finding (walk order) and one `  <card>: unreadable: <msg>` line
+        per parse error. A clean bench lists no finding lines yet still ends
+        `verdict: OK`. Detail above the sentinel, so 'last non-empty line ==
+        verdict' always holds."""
+        lines = [
+            f"foundry lint-bench -- {self.bench_dir}",
+            f"  cards scanned: {self.cards_scanned}  skipped: {len(self.skipped)}"
+            f"  findings: {self.total_findings}  "
+            f"parse errors: {len(self.parse_errors)}",
+        ]
+        for f in self.findings:
+            lines.append(f"  {f.card}:{f.line} [{f.requirement}] {f.message}")
+        for e in self.parse_errors:
+            lines.append(f"  {e.card}: unreadable: {e.message}")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization.
+
+        Returns EXACTLY these keys in this fixed order: `bench_dir`,
+        `cards_scanned`, `skipped`, `findings` (a list of
+        `{"card","line","requirement","message"}` dicts in walk order),
+        `parse_errors` (a list of `{"card","message"}` dicts), `total_findings`,
+        `clean`, `exit_code`, `verdict`. Every value is JSON-native so
+        `json.dumps(...)` never raises and the dict round-trips through
+        `json.loads(json.dumps(...))`."""
+        return {
+            "bench_dir": self.bench_dir,
+            "cards_scanned": self.cards_scanned,
+            "skipped": list(self.skipped),
+            "findings": [f.to_dict() for f in self.findings],
+            "parse_errors": [e.to_dict() for e in self.parse_errors],
+            "total_findings": self.total_findings,
+            "clean": self.clean,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+        }
+
+
+def lint_bench(bench_dir: str) -> BenchLint:
+    """Walk a bench directory and lint every role-card against the contract.
+
+    Deterministic + OFFLINE: globs `*.md` in `bench_dir` (sorted by name so the
+    finding order is stable), SKIPS `README.md` by basename (it is documentation,
+    not a card -- recorded in `.skipped`, NOT counted in `.cards_scanned`), and
+    for every other `*.md` file reads its text and folds `lint_bench_card`'s
+    findings in. An unreadable card is recorded as a `BenchParseError` (never
+    raised) so one bad file can't abort the walk. A NONEXISTENT `bench_dir`
+    globs to nothing -> `cards_scanned == 0` -> the `NO CARDS` verdict (never
+    raises). Calls `lint_bench_card` by BARE module name so a test can
+    monkeypatch it. Writes NOTHING to disk (read-only)."""
+    d = pathlib.Path(bench_dir)
+    skipped: list[str] = []
+    findings: list[BenchCardFinding] = []
+    parse_errors: list[BenchParseError] = []
+    cards_scanned = 0
+    for path in sorted(d.glob("*.md"), key=lambda p: p.name):
+        name = path.name
+        if name == "README.md":
+            skipped.append(name)
+            continue
+        cards_scanned += 1
+        try:
+            text = path.read_text()
+        except Exception as exc:  # unreadable card -> recorded, not raised
+            parse_errors.append(BenchParseError(
+                name, f"{type(exc).__name__}: {exc}"))
+            continue
+        findings.extend(lint_bench_card(text, name))
+    return BenchLint(
+        bench_dir=str(bench_dir),
+        cards_scanned=cards_scanned,
+        skipped=tuple(skipped),
+        findings=tuple(findings),
+        parse_errors=tuple(parse_errors),
+    )
+
+
+def lint_bench_cli(bench_dir: str | None = None, as_json: bool = False) -> int:
+    """On-demand CLI: lint a bench directory of role-cards.
+
+    Defaults `bench_dir` to the foundry's OWN `roles/bench` (so `foundry
+    lint-bench` with no `--dir` validates the live bench), runs the pure
+    `lint_bench` walker, and prints the human `render()` (or, with
+    `as_json=True`, one `json.dumps(to_dict())` document -- a single parseable
+    doc), returning the `BenchLint.exit_code` (0 OK / 1 card-issues / 2
+    no-cards). Writes nothing. A thin wrapper over the pure core: it adds no
+    lint logic beyond default -> `lint_bench` -> format, so the printed verdict
+    always matches the `BenchLint` fields. Needs NO product `--config`, so like
+    `lint-spec` it is dispatched BEFORE the top-level `load_config`."""
+    if bench_dir is None:
+        bench_dir = str(FOUNDRY / "roles" / "bench")
+    lint = lint_bench(bench_dir)
+    if as_json:
+        print(json.dumps(lint.to_dict(), indent=2))
+    else:
+        print(lint.render())
+    return lint.exit_code
+
+
+# --------------------------------------------------------------------------- #
 # prd.json machine-roadmap status (roadmap item 1, bite 1/2).
 #
 # Right now the only record of what a product has shipped is the prose
@@ -7330,6 +7635,25 @@ def main(argv: list[str] | None = None) -> int:
                       help="emit the lint verdict as one JSON document "
                            "(machine-readable) instead of the human report; "
                            "same 0/1/2 exit code")
+    # `lint-bench` validates the hand-written bench role-cards in the
+    # foundry's `roles/bench` against the fixed card contract (a
+    # `# Bench role card:` title + `Status:`/`Activation:`/`Tenure:`/
+    # `Model note:` header fields + the `## Mission`/`## I/O contract`
+    # sections) -- the BENCH-facing sibling of `doctor` (env #0),
+    # `lint-spec` (spec #6), and `lint-config` (config #27), and the first
+    # org-design-track item (roadmap 17). It takes a bench `--dir`
+    # (defaulting to the foundry's OWN bench), NOT a product `--config`, so
+    # like `lint-spec` it is dispatched BEFORE the top-level `load_config`
+    # below. On-demand only -- the pipeline/gate/dispatcher NEVER call it;
+    # it writes nothing. Exit 0 OK / 1 card-issues-or-unreadable / 2 no-cards.
+    lnb = sub.add_parser("lint-bench")
+    lnb.add_argument("--dir", dest="dir", default=None,
+                     help="path to the bench directory of role-cards "
+                          "(default: the foundry's own roles/bench)")
+    lnb.add_argument("--json", action="store_true",
+                     help="emit the lint verdict as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code")
     # `single-brain` is a read-only launch PREFLIGHT: it reports whether a
     # dispatcher is ALREADY running so an operator (or a launch wrapper) can
     # refuse to start a SECOND competing brain, which would starve the shared
@@ -7730,6 +8054,8 @@ def main(argv: list[str] | None = None) -> int:
         return lint_spec_cli(args.file)
     if args.cmd == "lint-config":
         return lint_config_cli(args.config, as_json=args.json)
+    if args.cmd == "lint-bench":
+        return lint_bench_cli(bench_dir=args.dir, as_json=args.json)
     if args.cmd == "single-brain":
         return single_brain_cli(pattern=args.pattern, as_json=args.json)
     if args.cmd == "company-status":
