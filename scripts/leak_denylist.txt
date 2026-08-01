@@ -1,0 +1,20 @@
+# leak_denylist.txt -- committed, portable leak-guard denylist (roadmap item 16).
+#
+# Each non-blank, non-comment line below is ONE regex needle, URL-safe-base64
+# encoded (see scripts/leak_guard.py :: encode_pattern) so this PUBLIC file never
+# stores a raw internal/personal token -- the very thing the guard exists to keep
+# out of the repo. Categories covered (in encoded order): an internal agent-CLI
+# name and its .app / _BIN variants, a model-provider service name, two internal
+# skill names, an internal auth command, a personal home-path prefix, and a
+# personal username. Regenerate by base64-encoding each needle; a self-scan
+# meta-test proves both committed files stay leak-clean.
+#
+KD88IVtBLVphLXpdKWFraSg_IVtBLVphLXpdKQ==
+YWtpXC5hcHA=
+QUtJX0JJTg==
+YmVkcm9jaw==
+cmVzaWxpZW50Wy1fIF1ydW5uZXI=
+Z29hbFstXyBdc2NvdXQ=
+bXdpbml0
+L1VzZXJzLw==
+amluY20=
