@@ -515,17 +515,25 @@ def test_b4_gather_weak_tests_absent_from_dispatcher():
     assert "company-weak-tests" not in consts, "dispatcher references the 'company-weak-tests' literal"
 
 
-def test_b4_no_new_subcommand_this_bite(capsys):
-    """This bite adds NO new subcommand: `weak-tests` and the prior company-*
-    members survive, but `company-weak-tests` (bite 2) is NOT yet present."""
+def test_b4_company_weak_tests_subcommand_present_after_bite2(capsys):
+    # iter 42 (bite 1) shipped ONLY the `gather_weak_tests` foundation and this
+    # guard asserted the `company-weak-tests` subcommand was still absent
+    # ("deferred to bite 2"). iter 43 (bite 2) is that deferred bite: it
+    # legitimately ships the subcommand, so the guard's retirement condition has
+    # now occurred (identical to how iter 40 flipped the iter-39 `company-timing`
+    # guard). The regression half (every pre-existing subcommand still present)
+    # is kept; the negative half is flipped to assert the now-shipped
+    # `company-weak-tests` subcommand appears in --help.
     with pytest.raises(SystemExit) as ei:
         foundry.main(["--help"])
     assert ei.value.code == 0
     out = capsys.readouterr().out
+    # every pre-existing subcommand (incl. the earlier company-* members) survives
     for sub in ("weak-tests", "company-status", "company-history", "company-timing"):
         assert sub in out, f"existing subcommand {sub!r} missing from --help:\n{out}"
-    assert "company-weak-tests" not in out, \
-        "company-weak-tests is bite 2 -- it must NOT appear in --help this iteration"
+    # ... and bite 2 has now added the `company-weak-tests` subcommand
+    assert "company-weak-tests" in out, \
+        "bite 2 (iter 43) must add the company-weak-tests subcommand"
 
 
 def test_b4_running_writes_nothing(tmp_path):
