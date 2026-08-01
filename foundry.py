@@ -1638,26 +1638,31 @@ def _gather_weak_test_files(repo: str) -> list[pathlib.Path]:
     return sorted(seen)
 
 
-def weak_tests_cli(cfg: ProductConfig, files=None, as_json: bool = False) -> int:
-    """On-demand CLI: scan test files for assertion-free `test*` functions.
+def gather_weak_tests(cfg: ProductConfig, files=None) -> WeakTestSummary:
+    """Gather one product's assertion-free-test scan into a `WeakTestSummary`
+    (item 6's offline slice -- a false-green test is the foundry's #1
+    verification failure mode).
 
-    Gathers the test files (from `files` if given -- scanning EXACTLY those and
-    NOT walking the repo, Behavior 14 -- else an rglob of `cfg.repo` via
-    `_gather_weak_test_files`), parses each through `find_assertionless_tests`
-    (turning a `SyntaxError`/`OSError` into a graceful `parse_errors` entry
-    rather than crashing -- Behavior 15), builds the summary via the pure
-    bare-name `summarize_weak_tests`, prints `render()`, and returns its
-    `exit_code` (0 clean / 1 weak-or-unparseable / 2 nothing to scan). Writes
-    NOTHING to disk (Behavior 17). A thin wrapper over the pure core -- it adds
-    no detection logic beyond (files or rglob) -> parse -> summarize -> format,
-    so the printed figures always match the `WeakTestSummary` fields.
+    Extracted output-preservingly from the iter-22 `weak_tests_cli` gathering so
+    BOTH the single-product `foundry weak-tests` and the coming company-wide
+    roll-up (bite 2's `company_weak_tests_cli`) share ONE gathering seam; a
+    monkeypatch on this one function then reshapes every consumer at once.
+    Output-preserving: the summary it builds is byte-identical to what iter 22
+    built, so `foundry weak-tests` is unchanged (mirroring iter-39's
+    `gather_timing` extraction from `timing_cli`, iter-30's `gather_status` from
+    `status_cli`, and iter-31's `gather_history` from `history_cli`).
 
-    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
-    indent=2)` document (the stable machine contract for dashboards/reporter/CI,
-    mirroring iter-19/20/21's `status`/`history`/`timing --json`); the default
-    `as_json=False` is byte-for-byte the iter-22 human `render()` text. Either
-    way the RETURN value is the same `summary.exit_code`, and `--files`
-    selection is identical in both modes. DORMANT -- no control path calls it."""
+    Reads every signal through the EXISTING module-level seams -- each called by
+    BARE name so a `monkeypatch.setattr(foundry, ...)` in a test bites: gathers
+    the paths from `files` if given (scanning EXACTLY those `pathlib.Path(f)` and
+    NOT walking the repo -- the iter-22/14 `--files` contract) else an rglob of
+    `cfg.repo` via `_gather_weak_test_files`; parses each path's text through
+    `find_assertionless_tests` (folding a raised `SyntaxError`/`OSError` into a
+    graceful `parse_errors` entry `(str(path), f"{type(exc).__name__}: {exc}")`
+    rather than crashing -- Behavior 15 -- and continuing, never propagating);
+    collects each assertion-free finding as `(str(path), name)`; hands them to
+    the pure `summarize_weak_tests`; and returns the frozen `WeakTestSummary`
+    core. Writes NOTHING to disk (read-only)."""
     if files is None:
         paths = _gather_weak_test_files(cfg.repo)
     else:
@@ -1672,9 +1677,33 @@ def weak_tests_cli(cfg: ProductConfig, files=None, as_json: bool = False) -> int
             continue
         for name in names:
             findings.append((str(path), name))
-    summary = summarize_weak_tests(
+    return summarize_weak_tests(
         product=cfg.name, files_scanned=len(paths),
         findings=tuple(findings), parse_errors=tuple(parse_errors))
+
+
+def weak_tests_cli(cfg: ProductConfig, files=None, as_json: bool = False) -> int:
+    """On-demand CLI: scan test files for assertion-free `test*` functions.
+
+    Gathers the scan through the `gather_weak_tests(cfg, files)` seam (iter 42 --
+    which walks `cfg.repo` via `_gather_weak_test_files` or scans EXACTLY `files`,
+    parses each through `find_assertionless_tests`, folds a `SyntaxError`/`OSError`
+    into a graceful `parse_errors` entry rather than crashing, and builds the
+    summary via the pure bare-name `summarize_weak_tests`) then prints the pure
+    `WeakTestSummary` core and returns its `exit_code` (0 clean / 1 weak-or-
+    unparseable / 2 nothing to scan). Output-preserving: the printed report /
+    JSON / `--files` selection / exit code are byte-identical to iter 22/23.
+
+    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
+    indent=2)` document (the stable machine contract for dashboards/reporter/CI,
+    mirroring iter-19/20/21's `status`/`history`/`timing --json`); the default
+    `as_json=False` is byte-for-byte the iter-22 human `render()` text. Either
+    way the RETURN value is the same `summary.exit_code`, and `--files`
+    selection is identical in both modes. Writes NOTHING to disk. A thin printer
+    over the pure gather seam that adds no decision logic of its own, so the
+    printed figures always match the `WeakTestSummary` fields. DORMANT -- no
+    control path calls it."""
+    summary = gather_weak_tests(cfg, files)
     # `--json` emits the pure snapshot as a single JSON document (stdout-only, no
     # decision logic added); the default stays the exact iter-22 human report.
     print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
