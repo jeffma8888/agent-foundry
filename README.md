@@ -155,9 +155,11 @@ sh scripts/install_hooks.sh   # arms .git/hooks/pre-push to run the committed gu
 ```
 
 Idempotent (safe to re-run); a foreign existing `pre-push` hook is backed up to
-`pre-push.backup` first. The hard in-loop final-gate pre-push check (so the loop
-self-blocks a leaky ship even without the hook) is a separate future step
-(roadmap item 16 bite 3).
+`pre-push.backup` first. The hard in-loop final-gate pre-push check (the `final`
+role runs the same guard against the pushed commit, so the loop self-blocks a leaky
+ship even without the hook) is now wired into the final gate (roadmap item 16 bite 3,
+complete). It is repo-agnostic (skipped for a product repo that does not carry the
+guard) and fails closed to the revert path on any non-zero exit.
 
 ## Requirements
 
