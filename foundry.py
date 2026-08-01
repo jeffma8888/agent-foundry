@@ -1692,6 +1692,343 @@ def lint_bench_cli(bench_dir: str | None = None, as_json: bool = False) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Staffing-manifest linter (`foundry lint-manifest`) -- the MANIFEST-facing
+# sibling of `doctor` (env #0), `lint-spec` (spec #6), `lint-config` (config
+# #27), and `lint-bench` (bench #29), and the SECOND org-design-track item
+# (roadmap item 18, bite 1). The org design (docs/ORG_DESIGN.md sect 5) has a
+# kickoff council emit a machine-checkable STAFFING MANIFEST (products/<name>/
+# staffing.json): which bench roles are ON, their run sequence + gates, a
+# per-role model note, done-criteria, and an iteration budget. The
+# manifest-driven pipeline (item 19) will READ that manifest -- but nothing in
+# code enforces its shape, so a manifest cannot be trusted before item 19
+# consumes it. This is the missing enforcement: a pure `lint_manifest(data,
+# bench_dir, manifest_path=...)` core that validates a parsed manifest against
+# a DOCUMENTED schema and reports leveled findings, each tagged with the RULE
+# it violates, plus a thin `lint_manifest_cli` that reads + JSON-parses a file
+# and formats the verdict.
+#
+# THE SCHEMA (documented here, enforced by the core). A staffing manifest is a
+# JSON OBJECT with these REQUIRED top-level keys:
+#   * `product`          -- a non-empty string.
+#   * `iteration_budget` -- an int strictly > 0 (a plain int, NOT a bool).
+#   * `roles`            -- a non-empty LIST of role objects, in run order (the
+#                           list order IS the sequence). Each role object
+#                           requires: `role` (str, a bench-card name), `model`
+#                           (str, the per-role model note), `gate` (bool), and
+#                           `done_criteria` (str).
+# THE FOUR RULES (each finding is tagged with its `rule`):
+#   * `schema`     -- the top level must be an object with the required keys of
+#                     the correct type, and every role entry must be a
+#                     well-formed object (all four fields, correct types). A
+#                     malformed role contributes NO name to the role set.
+#   * `bench_card` -- every well-formed role name must have a
+#                     `<bench_dir>/<name>.md` card file.
+#   * `core_seat`  -- the five core seats (`product_manager`, `engineer`,
+#                     `reviewer`, `qa_tester`, `release_gate`), in that FIXED
+#                     order, must all appear among the well-formed role names.
+#   * `budget`     -- `iteration_budget` must be a positive int (see below).
+# Finding order is DETERMINISTIC: all `schema`, then `bench_card` (manifest role
+# order), then `core_seat` (fixed seat order), then `budget`.
+#
+# Deterministic + OFFLINE (only `.exists()` reads under `bench_dir`; NO network,
+# NO subprocess, NO clock) and the pure core NEVER raises on malformed `data`
+# (a non-dict, missing keys, or wrong types all produce findings, not
+# exceptions). DORMANT / on-demand only -- the pipeline/gate/dispatcher NEVER
+# call it; it writes nothing. It changes NO control flow, NO existing CLI, and
+# NO running-loop semantics. Exit 0 clean / 1 findings; the CLI maps an
+# unreadable/invalid-JSON file to 2 (distinct from a lint finding).
+# --------------------------------------------------------------------------- #
+
+# The five always-on core seats (docs/ORG_DESIGN.md sect 4), in the FIXED order
+# the `core_seat` rule reports missing seats. Kept as a module constant so the
+# pure core, its docstrings, and any future manifest tooling name the same
+# literals (single source of truth for the core-seat contract).
+MANIFEST_CORE_SEATS = (
+    "product_manager", "engineer", "reviewer", "qa_tester", "release_gate",
+)
+
+# The three role fields that must be STRINGS (any string, even empty -- unlike
+# top-level `product`, the schema only constrains a role field's TYPE). `gate`
+# is validated separately with a strict `type(...) is bool` check, because
+# `bool` subclasses `int` in Python, so an int `1`/`0` must NOT masquerade as a
+# boolean gate.
+_MANIFEST_ROLE_STR_FIELDS = ("role", "model", "done_criteria")
+
+
+@dataclasses.dataclass(frozen=True)
+class ManifestFinding:
+    """One rule violation in a staffing manifest.
+
+    Frozen (value equality for free, matching the other verdict cores). `rule`
+    is the contract axis violated (`"schema"`, `"bench_card"`, `"core_seat"`,
+    or `"budget"`); `message` is a human sentence naming what is wrong and, for
+    the per-role rules, WHICH role/seat.
+    """
+    rule: str
+    message: str
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe `{"rule","message"}` pair (fixed order)."""
+        return {"rule": self.rule, "message": self.message}
+
+
+def _validate_manifest_role(entry: object, index: int) -> tuple[str | None, str | None]:
+    """Validate ONE role entry against the role-object schema.
+
+    Pure + never raises. Returns `(name, error)`: a WELL-FORMED entry yields
+    `(its 'role' name, None)`; a MALFORMED entry yields `(None, <a schema error
+    message naming the 0-based index and the first defect>)`. A well-formed
+    role object is a dict carrying all four required fields with the correct
+    type -- `role`/`model`/`done_criteria` strings and `gate` a strict bool.
+    The first defect found (not-an-object -> missing-field(s) -> wrong-type)
+    is reported so a malformed entry yields exactly ONE finding.
+    """
+    if not isinstance(entry, dict):
+        return None, (f"roles[{index}] must be an object, "
+                      f"got {type(entry).__name__}")
+    missing = [k for k in ("role", "model", "gate", "done_criteria")
+               if k not in entry]
+    if missing:
+        return None, (f"roles[{index}] is missing required field(s): "
+                      f"{', '.join(missing)}")
+    for field in _MANIFEST_ROLE_STR_FIELDS:
+        if not isinstance(entry[field], str):
+            return None, (f"roles[{index}] field {field!r} must be a string, "
+                          f"got {type(entry[field]).__name__}")
+    # `gate` must be a REAL bool (not an int) -- bool subclasses int, so an
+    # explicit identity check is required to reject `1`/`0`.
+    if type(entry["gate"]) is not bool:
+        return None, (f"roles[{index}] field 'gate' must be a boolean, "
+                      f"got {type(entry['gate']).__name__}")
+    return entry["role"], None
+
+
+@dataclasses.dataclass(frozen=True)
+class ManifestLint:
+    """A lint verdict for a whole staffing manifest.
+
+    Frozen so a computed verdict can't be mutated after the fact (value
+    equality for free). The stored fields are the raw validation results -- the
+    `manifest_path` label, the `bench_dir` cards were checked against, the
+    `roles` tuple (the WELL-FORMED role names in manifest order; a malformed
+    role contributes no name), and the flattened `findings` in the
+    deterministic rule order -- and every count / verdict / exit-code /
+    `core_seats_present` is a PURE property derived from those fields, so
+    `render()` / `to_dict()` / the exit code can never disagree (single source
+    of truth).
+    """
+    manifest_path: str
+    bench_dir: str
+    roles: tuple[str, ...]
+    findings: tuple[ManifestFinding, ...]
+
+    @property
+    def n_findings(self) -> int:
+        """How many rule violations were found across all four rules."""
+        return len(self.findings)
+
+    @property
+    def core_seats_present(self) -> bool:
+        """True iff all five `MANIFEST_CORE_SEATS` appear among the well-formed
+        role names. Derived from `roles` (the SAME set the `core_seat` rule
+        checks), so it can never disagree with the core_seat findings."""
+        names = set(self.roles)
+        return all(seat in names for seat in MANIFEST_CORE_SEATS)
+
+    @property
+    def clean(self) -> bool:
+        """True iff there are NO findings (a fully schema-valid, fully-staffed,
+        fully-carded manifest with a positive integer budget)."""
+        return self.n_findings == 0
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable verdict: `0` clean, else `1` (any finding). The CLI maps
+        an unreadable/invalid-JSON file to `2` separately -- a parse failure is
+        not a manifest finding."""
+        return 0 if self.clean else 1
+
+    @property
+    def verdict(self) -> str:
+        """The operator-facing token -- ONE source of truth for `render()`'s
+        last line so text + exit code never drift: `"OK"` (exit 0) or
+        `"MANIFEST ISSUES FOUND"` (exit 1)."""
+        return "OK" if self.clean else "MANIFEST ISSUES FOUND"
+
+    def render(self) -> str:
+        """A deterministic multi-line report.
+
+        The FIRST line names the manifest path; a summary line names the bench
+        dir, the well-formed role count, and whether the core seats are all
+        present; then one `  [<rule>] <message>` line per finding (in the
+        deterministic rule order); and the LAST non-empty line is exactly
+        `verdict: <TOKEN>` (`OK` / `MANIFEST ISSUES FOUND`). Detail above the
+        sentinel, so 'last non-empty line == verdict' always holds. Every value
+        is taken from the stored fields, never a source-literal home path."""
+        lines = [
+            f"foundry lint-manifest -- {self.manifest_path}",
+            f"  bench dir: {self.bench_dir}",
+            f"  roles: {len(self.roles)}  findings: {self.n_findings}  "
+            f"core seats present: {'yes' if self.core_seats_present else 'no'}",
+        ]
+        for f in self.findings:
+            lines.append(f"  [{f.rule}] {f.message}")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization.
+
+        Returns EXACTLY these keys in this fixed order: `manifest_path`,
+        `bench_dir`, `roles` (a list of the well-formed role-name strings in
+        manifest order), `findings` (a list of `{"rule","message"}` dicts in
+        the deterministic rule order), `n_findings`, `core_seats_present`,
+        `clean`, `exit_code`, `verdict`. Every value is JSON-native so
+        `json.dumps(...)` never raises and the dict round-trips through
+        `json.loads(json.dumps(...))`."""
+        return {
+            "manifest_path": self.manifest_path,
+            "bench_dir": self.bench_dir,
+            "roles": list(self.roles),
+            "findings": [f.to_dict() for f in self.findings],
+            "n_findings": self.n_findings,
+            "core_seats_present": self.core_seats_present,
+            "clean": self.clean,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+        }
+
+
+def lint_manifest(data: object, bench_dir: "str | pathlib.Path",
+                  manifest_path: str = "staffing.json") -> ManifestLint:
+    """Validate a parsed staffing manifest against the documented schema.
+
+    Pure + deterministic + OFFLINE: the ONLY effect is `.exists()` reads under
+    `bench_dir` (the bench_card rule); NO network, NO subprocess, NO clock, and
+    it NEVER raises on malformed `data` (a non-dict, missing keys, or wrong
+    types all become findings). `data` is a parsed JSON value of ANY type;
+    `bench_dir` is a str or `pathlib.Path`; `manifest_path` is a display label.
+    Applies the four rules and returns a `ManifestLint` whose `findings` are in
+    the FIXED order `schema` -> `bench_card` (manifest role order) -> `core_seat`
+    (fixed seat order) -> `budget`, so two runs on identical inputs are
+    identical.
+    """
+    bd = pathlib.Path(bench_dir)
+    schema: list[ManifestFinding] = []
+    bench_card: list[ManifestFinding] = []
+    core_seat: list[ManifestFinding] = []
+    budget: list[ManifestFinding] = []
+
+    # Rule 1a (schema): the top level MUST be a JSON object. A non-dict is a
+    # HARD STOP -- there are no keys to inspect, so emit exactly one schema
+    # finding and return (no bench_card/core_seat/budget rules run).
+    if not isinstance(data, dict):
+        schema.append(ManifestFinding(
+            "schema",
+            f"manifest is not a JSON object (got {type(data).__name__}); the "
+            "top level must be an object with 'product', 'iteration_budget', "
+            "and 'roles'"))
+        return ManifestLint(str(manifest_path), str(bench_dir), (),
+                            tuple(schema))
+
+    # Rule 1b (schema): required top-level keys of the correct type. `product`
+    # must be a NON-EMPTY string; `roles` must be a NON-EMPTY list.
+    # `iteration_budget` is validated by the budget rule, NOT here.
+    product = data.get("product")
+    if not isinstance(product, str) or not product:
+        schema.append(ManifestFinding(
+            "schema", "'product' must be a non-empty string"))
+    roles_val = data.get("roles")
+    roles_is_list = isinstance(roles_val, list)
+    if not roles_is_list or not roles_val:
+        schema.append(ManifestFinding(
+            "schema",
+            "'roles' must be a non-empty list of role objects (in run order)"))
+
+    # Rule 1c (schema): validate each role entry + collect the WELL-FORMED role
+    # names in manifest order. A malformed entry yields one schema finding and
+    # contributes NO name (so it cannot satisfy a core seat or be card-checked).
+    names: list[str] = []
+    if roles_is_list:
+        for i, entry in enumerate(roles_val):
+            name, err = _validate_manifest_role(entry, i)
+            if err is not None:
+                schema.append(ManifestFinding("schema", err))
+            else:
+                names.append(name)
+
+    # Rule 2 (bench_card): every well-formed role name needs a card file, in
+    # manifest role order.
+    for name in names:
+        if not (bd / f"{name}.md").exists():
+            bench_card.append(ManifestFinding(
+                "bench_card",
+                f"role {name!r} has no bench card ({name}.md) under the "
+                "bench dir"))
+
+    # Rule 3 (core_seat): the five core seats in FIXED order.
+    name_set = set(names)
+    for seat in MANIFEST_CORE_SEATS:
+        if seat not in name_set:
+            core_seat.append(ManifestFinding(
+                "core_seat",
+                f"core seat {seat!r} is not staffed (no role named {seat!r})"))
+
+    # Rule 4 (budget): `iteration_budget` must be a positive int, NOT a bool.
+    # The `type(...) is not int` check rejects bool/float/str/None; the
+    # short-circuit protects the `<= 0` comparison from a non-int operand.
+    budget_val = data.get("iteration_budget")
+    if type(budget_val) is not int or budget_val <= 0:
+        budget.append(ManifestFinding(
+            "budget",
+            "'iteration_budget' must be an integer strictly greater than 0"))
+
+    findings = tuple(schema + bench_card + core_seat + budget)
+    return ManifestLint(str(manifest_path), str(bench_dir), tuple(names),
+                        findings)
+
+
+def lint_manifest_cli(file: str, bench_dir: "str | None" = None,
+                      as_json: bool = False) -> int:
+    """On-demand CLI: validate a staffing-manifest JSON file.
+
+    Reads + JSON-parses `file` INSIDE a try so a nonexistent / unreadable /
+    invalid-JSON file returns `2` (distinct from a lint finding=1) after
+    printing a `lint-manifest: ...` diagnostic (or, with `as_json=True`, one
+    `{"manifest_path","error","exit_code":2}` document), WITHOUT letting the
+    exception propagate. On a successful parse it resolves `bench_dir` (None ->
+    the foundry's OWN `roles/bench`), runs the pure `lint_manifest` core BY BARE
+    module name (so a `monkeypatch.setattr(foundry, "lint_manifest", ...)`
+    bites), and prints the human `render()` (or one `json.dumps(to_dict())`
+    document with `as_json=True`), returning the `ManifestLint.exit_code` (0
+    clean / 1 findings). Writes nothing. Needs NO product `--config`, so like
+    `lint-spec`/`lint-bench` it is dispatched BEFORE the top-level
+    `load_config`. A thin wrapper: it adds no lint logic beyond read -> parse ->
+    `lint_manifest` -> format, so the printed verdict always matches the
+    `ManifestLint` fields."""
+    try:
+        with open(file, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception as exc:
+        message = (f"lint-manifest: cannot read manifest {file}: "
+                   f"{type(exc).__name__}: {exc}")
+        if as_json:
+            print(json.dumps({"manifest_path": str(file),
+                              "error": message, "exit_code": 2}))
+        else:
+            print(message)
+        return 2
+    if bench_dir is None:
+        bench_dir = str(FOUNDRY / "roles" / "bench")
+    lint = lint_manifest(data, bench_dir, manifest_path=str(file))
+    if as_json:
+        print(json.dumps(lint.to_dict(), indent=2))
+    else:
+        print(lint.render())
+    return lint.exit_code
+
+
+# --------------------------------------------------------------------------- #
 # prd.json machine-roadmap status (roadmap item 1, bite 1/2).
 #
 # Right now the only record of what a product has shipped is the prose
@@ -7654,6 +7991,29 @@ def main(argv: list[str] | None = None) -> int:
                      help="emit the lint verdict as one JSON document "
                           "(machine-readable) instead of the human report; "
                           "same 0/1/2 exit code")
+    # `lint-manifest` validates a product's STAFFING MANIFEST
+    # (staffing.json) against the documented schema -- the MANIFEST-facing
+    # sibling of `doctor` (env #0), `lint-spec` (spec #6), `lint-config`
+    # (config #27), and `lint-bench` (bench #29), and the SECOND
+    # org-design-track item (roadmap 18, bite 1). It takes a manifest
+    # `--file` (NOT a product `--config`) and an optional `--bench-dir`
+    # (defaulting to the foundry's OWN `roles/bench`) to check each named
+    # role has a card, so like `lint-spec`/`lint-bench` it is dispatched
+    # BEFORE the top-level `load_config` below. On-demand only -- the
+    # pipeline/gate/dispatcher NEVER call it; it writes nothing. Exit 0
+    # clean / 1 manifest-findings / 2 unreadable-or-invalid-JSON file.
+    lnm = sub.add_parser("lint-manifest")
+    lnm.add_argument("--file", required=True,
+                     help="path to a staffing manifest (staffing.json) "
+                          "to lint")
+    lnm.add_argument("--bench-dir", dest="bench_dir", default=None,
+                     help="path to the bench directory of role-cards to "
+                          "check each named role against (default: the "
+                          "foundry's own roles/bench)")
+    lnm.add_argument("--json", action="store_true",
+                     help="emit the lint verdict as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code")
     # `single-brain` is a read-only launch PREFLIGHT: it reports whether a
     # dispatcher is ALREADY running so an operator (or a launch wrapper) can
     # refuse to start a SECOND competing brain, which would starve the shared
@@ -8056,6 +8416,9 @@ def main(argv: list[str] | None = None) -> int:
         return lint_config_cli(args.config, as_json=args.json)
     if args.cmd == "lint-bench":
         return lint_bench_cli(bench_dir=args.dir, as_json=args.json)
+    if args.cmd == "lint-manifest":
+        return lint_manifest_cli(args.file, bench_dir=args.bench_dir,
+                                 as_json=args.json)
     if args.cmd == "single-brain":
         return single_brain_cli(pattern=args.pattern, as_json=args.json)
     if args.cmd == "company-status":
