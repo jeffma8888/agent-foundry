@@ -184,3 +184,46 @@ Every release is then greppable and single-commit-revertable — which is what m
 - [ ] Final-gate commit-message contract documented and enforced in `roles/final.md`.
 - [ ] ARCHITECTURE.md §2/§3 updated + migration note; `tests/` stay green; both modules
       still import.
+
+---
+
+## Item 16 — committed, portable pre-push leak-guard (HIGH: repo is public + auto-pushing)
+
+**Problem.** This repo is public and the dispatcher auto-pushes on every successful ship
+with NO human review in the loop. A drifted iteration can reintroduce sensitive strings
+(the internal agent-CLI tool name, the model-provider service name, internal skill and
+workflow names, internal credential-refresh command names, personal absolute home-directory
+paths, and personal usernames) directly into a public commit. A local `.git/hooks/pre-push`
+guard is installed today, but git hooks are NOT cloned — so a fresh checkout (including the
+post-release fresh-clone verify, a new operator, or CI) ships with ZERO protection.
+
+**What ships.**
+- `scripts/leak_guard.py` — a stdlib-only, offline, deterministic scanner. Given a commit
+  ref (or an explicit file list), it scans tracked blob content against a configurable
+  denylist of *token-aware* patterns (each pattern flanked so ordinary English words that
+  merely contain the fragment are never false-positives). Exits non-zero with a `file:line`
+  report on any hit. Its OWN path is excluded from the scan so it can never self-trip on the
+  denylist literals it necessarily contains.
+- `scripts/install_hooks.sh` — one command a fresh clone runs to copy/symlink the scanner
+  into `.git/hooks/pre-push` (documented in README setup).
+- Final-gate integration — the `final` role runs the scanner as a hard pre-commit/pre-push
+  check so the loop self-blocks a leaky ship even when the hook is not installed
+  (belt-and-suspenders). A blocked ship fails the gate and reverts, same as any other gate
+  failure.
+- The denylist lives in a small committed config (e.g. `scripts/leak_denylist.txt`) so it is
+  reviewable and extensible without editing code.
+
+**Design / invariant compliance (read §3 + the self-mod guardrails).**
+- Purely ADDITIVE and offline-deterministic (no network) — fits the test-speed + offline-CI
+  invariants; does not change iteration numbering, state layout, or the
+  `VERDICT:`/`RESULT:`/`ACTION:`/`POSTRELEASE:` sentinels → resume-safe for any loop in flight.
+- Token-aware matching is mandatory (word-boundary / non-letter flanks) to avoid blocking
+  legitimate prose the autonomous roles write every iteration.
+
+**Done when.**
+- [ ] `scripts/leak_guard.py` exists, offline, stdlib-only, with unit tests covering: a clean
+      tree passes; each denylist category is caught; a benign word containing a fragment is
+      NOT flagged; the guard's own path is skipped.
+- [ ] `scripts/install_hooks.sh` arms the pre-push hook in one command; README documents it.
+- [ ] The `final` role invokes the scanner before pushing and treats a hit as a gate failure.
+- [ ] `tests/` stay green; both modules still import; ARCHITECTURE.md notes the new gate step.
