@@ -2492,6 +2492,29 @@ def summarize_test_quality(*, product: str, weak: WeakTestSummary,
                               constant=constant, skipped=skipped)
 
 
+def gather_test_quality(cfg: ProductConfig, files=None) -> TestQualitySummary:
+    """Gather one product's COMPOSITE test-quality scan into a
+    `TestQualitySummary` -- the per-product gather the `company-test-quality`
+    roll-up drives (the exact analog of `gather_skipped_tests` for
+    `company-skipped-tests`).
+
+    Composes the three SHIPPED gather seams -- `gather_weak_tests`,
+    `gather_constant_asserts`, `gather_skipped_tests` (iters 42/48/56) -- each
+    called by BARE module name so a `monkeypatch.setattr(foundry, ...)` in a test
+    bites, and each passed the SAME `files` so all three scan the identical set,
+    then folds the three frozen sub-summaries into the pure composite via
+    `summarize_test_quality`. Adds NO new I/O seam of its own (the iter-28/30
+    endorsed "compose existing frozen cores" pattern). `test_quality_cli` keeps
+    its OWN inline composition (byte-unchanged this iter); a DRY refactor to share
+    this seam is a separate future bite. Writes NOTHING to disk (read-only)."""
+    return summarize_test_quality(
+        product=cfg.name,
+        weak=gather_weak_tests(cfg, files),
+        constant=gather_constant_asserts(cfg, files),
+        skipped=gather_skipped_tests(cfg, files),
+    )
+
+
 def test_quality_cli(cfg: ProductConfig, files=None,
                      as_json: bool = False) -> int:
     """On-demand COMPOSITE CLI: fold all THREE offline "validates-nothing" scans
@@ -5497,6 +5520,370 @@ def company_skipped_tests_cli(dispatch_path: str, as_json: bool = False) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Company-wide COMPOSITE test-quality roll-up (`company-test-quality`) --
+# roadmap item 6, the COMPANY-axis parallel of the iter-58 per-product
+# `test-quality` composite (the 8th `company-*` family member and the
+# QUALITY-axis capstone of the company family).
+#
+# All three offline "validates-nothing" detectors now have detector +
+# per-product CLI + company roll-up (weak-tests 22/23/43, constant-asserts
+# 47/48/54, skipped-tests 55/56/57) AND iter 58 shipped the per-product
+# COMPOSITE `test-quality` (#25) folding all three into ONE per-product gate.
+# This is the LONE missing surface: the COMPANY-axis composite. To certify the
+# WHOLE company against all three antipatterns an operator/cron must otherwise
+# run THREE separate company commands (`company-weak-tests` #19,
+# `company-constant-asserts` #22, `company-skipped-tests` #24), each iterating
+# the dispatch config, each with its OWN 0/1/2 exit code a shell `&&` collapses
+# into one undifferentiated non-zero AND loses the per-category + per-team
+# breakdown. This reads the DISPATCH config and folds every ENABLED team's
+# iter-58 `test-quality` composite into ONE company view (summed files-scanned /
+# per-category findings / total findings / parse-errors + a per-product
+# breakdown), driving a NEW `gather_test_quality` seam that composes the SHIPPED
+# `gather_weak_tests` / `gather_constant_asserts` / `gather_skipped_tests`
+# (iters 42/48/56) via `summarize_test_quality` -- it adds NO new I/O seam,
+# sentinel, config field, or artifact. Purely additive and DORMANT: the
+# pipeline / gate / dispatcher NEVER call it and it WRITES NOTHING (read-only).
+# UNLIKE the INFORMATIONAL history/timing/events roll-ups it GATES on findings
+# (mirroring the per-product `test-quality` gate): a quality finding of ANY
+# category OR an unparseable file OR a structural gather error ANYWHERE ->
+# exit 1.
+#
+# OVERLAP (a first-class correctness item, NOT a copy of any "disjoint"
+# framing): `constant-asserts` is DISJOINT from `weak-tests` by the detectors'
+# construction (a constant assert CARRIES an assert node, so an assertion-free
+# scan can never also flag it). BUT an always-skipped test CAN also be
+# assertion-free AND can carry a constant assert, so a #24 always-skipped
+# finding CAN OVERLAP #19 `company-weak-tests` / #22 `company-constant-asserts`.
+# Therefore the company `total_findings` (and its per-category components)
+# INHERITS the per-product #25 composite's category-weighting: a test flagged by
+# two lenses counts once in EACH category -- a company-wide per-CATEGORY triage
+# total, intentionally NOT a de-duplicated distinct-test count. This is the
+# COMPANY-axis parallel of the per-product #25 composite, folding the three
+# company quality axes #19/#22/#24 into ONE view.
+# --------------------------------------------------------------------------- #
+@dataclasses.dataclass(frozen=True)
+class CompanyTestQuality:
+    """A one-shot COMPANY-wide composite test-quality roll-up across a dispatch
+    config.
+
+    Frozen so a computed roll-up can't be mutated after the fact (value equality
+    for free, matching the other pure cores). Every derived value is a pure
+    property over the stored fields, so the whole verdict -- including the
+    scriptable exit code -- follows deterministically from what was gathered, and
+    the JSON payload / render text can never disagree with the exit code.
+
+    Fields:
+      * `dispatch_path` -- the dispatch config path, echoed into `render()`.
+      * `products` -- the per-product `TestQualitySummary` composite scans that
+        were successfully gathered, IN dispatch-file order (an enabled product
+        that failed to load/gather is NOT here -- it lands in `errors`).
+      * `disabled` -- names of work items with `enabled=False` (never loaded).
+      * `errors` -- `(product, message)` 2-tuples for enabled items that raised
+        while loading/gathering (the sole caller guarantees each is a 2-tuple).
+
+    The company totals are SUMS over the gathered products: `files_scanned` /
+    `total_weak_findings` / `total_constant_findings` / `total_skipped_findings`
+    / `total_findings` sum the same-named per-product fields, `total_parse_errors`
+    sums each product's `total_parse_errors`. `n_flagged` counts gathered
+    products that have a finding OR a parse error (the per-product "not clean but
+    scanned" signal), giving the operator "how many teams need looking at" at a
+    glance.
+
+    A structural mirror of `CompanySkippedTests` (iter 57) differing ONLY in the
+    per-product summary type (`TestQualitySummary` not `SkippedTestSummary`), the
+    gather seam its CLI drives (`gather_test_quality`), and the per-CATEGORY
+    breakdown (a composite carries three finding categories, not one).
+
+    OVERLAP (NOT a copy of any "disjoint" framing): this is the COMPANY-axis
+    parallel of the per-product #25 `test-quality` composite, folding the three
+    company quality axes #19 `company-weak-tests` / #22 `company-constant-asserts`
+    / #24 `company-skipped-tests` into ONE view and INHERITING #25's
+    category-weighting. `constant-asserts` is DISJOINT from `weak-tests` by
+    construction, BUT an always-skipped test CAN also be assertion-free AND carry
+    a constant assert, so a #24 finding can OVERLAP #19/#22 -- therefore
+    `total_findings` is a per-CATEGORY triage total in which a test flagged by two
+    lenses counts once in EACH category, NOT a de-duplicated distinct-test count.
+    """
+    dispatch_path: str
+    products: tuple[TestQualitySummary, ...]
+    disabled: tuple[str, ...]
+    errors: tuple[tuple[str, str], ...]
+
+    @property
+    def n_products(self) -> int:
+        """Count of products successfully ROLLED UP (an errored enabled product
+        is NOT counted here -- it is in `errors`)."""
+        return len(self.products)
+
+    @property
+    def n_disabled(self) -> int:
+        return len(self.disabled)
+
+    @property
+    def n_errors(self) -> int:
+        return len(self.errors)
+
+    @property
+    def files_scanned(self) -> int:
+        """Company files scanned = the SUM of every gathered product's
+        `files_scanned` (each product's composite files-scanned == its weak
+        sub-scan's count, all three lenses walking the identical set)."""
+        return sum(p.files_scanned for p in self.products)
+
+    @property
+    def total_weak_findings(self) -> int:
+        """Company assertion-free tests = the SUM of every product's
+        `weak_findings`."""
+        return sum(p.weak_findings for p in self.products)
+
+    @property
+    def total_constant_findings(self) -> int:
+        """Company constant-assert tests = the SUM of every product's
+        `constant_findings`."""
+        return sum(p.constant_findings for p in self.products)
+
+    @property
+    def total_skipped_findings(self) -> int:
+        """Company always-skipped tests = the SUM of every product's
+        `skipped_findings`."""
+        return sum(p.skipped_findings for p in self.products)
+
+    @property
+    def total_findings(self) -> int:
+        """Company quality findings = the SUM of every product's category-weighted
+        `total_findings`.
+
+        Each per-product `total_findings` is ALREADY category-weighted (a test
+        flagged by two lenses counts once per category -- see the class OVERLAP
+        note), so this company total INHERITS that weighting: it is a company-wide
+        per-CATEGORY triage total, NOT a de-duplicated distinct-test count."""
+        return sum(p.total_findings for p in self.products)
+
+    @property
+    def total_parse_errors(self) -> int:
+        """Company parse errors = the SUM of every product's own
+        `total_parse_errors` (each the deduped `(file, message)` union for that
+        product across its three lenses)."""
+        return sum(p.total_parse_errors for p in self.products)
+
+    @property
+    def n_flagged(self) -> int:
+        """How many GATHERED products have a finding OR a parse error -- the
+        per-product "scanned but not clean" signal, so an operator sees "how many
+        teams need looking at" without expanding the breakdown."""
+        return sum(1 for p in self.products
+                   if p.total_findings > 0 or p.parse_errors)
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable verdict, findings-first (UNLIKE informational
+        history/timing/events; mirroring `company-skipped-tests`): `1` when
+        `errors` is non-empty (a structural gather failure) OR `total_findings >
+        0` (a quality finding of ANY category) OR `total_parse_errors > 0` (an
+        unparseable file) ANYWHERE -- all three gate; else `2` when NO products
+        were gathered (every item disabled or `work_items` empty -- reachable only
+        with `errors` empty and no findings); else `0` (clean).
+
+        A gathered product that scanned ZERO test files (its own composite
+        `TestQualitySummary.exit_code == 2`) does NOT force company exit 2 -- it
+        still counts in `n_products`, so with no findings/parse-errors/structural-
+        errors the company exits 0 (mirroring `company-skipped-tests` /
+        `company-constant-asserts`)."""
+        if self.errors or self.total_findings > 0 or self.total_parse_errors > 0:
+            return 1
+        if self.n_products == 0:
+            return 2
+        return 0
+
+    @property
+    def verdict(self) -> str:
+        """The single human token for the current `exit_code` -- `"clean"` (0) /
+        `"ATTENTION"` (1) / `"no enabled products"` (2). ONE source of truth for
+        both `render()`'s last line and the JSON `verdict` key, so the text and
+        the machine payload can never drift from the exit code. NOTE these are the
+        COMPANY tokens, NOT the per-product `TestQualitySummary` composite tokens
+        (`clean` / `QUALITY ISSUES FOUND` / `nothing to scan`)."""
+        return {0: "clean", 1: "ATTENTION", 2: "no enabled products"}[self.exit_code]
+
+    def _rollup(self) -> str:
+        """The company composite rollup as a substring: `{files_scanned} files
+        scanned, {total_weak_findings} assertion-free, {total_constant_findings}
+        constant-assert, {total_skipped_findings} always-skipped, {total_findings}
+        total quality findings, {total_parse_errors} parse errors` -- the summed
+        per-category counts only (per-team leaf findings live in the per-product
+        breakdown / `to_dict()`, keeping the report bounded like
+        `company-skipped-tests`)."""
+        return (f"{self.files_scanned} files scanned, "
+                f"{self.total_weak_findings} assertion-free, "
+                f"{self.total_constant_findings} constant-assert, "
+                f"{self.total_skipped_findings} always-skipped, "
+                f"{self.total_findings} total quality findings, "
+                f"{self.total_parse_errors} parse errors")
+
+    def render(self) -> str:
+        """A deterministic multi-line company composite report (the CLI's
+        contract).
+
+        Contains, as substrings: the literal `foundry company-test-quality`; the
+        `dispatch_path`; a counts line reporting `{n_products} gathered`,
+        `{n_disabled} disabled`, `{n_errors} error(s)` PLUS the company rollup
+        (`{files_scanned} files scanned, {total_weak_findings} assertion-free,
+        {total_constant_findings} constant-assert, {total_skipped_findings}
+        always-skipped, {total_findings} total quality findings,
+        {total_parse_errors} parse errors`); ONE line per gathered product
+        beginning `  - {product}:` carrying its OWN `{p.files_scanned} files
+        scanned, {p.weak_findings} assertion-free, {p.constant_findings}
+        constant-assert, {p.skipped_findings} always-skipped, {p.total_findings}
+        total, {p.total_parse_errors} parse error(s)` (per-product per-category
+        COUNTS only, NOT each `(file :: test)` leaf); one `  - {name}: disabled`
+        line per disabled item; one `  - {name}: ERROR {message}` line per error;
+        and a final `verdict:` line whose token EQUALS `verdict`."""
+        lines = [
+            "foundry company-test-quality",
+            f"  dispatch config: {self.dispatch_path}",
+            f"  products: {self.n_products} gathered, "
+            f"{self.n_disabled} disabled, {self.n_errors} error(s) -- "
+            f"{self._rollup()}",
+        ]
+        for p in self.products:
+            lines.append(
+                f"  - {p.product}: {p.files_scanned} files scanned, "
+                f"{p.weak_findings} assertion-free, "
+                f"{p.constant_findings} constant-assert, "
+                f"{p.skipped_findings} always-skipped, "
+                f"{p.total_findings} total, "
+                f"{p.total_parse_errors} parse error(s)")
+        for name in self.disabled:
+            lines.append(f"  - {name}: disabled")
+        for name, message in self.errors:
+            lines.append(f"  - {name}: ERROR {message}")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe company roll-up for machine consumers -- a dashboard
+        / cron alert / the reporter. `products` carries the FULL per-product
+        `TestQualitySummary.to_dict()` payload (the composite per-team detail
+        INCLUDING each team's three sub-documents + leaf finding/parse-error
+        arrays) in stored order, so no leaf detail is lost even though `render()`
+        prints per-product counts only. Every derived value REUSES the frozen
+        properties, so the payload can never disagree with `render()` or the exit
+        code, and every value is JSON-native, so it round-trips through
+        `json.loads(json.dumps(...))` -- including when `products`/`disabled`/
+        `errors` are all empty. Pure: touches no filesystem."""
+        return {
+            "dispatch_config": self.dispatch_path,
+            "products": [p.to_dict() for p in self.products],
+            "disabled": list(self.disabled),
+            "errors": [{"product": name, "message": message}
+                       for name, message in self.errors],
+            "n_products": self.n_products,
+            "n_disabled": self.n_disabled,
+            "n_errors": self.n_errors,
+            "n_flagged": self.n_flagged,
+            "files_scanned": self.files_scanned,
+            "total_weak_findings": self.total_weak_findings,
+            "total_constant_findings": self.total_constant_findings,
+            "total_skipped_findings": self.total_skipped_findings,
+            "total_findings": self.total_findings,
+            "total_parse_errors": self.total_parse_errors,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+        }
+
+
+def summarize_company_test_quality(*, dispatch_path: str,
+                                   products: tuple[TestQualitySummary, ...],
+                                   disabled: tuple[str, ...],
+                                   errors: tuple[tuple[str, str], ...],
+                                   ) -> CompanyTestQuality:
+    """Pure keyword-only constructor for a `CompanyTestQuality` (Behaviors 1-6).
+
+    A thin, total wrapper that packs the gathered composite scans into the frozen
+    roll-up -- keyword-only so a caller can never transpose the fields by
+    position, and it never raises for well-formed inputs (each `errors` entry is
+    a `(product, message)` 2-tuple, which the sole caller
+    `company_test_quality_cli` guarantees; documenting the precondition keeps the
+    "never raises" contract airtight). Kept separate from
+    `company_test_quality_cli` so the decision core stays a pure function the
+    tester can drive without any filesystem."""
+    return CompanyTestQuality(
+        dispatch_path=dispatch_path,
+        products=tuple(products),
+        disabled=tuple(disabled),
+        errors=tuple((name, message) for name, message in errors))
+
+
+def company_test_quality_cli(dispatch_path: str, as_json: bool = False) -> int:
+    """On-demand CLI: roll every ENABLED team's COMPOSITE test-quality scan into
+    ONE company quality view (roadmap item 6, the 8th `company-*` member and the
+    QUALITY-axis capstone of the company family).
+
+    Reads the DISPATCH config at `dispatch_path` (`foundry.config.json`, NOT a
+    product config), then for each ENABLED work item substitutes a `{FOUNDRY}`
+    token in its config path to the foundry root and loads + scans that product
+    via the `load_config` / `gather_test_quality` seams (both called by BARE name
+    so a `monkeypatch.setattr(foundry, ...)` bites). A DISABLED item is recorded
+    in `disabled` (by name) and never loaded.
+
+    Resilient (Behaviors 7-8): if reading/parsing the dispatch config fails
+    (missing / not JSON / not an object) it prints a report recording ONE
+    synthetic error and returns exit 1; if a single work item's `load_config` or
+    `gather_test_quality` raises, that item is recorded in `errors` and the
+    roll-up CONTINUES scanning the rest (company exit 1). No exception ever
+    propagates.
+
+    With `as_json=True` stdout is exactly ONE `json.dumps(to_dict(), indent=2)`
+    document; either way the RETURN value is the same `CompanyTestQuality.
+    exit_code` (0 clean / 1 findings-or-parse-errors-or-team-errored / 2
+    no-enabled-products). Writes NOTHING to disk -- a read-only report; with
+    `load_config` monkeypatched the filesystem is untouched.
+
+    This is the COMPANY-axis parallel of the per-product #25 `test-quality`
+    composite, folding the three company quality axes #19 `company-weak-tests` /
+    #22 `company-constant-asserts` / #24 `company-skipped-tests` into ONE view and
+    INHERITING #25's category-weighting -- a #24 always-skipped finding CAN
+    OVERLAP #19/#22 (an always-skipped test may also be assertion-free), so the
+    company `total_findings` is a per-CATEGORY triage total, NOT a de-duplicated
+    distinct-test count."""
+    try:
+        dispatch = json.loads(
+            pathlib.Path(dispatch_path).expanduser().read_text())
+        if not isinstance(dispatch, dict):
+            raise ValueError("dispatch config is not a JSON object")
+    except Exception as exc:
+        # A missing / malformed dispatch config is a real operator problem, not a
+        # crash: surface it as ONE synthetic error (errors -> exit 1).
+        company = summarize_company_test_quality(
+            dispatch_path=dispatch_path, products=(), disabled=(),
+            errors=((dispatch_path, str(exc)),))
+        print(json.dumps(company.to_dict(), indent=2) if as_json
+              else company.render())
+        return company.exit_code
+
+    products: list[TestQualitySummary] = []
+    disabled: list[str] = []
+    errors: list[tuple[str, str]] = []
+    for name, config, enabled in parse_dispatch_work_items(dispatch):
+        if not enabled:
+            disabled.append(name)      # deliberate; never loaded
+            continue
+        try:
+            # {FOUNDRY} -> foundry root BEFORE load_config, exactly as the
+            # dispatcher resolves each work item's config path.
+            cfg = load_config(config.replace("{FOUNDRY}", str(FOUNDRY)))
+            products.append(gather_test_quality(cfg))
+        except Exception as exc:
+            # One bad team never sinks the whole roll-up -- record + continue.
+            errors.append((name, str(exc)))
+    company = summarize_company_test_quality(
+        dispatch_path=dispatch_path, products=tuple(products),
+        disabled=tuple(disabled), errors=tuple(errors))
+    print(json.dumps(company.to_dict(), indent=2) if as_json else company.render())
+    return company.exit_code
+
+
+# --------------------------------------------------------------------------- #
 # Machine-readable event reader (`events`) -- item 10, the READ half.
 #
 # iter 05 added the write-only `events.jsonl` stream ("for dashboards / the
@@ -6673,6 +7060,35 @@ def main(argv: list[str] | None = None) -> int:
                      help="emit the company roll-up as one JSON document "
                           "(machine-readable) instead of the human report; "
                           "same 0/1/2 exit code")
+    # `company-test-quality` rolls up EVERY enabled dispatch team's iter-25
+    # per-product `test-quality` composite into ONE company view (summed
+    # files-scanned / per-category findings / total findings / parse-errors + a
+    # per-product breakdown -- the COMPANY-axis parallel of the per-product #25
+    # composite; the 8th company-* member and the QUALITY-axis capstone of the
+    # company family). It folds the three company quality axes #19
+    # `company-weak-tests` / #22 `company-constant-asserts` / #24
+    # `company-skipped-tests` into ONE view, INHERITING #25's category-weighting:
+    # UNLIKE the DISJOINT #22, an always-skipped test CAN also be assertion-free,
+    # so its findings CAN OVERLAP #19/#22 -- therefore `total quality findings` is
+    # a per-CATEGORY triage total (a test flagged by two lenses counts once per
+    # category), NOT a de-duplicated distinct-test count. Its `--config` points at
+    # the DISPATCH config (`foundry.config.json`), NOT a product config, and it
+    # does its own per-work-item `load_config` internally -- so, like the other
+    # `company-*` commands, it is dispatched BEFORE the `load_config(args.config)`
+    # call below. Read-only + on-demand: the pipeline/dispatcher NEVER call it; it
+    # writes nothing. UNLIKE informational history/timing/events it GATES on
+    # findings -- a quality finding of ANY category OR an unparseable file OR a
+    # team error ANYWHERE -> exit 1; else 0 clean / 2 no-enabled-products. NO
+    # --limit and NO --files (a scan is whole-suite; each team walks its own repo).
+    ctq = sub.add_parser("company-test-quality")
+    ctq.add_argument("--config", default=str(FOUNDRY / "foundry.config.json"),
+                     help="path to the DISPATCH config (foundry.config.json), "
+                          "NOT a product config (default: the repo's "
+                          "foundry.config.json)")
+    ctq.add_argument("--json", action="store_true",
+                     help="emit the company roll-up as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code")
     args = ap.parse_args(argv)
 
     if args.cmd == "lint-spec":
@@ -6696,6 +7112,8 @@ def main(argv: list[str] | None = None) -> int:
         return company_constant_asserts_cli(args.config, as_json=args.json)
     if args.cmd == "company-skipped-tests":
         return company_skipped_tests_cli(args.config, as_json=args.json)
+    if args.cmd == "company-test-quality":
+        return company_test_quality_cli(args.config, as_json=args.json)
 
     cfg = load_config(args.config)
     if args.cmd == "doctor":
