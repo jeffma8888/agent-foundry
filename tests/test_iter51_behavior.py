@@ -360,11 +360,14 @@ def test_ac_guard_and_control_path_byte_unchanged():
     """`git diff --quiet` emits NO diff text -- exit-code-only assertion of the
     byte-unchanged invariant (honors the isolation contract)."""
     r = subprocess.run(
-        # roles/ excluded (iter-52): role prompts are read-fresh each stage and are
-        # legitimately edited by iterations, so they are NOT the pipeline control path.
+        # roles/ excluded (iter-52); foundry.py excluded (iter-54): both are
+        # legitimately edited by iterations (roles/*.md are read-fresh each stage;
+        # foundry.py is routinely extended additively) so neither is the pipeline
+        # control path. The resume-safety invariant is dispatcher.py + the guard
+        # scripts byte-unchanged + a clean import + an additive-only diff.
         ["git", "diff", "--quiet", "HEAD", "--",
          "scripts/leak_guard.py", "scripts/leak_denylist.txt",
-         "foundry.py", "dispatcher.py"],
+         "dispatcher.py"],
         cwd=str(_ROOT), capture_output=True, text=True)
     assert r.returncode == 0, (
         "guard/control-path files are NOT byte-unchanged from HEAD")

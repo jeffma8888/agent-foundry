@@ -119,6 +119,9 @@ uv run python foundry.py company-events  # --config points at the DISPATCH confi
 
 # 21. Scan test files for `test*` functions whose ONLY assertion is a constant/tautological assert (`assert True`, `assert 1`, `assert "x"`) -- a false green that #12 `weak-tests` structurally MISSES (a constant assert CARRIES an assert node, so it reads as a signal); the first call site of the iter-47 `find_constant_assert_tests` detector, DISJOINT from #12 by construction. DORMANT -- the pipeline/gate never consults it (exit 0 clean/1 constant-assert-or-unparseable/2 nothing to scan); read-only:
 uv run python foundry.py constant-asserts --config products/repolens/config.json  # [--files path ...] to scan exactly those files instead of walking the repo [--json for one machine-readable scan doc: dashboards/reporter/CI; same 0/1/2 exit code, honours --files]
+
+# 22. Company-wide constant-assert roll-up (#21 constant-asserts across the WHOLE company -- the QUALITY complement to #19; the 6th and LAST company-* member): read the DISPATCH config and fold every ENABLED product team's iter-21 `constant-asserts` scan into ONE company files-scanned/constant-assert-tests/parse-errors total + a per-product breakdown + a scriptable exit code; UNLIKE informational history/timing/events it GATES on findings (0 clean / 1 a constant-assert test OR an unparseable file OR a team errored ANYWHERE / 2 no-enabled-products); read-only, writes nothing:
+uv run python foundry.py company-constant-asserts  # --config points at the DISPATCH config (foundry.config.json), NOT a product config (default: the repo's foundry.config.json); a disabled work item is never loaded; one bad team is recorded and the roll-up continues; a constant-assert test anywhere gates the company (exit 1) [--json for one machine-readable company constant-assert doc: dashboards/cron; same 0/1/2 exit code]
 ```
 
 Stop any time: `touch STOP` (whole company) or `touch products/<name>/STOP`
