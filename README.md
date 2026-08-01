@@ -133,6 +133,7 @@ always-on operating contract (AC power, the single-brain rule, the STOP files).
 | `foundry.py` | Runs ONE product team's loop on any repo (via a JSON config). |
 | `dispatcher.py` | The single-brain scheduler across many teams (concurrency 1). |
 | `watchdog.py` | A `scheduled`/cron probe that resurrects the dispatcher if its process died and no STOP is set (single-brain + STOP-respecting). |
+| `scripts/leak_guard.py` | Committed, portable leak-guard: scan a git tree or file list against a base64-encoded denylist and exit non-zero on any leaked token. Runnable — `python3 scripts/leak_guard.py --ref HEAD` (scans `HEAD` by default) or `--files <path>...`. A standalone script off the pipeline control path (nothing imports it). |
 | `roles/` | The 7 project-agnostic role playbooks (pm, engineer, reviewer, tester, fix, final, reporter). |
 | `products/<name>/config.json` | One product's wiring (repo, vision, roadmap, quality bar, push target). |
 | `foundry.config.example.json` | The dispatcher's work-item list. |
