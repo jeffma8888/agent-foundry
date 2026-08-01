@@ -1368,6 +1368,24 @@ def lint_config_cli(config_path: str, as_json: bool = False) -> int:
     return lint.exit_code
 
 
+def gather_config_lint(cfg: ProductConfig) -> ConfigLint:
+    """Gather one product's config-lint verdict into a `ConfigLint` -- the
+    per-product gather the `company-lint-config` roll-up drives (the exact analog
+    of `gather_skipped_tests` for `company-skipped-tests` / `gather_test_quality`
+    for `company-test-quality`).
+
+    A thin seam that RETURNS `lint_config(cfg)`, calling the SHIPPED iter-60
+    `lint_config` core by BARE module name so a `monkeypatch.setattr(foundry, ...)`
+    in a test bites. Adds NO new I/O seam of its own -- `lint_config` already does
+    its own offline `.exists()` checks -- and gives the company CLI ONE dedicated
+    monkeypatchable seam decoupled from the `lint_config` that `lint_config_cli`
+    calls directly, mirroring the "one per-product gather per company roll-up"
+    idiom every other `company-*` member uses. `lint_config`/`lint_config_cli`
+    stay byte-unchanged (a DRY change to either is out of scope). Writes NOTHING
+    to disk (read-only)."""
+    return lint_config(cfg)
+
+
 # --------------------------------------------------------------------------- #
 # prd.json machine-roadmap status (roadmap item 1, bite 1/2).
 #
@@ -6151,6 +6169,313 @@ def company_test_quality_cli(dispatch_path: str, as_json: bool = False) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Company-wide product-config lint roll-up (`company-lint-config`) -- roadmap
+# item 6 family, the 9th `company-*` member and the CONFIG-VALIDATION-axis fleet
+# roll-up.
+#
+# iter 60 shipped the per-product `lint-config` (#27): an offline, deterministic
+# linter that inspects ONE resolved `ProductConfig` for the misconfigurations
+# that silently waste a shift or defeat the push guard. But answering "are ALL my
+# fleet's product configs sound?" meant running `lint-config` once per team and
+# mentally merging N exit codes -- the scattered babysitting the VISION targets.
+# Every OTHER read-only per-product probe already has a company roll-up
+# (`company-status` 30 / `-history` 31 / `-timing` 40 / `-weak-tests` 43 /
+# `-events` 46 / `-constant-asserts` 54 / `-skipped-tests` 57 / `-test-quality`
+# 59); `lint-config` was the LONE read-only per-product probe with no roll-up.
+# `company-lint-config` closes that asymmetry: read the DISPATCH config, fold
+# every ENABLED team's iter-27 `lint-config` verdict into ONE fleet view (summed
+# config-errors / warnings / total-findings + a per-team breakdown) and ONE
+# scriptable exit code, so an operator can gate the whole fleet on
+# `[ $? -eq 0 ]`. The highest-value finding is the SAFETY case -- a team whose
+# `allowed_push_repo` is empty while `push_enabled` is true would silently block
+# EVERY ship -- surfaced across all teams at once.
+#
+# KEY correctness divergence from the QUALITY roll-ups (`company-weak-tests` /
+# `-constant-asserts` / `-skipped-tests` / `-test-quality`, which gate on ANY
+# finding): `company-lint-config` INHERITS the per-product `ConfigLint` semantics
+# where ONLY ERRORS gate -- WARNINGS ALONE STILL PASS. A warning names a
+# degraded-but-runnable config (a missing roadmap the PM creates on iter 1), so a
+# fleet of warnings-only configs is still shippable. The exit code is `1` iff a
+# team load/gather ERROR OR any product config ERROR, else `2` if no enabled
+# products, else `0`; warnings never change the exit code or the company verdict
+# but ARE surfaced in the counts line, the per-team breakdown (each team's
+# OK/WARNINGS/PROBLEMS token), and `to_dict()` via `total_warnings`.
+#
+# DORMANT -- the pipeline / gate / dispatcher NEVER call it and it writes nothing
+# (exit 0 clean-or-warnings-only / 1 config-errors-or-team-errored /
+# 2 no-enabled-products); read-only.
+# --------------------------------------------------------------------------- #
+@dataclasses.dataclass(frozen=True)
+class CompanyConfigLint:
+    """A one-shot COMPANY-wide product-config lint roll-up across a dispatch
+    config.
+
+    Frozen so a computed roll-up can't be mutated after the fact (value equality
+    for free, matching the other pure cores). Every derived value is a pure
+    property over the stored fields, so the whole verdict -- including the
+    scriptable exit code -- follows deterministically from what was gathered, and
+    the JSON payload / render text can never disagree with the exit code.
+
+    Fields:
+      * `dispatch_path` -- the dispatch config path, echoed into `render()`.
+      * `products` -- the per-product `ConfigLint` verdicts that were
+        successfully gathered, IN dispatch-file order (an enabled product that
+        failed to load/gather is NOT here -- it lands in `errors`).
+      * `disabled` -- names of work items with `enabled=False` (never loaded).
+      * `errors` -- `(product, message)` 2-tuples for enabled items that raised
+        while loading/gathering (the sole caller guarantees each is a 2-tuple).
+
+    The company totals are SUMS over the gathered products: `total_errors` sums
+    each product's `n_errors`, `total_warnings` sums each `n_warnings`, and
+    `total_findings` sums `len(p.findings)` (== `total_errors + total_warnings`).
+    `n_flagged` counts gathered products with a config ERROR (`n_errors > 0`) --
+    NOT warnings-only teams, mirroring the per-product `ConfigLint.ok` where a
+    warning never fails the verdict.
+
+    A structural mirror of `CompanyTestQuality` (iter 59) / `CompanySkippedTests`
+    (iter 57) differing in the per-product summary type (`ConfigLint`), the gather
+    seam its CLI drives (`gather_config_lint`), and -- the load-bearing divergence
+    -- the exit-code gate: the QUALITY roll-ups gate on ANY finding, but this one
+    gates ONLY on ERRORS (a team load/gather failure or a product config error);
+    WARNINGS alone still PASS (exit 0 / verdict "clean"), because a warning names
+    a degraded-but-runnable config.
+    """
+    dispatch_path: str
+    products: tuple[ConfigLint, ...]
+    disabled: tuple[str, ...]
+    errors: tuple[tuple[str, str], ...]
+
+    @property
+    def n_products(self) -> int:
+        """Count of products successfully ROLLED UP (an errored enabled product
+        is NOT counted here -- it is in `errors`)."""
+        return len(self.products)
+
+    @property
+    def n_disabled(self) -> int:
+        return len(self.disabled)
+
+    @property
+    def n_errors(self) -> int:
+        """How many TEAMS failed to load/gather (a STRUCTURAL error), NOT the
+        count of config error-level findings (that is `total_errors`)."""
+        return len(self.errors)
+
+    @property
+    def total_errors(self) -> int:
+        """Company config errors = the SUM of every gathered product's `n_errors`
+        (error-level findings). These GATE the company exit code."""
+        return sum(p.n_errors for p in self.products)
+
+    @property
+    def total_warnings(self) -> int:
+        """Company config warnings = the SUM of every gathered product's
+        `n_warnings` (warn-level findings). Surfaced but NON-gating."""
+        return sum(p.n_warnings for p in self.products)
+
+    @property
+    def total_findings(self) -> int:
+        """Company config findings = the SUM of every gathered product's finding
+        count (== `total_errors + total_warnings`)."""
+        return sum(len(p.findings) for p in self.products)
+
+    @property
+    def n_flagged(self) -> int:
+        """How many GATHERED products carry a config ERROR (`n_errors > 0`) -- the
+        teams whose config would break or silently defeat a shift. A
+        warnings-only team is NOT flagged (mirroring the per-product
+        `ConfigLint.ok`), so an operator sees "how many teams must be FIXED"
+        without counting the merely-degraded ones."""
+        return sum(1 for p in self.products if p.n_errors > 0)
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable verdict, findings-first but ERROR-ONLY-gating (the
+        load-bearing divergence from the QUALITY roll-ups): `1` when `errors` is
+        non-empty (a team load/gather failure) OR `total_errors > 0` (any product
+        config ERROR) ANYWHERE; else `2` when NO products were gathered (every
+        item disabled or `work_items` empty -- reachable only with `errors` empty
+        and no config errors); else `0` (clean OR warnings-only).
+
+        WARNINGS DO NOT GATE: a fleet whose gathered products carry only
+        warn-level findings exits 0 (mirroring the per-product `ConfigLint` where
+        a warning names a degraded-but-runnable config). A warnings-only gathered
+        product (its own `ConfigLint.exit_code == 0`) counts in `n_products` and
+        never forces exit 1 or 2."""
+        if self.errors or self.total_errors > 0:
+            return 1
+        if self.n_products == 0:
+            return 2
+        return 0
+
+    @property
+    def verdict(self) -> str:
+        """The single human token for the current `exit_code` -- `"clean"` (0) /
+        `"ATTENTION"` (1) / `"no enabled products"` (2). ONE source of truth for
+        both `render()`'s last line and the JSON `verdict` key, so text and
+        machine payload never drift from the exit code. NOTE these are the COMPANY
+        tokens, NOT the per-product `ConfigLint` tokens (`OK` / `WARNINGS` /
+        `PROBLEMS`)."""
+        return {0: "clean", 1: "ATTENTION", 2: "no enabled products"}[self.exit_code]
+
+    def _rollup(self) -> str:
+        """The company rollup as a substring: `{total_errors} config errors,
+        {total_warnings} warnings, {total_findings} total findings` -- the summed
+        counts only (per-team leaf findings live in the per-product breakdown /
+        `to_dict()`, keeping the report bounded like the other `company-*`
+        members)."""
+        return (f"{self.total_errors} config errors, "
+                f"{self.total_warnings} warnings, "
+                f"{self.total_findings} total findings")
+
+    def render(self) -> str:
+        """A deterministic multi-line company config-lint report (the CLI's
+        contract).
+
+        Contains, as substrings: the literal `foundry company-lint-config`; the
+        `dispatch_path`; a counts line reporting `{n_products} gathered`,
+        `{n_disabled} disabled`, `{n_errors} error(s)` PLUS the company rollup
+        (`{total_errors} config errors, {total_warnings} warnings,
+        {total_findings} total findings`); ONE line per gathered product
+        beginning `  - {p.config_path}:` carrying its OWN `{p.n_errors} error(s),
+        {p.n_warnings} warning(s)` and its per-product `verdict` token
+        (`OK`/`WARNINGS`/`PROBLEMS`); one `  - {name}: disabled` line per disabled
+        item; one `  - {name}: ERROR {message}` line per team error; and a FINAL
+        `verdict:` line whose token EQUALS `verdict`. Detail above the sentinel,
+        so "last non-empty line == verdict" always holds."""
+        lines = [
+            "foundry company-lint-config",
+            f"  dispatch config: {self.dispatch_path}",
+            f"  products: {self.n_products} gathered, "
+            f"{self.n_disabled} disabled, {self.n_errors} error(s) -- "
+            f"{self._rollup()}",
+        ]
+        for p in self.products:
+            lines.append(
+                f"  - {p.config_path}: {p.n_errors} error(s), "
+                f"{p.n_warnings} warning(s) [{p.verdict}]")
+        for name in self.disabled:
+            lines.append(f"  - {name}: disabled")
+        for name, message in self.errors:
+            lines.append(f"  - {name}: ERROR {message}")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe company roll-up for machine consumers -- a dashboard
+        / cron alert / the reporter. `products` carries the FULL per-product
+        `ConfigLint.to_dict()` payload (each team's findings + counts + verdict)
+        in stored order, so no leaf detail is lost even though `render()` prints
+        per-product counts only. Every derived value REUSES the frozen properties,
+        so the payload can never disagree with `render()` or the exit code, and
+        every value is JSON-native so it round-trips through
+        `json.loads(json.dumps(...))` -- including when `products`/`disabled`/
+        `errors` are all empty. EXACTLY these 13 keys in this fixed order. Pure:
+        touches no filesystem."""
+        return {
+            "dispatch_config": self.dispatch_path,
+            "products": [p.to_dict() for p in self.products],
+            "disabled": list(self.disabled),
+            "errors": [{"product": name, "message": message}
+                       for name, message in self.errors],
+            "n_products": self.n_products,
+            "n_disabled": self.n_disabled,
+            "n_errors": self.n_errors,
+            "n_flagged": self.n_flagged,
+            "total_errors": self.total_errors,
+            "total_warnings": self.total_warnings,
+            "total_findings": self.total_findings,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+        }
+
+
+def summarize_company_config_lint(*, dispatch_path: str,
+                                  products: tuple[ConfigLint, ...],
+                                  disabled: tuple[str, ...],
+                                  errors: tuple[tuple[str, str], ...],
+                                  ) -> CompanyConfigLint:
+    """Pure keyword-only constructor for a `CompanyConfigLint` (Behaviors 1-6).
+
+    A thin, total wrapper that packs the gathered lint verdicts into the frozen
+    roll-up -- keyword-only so a caller can never transpose the fields by
+    position, and it never raises for well-formed inputs (each `errors` entry is
+    a `(product, message)` 2-tuple, which the sole caller
+    `company_config_lint_cli` guarantees). Kept separate from
+    `company_config_lint_cli` so the decision core stays a pure function the
+    tester can drive without any filesystem."""
+    return CompanyConfigLint(
+        dispatch_path=dispatch_path,
+        products=tuple(products),
+        disabled=tuple(disabled),
+        errors=tuple((name, message) for name, message in errors))
+
+
+def company_config_lint_cli(dispatch_path: str, as_json: bool = False) -> int:
+    """On-demand CLI: roll every ENABLED team's product-config lint into ONE
+    company config-validation view (roadmap item 6 family, the 9th `company-*`
+    member and the CONFIG-VALIDATION-axis fleet roll-up).
+
+    Reads the DISPATCH config at `dispatch_path` (`foundry.config.json`, NOT a
+    product config), then for each ENABLED work item substitutes a `{FOUNDRY}`
+    token in its config path to the foundry root and loads + lints that product
+    via the `load_config` / `gather_config_lint` seams (both called by BARE name
+    so a `monkeypatch.setattr(foundry, ...)` bites). A DISABLED item is recorded
+    in `disabled` (by name) and never loaded.
+
+    Resilient (Behavior 8): if reading/parsing the dispatch config fails (missing
+    / not JSON / not an object) it prints a report recording ONE synthetic error
+    and returns exit 1; if a single work item's `load_config` or
+    `gather_config_lint` raises, that item is recorded in `errors` and the roll-up
+    CONTINUES linting the rest (company exit 1). No exception ever propagates.
+
+    With `as_json=True` stdout is exactly ONE `json.dumps(to_dict(), indent=2)`
+    document; either way the RETURN value is the same `CompanyConfigLint.
+    exit_code` (0 clean-or-warnings-only / 1 config-errors-or-team-errored / 2
+    no-enabled-products). Writes NOTHING to disk -- a read-only report; with
+    `load_config` monkeypatched the filesystem is untouched.
+
+    UNLIKE the QUALITY roll-ups, ONLY config ERRORS gate -- a fleet of
+    warnings-only configs still exits 0 (the per-product `ConfigLint` semantics,
+    inherited)."""
+    try:
+        dispatch = json.loads(
+            pathlib.Path(dispatch_path).expanduser().read_text())
+        if not isinstance(dispatch, dict):
+            raise ValueError("dispatch config is not a JSON object")
+    except Exception as exc:
+        # A missing / malformed dispatch config is a real operator problem, not a
+        # crash: surface it as ONE synthetic error (errors -> exit 1).
+        company = summarize_company_config_lint(
+            dispatch_path=dispatch_path, products=(), disabled=(),
+            errors=((dispatch_path, str(exc)),))
+        print(json.dumps(company.to_dict(), indent=2) if as_json
+              else company.render())
+        return company.exit_code
+
+    products: list[ConfigLint] = []
+    disabled: list[str] = []
+    errors: list[tuple[str, str]] = []
+    for name, config, enabled in parse_dispatch_work_items(dispatch):
+        if not enabled:
+            disabled.append(name)      # deliberate; never loaded
+            continue
+        try:
+            # {FOUNDRY} -> foundry root BEFORE load_config, exactly as the
+            # dispatcher resolves each work item's config path.
+            cfg = load_config(config.replace("{FOUNDRY}", str(FOUNDRY)))
+            products.append(gather_config_lint(cfg))
+        except Exception as exc:
+            # One bad team never sinks the whole roll-up -- record + continue.
+            errors.append((name, str(exc)))
+    company = summarize_company_config_lint(
+        dispatch_path=dispatch_path, products=tuple(products),
+        disabled=tuple(disabled), errors=tuple(errors))
+    print(json.dumps(company.to_dict(), indent=2) if as_json else company.render())
+    return company.exit_code
+
+
+# --------------------------------------------------------------------------- #
 # Machine-readable event reader (`events`) -- item 10, the READ half.
 #
 # iter 05 added the write-only `events.jsonl` stream ("for dashboards / the
@@ -7375,6 +7700,30 @@ def main(argv: list[str] | None = None) -> int:
                      help="emit the company roll-up as one JSON document "
                           "(machine-readable) instead of the human report; "
                           "same 0/1/2 exit code")
+    # `company-lint-config` rolls up EVERY enabled dispatch team's iter-27
+    # per-product `lint-config` verdict into ONE company config-validation view
+    # (summed config-errors / warnings / total-findings + a per-team breakdown --
+    # the CONFIG-VALIDATION-axis fleet roll-up; the 9th company-* member, closing
+    # the LONE read-only per-product probe that had no roll-up). Its `--config`
+    # points at the DISPATCH config (`foundry.config.json`), NOT a product config,
+    # and it does its own per-work-item `load_config` internally -- so, like the
+    # other `company-*` commands, it is dispatched BEFORE the
+    # `load_config(args.config)` call below. Read-only + on-demand: the
+    # pipeline/dispatcher NEVER call it; it writes nothing. KEY divergence from
+    # the QUALITY roll-ups: ONLY config ERRORS gate -- a team load/gather error OR
+    # a product config ERROR ANYWHERE -> exit 1; WARNINGS ALONE STILL PASS (a
+    # warning names a degraded-but-runnable config), surfaced but non-gating; else
+    # 0 clean-or-warnings-only / 2 no-enabled-products. NO --limit and NO --files
+    # (a lint is one config per team).
+    clc = sub.add_parser("company-lint-config")
+    clc.add_argument("--config", default=str(FOUNDRY / "foundry.config.json"),
+                     help="path to the DISPATCH config (foundry.config.json), "
+                          "NOT a product config (default: the repo's "
+                          "foundry.config.json)")
+    clc.add_argument("--json", action="store_true",
+                     help="emit the company roll-up as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code")
     args = ap.parse_args(argv)
 
     if args.cmd == "lint-spec":
@@ -7402,6 +7751,8 @@ def main(argv: list[str] | None = None) -> int:
         return company_skipped_tests_cli(args.config, as_json=args.json)
     if args.cmd == "company-test-quality":
         return company_test_quality_cli(args.config, as_json=args.json)
+    if args.cmd == "company-lint-config":
+        return company_config_lint_cli(args.config, as_json=args.json)
 
     cfg = load_config(args.config)
     if args.cmd == "doctor":
