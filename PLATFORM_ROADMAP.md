@@ -119,6 +119,8 @@ re-orders by value each iteration; ship-order is a suggestion, not a contract.
 - **iter 58 = NEW read-only `foundry test-quality` -- a per-product COMPOSITE quality gate that folds all THREE offline validates-nothing detectors (weak-tests iter 22, constant-asserts iter 48, skipped-tests iter 56) into ONE scan / ONE three-way verdict / ONE scriptable exit code / ONE JSON doc (human or `--json`).** No `HOTFIX_NEEDED.md` / `SPEED_STORY_NEEDED.md` (HEAD `a16041a` = iter-57 shipped clean, post-release HEALTHY, tree clean), so a roadmap feature is in scope. With all three item-6 offline detectors now complete end-to-end (detector + per-product CLI + company roll-up, iters 22/23/43, 47/48/54, 55/56/57) and every seeded roadmap item shipped or legitimately blocked, the PM exercises roadmap-ownership (as iters 16-57 did) to add the highest value x safety x size increment available -- the QUALITY-gate CAPSTONE of the three-detector arc. **Why (passes the [PM iter53] 'don't invent a low-value variant' filter):** to certify a product against ALL THREE antipatterns an operator/CI must run three separate commands, each re-walking the repo and each with its OWN 0/1/2 exit code; a shell `weak-tests && constant-asserts && skipped-tests` collapses the three exit codes into ONE undifferentiated non-zero (losing nothing-to-scan(2) vs issues-found(1)) AND loses the per-category breakdown -- the EXACT problem iter-28 solved on the LAUNCH axis with the composite `preflight` (doctor + single-brain -> one GO/NO-GO/CAUTION). `foundry test-quality` is the QUALITY-axis parallel: ONE command + ONE verdict + a per-category triage breakdown in ONE pass, directly serving item 6 (the foundry's #1 verification failure) and the VISION's 'without babysitting each step'. **What ships:** a frozen `TestQualitySummary` (fields product/weak/constant/skipped) whose derived props REUSE the frozen sub-props (`files_scanned` representative; `weak_findings`/`constant_findings`/`skipped_findings`; `total_findings` = the CATEGORY-WEIGHTED sum, NOT a de-duplicated union; `parse_errors` = the distinct first-seen union across the three sub-lists; `exit_code` = 2 iff every lens had nothing to scan, else 1 iff any lens flagged a finding/parse-error, else 0; `clean`/`verdict`) + a pure keyword-only `summarize_test_quality` + a thin `test_quality_cli(cfg, files=None, as_json=False)` that calls the SHIPPED `gather_weak_tests`/`gather_constant_asserts`/`gather_skipped_tests` seams (iters 42/48/56) by BARE module name + a `test-quality` subparser (`--config`, `--files`, `--json`) dispatched AFTER `load_config` + one dispatch line + a README `# 25.` entry. The iter-28/30 'compose existing frozen cores, add NO new I/O seam' pattern on the QUALITY axis. **OVERLAP is a first-class correctness item (iter-56/57 lesson):** constant-asserts is DISJOINT from weak-tests by construction, but an always-skipped test CAN also be assertion-free and CAN carry a constant assert, so `skipped` findings CAN OVERLAP `weak`/`constant` -- `total_findings` is a per-CATEGORY total in which a test flagged by two lenses counts in EACH, intentionally NOT a distinct-test count; the README/docstrings must frame it OVERLAP-not-disjoint. Same purely-additive, off-control-path, on-demand read-only class as every CLI since `doctor` (01): the pipeline/gate/dispatcher NEVER call it, it WRITES NOTHING, and it adds NO sentinel / config field / per-product artifact -> NO `.gitignore` entry and NO migration note; `build_prompt`/`run_stage`/`run_iteration`/`run_continuous`/`dispatcher.py` are untouched and a live loop is unaffected (new code activates only on a clean restart). LIGHTER per-product tester weight class (synthetic temp `--files` + at most monkeypatching the three gather seams; NO `load_config`/subprocess/dispatch-config fixtures), well under the ~120s TTFT ceiling that stalled the company-* roll-ups. Ship diff = {`foundry.py`, `README.md`, roadmap edit, new `tests/test_iter58_behavior.py`}. Chosen OVER the four still-blocked items (1 bite 2b dispatcher auto-stop -- conflicts with the standing 'run 24/7 until EXPLICIT stop' + touches loop-termination/resume; 3 bite 2 auto-refresh `AGENTS.md` at ship -- commits a tracked file to the PUBLIC repo, awaits operator sign-off; 4 bite 2 wire the light gate -- guts section-3 / item-11's unstaged-file catch AND ~never fires since every `_platform` iter changes `foundry.py`; 6-full mutmut -- needs a network install, not offline-deterministic). **Next-highest after this:** a `company-test-quality` roll-up (fold this composite over the dispatch config), then surface the four still-blocked items to the operator for a decision.
 
 - **iter 59 = NEW read-only `foundry company-test-quality` -- the company-wide roll-up of the iter-58 per-product `test-quality` composite over the dispatch config (the 8th `company-*` member and the QUALITY-axis CAPSTONE of the company family).** No `HOTFIX_NEEDED.md` / `SPEED_STORY_NEEDED.md` (HEAD `61fe65d` = iter-58 shipped clean, post-release HEALTHY, tree clean), so a roadmap feature is in scope -- and this is the step iter 58 explicitly pre-declared ("Next-highest after this: a `company-test-quality` roll-up (fold this composite over the dispatch config)"). **Why (passes the [PM iter53] 'don't invent a low-value variant' filter):** all three item-6 offline detectors now have detector + per-product CLI + company roll-up (weak-tests 22/23/43, constant-asserts 47/48/54, skipped-tests 55/56/57) AND iter 58 shipped the per-product COMPOSITE `test-quality` (#25) folding all three into one per-product gate -- the one missing surface is the COMPANY-axis composite. To certify the WHOLE company against all three antipatterns an operator/cron must today run three separate company commands (`company-weak-tests` #19, `company-constant-asserts` #22, `company-skipped-tests` #24), each iterating the dispatch config and each with its OWN 0/1/2 exit code that a shell `company-weak-tests && company-constant-asserts && company-skipped-tests` collapses into ONE undifferentiated non-zero (losing nothing-to-scan(2) vs issues-found(1)) AND loses the per-category + per-team breakdown -- the EXACT problem iter-28 solved on the LAUNCH axis with `preflight` and iter-58 solved per-product with `test-quality`. `company-test-quality` is the COMPANY-axis parallel: ONE command + ONE company verdict + a per-CATEGORY (assertion-free / constant-assert / always-skipped) + per-TEAM triage in ONE pass, serving item 6 (the foundry's #1 verification failure) and the VISION's 'without babysitting each step'. It is a NEW operator-facing composite over shipped cores at a NEW (company) scope, not a trivial flag/variant. **What ships (9 behaviors):** a NEW `gather_test_quality(cfg, files=None) -> TestQualitySummary` seam composing the SHIPPED `gather_weak_tests`/`gather_constant_asserts`/`gather_skipped_tests` (iters 42/48/56) by BARE name via `summarize_test_quality` (adds NO new I/O seam -- composes existing gathers; the exact analog of `gather_skipped_tests` for `company-skipped-tests`) + a frozen `CompanyTestQuality(dispatch_path, products, disabled, errors)` (SUM/count props `files_scanned`/`total_weak_findings`/`total_constant_findings`/`total_skipped_findings`/`total_findings`/`total_parse_errors`/`n_products`/`n_disabled`/`n_errors`/`n_flagged`, findings-first `exit_code` 0/1/2, `verdict`, `render()`, JSON-safe `to_dict()`) + a pure keyword-only `summarize_company_test_quality` + a thin `company_test_quality_cli(dispatch_path, as_json=False)` (reads the DISPATCH config, per ENABLED work item substitutes `{FOUNDRY}` then `load_config` + `gather_test_quality` by BARE name, resilient to a bad dispatch config / bad team) + a `company-test-quality` subparser (`--config`/`--json`, NO `--files`/`--limit`) dispatched BEFORE `load_config` + one dispatch line + a README `# 26.` entry -- a near-verbatim structural MIRROR of the iter-57 `company-skipped-tests` block differing ONLY in the gather seam driven (`gather_test_quality`), the per-product type (`TestQualitySummary`), the human labels (`foundry company-test-quality` / the per-category counts), and the OVERLAP-not-disjoint relationship prose. `test_quality_cli` is kept BYTE-UNCHANGED (accept the minor inline duplication for safety/reversibility; a DRY refactor is a separate bite). **OVERLAP is the first-class correctness item (the load-bearing iter-56/57/58 lesson at the COMPANY-composite layer):** constant-asserts is DISJOINT from weak-tests by construction, BUT an always-skipped test CAN also be assertion-free AND can carry a constant assert, so a #24 finding CAN OVERLAP #19/#22 -- so `total_findings` (and its per-category components) INHERITS #25's category-weighting: a test flagged by two lenses counts once in EACH category, intentionally NOT a de-duplicated distinct-test count; all relationship prose frames it as the COMPANY-axis parallel of the #25 composite folding #19/#22/#24 into ONE view, NEVER as disjoint. REUSES `parse_dispatch_work_items` (30), `gather_weak_tests`/`gather_constant_asserts`/`gather_skipped_tests` + `TestQualitySummary`/`summarize_test_quality` (42/48/56/58), `load_config` UNCHANGED. **Dormant + off the control path:** the pipeline/dispatcher/gate NEVER call it and it WRITES NOTHING (read-only) -> NO new sentinel / config field / artifact / `.gitignore` entry / migration note; `import foundry, dispatcher` succeeds; `dispatcher.py` + `scripts/*` byte-unchanged; `foundry.py` purely additive (ZERO deletions). NO prior-iter test maintenance -- at HEAD the four byte-unchanged assertions (test_iter50/51/52/54) name ONLY `dispatcher.py`/`scripts/*`, so extending `foundry.py` additively breaks NONE. **TTFT de-risk:** this is the HEAVIER company-* tester weight class (monkeypatched `load_config` + synthetic dispatch config + `gather_test_quality` fixtures -- the class that stalled the isolated tester at the ~120s TTFT ceiling in iters 33-38/41/45/53/57); if the tester stalls it is an ENVIRONMENTAL retry candidate (re-do the design verbatim after confirming the file is absent) and MUST be defeated with incremental chunked `cat >>` writes across separate turns (per [TEST iter57]), NOT a redesign. Ship diff = {`foundry.py`, `README.md`, roadmap edit (PM-applied), new `tests/test_iter59_behavior.py`}. Chosen OVER the four still-blocked items (1 bite 2b dispatcher auto-stop -- conflicts with the standing 'run 24/7 until EXPLICIT stop' + touches loop-termination/resume; 3 bite 2 auto-refresh `AGENTS.md` at ship -- commits a tracked file to the PUBLIC repo, awaits operator sign-off; 4 bite 2 wire the light gate -- guts section-3 / item-11's unstaged-file catch AND ~never fires since every `_platform` iter changes `foundry.py`; 6-full mutmut -- needs a network install, not offline-deterministic). **Next-highest after this:** the company-* family is COMPLETE at 8 members and BOTH the per-product AND company composite quality gates now exist -- a future PM should surface the four still-blocked seeded items to the operator for a decision, or pick the next purely-additive on-mission increment.
+- **iter 60 = NEW read-only `foundry lint-config --config <cfg> [--json]` -- an offline, deterministic PRODUCT-config linter (the CONFIG-validation complement to `doctor` env #0 and `lint-spec` spec #6; COMPLETES the linter TRIO env/spec/config). [ADDED RETROACTIVELY by the iter-61 PM: the iter-60 PM attempt1 timed out and its resume wrote pm.md but added no roadmap bullet -- the documentation gap [FINAL iter60] flagged for a future PM to close.]** No `HOTFIX_NEEDED.md` / `SPEED_STORY_NEEDED.md` (HEAD `708658d` = iter-59 shipped clean, post-release HEALTHY, tree clean). **Why:** `doctor` (#0) validates the ENV and `lint-spec` (#6) validates a PM SPEC, but nothing validated the PRODUCT CONFIG -- the misconfigurations that silently waste a shift or defeat the push guard. `lint-config` fills the missing THIRD linter: a pure `lint_config(ProductConfig) -> ConfigLint` core inspecting a resolved config for a missing/non-git `repo`, empty `test_cmd`, missing `roles_dir`, missing `vision` FILE, or -- the SAFETY case -- an empty `allowed_push_repo` while `push_enabled` is true (which makes the push guard block EVERY ship) as ERRORS, and an unset `vision` / missing `roadmap`/`quality_ref` FILE as WARNINGS (warnings alone still pass). **What shipped:** frozen `ConfigFinding`/`ConfigLint` + pure `lint_config` (copies-then-resolves so it never mutates the caller and never raises) + thin `lint_config_cli` (owns its `load_config` so an unreadable/invalid config maps to exit 2) + a `lint-config` subparser dispatched BEFORE the top-level `load_config` + a README `# 27.` entry. Purely additive + DORMANT (pipeline/gate/dispatcher never call it; writes nothing; exit 0 OK-or-warnings-only / 1 config-errors / 2 unreadable-config). Commit `8576704` (741 insertions, 0 deletions), `1422 passed`. **Next-highest after this:** a `company-lint-config` company roll-up (the natural family extension now the per-product linter exists).
+- **iter 61 = NEW read-only `foundry company-lint-config --config <dispatch> [--json]` -- the company-wide roll-up of the iter-60 per-product `lint-config` linter over the dispatch config (the 9th `company-*` family member; the CONFIG-VALIDATION-axis fleet roll-up).** No `HOTFIX_NEEDED.md` / `SPEED_STORY_NEEDED.md` (HEAD `8576704` = iter-60 shipped clean, post-release HEALTHY, tree clean, baseline `1422 passed`), so a roadmap feature is in scope -- and the iter-60 FINAL lesson explicitly pre-declared it ("a `company-lint-config` company roll-up via a `gather_config_lint` seam mirroring the company-* pattern"). **Why:** every OTHER read-only per-product probe already has a company roll-up (status 30, history 31, timing 40, weak-tests 43, events 46, constant-asserts 54, skipped-tests 57, test-quality 59); `lint-config` (#27) is now the LONE per-product probe with no roll-up -- the SAME asymmetry that motivated `company-constant-asserts` (54) and `company-test-quality` (59). To answer "are ALL my fleet's configs sound?" an operator must otherwise run `lint-config` once per team and merge N exit codes; this gives ONE command + ONE fleet verdict + a per-TEAM breakdown + ONE scriptable exit code -- and surfaces the SAFETY finding (an empty `allowed_push_repo` while `push_enabled` is true silently blocks EVERY ship) across all teams at once. **What ships (9 behaviors):** a NEW thin `gather_config_lint(cfg) -> ConfigLint` seam returning `lint_config(cfg)` by BARE name (the "one per-product gather per company roll-up" idiom every `company-*` member uses) + a frozen `CompanyConfigLint(dispatch_path, products, disabled, errors)` (SUM/count props `total_errors`/`total_warnings`/`total_findings`/`n_products`/`n_disabled`/`n_errors`/`n_flagged`, findings-first `exit_code` 0/1/2, `verdict`, `render()`, JSON-safe 13-key `to_dict()`) + pure `summarize_company_config_lint` + thin `company_config_lint_cli` (reads the DISPATCH config, per ENABLED item `{FOUNDRY}`-substitute + `load_config` + `gather_config_lint` by BARE name, resilient to a bad dispatch config / bad team) + a `company-lint-config` subparser (`--config`/`--json`) dispatched BEFORE `load_config` + one dispatch line + a README `# 28.` entry -- a near-verbatim MIRROR of the iter-57/59 `company-skipped-tests`/`company-test-quality` blocks. `lint_config`/`lint_config_cli` kept BYTE-UNCHANGED. **KEY correctness divergence from the QUALITY family (NOT copy-pasted):** the quality roll-ups gate on ANY finding, but `company-lint-config` INHERITS the per-product `ConfigLint` semantics where only ERRORS gate; WARNINGS alone still PASS -- so `exit_code` = 1 iff a team error OR any product config ERROR, else 2 iff no enabled products, else 0; warnings surface in the counts / per-team breakdown / `total_warnings` but never gate. REUSES `parse_dispatch_work_items` (30), `lint_config`/`ConfigLint`/`ConfigFinding` (60), `load_config` UNCHANGED. **Dormant + off the control path:** pipeline/dispatcher/gate NEVER call it and it WRITES NOTHING (read-only) -> NO new sentinel / config field / artifact / `.gitignore` entry / migration note; `import foundry, dispatcher` succeeds; `dispatcher.py` + `scripts/*` byte-unchanged; `foundry.py` purely additive (ZERO deletions). NO prior-iter test maintenance -- at HEAD the four byte-unchanged assertions (test_iter50/51/52/54) name ONLY `dispatcher.py`/`scripts/*`. **TTFT de-risk:** the HEAVIER company-* tester weight class; a stall is an ENVIRONMENTAL retry (re-do verbatim), defeated with chunked writes per [TEST iter57], NOT a redesign. Ship diff = {`foundry.py`, `README.md`, roadmap edit (PM-applied), new `tests/test_iter61_behavior.py`}. Chosen OVER the four still-blocked items (1 bite 2b dispatcher auto-stop; 3 bite 2 auto-refresh `AGENTS.md`; 4 bite 2 wire the light gate; 6-full mutmut) and the deferred `test_quality_cli` DRY refactor (not purely additive). **Next-highest after this:** with the linter TRIO and its company roll-up complete, a future PM should surface the four still-blocked seeded items to the operator for a decision, or pick the next purely-additive on-mission increment.
 
 ### Migration note (per §6 self-mod guardrail) — iter 03
 - **New sentinel introduced:** `POSTRELEASE: HEALTHY|BROKEN`, written to `products/<name>/state/iter-NN/postrelease.md` (last non-empty line). It does NOT participate in loop control flow — `run_iteration`/`run_continuous` branch only on `VERDICT:`/`RESULT:`/`ACTION:` and the `res["status"]` value; `POSTRELEASE:` is diagnostic and carried as an additive `res["postrelease"]` key.
@@ -256,3 +258,134 @@ post-release fresh-clone verify, a new operator, or CI) ships with ZERO protecti
 - [x] `scripts/install_hooks.sh` arms the pre-push hook in one command; README documents it. **(iter 51)**
 - [x] The `final` role invokes the scanner before pushing and treats a hit as a gate failure. **(iter 52)**
 - [x] `tests/` stay green; both modules still import; ARCHITECTURE.md notes the new gate step. **(iter 52)**
+
+
+---
+
+# Org-design track (items 17-22) -- adopted 2026-08-01
+
+Blueprint: **`docs/ORG_DESIGN.md`** (rich bench -> cheap kickoff council staffs
+the minimum -> lean always-on core -> trigger/cadence-activated specialists ->
+bounded re-staffing). Evidence: `docs/research/`. Ship these smallest-safe-first
+and IN ORDER -- each item builds on the artifacts of the one before. Every item
+is ADDITIVE and must not change iteration numbering, state layout, or the
+`VERDICT:`/`RESULT:`/`ACTION:`/`POSTRELEASE:` sentinels (resume-safe for any
+loop in flight), per the self-modification guardrails.
+
+## Item 17 -- role-card bench: format validator + card lint (SMALL)
+
+**Problem.** `roles/bench/` now holds 11 role-cards (+ README) written by hand.
+Nothing enforces the card contract (Status/Activation/Tenure/Model-note header +
+Mission + I/O contract sections), so cards will drift as they are edited and a
+future manifest-driven pipeline cannot trust them as machine-readable.
+
+**What ships.** A `foundry.py lint-bench` subcommand (offline, deterministic,
+read-only, exit 0/1/2 like the other linters): parses every `roles/bench/*.md`,
+checks the five declared fields + required sections exist, reports `file:line`
+findings; `--json` for a machine-readable doc. Unit tests: a compliant card
+passes; each missing field/section is caught; a non-card file (README.md) is
+skipped.
+
+**Done when.**
+- [ ] `lint-bench` exists with tests; all 11 current cards pass (fix any card
+      that does not rather than loosening the linter).
+- [ ] README quickstart documents the command; `tests/` stay green.
+
+## Item 18 -- kickoff council: staffing manifest schema + trigger rubric (MEDIUM)
+
+**Problem.** ORG_DESIGN.md section 5 defines a kickoff council that emits a
+machine-checkable staffing manifest, but no schema or rubric exists in code.
+
+**What ships.**
+- A documented JSON schema for `products/<name>/staffing.json`: active roles
+  (subset of bench card names), sequence, gates, per-role model note,
+  done-criteria, iteration budget.
+- A `foundry.py lint-manifest` validator (offline, 0/1/2): schema-valid, every
+  named role has a bench card, the five core seats are present, budget is a
+  positive integer.
+- A committed trigger rubric doc (`docs/TRIGGER_RUBRIC.md`): product trait ->
+  bench role, mechanical and auditable (ships-a-UI -> designer; touches user
+  data -> legal; public API -> devrel_docs; dependency count >= N -> tpm).
+- An example manifest for repolens under `products/repolens/`.
+
+**Done when.**
+- [ ] Schema + validator + rubric + example exist with tests; nothing in the
+      running pipeline consults the manifest yet (that is item 19).
+
+## Item 19 -- manifest-driven pipeline (MEDIUM, gated on 18)
+
+**Problem.** The stage list is hard-coded; the org cannot actually staff
+lean-or-wider per product.
+
+**What ships.** `foundry.py` reads `staffing.json` when present and derives the
+stage sequence from it (absent manifest = exact current fixed behavior, bit-for-
+bit -- the default path must not change). A manifest naming only the five core
+seats reproduces today's pipeline; extra activated seats insert their bounded
+stage at their declared position. Stage success stays output-file-based.
+
+**Done when.**
+- [ ] With no manifest, behavior is unchanged (regression-tested).
+- [ ] With a core-only manifest, behavior is unchanged.
+- [ ] With one extra seat activated, its stage runs at the declared point and
+      its artifact is required; `tests/` green.
+
+## Item 20 -- tri-perspective product gate + decorrelated adversarial seat (MEDIUM, gated on 19)
+
+**Problem.** Proposals enter the loop without a Business/Product/Engineering
+kill-gate, and every seat runs on the same model as the builder
+(self-preference bias: a same-model reviewer favors its own author).
+
+**What ships.**
+- A `product-gate` stage runnable at kickoff and on strategic-surface triggers:
+  three seat prompts (business, product-gate-pm, senior-engineer), verdicts
+  Go / Kill / Recycle, **default Kill**; deterministic pre-checks (impact number
+  present, appetite stated, alternatives listed) run before any agent call and
+  bounce for free.
+- Per-role model override: the manifest's model note maps to per-role agent-CLI
+  env/args so the product-gate PM and the release gate can run a DIFFERENT
+  model than the builder. Absent an override, current behavior is unchanged.
+- Every verdict logged as structured data (events.jsonl kind: `gate`).
+
+**Done when.**
+- [ ] Gate + pre-checks + logging exist with tests; a Go carries a fixed
+      iteration bet recorded in the manifest; per-role model override is
+      exercised by at least one test (env-level, no real second model needed).
+
+## Item 21 -- CEO escalation predicates (SMALL-MEDIUM, pattern exists)
+
+**Problem.** ORG_DESIGN.md section 9 reserves five categories for human
+escalation (security/credentials, personal data/PII, spending, legal/licensing,
+public visibility). Only category 2 is enforced today (the leak-guard at the
+release gate).
+
+**What ships.** Generalize the leak-guard pattern: a deterministic diff-predicate
+scanner (offline, stdlib-only) with one predicate per category (extensible
+committed config), run by the final gate; any hit blocks the ship and writes a
+structured escalation record (events.jsonl kind: `escalation`) + a per-product
+`ESCALATION.md` flag for the human operator. No auto-page, no network.
+
+**Done when.**
+- [ ] Five predicate categories exist with unit tests (hit + benign near-miss
+      each); a hit fails the gate to the revert path; the escalation record is
+      written; leak-guard remains the category-2 implementation (no dup scan).
+
+## Item 22 -- bounded re-staffing review + N=5 no-trigger fallback (SMALL, gated on 18/19)
+
+**Problem.** Team composition can only change by hand-editing files (drift), and
+a quiet loop can run indefinitely with no strategic look (ORG_DESIGN.md
+section 7 adopts: if no trigger fires for 5 iterations, CEO + PM review anyway;
+relax toward 10 once history shows steering is rarely needed).
+
+**What ships.**
+- A re-staffing review stage that emits a **diff against staffing.json** (never
+  edits it directly) constrained by hysteresis: minimum tenure K iterations
+  before deactivation, capped changes per review, every change citing a logged
+  trigger. Applying the diff is a separate explicit step.
+- An iteration counter since the last fired trigger; at 5, the pipeline queues
+  the CEO+PM review (reads ship ledger + learnings, emits a steer-or-confirm
+  record, resets the counter). N configurable, default 5.
+
+**Done when.**
+- [ ] Review emits a valid manifest diff under hysteresis rules with tests;
+      the N=5 fallback fires in a simulated quiet run and resets; `tests/`
+      green; ARCHITECTURE.md notes the new stages + a migration note here.

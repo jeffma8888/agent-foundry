@@ -1,9 +1,11 @@
 # agent-foundry
 
-**An always-on autonomous product org.** Point it at any git repo and a team of
-AI agents — a TPM, two engineers, an isolated QA engineer, and an independent
-release gate — builds it feature by feature, around the clock, shipping only
-work that passes every gate.
+**An always-on autonomous product org.** Point it at any git repo and a lean
+core team of AI agents — a product agent, an engineer, a reviewer, an isolated
+QA engineer, and an independent release gate — builds it feature by feature,
+around the clock, shipping only work that passes every gate. Behind that lean
+core sits a **rich bench** of dormant specialist roles (legal, design, finance,
+DevRel, TPM, ...) that activate only when a written trigger fires.
 
 > The foundry pours raw ideas in and casts working software out.
 > Its first artifact is **[repolens](https://github.com/jeffma8888/repolens)** —
@@ -31,6 +33,74 @@ work that passes every gate.
 Each stage is a **fresh** agent-CLI run (clean context, no memory bloat).
 The only memory between stages/iterations lives on disk: the spec, the diff,
 the commit history, and the learnings log.
+
+## The org model: a rich bench, a lean active team
+
+Most multi-agent systems fail by *over-staffing*: every extra active role is a
+handoff seam where context drops, agents misalign, and wrong claims pass
+unverified — the dominant failure classes in the largest study of multi-agent
+traces (MAST, arXiv:2503.13657: gains over single agents are “often minimal”;
+failures concentrate in inter-agent misalignment and weak verification). More
+roles means more communication, more misalignment, and weaker verification.
+So the foundry inverts the instinct. The model:
+
+> **Rich bench → a cheap kickoff council staffs the minimum → a lean always-on
+> core → everything else is trigger/cadence-activated → re-staffing is bounded
+> and clean.**
+
+Breadth lives in cheap, versioned **role-cards** (a bench that costs nothing
+while dormant). Cost and failure surface live only in the roles that actually
+run. A role earns always-on status only if it must act on *every* iteration.
+
+**The always-on core (the entire standing cost of a product team):**
+
+```
+Product agent → Engineer → Reviewer → isolated Tester → Release Gate
+```
+
+**The bench** — every seat is a role-card in [`roles/bench/`](roles/bench/)
+declaring its mission, activation trigger, tenure, I/O contract, and model note:
+
+| Seat | In one line |
+|---|---|
+| [CEO / Founder](roles/bench/ceo.md) | Single accountable decider: mission, staffing, budget in agent-runs; sole escalation path to the human. |
+| [Business / Finance](roles/bench/business_finance.md) | Allocates iterations like a default-alive CFO; prices every bet, demands an impact number. |
+| [Legal](roles/bench/legal.md) | Licenses, data/privacy, IP — wakes only when a change touches them. |
+| [Designer](roles/bench/designer.md) | Human-facing surface quality — wakes when a UI or UX contract ships. |
+| [DevRel / Docs](roles/bench/devrel_docs.md) | Public docs and onboarding — wakes when a public API changes. |
+| [Product Manager](roles/bench/product_manager.md) | The merged “why + what” product agent; owns the spec and the smallest slice. **Core.** |
+| [Product-gate PM](roles/bench/product_gate_pm.md) | Adversarial gate seat; attacks impact math and scope. Runs on a *different model* than the builder. |
+| [TPM](roles/bench/tpm.md) | Cross-module dependency coordination; dormant until a countable dependency threshold. |
+| [Engineer](roles/bench/engineer.md) | Smallest diff that passes every gate. **Core.** |
+| [QA / Tester](roles/bench/qa_tester.md) | Black-box, spec-only, firewalled from the source. **Core.** |
+| [Release Gate](roles/bench/release_gate.md) | Only role touching git; recomputes ground truth; rejects on doubt. **Core.** |
+
+The bench is **extensible by design**: when the kickoff council or a
+re-staffing review finds a gap — a Security Reviewer for a product that grows
+auth, a Performance Engineer for a latency-critical service — it mints a new
+role-card into the bench (mission, trigger, tenure, I/O contract, model note)
+instead of overloading an existing seat. New roles enter dormant by default.
+
+**The tri-perspective product gate.** Before iterations are spent, a proposal
+survives three decorrelated attacks or dies (default verdict: Kill):
+*Business* — is the problem worth it? (impact number + key assumption +
+pre-mortem); *Product* — is this the smallest right solution? (goals/non-goals
++ appetite + alternatives); *Senior engineer* — can it be built? (riskiest
+unknown + knock-outs). The mental model: one reviewer approves a bad idea from
+its own blind side; three perspectives with different failure directions,
+running on a different model than the author (self-preference bias,
+arXiv:2404.13076), rarely share one. Deterministic pre-checks run before any
+model call, and every Go carries a fixed iteration bet.
+
+**Cadence.** Roles activate at kickoff or on written triggers — the cheapest
+scheme that still catches the decisions that matter — with a fixed-N fallback:
+if no trigger fires for 5 iterations, the CEO + PM review the project anyway,
+so a quiet loop cannot drift unexamined.
+
+Full blueprint — kickoff council, JSON staffing manifest, trigger rubric,
+escalation predicates, bounded re-staffing — in
+**[docs/ORG_DESIGN.md](docs/ORG_DESIGN.md)**, built on eight sourced research
+briefs in [docs/research/](docs/research/README.md).
 
 ## Why it works — five hard-won invariants
 
@@ -135,6 +205,8 @@ uv run python foundry.py test-quality --config products/repolens/config.json  # 
 uv run python foundry.py company-test-quality  # --config points at the DISPATCH config (foundry.config.json), NOT a product config (default: the repo's foundry.config.json); a disabled work item is never loaded; one bad team is recorded and the roll-up continues; a quality finding of any category anywhere gates the company (exit 1) [--json for one machine-readable company composite doc embedding the per-product test-quality scans: dashboards/cron; same 0/1/2 exit code]
 # 27. Lint a PRODUCT config for the misconfigurations that silently waste a shift or defeat the push guard -- the CONFIG-validation complement to #0 `doctor` (env) and #6 `lint-spec` (spec); an offline, deterministic linter that inspects a resolved `ProductConfig` and reports leveled findings: a missing/non-git `repo`, an empty `test_cmd`, a missing `roles_dir`, a missing `vision` FILE, or -- the SAFETY case -- an empty `allowed_push_repo` while `push_enabled` is true (which makes the push guard block EVERY ship) are ERRORS, while an unset `vision` or a missing `roadmap`/`quality_ref` FILE are WARNINGS (warnings alone still pass). DORMANT -- the pipeline/gate/dispatcher never call it and it writes nothing (exit 0 OK-or-warnings-only / 1 config-errors / 2 unreadable-config); read-only:
 uv run python foundry.py lint-config --config products/repolens/config.json  # points at a PRODUCT config (NOT the dispatch config); an unreadable/invalid-JSON config maps to exit 2, distinct from a lint PROBLEMS=1 [--json for one machine-readable lint doc: launch wrappers/cron; same 0/1/2 exit code]
+# 28. Company-wide product-config lint roll-up (#27 lint-config across the WHOLE company -- the CONFIG-VALIDATION-axis fleet roll-up; the 9th company-* member, closing the LONE read-only per-product probe that had no roll-up): read the DISPATCH config and fold every ENABLED product team's iter-27 `lint-config` verdict into ONE company config-errors/warnings/total-findings total + a per-team breakdown + a scriptable exit code, so an operator gates the whole fleet on `[ $? -eq 0 ]` (highest-value finding: the SAFETY case -- a team whose `allowed_push_repo` is empty while `push_enabled` is true would silently block EVERY ship). KEY divergence from the QUALITY roll-ups #19/#22/#24/#26 (which gate on ANY finding): ONLY config ERRORS gate -- a team load/gather error OR any product config ERROR anywhere -> exit 1; WARNINGS ALONE STILL PASS (a warning names a degraded-but-runnable config), surfaced in the counts but non-gating; else 0 clean-or-warnings-only / 2 no-enabled-products. DORMANT -- the pipeline/gate/dispatcher never call it and it writes nothing; read-only:
+uv run python foundry.py company-lint-config  # --config points at the DISPATCH config (foundry.config.json), NOT a product config (default: the repo's foundry.config.json); a disabled work item is never loaded; one bad team is recorded and the roll-up continues; only config ERRORS gate the company (exit 1) -- warnings alone still pass [--json for one machine-readable company doc embedding the per-product lint verdicts: dashboards/cron; same 0/1/2 exit code]
 ```
 
 Stop any time: `touch STOP` (whole company) or `touch products/<name>/STOP`
@@ -152,6 +224,9 @@ always-on operating contract (AC power, the single-brain rule, the STOP files).
 | `scripts/leak_guard.py` | Committed, portable leak-guard: scan a git tree or file list against a base64-encoded denylist and exit non-zero on any leaked token. Runnable — `python3 scripts/leak_guard.py --ref HEAD` (scans `HEAD` by default) or `--files <path>...`. A standalone script off the pipeline control path (nothing imports it). |
 | `scripts/install_hooks.sh` | One-command installer that arms the committed leak-guard as a git `pre-push` hook (git does NOT clone hooks). Idempotent; backs up a foreign existing hook to `pre-push.backup` first. Run `sh scripts/install_hooks.sh` once per fresh clone. A standalone script off the pipeline control path (nothing imports it). |
 | `roles/` | The 7 project-agnostic role playbooks (pm, engineer, reviewer, tester, fix, final, reporter). |
+| `roles/bench/` | The full role bench: 11 versioned role-cards (mission, trigger, tenure, I/O contract, model note), most dormant. |
+| `docs/ORG_DESIGN.md` | The org blueprint: rich bench, lean core, kickoff council, tri-perspective gate, bounded re-staffing. |
+| `docs/research/` | Eight sourced research briefs the org design is derived from. |
 | `products/<name>/config.json` | One product's wiring (repo, vision, roadmap, quality bar, push target). |
 | `foundry.config.example.json` | The dispatcher's work-item list. |
 | `tests/` | The framework's own test suite (the platform team's feedback loop). |
