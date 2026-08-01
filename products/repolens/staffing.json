@@ -1,0 +1,36 @@
+{
+  "product": "repolens",
+  "iteration_budget": 40,
+  "roles": [
+    {
+      "role": "product_manager",
+      "model": "builder-class model",
+      "gate": false,
+      "done_criteria": "iteration spec written and passes lint-spec"
+    },
+    {
+      "role": "engineer",
+      "model": "builder-class model",
+      "gate": false,
+      "done_criteria": "smallest diff satisfies the spec; build report emitted"
+    },
+    {
+      "role": "reviewer",
+      "model": "decorrelated preferred (different model than the builder)",
+      "gate": true,
+      "done_criteria": "VERDICT recorded; APPROVE only with no BLOCKING finding"
+    },
+    {
+      "role": "qa_tester",
+      "model": "builder-class model; independence from the engineer a plus",
+      "gate": true,
+      "done_criteria": "black-box behavior test passes for every spec claim"
+    },
+    {
+      "role": "release_gate",
+      "model": "decorrelated preferred (different model than the builder)",
+      "gate": true,
+      "done_criteria": "full suite + leak-guard green; ACTION recorded"
+    }
+  ]
+}
