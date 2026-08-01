@@ -155,3 +155,25 @@ Small, safe, reversible increments that keep `tests/` green and keep
   iteration numbering, or the `state/iter-NN` layout. So a live loop is
   byte-identical today and resumes cleanly on restart — the advisory activates
   only on a clean restart.
+
+## 7. Public-safety: the committed portable leak-guard
+
+This repository is public and the dispatcher auto-pushes on every ship with no
+human in the review loop, so a drifted iteration could reintroduce an internal
+or personal token into a public commit. Two committed, portable, standalone
+scripts guard against that, both OFF the pipeline control path (nothing imports
+them, so `foundry.py` / `dispatcher.py` / `roles/` are untouched):
+
+- `scripts/leak_guard.py` (+ a base64-encoded `scripts/leak_denylist.txt`) scans
+  a git tree or an explicit file list against the denylist and exits non-zero on
+  any hit (item 16 bites 1–2).
+- `scripts/install_hooks.sh` arms that guard as a `.git/hooks/pre-push` hook in
+  one command (`sh scripts/install_hooks.sh`) — git does NOT clone hooks, so
+  each fresh checkout must arm it. Idempotent; a foreign existing hook is backed
+  up first; the armed hook fails CLOSED on a finding/error and OPEN only if the
+  guard script is entirely absent (item 16 bite 2b).
+
+The armed hook blocks a leaky push locally. The **hard in-loop final-gate
+pre-push check** — the `final` role running the scanner so the loop self-blocks
+a leaky ship even without a hook — is **not yet wired**; it is the remaining
+bite (roadmap item 16 bite 3).
