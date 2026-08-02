@@ -2260,6 +2260,95 @@ def derive_execution_plan(
     )
 
 
+def run_execution_plan(cfg: ProductConfig, iteration: int,
+                       plan: tuple[StagePlan, ...] | list[StagePlan],
+                       base: str) -> dict:
+    """Drive an arbitrary derived execution `plan` through the pipeline.
+
+    The manifest-driven EXECUTOR for item 19 (bite 3b-i): given the ordered
+    `StagePlan` tuple from `derive_execution_plan` and the `base` head captured
+    by the caller, run each seat's `run_stage` and apply its gate behavior BY
+    GATE KIND so the DEFAULT plan reproduces `run_iteration`'s five hard-coded
+    stages + ship return dict bit-for-bit, and a non-default plan drives its own
+    seats. Returns the same result dict shape as `run_iteration`
+    (status in {'shipped', 'no-ship', 'infra-fail'}).
+
+    Gate behaviors, each mirroring `run_iteration` VERBATIM:
+      * ANY stage that fails -> infra-fail keyed on that stage; `revert_repo`
+        first iff `StagePlan.reverts_on_fail` (True for every gate except `pm`,
+        because at the pm stage nothing has been built yet).
+      * `review` gate whose report contains `CHANGES_REQUIRED` -> a fix-review
+        pass; if it fails, revert + infra-fail (stage `fix-review`).
+      * `test` gate whose report contains `RESULT: FAIL` -> a fix-tests pass and,
+        on its success, a tester-rerun; if either fails, revert + infra-fail
+        (stage `fix-tests`).
+      * `release` gate -> TERMINAL: if the report has `ACTION: PUSHED` AND the
+        branch head moved off `base`, ship (postrelease + shipped dict); else
+        revert + no-ship. No plan step after a release gate is ever run.
+      * `pm` / `build` / `bench` gates -> no post-success work; continue.
+
+    `base` is a PARAMETER, not re-read here, so the eventual wiring (bite 3b-ii)
+    can pass the head `run_iteration` already captured for its log line without a
+    second `head_of_branch` call. Every external effect (`run_stage`,
+    `revert_repo`, `head_of_branch`, `postrelease_step`, `contains`, `log`) is
+    called by its BARE module name so a test's `monkeypatch.setattr` bites, and
+    module globals are read inside the call. If the plan has NO release gate and
+    every stage passes, the loop completes and returns no-ship WITHOUT reverting
+    (defensive totality; a well-formed manifest always ends in a release gate,
+    which 3b-ii's lint gate enforces). This has ZERO call site -- 3b-ii wires it
+    behind an absent-or-default guard; nothing runs it yet.
+    """
+    for step in plan:
+        spec = step.spec
+        ok, report = run_stage(cfg, iteration, spec.stage, spec.role_file,
+                               spec.out_file)
+        if not ok:
+            if step.reverts_on_fail:
+                revert_repo(cfg, f"{spec.stage} stage failed")
+            return {"status": "infra-fail", "stage": spec.stage,
+                    "iteration": iteration}
+
+        if step.gate == "review" and contains(report, "CHANGES_REQUIRED"):
+            log(cfg, f"iter {iteration:02d} - review requires changes -> fix pass")
+            ok, _ = run_stage(cfg, iteration, "fix-review", "fix.md",
+                              "fix_review.md",
+                              f"Gate file to address: {report} ([BLOCKING] only).")
+            if not ok:
+                revert_repo(cfg, "fix-review failed")
+                return {"status": "infra-fail", "stage": "fix-review",
+                        "iteration": iteration}
+        elif step.gate == "test" and contains(report, "RESULT: FAIL"):
+            log(cfg, f"iter {iteration:02d} - tests failed -> fix pass + retest")
+            ok, _ = run_stage(cfg, iteration, "fix-tests", "fix.md",
+                              "fix_tests.md",
+                              f"Gate file to address: {report} (failing tests).")
+            if ok:
+                ok, _ = run_stage(
+                    cfg, iteration, "tester-rerun", "tester.md", "tester2.md",
+                    "This is a RE-RUN after an engineering fix. Re-verify all "
+                    "behaviors; update your earlier tests only if they misread "
+                    "the spec.")
+            if not ok:
+                revert_repo(cfg, "fix/retest failed")
+                return {"status": "infra-fail", "stage": "fix-tests",
+                        "iteration": iteration}
+        elif step.gate == "release":
+            new_head = head_of_branch(cfg)
+            if contains(report, "ACTION: PUSHED") and new_head != base:
+                log(cfg, f"iter {iteration:02d} SHIPPED - origin/{cfg.branch} "
+                    f"now {new_head}")
+                post = postrelease_step(cfg, iteration, new_head)
+                log(cfg, f"iter {iteration:02d} post-release {post.sentinel}")
+                return {"status": "shipped", "head": new_head,
+                        "iteration": iteration, "postrelease": post.sentinel}
+            revert_repo(cfg, "final gate declined to ship")
+            log(cfg, f"iter {iteration:02d} completed WITHOUT ship "
+                f"(reverted; see final.md)")
+            return {"status": "no-ship", "iteration": iteration}
+
+    return {"status": "no-ship", "iteration": iteration}
+
+
 def load_staffing_manifest(cfg: ProductConfig) -> dict | None:
     """Read the product's staffing manifest as a dict, or None if unusable.
 
