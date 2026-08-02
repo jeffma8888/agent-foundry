@@ -2029,6 +2029,123 @@ def lint_manifest_cli(file: str, bench_dir: "str | None" = None,
 
 
 # --------------------------------------------------------------------------- #
+# Manifest-driven stage sequence (roadmap item 19, bite 1/2).
+#
+# `run_iteration` today runs a FIXED five-core-seat pipeline (pm -> engineer ->
+# reviewer -> tester -> final). Item 19 makes that order DATA-DRIVEN: a product's
+# `staffing.json` (validated by `lint_manifest`, item 18) can name the ordered
+# seats, and any extra activated bench seat inserts its bounded stage at its
+# declared position. This bite ships the PURE derivation core ONLY -- there is
+# NO call site, so the running loop is bit-for-bit unchanged (resume-safe); bite
+# 2 wires it behind an `absent-manifest == current-behavior` guard.
+#
+# `CORE_SEAT_STAGES` is the single source of truth mapping each core seat to the
+# exact `(stage, role_file, out_file)` triple `run_iteration` already passes to
+# `run_stage`, so the derived DEFAULT sequence reproduces today's pipeline. The
+# derivation is pure/offline/never-raises and FAIL-SAFE: a structurally-unusable
+# manifest is treated as absent, honoring the "absent manifest = current
+# behavior, bit-for-bit" contract. It reads ONLY the `role` name order here;
+# `gate`/`model`/`done_criteria` are consumed by later items, and it does NOT
+# re-validate the manifest (that is `lint_manifest`'s job -- bite 2 lints first).
+# --------------------------------------------------------------------------- #
+
+# Each core seat -> the exact (stage, role_file, out_file) triple that
+# `run_iteration` passes to `run_stage` for that seat, in `MANIFEST_CORE_SEATS`
+# order (a dict preserves insertion order). Kept beside `MANIFEST_CORE_SEATS` so
+# the manifest core names and the pipeline stage literals stay a single source
+# of truth; a future drift between this table and `run_iteration`'s calls would
+# surface right here.
+CORE_SEAT_STAGES: dict[str, tuple[str, str, str]] = {
+    "product_manager": ("pm", "pm.md", "pm.md"),
+    "engineer": ("engineer", "engineer.md", "engineer.md"),
+    "reviewer": ("reviewer", "reviewer.md", "reviewer.md"),
+    "qa_tester": ("tester", "tester.md", "tester.md"),
+    "release_gate": ("final", "final.md", "final.md"),
+}
+
+
+@dataclasses.dataclass(frozen=True)
+class StageSpec:
+    """One derived pipeline stage: which seat runs, and the `run_stage` args.
+
+    Frozen for value equality and immutability (matching the other verdict
+    cores) so a derived sequence can be compared element-by-element and cannot
+    be mutated after derivation. `seat` is the manifest role name; `stage` is
+    the short pipeline label; `role_file` is the prompt-card path relative to
+    the roles dir; `out_file` is the required output file name.
+    """
+    seat: str
+    stage: str
+    role_file: str
+    out_file: str
+
+
+def _stage_spec_for_seat(name: str) -> StageSpec:
+    """The `StageSpec` for one seat name.
+
+    A CORE seat (a key of `CORE_SEAT_STAGES`) uses its canonical
+    `(stage, role_file, out_file)` triple; any other name is an EXTRA activated
+    bench seat and uses the `bench/<name>.md` role-file convention with a
+    stage/out_file named after the seat. Pure; the caller guarantees `name` is a
+    string.
+    """
+    if name in CORE_SEAT_STAGES:
+        return StageSpec(name, *CORE_SEAT_STAGES[name])
+    return StageSpec(seat=name, stage=name,
+                     role_file=f"bench/{name}.md", out_file=f"{name}.md")
+
+
+def _default_stage_sequence() -> tuple[StageSpec, ...]:
+    """The fixed five-core-seat sequence -- today's pipeline, bit-for-bit.
+
+    Backs BOTH the `manifest is None` case and the fail-safe fallback, so an
+    absent OR structurally-unusable manifest reproduces the current fixed
+    behavior exactly. Built through the same `_stage_spec_for_seat` path a
+    core-only manifest takes, so the default and a core-only manifest can never
+    diverge.
+    """
+    return tuple(_stage_spec_for_seat(seat) for seat in MANIFEST_CORE_SEATS)
+
+
+def derive_stage_sequence(manifest: dict | None) -> tuple[StageSpec, ...]:
+    """Map a parsed staffing manifest to the ordered pipeline stage sequence.
+
+    PURE + deterministic + offline: no filesystem / network / subprocess /
+    clock access, and it NEVER raises. Reads ONLY each role's `role` name for
+    ordering; `gate`/`model`/`done_criteria` and any other role-object keys are
+    ignored here (they are consumed by later items). It does NOT re-validate
+    core-seat completeness, budget, or card existence -- that is
+    `lint_manifest`'s job; bite 2 will lint-then-derive.
+
+    - `manifest is None` -> the DEFAULT sequence (the five `MANIFEST_CORE_SEATS`
+      in fixed order).
+    - a dict whose `roles` is a NON-EMPTY list where EVERY entry is a dict
+      carrying a STRING `role` -> map each role entry IN ORDER to a `StageSpec`
+      (declared order is authoritative): a core seat uses its canonical triple;
+      an extra seat uses the `bench/<name>.md` convention.
+    - ANY other input (not a dict; no `roles` key; `roles` not a list; empty
+      `roles`; ANY role entry not a dict or lacking a string `role`) -> the
+      DEFAULT sequence. Well-formedness is all-or-nothing: a single malformed
+      role entry falls the WHOLE manifest back to the default (a
+      structurally-unusable manifest is treated as absent).
+    """
+    if not isinstance(manifest, dict):
+        return _default_stage_sequence()
+    roles = manifest.get("roles")
+    if not isinstance(roles, list) or not roles:
+        return _default_stage_sequence()
+    names: list[str] = []
+    for entry in roles:
+        if not isinstance(entry, dict):
+            return _default_stage_sequence()
+        name = entry.get("role")
+        if not isinstance(name, str):
+            return _default_stage_sequence()
+        names.append(name)
+    return tuple(_stage_spec_for_seat(name) for name in names)
+
+
+# --------------------------------------------------------------------------- #
 # prd.json machine-roadmap status (roadmap item 1, bite 1/2).
 #
 # Right now the only record of what a product has shipped is the prose
