@@ -2820,6 +2820,159 @@ def gate_precheck_cli(path: str) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Product-gate verdict aggregation (DORMANT -- roadmap item 20, bite 2).
+#
+# The tri-perspective product gate (ORG_DESIGN.md section 6, README "tri-
+# perspective product gate") seats three decorrelated adversaries -- Business,
+# Product, and a Senior engineer -- who each vote Go / Kill / Recycle on a
+# proposal before any iteration budget is spent: "a proposal that survives three
+# decorrelated attacks is worth a bounded bet; a proposal that cannot is killed
+# by default (verdicts are Go / Kill / Recycle, and the default is Kill)." Bite 1
+# (item 20) shipped the deterministic pre-checks (product_gate_precheck); this
+# bite ships the pure, offline AGGREGATION rule that folds three seat verdicts
+# into one gate verdict with default-Kill semantics -- the same purely-additive,
+# off-control-path, on-demand-CLI class as the sibling product_gate_precheck/
+# gate-precheck (item 20 bite 1), spec_lint/lint-spec (item 5), and
+# classify_gate_scope/gate-scope (item 4): the pipeline NEVER calls it, so
+# build_prompt/run_stage/run_iteration/run_continuous/run_execution_plan/
+# dispatcher.py are untouched, NO sentinel/config field/artifact is added, and
+# the CLI writes NOTHING. The three verdict-token tuples are module-level +
+# patchable so the accepted vocabularies stay tunable per box AND are read at
+# CALL time (not captured at import) -- see Behavior 11. Wiring the aggregation
+# into the product-gate STAGE (with an events.jsonl gate kind + the fixed
+# iteration bet) is a later bite (item 20 bite 4).
+# --------------------------------------------------------------------------- #
+GATE_GO_TOKENS: tuple[str, ...] = ("go",)
+GATE_KILL_TOKENS: tuple[str, ...] = ("kill",)
+GATE_RECYCLE_TOKENS: tuple[str, ...] = ("recycle",)
+
+
+@dataclasses.dataclass(frozen=True)
+class ProductGateVerdict:
+    """The aggregated verdict of the tri-perspective product gate (item 20).
+
+    Frozen so a computed verdict can't be mutated after the fact, which also
+    gives value-equality for free: two `aggregate_gate_verdict` calls on the same
+    three seat verdicts hold equal fields, so they compare ``==`` (Behavior 1).
+    Each stored field is the NORMALIZED seat token -- one of "GO"/"KILL"/
+    "RECYCLE" -- for the Business, Product, and Senior-engineer seats in that
+    fixed order; the three properties are pure derivations, so the aggregate
+    verdict and the killer/recycler rosters follow deterministically from the
+    three seat tokens (the CLI adds no logic on top).
+    """
+    business: str
+    product: str
+    engineering: str
+
+    @property
+    def verdict(self) -> str:
+        """The aggregate gate token by precedence KILL > RECYCLE > GO.
+
+        Any "KILL" seat kills the whole proposal; else any "RECYCLE" seat
+        recycles it; else (all three "GO") it is a Go. This is the gate's
+        default-Kill rule: it takes unanimous Go minus any veto to advance, so a
+        single adversary can stop a bad bet before runway is spent.
+        """
+        seats = (self.business, self.product, self.engineering)
+        if "KILL" in seats:
+            return "KILL"
+        if "RECYCLE" in seats:
+            return "RECYCLE"
+        return "GO"
+
+    @property
+    def killers(self) -> tuple[str, ...]:
+        """Seat NAMES whose normalized verdict is "KILL", in fixed seat order.
+
+        Order is always ("business", "product", "engineering") filtered to the
+        "KILL" seats, so the roster is stable and greppable. Empty tuple when no
+        seat killed the proposal.
+        """
+        return self._seats_voting("KILL")
+
+    @property
+    def recyclers(self) -> tuple[str, ...]:
+        """Seat NAMES whose normalized verdict is "RECYCLE", in fixed seat order.
+
+        The "RECYCLE" analogue of `killers`; empty tuple when no seat recycled.
+        """
+        return self._seats_voting("RECYCLE")
+
+    def _seats_voting(self, token: str) -> tuple[str, ...]:
+        """The seat names whose stored verdict equals ``token``, in seat order.
+
+        Shared by `killers`/`recyclers` so both rosters iterate the seats in the
+        one canonical order (business, product, engineering).
+        """
+        seats = (("business", self.business),
+                 ("product", self.product),
+                 ("engineering", self.engineering))
+        return tuple(name for name, verdict in seats if verdict == token)
+
+
+def aggregate_gate_verdict(
+    business: str, product: str, engineering: str
+) -> ProductGateVerdict:
+    """Fold three raw seat verdicts into one gate verdict (pure, total).
+
+    Normalizes each raw seat verdict, then stores the three normalized tokens on
+    a `ProductGateVerdict` (whose properties derive the aggregate verdict + the
+    killer/recycler rosters). Reads the module knobs -- ``GATE_GO_TOKENS``,
+    ``GATE_KILL_TOKENS``, ``GATE_RECYCLE_TOKENS`` -- AT CALL TIME (not captured at
+    import / as default args) so patching any of them changes a subsequent call's
+    result (Behavior 11). Performs NO filesystem/subprocess/network/clock access,
+    never raises for any three string inputs (including ``""``), and is
+    deterministic, so equal inputs always yield an ``==``-equal result.
+
+    Normalization is case-insensitive and whitespace-tolerant: a raw seat verdict
+    is ``.strip().lower()``-ed, then matched by EXACT membership (whole-string,
+    NOT substring -- substring matching would wrongly KILL a phrase like "we
+    should not kill this") against the three token tuples. Anything matching none
+    of them -- an unrecognized word or the empty string -- normalizes to "KILL",
+    the gate's fail-closed default (Behavior 4). GO is checked first, then KILL,
+    then RECYCLE, so if a patched vocabulary lists one token in two tuples the
+    earlier bucket wins deterministically.
+    """
+
+    def normalize(raw: str) -> str:
+        token = raw.strip().lower()
+        if token in GATE_GO_TOKENS:
+            return "GO"
+        if token in GATE_KILL_TOKENS:
+            return "KILL"
+        if token in GATE_RECYCLE_TOKENS:
+            return "RECYCLE"
+        return "KILL"
+
+    return ProductGateVerdict(
+        business=normalize(business),
+        product=normalize(product),
+        engineering=normalize(engineering),
+    )
+
+
+def gate_verdict_cli(business: str, product: str, engineering: str) -> int:
+    """On-demand CLI: aggregate three raw seat verdicts into one gate verdict.
+
+    Computes `aggregate_gate_verdict`, prints the three NORMALIZED seat verdicts,
+    the killer and recycler rosters (or "(none)"), and a final ``verdict:`` line,
+    then returns ``0`` (GO) / ``1`` (KILL) / ``2`` (RECYCLE). Writes NOTHING to
+    disk. A THIN wrapper over the pure core: it adds no aggregation logic beyond
+    aggregate -> format, so the printed seat/roster/verdict figures always match
+    the ``ProductGateVerdict`` fields and properties.
+    """
+    result = aggregate_gate_verdict(business, product, engineering)
+    print("gate-verdict:")
+    print(f"  business: {result.business}  product: {result.product}  "
+          f"engineering: {result.engineering}")
+    print(f"  killers: {', '.join(result.killers) if result.killers else '(none)'}")
+    print(f"  recyclers: "
+          f"{', '.join(result.recyclers) if result.recyclers else '(none)'}")
+    print(f"verdict: {result.verdict}")
+    return {"GO": 0, "KILL": 1, "RECYCLE": 2}[result.verdict]
+
+
+# --------------------------------------------------------------------------- #
 # Assertion-free test detector (DORMANT — roadmap item 6, offline slice).
 #
 # Item 6's own failure mode: a fresh Tester agent writes a `test*` function that
@@ -8471,6 +8624,22 @@ def main(argv: list[str] | None = None) -> int:
     gpc = sub.add_parser("gate-precheck")
     gpc.add_argument("--file", required=True,
                      help="path to a product proposal to pre-check")
+    # `gate-verdict` aggregates the three tri-perspective product-gate seat
+    # verdicts (Business / Product / Senior-engineer, item 20 bite 2) into
+    # ONE gate verdict with default-Kill semantics: any KILL seat kills, else
+    # any RECYCLE recycles, else all-GO is a Go. It takes three raw verdict
+    # strings (--business/--product/--engineering), NOT a product --config, so
+    # like `gate-precheck`/`lint-spec` it is dispatched BEFORE the top-level
+    # `load_config` below. DORMANT / on-demand only -- the pipeline/gate/
+    # dispatcher NEVER call it; it writes nothing. Exit 0 GO / 1 KILL /
+    # 2 RECYCLE.
+    gvd = sub.add_parser("gate-verdict")
+    gvd.add_argument("--business", required=True,
+                     help="the Business seat's raw Go/Kill/Recycle verdict")
+    gvd.add_argument("--product", required=True,
+                     help="the Product seat's raw Go/Kill/Recycle verdict")
+    gvd.add_argument("--engineering", required=True,
+                     help="the Senior-engineer seat's raw Go/Kill/Recycle verdict")
     # `lint-config` is the CONFIG-validation complement to `doctor` (env, #0)
     # and `lint-spec` (spec, #6): an offline, deterministic linter that inspects
     # a resolved product config for the misconfigurations that silently waste a
@@ -8932,6 +9101,8 @@ def main(argv: list[str] | None = None) -> int:
         return lint_spec_cli(args.file)
     if args.cmd == "gate-precheck":
         return gate_precheck_cli(args.file)
+    if args.cmd == "gate-verdict":
+        return gate_verdict_cli(args.business, args.product, args.engineering)
     if args.cmd == "lint-config":
         return lint_config_cli(args.config, as_json=args.json)
     if args.cmd == "lint-bench":
