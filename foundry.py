@@ -3228,6 +3228,158 @@ def product_gate_cli(
 
 
 # --------------------------------------------------------------------------- #
+# CEO-escalation classifier (DORMANT -- roadmap item 21, org-design section 9,
+# offline slice). The CEO decides autonomously EXCEPT where a deterministic
+# predicate detects one of five RESERVED categories that must escalate to the
+# human operator before anything ships: (1) security / credentials,
+# (2) personal data / PII, (3) spending real money, (4) legal / licensing
+# exposure, (5) changes to public visibility. The committed scripts/leak_guard.py
+# is section 9's FIRST shipped instance of this pattern (category 2, PII,
+# enforced at the release gate); item 21 GENERALIZES it to all five categories.
+# This is the pure, offline, deterministic DETECTION core plus an operator-facing
+# read-only CLI -- the same purely-additive, off-control-path, on-demand-CLI
+# class as product_gate_precheck/gate-precheck (item 20 bite 1),
+# aggregate_gate_verdict/gate-verdict (bite 2), and decide_product_gate/
+# product-gate (bite 4a): the pipeline NEVER calls it, so build_prompt/run_stage/
+# run_iteration/run_continuous/run_execution_plan/dispatcher.py are untouched, NO
+# sentinel/config field/artifact is added, and the CLI writes NOTHING. The five
+# keyword vocabularies are module-level + patchable so they stay tunable per box
+# AND are read at CALL time (not captured at import) -- see Behavior 13. Wiring
+# the predicate into the release gate is a later bite (item 21 bite 2); this bite
+# only REPORTS which reserved categories a change touches.
+# --------------------------------------------------------------------------- #
+ESCALATION_SECURITY_KEYWORDS: tuple[str, ...] = (
+    "credential", "password", "secret", "api key", "api_key", "private key",
+    "private_key", "access key", "access_key", "ssh key",
+)
+ESCALATION_PII_KEYWORDS: tuple[str, ...] = (
+    "ssn", "social security", "date of birth", "passport number",
+    "home address", "personal data", "phone number", "biometric",
+)
+ESCALATION_MONEY_KEYWORDS: tuple[str, ...] = (
+    "payment", "billing", "invoice", "credit card", "stripe", "paypal",
+    "purchase order", "wire transfer", "real money",
+)
+ESCALATION_LEGAL_KEYWORDS: tuple[str, ...] = (
+    "license", "licence", "copyright", "patent", "trademark",
+    "terms of service", "proprietary", "indemnif",
+)
+ESCALATION_VISIBILITY_KEYWORDS: tuple[str, ...] = (
+    "make public", "make it public", "publish to", "open source",
+    "open-source", "public repository", "publicly visible", "go public",
+)
+
+
+@dataclasses.dataclass(frozen=True)
+class EscalationClassification:
+    """Which of the five reserved-escalation categories a change touches (item 21).
+
+    Frozen so a computed classification can't be mutated after the fact, which
+    also gives value-equality for free: two `classify_escalation` calls on the
+    same text hold equal fields, so they compare ``==`` (Behavior 1). The five
+    stored booleans are the raw category hits taken from the text at call time,
+    in ORG_DESIGN section-9 order (security, pii, money, legal, visibility); the
+    three properties are pure derivations, so the whole classification follows
+    deterministically from what was detected (the CLI adds no logic on top). The
+    default is CLEAR: `escalate` is True ONLY when at least one category hit.
+    """
+    security: bool
+    pii: bool
+    money: bool
+    legal: bool
+    visibility: bool
+
+    @property
+    def categories(self) -> tuple[str, ...]:
+        """The labels of the True category fields, in the fixed section-9 order.
+
+        Order is always ``("security", "pii", "money", "legal", "visibility")``
+        filtered to the categories that hit, regardless of the order the keywords
+        appear in the text (Behavior 11). Empty tuple iff nothing hit.
+        """
+        labels: list[str] = []
+        if self.security:
+            labels.append("security")
+        if self.pii:
+            labels.append("pii")
+        if self.money:
+            labels.append("money")
+        if self.legal:
+            labels.append("legal")
+        if self.visibility:
+            labels.append("visibility")
+        return tuple(labels)
+
+    @property
+    def escalate(self) -> bool:
+        """True iff ANY reserved category was detected (needs human sign-off)."""
+        return bool(self.categories)
+
+    @property
+    def verdict(self) -> str:
+        """Operator token: ``"ESCALATE"`` when any category hit, else ``"CLEAR"``."""
+        return "ESCALATE" if self.escalate else "CLEAR"
+
+
+def classify_escalation(text: str) -> EscalationClassification:
+    """Classify which reserved-escalation categories a change touches (pure, total).
+
+    Reads the five module vocabularies -- ``ESCALATION_SECURITY_KEYWORDS``,
+    ``ESCALATION_PII_KEYWORDS``, ``ESCALATION_MONEY_KEYWORDS``,
+    ``ESCALATION_LEGAL_KEYWORDS``, ``ESCALATION_VISIBILITY_KEYWORDS`` -- AT CALL
+    TIME (not captured at import / as default args) so patching any of them
+    changes a subsequent call's result (Behavior 13). Performs NO filesystem/
+    subprocess/network/clock access, never raises for any ``text`` (including
+    ``""``), and is deterministic, so the same input always yields an equal
+    ``EscalationClassification``.
+
+    Matching is case-insensitive over the FULL input text: the text is lowercased
+    once and a category hits iff ANY member substring of its vocabulary is present
+    (no unified-diff parsing -- a later wiring bite decides whether to pass only
+    the diff's added lines).
+    """
+    lowered = text.lower()
+
+    def hits(keywords: tuple[str, ...]) -> bool:
+        return any(kw in lowered for kw in keywords)
+
+    return EscalationClassification(
+        security=hits(ESCALATION_SECURITY_KEYWORDS),
+        pii=hits(ESCALATION_PII_KEYWORDS),
+        money=hits(ESCALATION_MONEY_KEYWORDS),
+        legal=hits(ESCALATION_LEGAL_KEYWORDS),
+        visibility=hits(ESCALATION_VISIBILITY_KEYWORDS),
+    )
+
+
+def escalation_check_cli(path: str) -> int:
+    """On-demand CLI: classify a file's content for reserved-escalation categories.
+
+    Reads the file at ``path``, computes `classify_escalation`, prints the file
+    path, the triggered category labels (or ``(none)`` when clear), and a final
+    ``verdict:`` line, and returns ``1`` (ESCALATE) / ``0`` (CLEAR). Writes
+    NOTHING to disk. A THIN wrapper over the pure core: it adds no detection
+    logic beyond read -> `classify_escalation` -> format, so the printed
+    categories always match the ``EscalationClassification``. A missing file
+    prints a ``file not found`` message naming the path and returns ``2``
+    (distinct from a verdict code) WITHOUT letting a ``FileNotFoundError``
+    propagate.
+    """
+    p = pathlib.Path(path)
+    if not p.exists():
+        print(f"escalation-check: file not found: {path}")
+        return 2
+    result = classify_escalation(p.read_text())
+    print(f"escalation-check: {path}")
+    if result.categories:
+        print(f"  categories: {', '.join(result.categories)}")
+    else:
+        print("  categories: (none)")
+    print(f"verdict: {result.verdict}")
+    return 1 if result.escalate else 0
+
+
+# --------------------------------------------------------------------------- #
 # Assertion-free test detector (DORMANT — roadmap item 6, offline slice).
 #
 # Item 6's own failure mode: a fresh Tester agent writes a `test*` function that
@@ -8928,6 +9080,20 @@ def main(argv: list[str] | None = None) -> int:
                      help="the Product seat's raw Go/Kill/Recycle verdict")
     pgt.add_argument("--engineering", required=True,
                      help="the Senior-engineer seat's raw Go/Kill/Recycle verdict")
+    # `escalation-check` is the CEO-escalation predicate (item 21, org-design
+    # section 9): classify a file/diff's content for the five RESERVED
+    # categories (security / PII / money / legal / visibility) that must
+    # escalate to the human operator before anything ships -- generalizing
+    # the committed scripts/leak_guard.py (section 9's first instance, PII).
+    # It takes a `--file`, NOT a product --config, so like `product-gate`/
+    # `gate-verdict`/`gate-precheck`/`lint-spec` it is dispatched BEFORE the
+    # top-level `load_config` below. DORMANT / on-demand only -- the pipeline/
+    # gate/dispatcher NEVER call it; it writes nothing. Exit 1 ESCALATE / 0
+    # CLEAR / 2 file-not-found.
+    esc = sub.add_parser("escalation-check")
+    esc.add_argument("--file", required=True,
+                     help="path to a file/diff to classify for reserved "
+                          "CEO-escalation categories")
     # `lint-config` is the CONFIG-validation complement to `doctor` (env, #0)
     # and `lint-spec` (spec, #6): an offline, deterministic linter that inspects
     # a resolved product config for the misconfigurations that silently waste a
@@ -9396,6 +9562,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "product-gate":
         return product_gate_cli(args.file, args.business, args.product,
                                 args.engineering)
+    if args.cmd == "escalation-check":
+        return escalation_check_cli(args.file)
     if args.cmd == "lint-config":
         return lint_config_cli(args.config, as_json=args.json)
     if args.cmd == "lint-bench":
