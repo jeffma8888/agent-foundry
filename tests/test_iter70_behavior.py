@@ -448,8 +448,11 @@ def test_b10_no_release_gate_no_ship_no_revert(cfg, monkeypatch, tmp_path):
 # B11 -- dormant / zero call site + fresh import + control-path byte-unchanged
 # ==========================================================================
 def test_b11_zero_call_site():
-    for fn in (foundry.run_iteration, foundry.run_continuous,
-               foundry.run_stage, foundry.build_prompt):
+    # iter-72 (item 19, bite 3b-ii) WIRED run_execution_plan into run_iteration (its
+    # intended first call site), so run_iteration is no longer asserted
+    # zero-reference; run_continuous / run_stage / build_prompt and dispatcher.py
+    # still reference it NOWHERE.
+    for fn in (foundry.run_continuous, foundry.run_stage, foundry.build_prompt):
         src = inspect.getsource(fn)
         assert "run_execution_plan" not in src, fn.__name__
     dtext = DISPATCHER_PY.read_text(encoding="utf-8")

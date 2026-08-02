@@ -40,6 +40,14 @@ no-ship iteration. It is a deterministic inline step, not an agent-CLI run
 deterministic + offline-testable — an agent stage is neither). It never touches
 git write state: its only git is the read-only clone inside `verify_fresh_clone`.
 
+As of iter 72 the stage SEQUENCE is manifest-derivable: a product may drop a
+`staffing.json` to activate an extra (or reordered) seat, and `run_iteration`
+delegates the whole pipeline to the manifest-driven executor
+(`run_execution_plan`) ONLY when that manifest is non-default, `lint_manifest`-clean,
+and ends on the ship gate. An absent / default-equivalent / lint-dirty /
+release-not-last manifest -- i.e. every configured product today -- runs the five
+core stages above byte-for-byte, so the default path is unchanged.
+
 ## 3. Invariants (do not regress these)
 
 - **Output-file success.** `run_stage` returns success iff the named output file
@@ -168,6 +176,20 @@ Small, safe, reversible increments that keep `tests/` green and keep
   state artifact; iteration numbering, the `state/iter-NN` layout, and the
   `VERDICT:`/`RESULT:`/`ACTION:`/`POSTRELEASE:` contract are unchanged, so a live
   loop is byte-identical today and resumes cleanly on restart.
+
+- *iter 72:* item 19 bite 3b-ii (COMPLETES item 19) -- WIRE the manifest-driven
+  executor into `run_iteration`. The iter-68 detect-only guard is REPLACED: for a
+  NON-default staffing manifest that `lint_manifest`-clean AND whose execution
+  plan ENDS on the ship gate, `run_iteration` delegates the whole pipeline to
+  `run_execution_plan(cfg, iteration, plan, base)` and returns its result
+  verbatim; every other case (absent / default-equivalent / lint-dirty /
+  release-not-last -- every configured product today) runs the existing fixed
+  pipeline byte-for-byte. DORMANT-UNTIL-DATA and off the real control path today:
+  no configured product ships a non-default `staffing.json`, so a live loop is
+  byte-identical and resumes cleanly on restart; delegation activates only when an
+  operator adds a valid non-default manifest. It introduces NO new sentinel and NO
+  new state artifact; iteration numbering, the `state/iter-NN` layout, and the
+  `VERDICT:`/`RESULT:`/`ACTION:`/`POSTRELEASE:` contract are unchanged.
 
 ## 7. Public-safety: the committed portable leak-guard
 

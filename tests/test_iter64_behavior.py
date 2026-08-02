@@ -544,9 +544,16 @@ def test_b16_help_lists_lint_manifest():
 # Behavior 17 -- additivity / dormancy / positive wiring / import health
 # ==========================================================================
 def test_b17_control_flow_fns_do_not_reference_new_symbols():
+    # iter-72 (item 19, bite 3b-ii) WIRED lint_manifest into run_iteration as part
+    # of the manifest-driven executor delegation guard -- its intended first call
+    # site -- so run_iteration is no longer asserted zero-reference for that ONE
+    # name. Every OTHER new symbol stays dormant in run_iteration, and
+    # build_prompt / run_stage / run_continuous reference NONE of the new symbols.
+    wired_in_run_iteration = {"lint_manifest"}
     for fn_name in CONTROL_FLOW_FNS:
         refs = _co_names_deep(getattr(foundry, fn_name)) & set(NEW_SYMBOLS)
-        assert not refs, f"{fn_name} unexpectedly references {refs}"
+        allowed = wired_in_run_iteration if fn_name == "run_iteration" else set()
+        assert not (refs - allowed), f"{fn_name} unexpectedly references {refs - allowed}"
 
 
 def test_b17_positive_wiring_chain():
