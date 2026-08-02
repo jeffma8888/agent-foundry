@@ -44,6 +44,8 @@ import subprocess
 import sys
 import time
 
+from collections.abc import Sequence
+
 FOUNDRY = pathlib.Path(__file__).resolve().parent
 # The agent CLI is configurable so the foundry stays tool-agnostic. AGENT_BIN
 # is the executable each stage shells out to; AGENT_RUN_ARGS is its argument
@@ -2970,6 +2972,118 @@ def gate_verdict_cli(business: str, product: str, engineering: str) -> int:
           f"{', '.join(result.recyclers) if result.recyclers else '(none)'}")
     print(f"verdict: {result.verdict}")
     return {"GO": 0, "KILL": 1, "RECYCLE": 2}[result.verdict]
+
+
+# --------------------------------------------------------------------------- #
+# Per-role MODEL OVERRIDE resolver (DORMANT -- roadmap item 20, bite 3 of ~4).
+#
+# ORG_DESIGN section 9 / item 20 want a per-role model override: the staffing
+# manifest already carries a per-role `model` note (parsed by
+# `parse_staffing_manifest`, ~L1723), but nothing turns that note into the
+# argument vector a launcher would actually use. This bite supplies exactly that
+# missing PURE mapping -- a model note in, an agent-CLI argv out -- so the
+# product-gate PM and the release gate can run a DIFFERENT model than the
+# builder (a decorrelated adversarial seat: a same-model reviewer favors its own
+# author). Same purely-additive, off-control-path, on-demand-CLI class as the
+# sibling product_gate_precheck/gate-precheck (item 20 bite 1) and
+# aggregate_gate_verdict/gate-verdict (item 20 bite 2): the pipeline NEVER calls
+# it, so build_prompt/run_stage/run_iteration/run_continuous/run_execution_plan/
+# dispatcher.py are untouched, NO sentinel/config field/artifact is added, and
+# the CLI writes NOTHING (env/args level only, no subprocess launch). The
+# argument template is a module-level + patchable tuple read at CALL time (not
+# captured at import) -- see Behavior 6. The load-bearing invariant is the
+# passthrough: an empty/whitespace note returns the base argv byte-identical (no
+# args appended), so a later WIRING bite (bite 3b / bite 4) can adopt the
+# resolver in the live launch path with zero risk to the default (no-override)
+# behavior. Wiring the override into run_stage / the manifest executor is that
+# later bite; this bite is the pure resolver ALONE.
+# --------------------------------------------------------------------------- #
+MODEL_ARG_TEMPLATE: tuple[str, ...] = ("--model", "{model}")
+
+
+@dataclasses.dataclass(frozen=True)
+class RoleModelInvocation:
+    """A resolved per-role agent-CLI invocation for a model override (item 20).
+
+    Frozen so a resolved invocation cannot be mutated after the fact, which also
+    gives value-equality for free: two `resolve_role_model_argv` calls on the
+    same base argv + note hold equal fields, so they compare ``==`` (Behavior 1).
+    `model` is the stripped model note that was applied ("" when no override was
+    requested); `argv` is the full argument vector the launcher would use -- the
+    base argv with the model args APPENDED, or the base argv unchanged in the
+    passthrough case.
+    """
+    model: str
+    argv: tuple[str, ...]
+
+    @property
+    def overridden(self) -> bool:
+        """True iff a non-empty model note was applied (a pure derivation).
+
+        Equal to ``bool(self.model)``: the passthrough result carries
+        ``model == ""`` -> False, and an applied override carries a non-empty
+        stripped note -> True (Behavior 8).
+        """
+        return bool(self.model)
+
+
+def resolve_role_model_argv(
+    base_argv: Sequence[str],
+    model_note: str,
+    template: Sequence[str] | None = None,
+) -> RoleModelInvocation:
+    """Map a per-role model note to the agent-CLI argv a launcher would use.
+
+    Pure, total, deterministic: performs NO filesystem/subprocess/network/clock
+    access, never raises for any string sequence `base_argv` and any string
+    `model_note`, and equal inputs always yield an ``==``-equal result. Never
+    mutates `base_argv` (it is only iterated); the returned `argv` is a tuple.
+
+    Passthrough (Behavior 3): when ``model_note.strip()`` is empty (the note is
+    ``""`` or whitespace-only) the result is the base argv UNCHANGED --
+    ``argv == tuple(base_argv)`` with no args appended and ``model == ""`` -- the
+    "absent an override, current behavior is unchanged" invariant a later wiring
+    bite relies on.
+
+    Override (Behaviors 4/5): when the stripped note is non-empty the model args
+    are APPENDED after the base argv, in order -- each template element has the
+    literal substring ``{model}`` replaced with the stripped note (an element
+    with no ``{model}`` is appended unchanged). With the default
+    ``MODEL_ARG_TEMPLATE == ("--model", "{model}")`` and note ``"opus"`` the
+    appended args are ``("--model", "opus")``.
+
+    The template is read AT CALL TIME (Behavior 6): with ``template is None`` the
+    module constant ``MODEL_ARG_TEMPLATE`` is read here (not captured at import /
+    as a default-arg value), so monkeypatching it changes a subsequent call; an
+    explicit ``template=`` argument overrides the module constant for that call.
+    """
+    base = tuple(base_argv)
+    model = model_note.strip()
+    if not model:
+        return RoleModelInvocation(model="", argv=base)
+    tmpl = MODEL_ARG_TEMPLATE if template is None else tuple(template)
+    appended = tuple(element.replace("{model}", model) for element in tmpl)
+    return RoleModelInvocation(model=model, argv=base + appended)
+
+
+def role_model_cli(model_note: str) -> int:
+    """On-demand CLI: resolve a per-role model note over the launcher base argv.
+
+    Resolves `resolve_role_model_argv` over the module ``AGENT_RUN_ARGS`` as the
+    base argv and ``MODEL_ARG_TEMPLATE`` as the template (BOTH read at call time
+    so a monkeypatch bites -- Behavior 11), prints the resolved argv and a
+    summary (the applied model + ``overridden: true|false``), then returns ``0``
+    when an override was applied / ``1`` on passthrough (empty/whitespace note).
+    Writes NOTHING to disk. A THIN wrapper over the pure core: it adds no logic
+    beyond resolve -> format, so the printed argv/model/overridden figures always
+    match the `RoleModelInvocation` fields and property.
+    """
+    result = resolve_role_model_argv(AGENT_RUN_ARGS, model_note)
+    print("role-model:")
+    print(f"  argv: {list(result.argv)}")
+    print(f"  model: {result.model or '(none)'}")
+    print(f"  overridden: {'true' if result.overridden else 'false'}")
+    return 0 if result.overridden else 1
 
 
 # --------------------------------------------------------------------------- #
@@ -8640,6 +8754,19 @@ def main(argv: list[str] | None = None) -> int:
                      help="the Product seat's raw Go/Kill/Recycle verdict")
     gvd.add_argument("--engineering", required=True,
                      help="the Senior-engineer seat's raw Go/Kill/Recycle verdict")
+    # `role-model` resolves a per-role MODEL-OVERRIDE note (item 20 bite 3) into
+    # the agent-CLI argv a launcher would use over the module `AGENT_RUN_ARGS`
+    # base + `MODEL_ARG_TEMPLATE` (both read at call time). It takes an optional
+    # `--model` NOTE (default ""), NOT a product --config, so like
+    # `gate-verdict`/`gate-precheck`/`lint-spec` it is dispatched BEFORE the
+    # top-level `load_config` below. DORMANT / on-demand only -- the pipeline/
+    # gate/dispatcher NEVER call it; it writes nothing. Exit 0 override-applied /
+    # 1 passthrough (empty/whitespace note).
+    rmo = sub.add_parser("role-model")
+    rmo.add_argument("--model", default="",
+                     help="per-role model note to resolve into agent-CLI args; "
+                          "empty or whitespace-only means passthrough (no "
+                          "override)")
     # `lint-config` is the CONFIG-validation complement to `doctor` (env, #0)
     # and `lint-spec` (spec, #6): an offline, deterministic linter that inspects
     # a resolved product config for the misconfigurations that silently waste a
@@ -9103,6 +9230,8 @@ def main(argv: list[str] | None = None) -> int:
         return gate_precheck_cli(args.file)
     if args.cmd == "gate-verdict":
         return gate_verdict_cli(args.business, args.product, args.engineering)
+    if args.cmd == "role-model":
+        return role_model_cli(args.model)
     if args.cmd == "lint-config":
         return lint_config_cli(args.config, as_json=args.json)
     if args.cmd == "lint-bench":
