@@ -221,11 +221,17 @@ def test_b9_no_card_file_required_and_deterministic():
 # B10 -- DORMANT / zero call site
 # --------------------------------------------------------------------------
 def test_b10_dormant_zero_call_site():
-    for fn in (foundry.run_iteration, foundry.run_continuous,
-               foundry.run_stage, foundry.build_prompt):
+    # iter-68 (item 19, bite 2) WIRED derive_stage_sequence into run_iteration --
+    # its intended first call site -- so run_iteration is no longer asserted
+    # zero-call-site for that NAME. StageSpec stays fully dormant everywhere
+    # (run_iteration consumes only a derived sequence, never StageSpec by name);
+    # run_continuous / run_stage / build_prompt and dispatcher.py still reference
+    # NEITHER symbol.
+    for fn in (foundry.run_continuous, foundry.run_stage, foundry.build_prompt):
         src = inspect.getsource(fn)
         assert "derive_stage_sequence" not in src, fn.__name__
         assert "StageSpec" not in src, fn.__name__
+    assert "StageSpec" not in inspect.getsource(foundry.run_iteration)
     dtext = DISPATCHER_PY.read_text(encoding="utf-8")
     assert "derive_stage_sequence" not in dtext
     assert "StageSpec" not in dtext

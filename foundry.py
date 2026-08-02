@@ -100,6 +100,7 @@ class ProductConfig:
     roles_dir: str = ""          # defaults to <foundry>/roles
     work_root: str = ""          # defaults to <foundry>/products/<name>
     learnings: str = ""          # defaults to <work_root>/LEARNINGS.md
+    staffing: str = ""           # defaults to <work_root>/staffing.json (item 19)
     quality_bar: str = ""        # free-form product quality constraints
     push_enabled: bool = True    # gate may push (False => dry-run / review-only)
     # Post-release fresh-clone verification (dormant until wired in iter 03).
@@ -126,6 +127,12 @@ class ProductConfig:
             FOUNDRY / "products" / self.name)
         self.learnings = expand(self.learnings) or str(
             pathlib.Path(self.work_root) / "LEARNINGS.md")
+        # staffing manifest (item 19): an explicit path (with {FOUNDRY}/~
+        # expanded) wins; otherwise default to <work_root>/staffing.json --
+        # foundry-side product metadata alongside LEARNINGS.md, NOT a file in
+        # the product's own git repo. Needs `work_root` resolved first (above).
+        self.staffing = expand(self.staffing) or str(
+            pathlib.Path(self.work_root) / "staffing.json")
         return self
 
     @property
@@ -2143,6 +2150,27 @@ def derive_stage_sequence(manifest: dict | None) -> tuple[StageSpec, ...]:
             return _default_stage_sequence()
         names.append(name)
     return tuple(_stage_spec_for_seat(name) for name in names)
+
+
+def load_staffing_manifest(cfg: ProductConfig) -> dict | None:
+    """Read the product's staffing manifest as a dict, or None if unusable.
+
+    The manifest READ seam for item 19 (bite 2): read `cfg.staffing` (resolved
+    to `<work_root>/staffing.json` by default) and return the parsed JSON
+    OBJECT. FAIL-SAFE and NEVER raises -- returns None for every unusable case
+    (missing file, a directory, an unreadable path, invalid JSON, or a
+    valid-JSON NON-object such as a bare array / number / string) so a broken
+    or absent manifest is indistinguishable from "no manifest" to the caller.
+    The strict contract is `dict | None`; structural validity beyond "is a JSON
+    object" is left to `derive_stage_sequence` (fail-safe) and, in bite 3,
+    `lint_manifest`. Module-level so `run_iteration` calls it by BARE name and a
+    test's `monkeypatch.setattr(foundry, "load_staffing_manifest", ...)` bites.
+    """
+    try:
+        data = json.loads(pathlib.Path(cfg.staffing).read_text())
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
 
 
 # --------------------------------------------------------------------------- #
@@ -7896,6 +7924,18 @@ def run_iteration(cfg: ProductConfig, iteration: int | None = None) -> dict:
     base = head_of_branch(cfg)
     log(cfg, f"—— iteration {iteration:02d} begins (origin/{cfg.branch} {base}; "
         f"power: {power_state()}) ——")
+
+    # item 19 (bite 2): READ the staffing manifest each iteration and derive the
+    # stage sequence. This bite DETECTS a non-default team and logs it, but still
+    # runs the fixed pipeline below (the manifest-driven EXECUTOR lands in bite
+    # 3). An absent OR default-equivalent manifest (every product today) derives
+    # to `_default_stage_sequence()`, so the guard is a runtime no-op until an
+    # operator adds a non-default staffing.json -- resume stays byte-for-byte.
+    sequence = derive_stage_sequence(load_staffing_manifest(cfg))
+    if sequence != _default_stage_sequence():
+        log(cfg, f"iter {iteration:02d} staffing manifest activates a "
+            f"non-default team ({len(sequence)} seats); running the default "
+            f"pipeline this bite (executor lands in bite 3)")
 
     ok, _ = run_stage(cfg, iteration, "pm", "pm.md", "pm.md")
     if not ok:
