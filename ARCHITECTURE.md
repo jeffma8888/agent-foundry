@@ -155,6 +155,19 @@ Small, safe, reversible increments that keep `tests/` green and keep
   iteration numbering, or the `state/iter-NN` layout. So a live loop is
   byte-identical today and resumes cleanly on restart — the advisory activates
   only on a clean restart.
+- *iter 68:* item 19 bite 2 -- the FIRST `run_iteration` control-flow touch for
+  the manifest-driven pipeline. `run_iteration` now READS the product's staffing
+  manifest each iteration (`load_staffing_manifest(cfg)` -> `dict | None`,
+  resolved to `<work_root>/staffing.json` by default) and derives a stage
+  sequence. This bite only DETECTS a non-default team (an extra/reordered seat):
+  it logs one diagnostic and still runs the existing fixed pipeline; the
+  manifest-driven EXECUTOR is deferred to bite 3. ADDITIVE and a runtime no-op
+  for every product today -- an absent OR default-equivalent manifest derives to
+  `_default_stage_sequence()`, so the guard changes nothing until an operator
+  adds a non-default `staffing.json`. It introduces NO new sentinel and NO new
+  state artifact; iteration numbering, the `state/iter-NN` layout, and the
+  `VERDICT:`/`RESULT:`/`ACTION:`/`POSTRELEASE:` contract are unchanged, so a live
+  loop is byte-identical today and resumes cleanly on restart.
 
 ## 7. Public-safety: the committed portable leak-guard
 
