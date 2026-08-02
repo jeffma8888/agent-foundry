@@ -2682,6 +2682,144 @@ def gate_scope_cli(cfg: ProductConfig, files=None, base=None) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Product-gate deterministic pre-check (DORMANT -- roadmap item 20, bite 1).
+#
+# The tri-perspective product gate (ORG_DESIGN.md section 6, README "tri-
+# perspective product gate") subjects each proposal to three decorrelated
+# adversarial attacks so runway is not spent on ideas that cannot survive them;
+# the default verdict is Kill. Two design details keep the gate "cheap and
+# honest": DETERMINISTIC pre-checks that "run before any model call" and bounce
+# FOR FREE a proposal missing its impact number / stated appetite / listed
+# alternatives, and a circuit-breaker iteration bet. This is the offline,
+# deterministic pre-check slice that lands FIRST -- the same purely-additive,
+# off-control-path, on-demand-CLI class as spec_lint/lint-spec (item 5),
+# classify_gate_scope/gate-scope (item 4), and prd_status/prd (item 11): the
+# pipeline NEVER calls it, so build_prompt/run_stage/run_iteration/
+# run_continuous/run_execution_plan/dispatcher.py are untouched, NO sentinel/
+# config field/artifact is added, and the CLI writes NOTHING. The three keyword
+# tuples are module-level + patchable so the vocabularies stay tunable per box
+# AND are read at CALL time (not captured at import) -- see Behavior 10. Wiring
+# the pre-check into the product-gate STAGE is a later bite (item 20 bite 4).
+# --------------------------------------------------------------------------- #
+GATE_IMPACT_KEYWORDS: tuple[str, ...] = ("impact",)
+GATE_APPETITE_KEYWORDS: tuple[str, ...] = ("appetite",)
+GATE_ALTERNATIVES_KEYWORDS: tuple[str, ...] = ("alternative",)
+
+
+@dataclasses.dataclass(frozen=True)
+class ProductGatePrecheck:
+    """The deterministic pre-check verdict for one product proposal (item 20).
+
+    Frozen so a computed verdict can't be mutated after the fact, which also
+    gives value-equality for free: two `product_gate_precheck` calls on the same
+    text hold equal fields, so they compare ``==`` (Behavior 1). The three stored
+    booleans are the raw measurements taken from the proposal at call time; the
+    three properties are pure derivations, so the whole verdict follows
+    deterministically from what was measured (the CLI adds no logic on top). The
+    default is Kill: `verdict` is ``"PROCEED"`` ONLY when all three are present.
+    """
+    impact_present: bool
+    appetite_present: bool
+    alternatives_present: bool
+
+    @property
+    def passed(self) -> bool:
+        """True iff the proposal has an impact number, an appetite, AND an alternative."""
+        return (self.impact_present and self.appetite_present
+                and self.alternatives_present)
+
+    @property
+    def verdict(self) -> str:
+        """The operator-facing token: ``"PROCEED"`` when passed, else ``"KILL"``.
+
+        Default-Kill: any failed pre-check bounces the proposal for free, before
+        a single model call is spent on it.
+        """
+        return "PROCEED" if self.passed else "KILL"
+
+    @property
+    def missing(self) -> tuple[str, ...]:
+        """The human labels of the FAILED checks, in a fixed order.
+
+        Order is always ``("impact number", "appetite", "alternatives")``
+        filtered to the checks that failed, so the report is stable and
+        greppable. Empty tuple iff `passed`.
+        """
+        labels: list[str] = []
+        if not self.impact_present:
+            labels.append("impact number")
+        if not self.appetite_present:
+            labels.append("appetite")
+        if not self.alternatives_present:
+            labels.append("alternatives")
+        return tuple(labels)
+
+
+def product_gate_precheck(proposal_text: str) -> ProductGatePrecheck:
+    """Run the product gate's deterministic pre-checks on a proposal (pure, total).
+
+    Reads the three module knobs -- ``GATE_IMPACT_KEYWORDS``,
+    ``GATE_APPETITE_KEYWORDS``, ``GATE_ALTERNATIVES_KEYWORDS`` -- AT CALL TIME
+    (not captured at import / as default args) so patching any of them changes a
+    subsequent call's verdict (Behavior 10). Performs NO filesystem/subprocess/
+    network/clock access, never raises for any ``proposal_text`` (including
+    ``""``), and is deterministic, so the same input always yields an equal
+    ``ProductGatePrecheck``.
+
+    The IMPACT check demands an impact NUMBER, not just an impact claim: some
+    line whose lowercase contains an impact keyword AND that SAME line carries at
+    least one digit (so "This has real impact." with no number, and "3 weeks"
+    with no impact keyword, both fail impact). Appetite/alternatives need only
+    their keyword on some line (no digit). Matching is case-insensitive
+    (compare against ``line.lower()``); a "digit" is any ``c`` with
+    ``c.isdigit()`` True.
+    """
+    lowered = [ln.lower() for ln in proposal_text.splitlines()]
+
+    def has_keyword(keywords: tuple[str, ...]) -> bool:
+        return any(any(kw in ln for kw in keywords) for ln in lowered)
+
+    impact_present = any(
+        any(kw in ln for kw in GATE_IMPACT_KEYWORDS)
+        and any(ch.isdigit() for ch in ln)
+        for ln in lowered
+    )
+    return ProductGatePrecheck(
+        impact_present=impact_present,
+        appetite_present=has_keyword(GATE_APPETITE_KEYWORDS),
+        alternatives_present=has_keyword(GATE_ALTERNATIVES_KEYWORDS),
+    )
+
+
+def gate_precheck_cli(path: str) -> int:
+    """On-demand CLI: run the product-gate pre-checks on a proposal file.
+
+    Reads the file at ``path``, computes `product_gate_precheck`, prints a
+    human-readable report, and returns ``0`` (PROCEED) / ``1`` (KILL) / ``2``
+    (file not found). Writes NOTHING to disk. A THIN wrapper over the pure core:
+    it adds no pre-check logic beyond read -> `product_gate_precheck` -> format,
+    so the printed present/missing figures always match the
+    ``ProductGatePrecheck`` fields. A missing file returns ``2`` (distinct from a
+    KILL verdict) WITHOUT letting a ``FileNotFoundError`` propagate.
+    """
+    p = pathlib.Path(path)
+    if not p.exists():
+        print(f"gate-precheck: file not found: {path}")
+        return 2
+    result = product_gate_precheck(p.read_text())
+    print(f"gate-precheck: {path}")
+    print(f"  impact_present: {result.impact_present}  "
+          f"appetite_present: {result.appetite_present}  "
+          f"alternatives_present: {result.alternatives_present}")
+    if result.missing:
+        print(f"  missing: {', '.join(result.missing)}")
+    else:
+        print("  missing: (none)")
+    print(f"verdict: {result.verdict}")
+    return 0 if result.passed else 1
+
+
+# --------------------------------------------------------------------------- #
 # Assertion-free test detector (DORMANT — roadmap item 6, offline slice).
 #
 # Item 6's own failure mode: a fresh Tester agent writes a `test*` function that
@@ -8321,6 +8459,18 @@ def main(argv: list[str] | None = None) -> int:
     lnt = sub.add_parser("lint-spec")
     lnt.add_argument("--file", required=True,
                      help="path to a PM spec (pm.md) to lint")
+    # `gate-precheck` runs the tri-perspective product gate's DETERMINISTIC
+    # pre-checks on a proposal file (item 20 bite 1, the deterministic slice):
+    # it bounces FOR FREE -- before any model call -- a proposal missing an
+    # impact NUMBER, a stated appetite, or a listed alternative, with a
+    # default-Kill verdict. It takes a proposal PATH (--file), NOT a product
+    # --config, so like `lint-spec` it is dispatched BEFORE the top-level
+    # `load_config` below. DORMANT / on-demand only -- the pipeline/gate/
+    # dispatcher NEVER call it; it writes nothing. Exit 0 PROCEED / 1 KILL /
+    # 2 file-not-found.
+    gpc = sub.add_parser("gate-precheck")
+    gpc.add_argument("--file", required=True,
+                     help="path to a product proposal to pre-check")
     # `lint-config` is the CONFIG-validation complement to `doctor` (env, #0)
     # and `lint-spec` (spec, #6): an offline, deterministic linter that inspects
     # a resolved product config for the misconfigurations that silently waste a
@@ -8780,6 +8930,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "lint-spec":
         return lint_spec_cli(args.file)
+    if args.cmd == "gate-precheck":
+        return gate_precheck_cli(args.file)
     if args.cmd == "lint-config":
         return lint_config_cli(args.config, as_json=args.json)
     if args.cmd == "lint-bench":
