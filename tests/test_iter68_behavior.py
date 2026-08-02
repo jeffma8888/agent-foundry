@@ -279,8 +279,15 @@ def test_b6_none_manifest_runs_default_pipeline(cfg, monkeypatch):
 #       pipeline (no extra seat runs this bite)
 # --------------------------------------------------------------------------
 def test_b7_non_default_manifest_logs_and_falls_back(cfg, monkeypatch):
-    names = ["product_manager", "engineer", "designer",
-             "reviewer", "qa_tester", "release_gate"]
+    # iter-72 (item 19, bite 3b-ii) WIRED the executor: a non-default manifest that
+    # ALSO lints clean AND ends on the ship gate now DELEGATES instead of falling
+    # back. To keep exercising the SURVIVING detect-and-fall-back path, use a
+    # non-default manifest that is NOT delegable -- an extra seat declared AFTER
+    # release_gate (so the plan's last step is the bench seat, not the ship gate).
+    # It still derives to a non-default sequence and logs exactly one diagnostic,
+    # but run_iteration falls back to the fixed pipeline (iter-72 Behavior 7).
+    names = ["product_manager", "engineer", "reviewer",
+             "qa_tester", "release_gate", "designer"]
     mf = _manifest(names)
     # precondition: this manifest genuinely derives to a NON-default sequence
     assert foundry.derive_stage_sequence(mf) != foundry.derive_stage_sequence(None)
@@ -320,8 +327,11 @@ def test_b9_guard_introduces_no_new_artifact_or_key(cfg, monkeypatch):
     res_none, _, _ = _drive(cfg, monkeypatch, None, 68)
     files_none = {p.name for p in (cfg.state / "iter-68").iterdir()}
 
-    nd = _manifest(["product_manager", "engineer", "designer",
-                    "reviewer", "qa_tester", "release_gate"])
+    # iter-72 wired the executor: use a NON-delegable non-default manifest (extra
+    # seat AFTER release_gate) so this still exercises the fall-back path -- no new
+    # artifact -- matching the b7 fix above.
+    nd = _manifest(["product_manager", "engineer", "reviewer",
+                    "qa_tester", "release_gate", "designer"])
     res_nd, _, _ = _drive(cfg, monkeypatch, nd, 69)
     files_nd = {p.name for p in (cfg.state / "iter-69").iterdir()}
 

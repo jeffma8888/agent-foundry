@@ -8122,17 +8122,31 @@ def run_iteration(cfg: ProductConfig, iteration: int | None = None) -> dict:
     log(cfg, f"—— iteration {iteration:02d} begins (origin/{cfg.branch} {base}; "
         f"power: {power_state()}) ——")
 
-    # item 19 (bite 2): READ the staffing manifest each iteration and derive the
-    # stage sequence. This bite DETECTS a non-default team and logs it, but still
-    # runs the fixed pipeline below (the manifest-driven EXECUTOR lands in bite
-    # 3). An absent OR default-equivalent manifest (every product today) derives
-    # to `_default_stage_sequence()`, so the guard is a runtime no-op until an
-    # operator adds a non-default staffing.json -- resume stays byte-for-byte.
-    sequence = derive_stage_sequence(load_staffing_manifest(cfg))
+    # item 19 (bite 3b-ii, COMPLETES item 19): READ the staffing manifest each
+    # iteration and derive the stage sequence. For a NON-default team whose
+    # manifest lints CLEAN and whose execution plan ENDS on the ship gate,
+    # delegate the whole pipeline to the manifest-driven executor
+    # `run_execution_plan`. Every other case (absent / default-equivalent /
+    # lint-dirty / release-not-last -- i.e. every configured product today)
+    # falls through to the fixed pipeline below, byte-for-byte identical, so a
+    # live loop resumes byte-for-byte until an operator drops a valid non-default
+    # staffing.json. Short-circuit safe: a non-default sequence is never empty
+    # (so `plan[-1]` is always valid) and `and` never evaluates `plan[-1]` when
+    # the lint is dirty.
+    manifest = load_staffing_manifest(cfg)
+    sequence = derive_stage_sequence(manifest)
     if sequence != _default_stage_sequence():
-        log(cfg, f"iter {iteration:02d} staffing manifest activates a "
-            f"non-default team ({len(sequence)} seats); running the default "
-            f"pipeline this bite (executor lands in bite 3)")
+        plan = derive_execution_plan(sequence)
+        lint = lint_manifest(manifest, pathlib.Path(cfg.roles_dir) / "bench",
+                             str(cfg.staffing))
+        if lint.clean and plan[-1].is_ship_gate:
+            log(cfg, f"iter {iteration:02d} staffing manifest activates a "
+                f"non-default team ({len(sequence)} seats); delegating to the "
+                f"manifest-driven executor")
+            return run_execution_plan(cfg, iteration, plan, base)
+        log(cfg, f"iter {iteration:02d} staffing manifest activates a non-default "
+            f"team ({len(sequence)} seats) but is not delegable; running the "
+            f"fixed pipeline")
 
     ok, _ = run_stage(cfg, iteration, "pm", "pm.md", "pm.md")
     if not ok:

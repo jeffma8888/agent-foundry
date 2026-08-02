@@ -282,10 +282,19 @@ NEW_SYMBOL_NAMES = ("derive_execution_plan", "StagePlan", "SEAT_GATE_KINDS")
 
 
 def test_b11_zero_call_site():
+    # iter-72 (item 19, bite 3b-ii) WIRED derive_execution_plan into run_iteration
+    # (its intended first call site), so run_iteration is no longer asserted
+    # zero-reference for THAT name; StagePlan / SEAT_GATE_KINDS stay dormant
+    # everywhere, and run_continuous / run_stage / build_prompt (and dispatcher.py)
+    # reference NONE of the three new symbols.
+    wired_in_run_iteration = {"derive_execution_plan"}
     for fn in (foundry.run_iteration, foundry.run_continuous,
                foundry.run_stage, foundry.build_prompt):
         src = inspect.getsource(fn)
+        allowed = wired_in_run_iteration if fn.__name__ == "run_iteration" else set()
         for name in NEW_SYMBOL_NAMES:
+            if name in allowed:
+                continue
             assert name not in src, (fn.__name__, name)
     dtext = DISPATCHER_PY.read_text(encoding="utf-8")
     for name in NEW_SYMBOL_NAMES:
