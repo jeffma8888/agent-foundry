@@ -2152,6 +2152,114 @@ def derive_stage_sequence(manifest: dict | None) -> tuple[StageSpec, ...]:
     return tuple(_stage_spec_for_seat(name) for name in names)
 
 
+# --------------------------------------------------------------------------- #
+# Execution PLAN (roadmap item 19, bite 3a) -- the DORMANT pure layer above
+# `derive_stage_sequence`. A derived `StageSpec` sequence says WHICH seats run
+# in WHAT order; an execution plan additionally pairs each seat with the GATE
+# BEHAVIOR the executor must apply (pm / build / review / test / release /
+# bench). `SEAT_GATE_KINDS` is the single source of truth mapping each core seat
+# to its gate kind, mirroring `run_iteration`'s hard-coded per-stage behavior
+# VERBATIM: the pm stage failing returns infra-fail with NO revert (nothing is
+# built yet); every later stage failing reverts; only the release stage runs the
+# `ACTION: PUSHED` -> ship + `postrelease_step` branch. An extra activated bench
+# seat defaults to the `bench` gate (revert-on-fail, never a ship gate). This is
+# PURE + offline + never-raises and has ZERO call site: it is the pre-computed,
+# already-verified plan the manifest-driven executor (bite 3b) will iterate, so
+# wiring becomes a thin switch over this plan rather than from-scratch gate
+# reasoning. The gate-triggered/mechanical stages (fix-review / fix-tests /
+# tester-rerun / reporter) are NOT manifest-derived seats (the iter-67
+# exclusion): they are IMPLIED by the `review`/`test` gate kinds and handled
+# inline by the executor, never their own plan steps.
+# --------------------------------------------------------------------------- #
+
+# Each core seat -> the gate kind the executor applies for that stage. Kept
+# beside `CORE_SEAT_STAGES`/`MANIFEST_CORE_SEATS` so the seat identities and
+# their gate behaviors stay a single source of truth; `tuple(SEAT_GATE_KINDS)`
+# equals `MANIFEST_CORE_SEATS` (same five keys, same order).
+SEAT_GATE_KINDS: dict[str, str] = {
+    "product_manager": "pm",
+    "engineer": "build",
+    "reviewer": "review",
+    "qa_tester": "test",
+    "release_gate": "release",
+}
+
+# The gate kind for any NON-core (extra activated bench) seat: bench seats
+# revert-on-fail and are never a ship gate.
+DEFAULT_GATE_KIND = "bench"
+
+
+@dataclasses.dataclass(frozen=True)
+class StagePlan:
+    """One planned pipeline stage: its `StageSpec` plus the executor gate kind.
+
+    Frozen for value-equality + immutability (matching `StageSpec` and the other
+    verdict cores) so a derived plan can be compared element-by-element and
+    cannot be mutated after derivation. `spec` is the iter-67 `StageSpec` (which
+    seat runs, and the `run_stage` args); `gate` is the gate-behavior kind the
+    executor applies (`pm`/`build`/`review`/`test`/`release`/`bench`). The two
+    properties are pure derivations of `gate`, so a stage's fail/ship semantics
+    follow deterministically from its gate kind.
+    """
+    spec: StageSpec
+    gate: str
+
+    @property
+    def reverts_on_fail(self) -> bool:
+        """True iff a failure at this stage must `revert_repo`.
+
+        Mirrors `run_iteration`: the `pm` stage failing returns infra-fail with
+        NO revert (nothing has been built yet), so ONLY `pm` is False; every
+        other gate (`build`/`review`/`test`/`release`/`bench`) reverts on fail.
+        """
+        return self.gate != "pm"
+
+    @property
+    def is_ship_gate(self) -> bool:
+        """True iff this stage runs the ship (`ACTION: PUSHED` + postrelease).
+
+        Mirrors `run_iteration`: only the `final`/`release_gate` stage runs the
+        `ACTION: PUSHED` -> ship + `postrelease_step` branch.
+        """
+        return self.gate == "release"
+
+
+def _gate_kind_for_seat(seat: str) -> str:
+    """The gate kind for one seat name.
+
+    A CORE seat (a key of `SEAT_GATE_KINDS`) uses its declared gate kind; any
+    other name is an extra activated bench seat and uses `DEFAULT_GATE_KIND`
+    (`"bench"`). EXACT match only -- no normalization, so `"reviewer "` (a
+    trailing space) or `""` is a bench seat. Reads the module globals INSIDE the
+    function (not captured at def-time) so a `monkeypatch.setattr` on either
+    `SEAT_GATE_KINDS` or `DEFAULT_GATE_KIND` takes effect. Pure; never raises for
+    a string input.
+    """
+    return SEAT_GATE_KINDS.get(seat, DEFAULT_GATE_KIND)
+
+
+def derive_execution_plan(
+        sequence: tuple[StageSpec, ...] | list[StageSpec]) -> tuple[StagePlan, ...]:
+    """Map a derived `StageSpec` sequence to the ordered EXECUTION PLAN.
+
+    PURE + deterministic + offline (no filesystem / network / subprocess /
+    clock) and NEVER raises for a sequence of `StageSpec`s. Returns one
+    `StagePlan` per input `StageSpec`, IN THE SAME ORDER, pairing each spec with
+    `_gate_kind_for_seat(spec.seat)` -- so the DEFAULT sequence reproduces
+    `run_iteration`'s five hard-coded stages and their gate behaviors
+    bit-for-bit (Behavior 7), and an extra activated seat gets the `bench` gate
+    at its declared position. `StagePlan.spec` is the identical input object.
+    Accepts any finite iterable of `StageSpec` (a list or a tuple) and returns a
+    tuple in both cases; two calls on equal input return equal output. This has
+    ZERO call site -- the manifest-driven executor (bite 3b) will consume it;
+    nothing runs it yet.
+    """
+    return tuple(
+        StagePlan(spec=spec, gate=_gate_kind_for_seat(spec.seat))
+        for spec in sequence
+    )
+
+
 def load_staffing_manifest(cfg: ProductConfig) -> dict | None:
     """Read the product's staffing manifest as a dict, or None if unusable.
 
