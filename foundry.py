@@ -3087,6 +3087,147 @@ def role_model_cli(model_note: str) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Composite product-gate decision (DORMANT -- roadmap item 20, bite 4a).
+#
+# The tri-perspective product gate (ORG_DESIGN.md section 6) wants a proposal to
+# survive the deterministic pre-checks FIRST -- bouncing for free before any
+# model call is spent -- and only then face three decorrelated seat votes folded
+# into one Go/Kill/Recycle verdict with default-Kill. Bites 1-3 shipped the
+# three pure ingredients dormant: product_gate_precheck (the free pre-check,
+# item 20 bite 1), aggregate_gate_verdict (the seat aggregation, item 20 bite 2),
+# and resolve_role_model_argv (the per-role model override, item 20 bite 3).
+# This bite ships the pure COMPOSITION that realizes the ordering: run the free
+# pre-check, and consult the seats ONLY if it passes. It is the same purely-
+# additive, off-control-path, on-demand-CLI class as its siblings
+# product_gate_precheck/gate-precheck (item 20 bite 1) and aggregate_gate_verdict
+# /gate-verdict (item 20 bite 2): the pipeline NEVER calls it, so build_prompt/
+# run_stage/run_iteration/run_continuous/run_execution_plan/dispatcher.py are
+# untouched, NO sentinel/config field/artifact is added, and the CLI writes
+# NOTHING. It reuses the two shipped cores (which thereby gain a new NON-
+# orchestrator caller but stay absent from the orchestrators, so the iter-73/
+# iter-74 dormancy tests still hold) and inherits their call-time knob reads.
+# Wiring the composite into the product-gate STAGE (with an events.jsonl gate
+# kind + the fixed iteration bet) is the final item-20 bite.
+# --------------------------------------------------------------------------- #
+@dataclasses.dataclass(frozen=True)
+class ProductGateDecision:
+    """The composite tri-perspective product-gate decision for one proposal (item 20).
+
+    Frozen so a computed decision can't be mutated after the fact, which also
+    gives value-equality for free: two `decide_product_gate` calls on the same
+    four args hold equal fields, so they compare ``==`` (Behavior 1). Folds the
+    two shipped decision cores in the ORG_DESIGN section-6 ORDER: the
+    deterministic `precheck` runs first and, when it does NOT pass, the proposal
+    is bounced FOR FREE and `seats` is ``None`` -- the seat aggregation is never
+    computed (Behavior 4). Only when the pre-check passes does `seats` hold the
+    aggregated `ProductGateVerdict` (Behavior 5). The two properties are pure
+    derivations, so the composite verdict follows deterministically from the two
+    stored cores (the CLI adds no logic on top).
+    """
+    precheck: ProductGatePrecheck
+    seats: ProductGateVerdict | None
+
+    @property
+    def bounced(self) -> bool:
+        """True iff the pre-check did NOT pass (equivalently, iff `seats is None`).
+
+        The bounce-for-free signal: a bounced proposal never reaches the three
+        seats, so no model call is spent on a proposal the free deterministic
+        checks already reject (Behavior 6).
+        """
+        return not self.precheck.passed
+
+    @property
+    def verdict(self) -> str:
+        """The composite gate token: ``"KILL"`` when bounced, else the seat verdict.
+
+        A bounced proposal is a default-Kill (the pre-check failed, so the seats
+        were never consulted); otherwise the verdict is the aggregated seat
+        verdict -- one of ``"GO"``/``"KILL"``/``"RECYCLE"`` (Behavior 7). The
+        ``self.seats is None`` guard is redundant with `bounced` by construction
+        (they are equivalent), but keeps the property total and None-safe.
+        """
+        if self.bounced or self.seats is None:
+            return "KILL"
+        return self.seats.verdict
+
+
+def decide_product_gate(
+    proposal_text: str, business: str, product: str, engineering: str
+) -> ProductGateDecision:
+    """Compose the two shipped product-gate cores into one decision (pure, total).
+
+    Realizes the ORG_DESIGN section-6 ORDERING: run the deterministic
+    `product_gate_precheck` FIRST and, if it does NOT pass, bounce the proposal
+    for free -- `seats` is ``None`` and `aggregate_gate_verdict` is NEVER called,
+    so no model call would be spent on a proposal the free checks already reject
+    (Behavior 4). Only when the pre-check passes are the three seat verdicts
+    folded via `aggregate_gate_verdict` (Behavior 5). Adds NO gate logic of its
+    own beyond this composition + ordering, so the decision follows
+    deterministically from the two shipped cores.
+
+    Pure, total, deterministic: performs NO filesystem/subprocess/network/clock
+    access (it only calls the two pure cores), never raises for ANY four string
+    inputs (including all four ``""``), and equal inputs always yield an
+    ``==``-equal `ProductGateDecision`. Because it reuses the shipped cores, it
+    honors their call-time knob reads -- patching e.g. ``GATE_APPETITE_KEYWORDS``
+    or ``GATE_GO_TOKENS`` by bare name changes a subsequent decision (Behavior 8).
+    """
+    precheck = product_gate_precheck(proposal_text)
+    seats = (
+        aggregate_gate_verdict(business, product, engineering)
+        if precheck.passed
+        else None
+    )
+    return ProductGateDecision(precheck=precheck, seats=seats)
+
+
+def product_gate_cli(
+    path: str, business: str, product: str, engineering: str
+) -> int:
+    """On-demand CLI: run the composite product gate on a proposal file.
+
+    Reads the proposal at ``path``, computes `decide_product_gate`, prints the
+    pre-check present/missing figures followed by either the seat verdicts +
+    killer/recycler rosters (when the pre-check passed, `seats` not ``None``) or
+    a bounced note (when it did not, `seats is None`), then a final ``verdict:``
+    line, and returns ``{"GO": 0, "KILL": 1, "RECYCLE": 2}[decision.verdict]``
+    (so a bounced proposal returns ``1`` KILL). A missing file prints a
+    ``file not found`` message naming the path and returns ``3`` -- distinct from
+    every verdict code -- WITHOUT letting a ``FileNotFoundError`` propagate.
+    Writes NOTHING to disk. A THIN wrapper over the pure core: it adds no gate
+    logic beyond read -> `decide_product_gate` -> format, so the printed figures
+    always match the ``ProductGateDecision`` fields and properties.
+    """
+    p = pathlib.Path(path)
+    if not p.exists():
+        print(f"product-gate: file not found: {path}")
+        return 3
+    decision = decide_product_gate(p.read_text(), business, product, engineering)
+    pc = decision.precheck
+    print(f"product-gate: {path}")
+    print(f"  impact_present: {pc.impact_present}  "
+          f"appetite_present: {pc.appetite_present}  "
+          f"alternatives_present: {pc.alternatives_present}")
+    if pc.missing:
+        print(f"  missing: {', '.join(pc.missing)}")
+    else:
+        print("  missing: (none)")
+    seats = decision.seats
+    if seats is None:
+        print("  seats: bounced (pre-check failed, seats not consulted)")
+    else:
+        print(f"  business: {seats.business}  product: {seats.product}  "
+              f"engineering: {seats.engineering}")
+        print(f"  killers: "
+              f"{', '.join(seats.killers) if seats.killers else '(none)'}")
+        print(f"  recyclers: "
+              f"{', '.join(seats.recyclers) if seats.recyclers else '(none)'}")
+    print(f"verdict: {decision.verdict}")
+    return {"GO": 0, "KILL": 1, "RECYCLE": 2}[decision.verdict]
+
+
+# --------------------------------------------------------------------------- #
 # Assertion-free test detector (DORMANT — roadmap item 6, offline slice).
 #
 # Item 6's own failure mode: a fresh Tester agent writes a `test*` function that
@@ -8767,6 +8908,26 @@ def main(argv: list[str] | None = None) -> int:
                      help="per-role model note to resolve into agent-CLI args; "
                           "empty or whitespace-only means passthrough (no "
                           "override)")
+    # `product-gate` composes the deterministic pre-check (#31 gate-precheck)
+    # with the tri-perspective seat aggregation (#32 gate-verdict) into ONE
+    # composite decision on a proposal file (item 20 bite 4a): run the free
+    # pre-check FIRST and, if it fails, bounce the proposal FOR FREE before the
+    # three seats are consulted; else fold the seat verdicts. It takes a
+    # proposal `--file` plus the three raw seat verdicts (--business/--product/
+    # --engineering, mirroring `gate-verdict`), NOT a product --config, so like
+    # `role-model`/`gate-verdict`/`gate-precheck`/`lint-spec` it is dispatched
+    # BEFORE the top-level `load_config` below. DORMANT / on-demand only -- the
+    # pipeline/gate/dispatcher NEVER call it; it writes nothing. Exit 0 GO /
+    # 1 KILL / 2 RECYCLE / 3 file-not-found.
+    pgt = sub.add_parser("product-gate")
+    pgt.add_argument("--file", required=True,
+                     help="path to a product proposal to gate")
+    pgt.add_argument("--business", required=True,
+                     help="the Business seat's raw Go/Kill/Recycle verdict")
+    pgt.add_argument("--product", required=True,
+                     help="the Product seat's raw Go/Kill/Recycle verdict")
+    pgt.add_argument("--engineering", required=True,
+                     help="the Senior-engineer seat's raw Go/Kill/Recycle verdict")
     # `lint-config` is the CONFIG-validation complement to `doctor` (env, #0)
     # and `lint-spec` (spec, #6): an offline, deterministic linter that inspects
     # a resolved product config for the misconfigurations that silently waste a
@@ -9232,6 +9393,9 @@ def main(argv: list[str] | None = None) -> int:
         return gate_verdict_cli(args.business, args.product, args.engineering)
     if args.cmd == "role-model":
         return role_model_cli(args.model)
+    if args.cmd == "product-gate":
+        return product_gate_cli(args.file, args.business, args.product,
+                                args.engineering)
     if args.cmd == "lint-config":
         return lint_config_cli(args.config, as_json=args.json)
     if args.cmd == "lint-bench":
