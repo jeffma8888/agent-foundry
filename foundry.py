@@ -2757,6 +2757,34 @@ class ProductGatePrecheck:
             labels.append("alternatives")
         return tuple(labels)
 
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe pre-check verdict for machine consumers -- a release
+        gate / CI job / operator reading the deterministic product-gate pre-check
+        (item 20 bite 1), the org-design analog of the other read-only `--json`
+        probes (`EscalationClassification.to_dict()` and siblings).
+
+        Returns EXACTLY 6 keys in a fixed order: the three STORED presence
+        booleans verbatim (`impact_present` / `appetite_present` /
+        `alternatives_present`), then the two derived scalars (`passed` bool /
+        `verdict` str) REUSING the frozen properties, then the derived `missing`
+        labels as a JSON ARRAY via `list(self.missing)` -- NOT the frozen tuple,
+        so the payload round-trips through `json.loads(json.dumps(...))` where a
+        tuple would come back a list and break equality. Every value is
+        JSON-native (bool / str / list[str]), so `json.dumps(...)` never raises.
+        Pure: touches no filesystem, does not mutate the frozen verdict, and
+        returns a fresh dict each call. NO `exit_code` key: the CLI exit derives
+        from `passed` (0/1) and file-not-found (2) is a CLI-only concern, not
+        part of the verdict.
+        """
+        return {
+            "impact_present": self.impact_present,
+            "appetite_present": self.appetite_present,
+            "alternatives_present": self.alternatives_present,
+            "passed": self.passed,
+            "verdict": self.verdict,
+            "missing": list(self.missing),
+        }
+
 
 def product_gate_precheck(proposal_text: str) -> ProductGatePrecheck:
     """Run the product gate's deterministic pre-checks on a proposal (pure, total).
@@ -2794,7 +2822,7 @@ def product_gate_precheck(proposal_text: str) -> ProductGatePrecheck:
     )
 
 
-def gate_precheck_cli(path: str) -> int:
+def gate_precheck_cli(path: str, as_json: bool = False) -> int:
     """On-demand CLI: run the product-gate pre-checks on a proposal file.
 
     Reads the file at ``path``, computes `product_gate_precheck`, prints a
@@ -2802,23 +2830,30 @@ def gate_precheck_cli(path: str) -> int:
     (file not found). Writes NOTHING to disk. A THIN wrapper over the pure core:
     it adds no pre-check logic beyond read -> `product_gate_precheck` -> format,
     so the printed present/missing figures always match the
-    ``ProductGatePrecheck`` fields. A missing file returns ``2`` (distinct from a
-    KILL verdict) WITHOUT letting a ``FileNotFoundError`` propagate.
+    ``ProductGatePrecheck`` fields. With ``as_json=True`` it prints one
+    ``json.dumps(result.to_dict(), indent=2)`` document (machine-readable)
+    instead of the human report; the ``0``/``1``/``2`` exit contract and the
+    missing-file branch are byte-identical in both modes. A missing file returns
+    ``2`` (distinct from a KILL verdict) WITHOUT letting a ``FileNotFoundError``
+    propagate.
     """
     p = pathlib.Path(path)
     if not p.exists():
         print(f"gate-precheck: file not found: {path}")
         return 2
     result = product_gate_precheck(p.read_text())
-    print(f"gate-precheck: {path}")
-    print(f"  impact_present: {result.impact_present}  "
-          f"appetite_present: {result.appetite_present}  "
-          f"alternatives_present: {result.alternatives_present}")
-    if result.missing:
-        print(f"  missing: {', '.join(result.missing)}")
+    if as_json:
+        print(json.dumps(result.to_dict(), indent=2))
     else:
-        print("  missing: (none)")
-    print(f"verdict: {result.verdict}")
+        print(f"gate-precheck: {path}")
+        print(f"  impact_present: {result.impact_present}  "
+              f"appetite_present: {result.appetite_present}  "
+              f"alternatives_present: {result.alternatives_present}")
+        if result.missing:
+            print(f"  missing: {', '.join(result.missing)}")
+        else:
+            print("  missing: (none)")
+        print(f"verdict: {result.verdict}")
     return 0 if result.passed else 1
 
 
@@ -9828,6 +9863,10 @@ def main(argv: list[str] | None = None) -> int:
     gpc = sub.add_parser("gate-precheck")
     gpc.add_argument("--file", required=True,
                      help="path to a product proposal to pre-check")
+    gpc.add_argument("--json", action="store_true",
+                     help="emit the pre-check verdict as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code")
     # `gate-verdict` aggregates the three tri-perspective product-gate seat
     # verdicts (Business / Product / Senior-engineer, item 20 bite 2) into
     # ONE gate verdict with default-Kill semantics: any KILL seat kills, else
@@ -10428,7 +10467,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "lint-spec":
         return lint_spec_cli(args.file)
     if args.cmd == "gate-precheck":
-        return gate_precheck_cli(args.file)
+        return gate_precheck_cli(args.file, as_json=args.json)
     if args.cmd == "gate-verdict":
         return gate_verdict_cli(args.business, args.product, args.engineering, as_json=args.json)
     if args.cmd == "role-model":
