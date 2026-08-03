@@ -3380,6 +3380,123 @@ def escalation_check_cli(path: str) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Bounded re-staffing: the fixed-N no-trigger cadence-review fallback (DORMANT
+# -- roadmap item 22 bite 1, org-design section 7). Even when no anomaly
+# trigger fires, a quiet loop can silently drift precisely BECAUSE nothing
+# looked wrong; section 7 bounds that failure mode with a fixed-N fallback:
+# "if no trigger has fired for 5 consecutive iterations, the CEO + PM
+# proactively review the project anyway ... Start at N=5; relax toward N=10
+# once the review history shows steering is rarely needed." This is the
+# smallest self-contained piece of item 22 -- a TOTAL arithmetic state-machine
+# with a complete truth table. Same purely-additive, off-control-path,
+# on-demand-CLI class as gate-precheck (item 20 bite 1) / gate-verdict (bite 2)
+# / role-model (bite 3) / product-gate (bite 4a) / escalation-check (item 21
+# bite 1): the pipeline NEVER calls it, so build_prompt/run_stage/
+# run_iteration/run_continuous/run_execution_plan/dispatcher.py are untouched,
+# NO sentinel/config field/artifact is added, and the CLI writes NOTHING. The
+# threshold N is a module-level + patchable constant read at CALL time (not
+# captured at import / as a default arg) so it stays tunable per box -- see
+# Behavior 9. WIRING the cadence counter into the loop (increment on a quiet
+# iteration, queue the CEO+PM review when it fires) is the item-22 final
+# control-flow bite; this bite only DECIDES.
+# --------------------------------------------------------------------------- #
+CADENCE_REVIEW_N: int = 5
+
+
+@dataclasses.dataclass(frozen=True)
+class CadenceReviewDecision:
+    """Whether the fixed-N no-trigger cadence fallback fires this iteration (item 22).
+
+    Frozen so a computed decision can't be mutated after the fact, which also
+    gives value-equality for free: two `decide_cadence_review` calls on the same
+    arguments hold equal fields, so they compare ``==`` (Behavior 1). The three
+    stored fields are the raw decision inputs -- ``counter`` (the quiet-streak
+    length carried in from prior iterations, BEFORE this one), ``trigger_fired``
+    (did any anomaly trigger fire THIS iteration), and ``threshold`` (the
+    effective N that was used) -- and the three properties are pure derivations,
+    so the whole decision follows deterministically from them (the CLI adds no
+    logic on top).
+    """
+    counter: int
+    trigger_fired: bool
+    threshold: int
+
+    @property
+    def fires(self) -> bool:
+        """True iff the no-trigger fallback fires this iteration.
+
+        Fires ONLY on a quiet iteration (no real trigger) whose incremented
+        streak reaches the threshold: ``(not trigger_fired) and (counter + 1 >=
+        threshold)``. The ``+ 1`` counts THIS quiet iteration (Behavior 6's exact
+        boundary at ``counter + 1 == threshold``); the ``>=`` (not ``==``) means
+        an already-at/over-threshold quiet streak still fires (Behavior 7). A
+        real trigger this iteration breaks the streak, so the fallback never also
+        fires (Behavior 4).
+        """
+        return (not self.trigger_fired) and (self.counter + 1 >= self.threshold)
+
+    @property
+    def next_counter(self) -> int:
+        """The quiet-streak counter to carry into the next iteration.
+
+        Resets to 0 whenever the streak is broken or consumed -- either a real
+        trigger fired (Behavior 4) or the fallback fires (Behaviors 6/7); else it
+        grows by one to count this quiet iteration (Behavior 5).
+        """
+        if self.trigger_fired or self.fires:
+            return 0
+        return self.counter + 1
+
+    @property
+    def verdict(self) -> str:
+        """Operator token: ``"REVIEW"`` when the fallback fires, else ``"CONTINUE"``."""
+        return "REVIEW" if self.fires else "CONTINUE"
+
+
+def decide_cadence_review(
+    counter: int, trigger_fired: bool, n: int | None = None
+) -> CadenceReviewDecision:
+    """Decide whether the fixed-N no-trigger cadence fallback fires (pure, total).
+
+    ``counter`` is the quiet-streak length carried in from prior iterations,
+    ``trigger_fired`` is whether any anomaly trigger fired THIS iteration, and
+    ``n`` is an optional explicit threshold override. When ``n`` is None the
+    threshold is read from the module-level ``CADENCE_REVIEW_N`` AT CALL TIME
+    (not captured as a default arg / at import) so patching it changes a
+    subsequent call's result (Behavior 9); an explicit ``n`` overrides it for
+    that call only (Behavior 10). Performs NO filesystem/subprocess/network/
+    clock access, never raises for any int ``counter`` (including 0 / negatives)
+    or ``n``, and is deterministic, so equal arguments always yield an equal
+    ``CadenceReviewDecision``. A thin normalizer: it only fills in the threshold
+    default; all fire/reset logic lives in the frozen result's pure properties.
+    """
+    threshold = CADENCE_REVIEW_N if n is None else n
+    return CadenceReviewDecision(
+        counter=counter, trigger_fired=bool(trigger_fired), threshold=threshold
+    )
+
+
+def cadence_review_cli(counter: int, trigger_fired: bool, n: int | None) -> int:
+    """On-demand CLI: report the fixed-N no-trigger cadence-review decision.
+
+    Computes `decide_cadence_review`, prints the counter, trigger_fired,
+    threshold, fires, and next_counter figures plus a final ``verdict:`` line,
+    and returns ``1`` (REVIEW) / ``0`` (CONTINUE) -- non-zero = action needed,
+    mirroring `escalation-check`. Writes NOTHING to disk. A THIN wrapper over the
+    pure core: it adds no logic beyond decide -> format, so the printed figures
+    always match the ``CadenceReviewDecision``. Takes no file, so there is no
+    file-not-found path.
+    """
+    result = decide_cadence_review(counter, trigger_fired, n)
+    print(f"cadence-review: counter={result.counter} "
+          f"trigger_fired={result.trigger_fired} threshold={result.threshold}")
+    print(f"  fires: {result.fires}")
+    print(f"  next_counter: {result.next_counter}")
+    print(f"verdict: {result.verdict}")
+    return 1 if result.fires else 0
+
+
+# --------------------------------------------------------------------------- #
 # Assertion-free test detector (DORMANT — roadmap item 6, offline slice).
 #
 # Item 6's own failure mode: a fresh Tester agent writes a `test*` function that
@@ -9094,6 +9211,29 @@ def main(argv: list[str] | None = None) -> int:
     esc.add_argument("--file", required=True,
                      help="path to a file/diff to classify for reserved "
                           "CEO-escalation categories")
+    # `cadence-review` is the fixed-N no-trigger cadence-review fallback (item
+    # 22 bite 1, org-design section 7): even when no anomaly trigger fires, a
+    # quiet loop can silently drift precisely because nothing looked wrong, so
+    # after N consecutive quiet iterations the CEO + PM proactively review the
+    # project anyway. Given the current quiet-streak `--counter` and whether a
+    # trigger fired THIS iteration (`--trigger-fired`), it decides whether the
+    # fallback fires and what counter to carry forward. It takes no file and no
+    # product --config -- the threshold is the module-level CADENCE_REVIEW_N
+    # (default 5, patchable + read at call time) or an explicit `--n` -- so like
+    # `escalation-check`/`product-gate`/`lint-spec` it is dispatched BEFORE the
+    # top-level `load_config` below. DORMANT / on-demand only -- the pipeline/
+    # gate/dispatcher NEVER call it; it writes nothing. Exit 1 REVIEW / 0
+    # CONTINUE.
+    cad = sub.add_parser("cadence-review")
+    cad.add_argument("--counter", type=int, required=True,
+                     help="the current no-trigger quiet-streak length carried "
+                          "in from prior iterations")
+    cad.add_argument("--trigger-fired", action="store_true",
+                     help="an anomaly trigger fired THIS iteration (breaks the "
+                          "quiet streak so the fallback does not fire)")
+    cad.add_argument("--n", type=int, default=None,
+                     help="explicit threshold override; omit to read the "
+                          "module-level CADENCE_REVIEW_N (default 5) at call time")
     # `lint-config` is the CONFIG-validation complement to `doctor` (env, #0)
     # and `lint-spec` (spec, #6): an offline, deterministic linter that inspects
     # a resolved product config for the misconfigurations that silently waste a
@@ -9564,6 +9704,8 @@ def main(argv: list[str] | None = None) -> int:
                                 args.engineering)
     if args.cmd == "escalation-check":
         return escalation_check_cli(args.file)
+    if args.cmd == "cadence-review":
+        return cadence_review_cli(args.counter, args.trigger_fired, args.n)
     if args.cmd == "lint-config":
         return lint_config_cli(args.config, as_json=args.json)
     if args.cmd == "lint-bench":
