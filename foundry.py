@@ -110,6 +110,7 @@ class ProductConfig:
     postrelease_enabled: bool = True   # run the fresh-clone verify (iter 03+)
     setup_cmd: str = "uv sync"          # how to install deps in the fresh clone
     smoke_cmd: str | None = None       # optional smoke command; None => skipped
+    dual_pm_scouts: bool = False       # dual-PM-scout opt-in (dormant; wired in a later bite)
 
     def resolve(self) -> "ProductConfig":
         def expand(p: str) -> str:
