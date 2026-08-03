@@ -3872,6 +3872,72 @@ def derive_scout_stage_specs(plan: ScoutPhasePlan) -> tuple[ScoutStageSpec, ...]
     )
 
 
+@dataclasses.dataclass(frozen=True)
+class ScoutPhaseResult:
+    """Outcome of running the dual-PM-scout pre-phase (dual-PM-scout bite 3b-i).
+
+    Frozen so a computed result can't be mutated after the fact, which also gives
+    value-equality for free (Behavior 11), mirroring ``ScoutPhasePlan`` /
+    ``ScoutStageSpec``. ``ok`` is whether every scout produced its output file;
+    ``outputs`` is the ordered tuple of the ``out_name``s that DID succeed (so the
+    PM lead can read exactly the scout files that exist -- on a mid-phase failure
+    it retains the earlier successes, never the failed/unrun scouts); ``failed_stage``
+    is the stage name of the first scout that failed, or None on full success
+    (including the vacuous disabled-plan success). The scout phase runs BEFORE
+    anything is built, so a failure never reverts the repo -- mirroring
+    ``run_iteration``'s PM stage, which returns an infra-fail with no revert.
+    """
+    ok: bool
+    outputs: tuple[str, ...]
+    failed_stage: str | None = None
+
+
+def run_scout_phase(cfg: ProductConfig, iteration: int, plan: ScoutPhasePlan,
+                    role_file: str) -> ScoutPhaseResult:
+    """Run the ordered dual-PM-scout pre-phase for one iteration (DORMANT executor).
+
+    The direct analog of iter-70's ``run_execution_plan``: a dormant full executor
+    built as a pure-seam, offline-testable function now, so the operator-gated
+    wiring (bite 3b-ii) collapses to a trivial ``if plan.enabled: run_scout_phase(
+    ...)`` call. Given the iter-80 ``ScoutPhasePlan`` it derives the iter-82 per-
+    scout ``ScoutStageSpec``s (via ``derive_scout_stage_specs``) and runs each scout
+    stage SEQUENTIALLY through the ``run_stage`` seam -- concurrency 1 preserved,
+    single-brain (Behavior 3) -- keying each on its ``spec.out_name`` (ties output-
+    file success to a named file -- Behavior 4) and carrying that scout's assigned
+    ``spec.lens`` verbatim in the prompt (Behavior 6). Returns a ``ScoutPhaseResult``
+    naming the scouts that produced output (Behavior 2).
+
+    ``role_file`` is a PARAMETER, never hardcoded, so the literal card name never
+    enters foundry.py and iters 81/82's role-file count-0 dormancy tests stay green
+    (the wiring bite passes the concrete card at the call site -- mirrors iter-70
+    deferring ``base`` to the wiring). A disabled or empty plan derives no specs, so
+    the loop runs zero times and the phase is a vacuous success (Behavior 1). On the
+    FIRST scout failure the phase short-circuits and returns immediately, retaining
+    any earlier successes in ``outputs`` (Behaviors 7/8); it NEVER reverts the repo
+    on any path -- scouts run before anything is built, mirroring ``run_iteration``'s
+    no-revert PM stage (Behavior 9). Performs no direct I/O of its own -- every
+    external effect goes through the ``run_stage`` seam (Behavior 12); ``run_stage``
+    and ``derive_scout_stage_specs`` are called by BARE module name so a test's
+    ``monkeypatch.setattr`` bites and the module globals are read at call time
+    (Behavior 13). ZERO call site -- no orchestrator runs it yet, so the disabled
+    path is byte-identical (Behavior 14).
+    """
+    specs = derive_scout_stage_specs(plan)
+    outputs: list[str] = []
+    for spec in specs:
+        extra = (
+            f"You are a PM scout for the '{spec.lens}' lens. Propose 2-3 candidate "
+            f"features in the '{spec.lens}' lens and decide nothing."
+        )
+        ok, _ = run_stage(cfg, iteration, spec.stage, role_file, spec.out_name,
+                          extra)
+        if not ok:
+            return ScoutPhaseResult(ok=False, outputs=tuple(outputs),
+                                    failed_stage=spec.stage)
+        outputs.append(spec.out_name)
+    return ScoutPhaseResult(ok=True, outputs=tuple(outputs), failed_stage=None)
+
+
 # --------------------------------------------------------------------------- #
 # Assertion-free test detector (DORMANT — roadmap item 6, offline slice).
 #
