@@ -143,7 +143,7 @@ uv run python foundry.py learnings --config products/repolens/config.json  # [--
 uv run python foundry.py agents --config products/repolens/config.json  # [--recent N] [--print]
 
 # 6. Lint a PM spec for completeness + size before an iteration (exit 1 = REVIEW):
-uv run python foundry.py lint-spec --file products/repolens/state/iter-NN/pm.md
+uv run python foundry.py lint-spec --file products/repolens/state/iter-NN/pm.md  # [--json for one machine-readable lint verdict: release-gate/CI/operator; same 0/1/2 exit code (2 = file-not-found, always plain-text)]
 
 # 7. Report "N/M stories pass" from a product prd.json (exit 0 complete/1 incomplete/2 missing|invalid):
 uv run python foundry.py prd --config products/repolens/config.json  # [--json for one machine-readable prd-status doc: dashboards/reporter/CI; same 0/1/2 exit code; a missing file stays the plain-text error]
