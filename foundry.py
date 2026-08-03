@@ -3321,6 +3321,37 @@ class EscalationClassification:
         """Operator token: ``"ESCALATE"`` when any category hit, else ``"CLEAR"``."""
         return "ESCALATE" if self.escalate else "CLEAR"
 
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe classification for machine consumers -- a release
+        gate / CI job / operator routing an escalation (item 21 bite 1), the
+        org-design analog of `SingleBrainStatus.to_dict()` and the other
+        read-only `--json` probes.
+
+        Returns EXACTLY 8 keys: the five STORED category booleans verbatim
+        (`security`/`pii`/`money`/`legal`/`visibility`), then the derived
+        `categories` as a JSON ARRAY via `list(self.categories)` -- NOT the
+        frozen tuple, so the payload round-trips through
+        `json.loads(json.dumps(...))` where a tuple would come back a list and
+        break equality -- then the two derived verdict values (`escalate` bool /
+        `verdict` str), each REUSING the frozen properties so the JSON can never
+        disagree with what the CLI renders or the exit code returns. Every value
+        is JSON-native (bool / list[str] / str), so `json.dumps(...)` never
+        raises. Pure: touches no filesystem, does not mutate the frozen
+        classification, and returns a fresh dict each call. NO `exit_code` key:
+        the CLI exit derives from `escalate` (0/1) and file-not-found (2) is a
+        CLI-only concern, not part of the classification.
+        """
+        return {
+            "security": self.security,
+            "pii": self.pii,
+            "money": self.money,
+            "legal": self.legal,
+            "visibility": self.visibility,
+            "categories": list(self.categories),
+            "escalate": self.escalate,
+            "verdict": self.verdict,
+        }
+
 
 def classify_escalation(text: str) -> EscalationClassification:
     """Classify which reserved-escalation categories a change touches (pure, total).
@@ -3353,7 +3384,7 @@ def classify_escalation(text: str) -> EscalationClassification:
     )
 
 
-def escalation_check_cli(path: str) -> int:
+def escalation_check_cli(path: str, as_json: bool = False) -> int:
     """On-demand CLI: classify a file's content for reserved-escalation categories.
 
     Reads the file at ``path``, computes `classify_escalation`, prints the file
@@ -3361,7 +3392,11 @@ def escalation_check_cli(path: str) -> int:
     ``verdict:`` line, and returns ``1`` (ESCALATE) / ``0`` (CLEAR). Writes
     NOTHING to disk. A THIN wrapper over the pure core: it adds no detection
     logic beyond read -> `classify_escalation` -> format, so the printed
-    categories always match the ``EscalationClassification``. A missing file
+    categories always match the ``EscalationClassification``. With
+    ``as_json=True`` it prints one ``json.dumps(result.to_dict(),
+    indent=2)`` document (machine-readable) instead of the human
+    report; the ``0``/``1``/``2`` exit contract and the missing-file
+    branch are byte-identical in both modes. A missing file
     prints a ``file not found`` message naming the path and returns ``2``
     (distinct from a verdict code) WITHOUT letting a ``FileNotFoundError``
     propagate.
@@ -3371,12 +3406,15 @@ def escalation_check_cli(path: str) -> int:
         print(f"escalation-check: file not found: {path}")
         return 2
     result = classify_escalation(p.read_text())
-    print(f"escalation-check: {path}")
-    if result.categories:
-        print(f"  categories: {', '.join(result.categories)}")
+    if as_json:
+        print(json.dumps(result.to_dict(), indent=2))
     else:
-        print("  categories: (none)")
-    print(f"verdict: {result.verdict}")
+        print(f"escalation-check: {path}")
+        if result.categories:
+            print(f"  categories: {', '.join(result.categories)}")
+        else:
+            print("  categories: (none)")
+        print(f"verdict: {result.verdict}")
     return 1 if result.escalate else 0
 
 
@@ -9697,6 +9735,10 @@ def main(argv: list[str] | None = None) -> int:
     esc.add_argument("--file", required=True,
                      help="path to a file/diff to classify for reserved "
                           "CEO-escalation categories")
+    esc.add_argument("--json", action="store_true",
+                     help="emit the classification as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code")
     # `cadence-review` is the fixed-N no-trigger cadence-review fallback (item
     # 22 bite 1, org-design section 7): even when no anomaly trigger fires, a
     # quiet loop can silently drift precisely because nothing looked wrong, so
@@ -10223,7 +10265,7 @@ def main(argv: list[str] | None = None) -> int:
         return product_gate_cli(args.file, args.business, args.product,
                                 args.engineering)
     if args.cmd == "escalation-check":
-        return escalation_check_cli(args.file)
+        return escalation_check_cli(args.file, as_json=args.json)
     if args.cmd == "cadence-review":
         return cadence_review_cli(args.counter, args.trigger_fired, args.n)
     if args.cmd == "restaffing-review":
