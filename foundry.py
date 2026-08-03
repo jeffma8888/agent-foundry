@@ -3938,6 +3938,50 @@ def run_scout_phase(cfg: ProductConfig, iteration: int, plan: ScoutPhasePlan,
     return ScoutPhaseResult(ok=True, outputs=tuple(outputs), failed_stage=None)
 
 
+def scout_phase_outcome(cfg: ProductConfig, iteration: int,
+                        role_file: str) -> dict | None:
+    """Compose the config gate + scout phase into run_iteration's status idiom.
+
+    The last untested piece of dual-PM-scout WIRING logic, extracted as a dormant
+    offline-testable helper so bite 3b-ii's operator-gated wiring collapses to a
+    trivial pre-tested call at the run_iteration front: run the scout pre-phase,
+    and if it hands back a status dict, return that dict; otherwise fall through to
+    the PM lead. Reads the ``cfg.dual_pm_scouts`` flag (coerced by
+    ``decide_scout_phase``'s own ``bool(...)``), builds the plan, runs the iter-83
+    executor ``run_scout_phase``, and maps its outcome onto ``run_iteration``'s
+    idiom.
+
+    Return contract: ``None`` means "proceed to the PM lead" and is returned in
+    exactly two cases -- the feature is DISABLED (``cfg.dual_pm_scouts`` falsy, so
+    no scout machinery runs at all), OR every scout succeeded. A status ``dict`` is
+    returned ONLY when a scout stage failed, with EXACTLY ``run_iteration``'s
+    PM-stage infra-fail shape ``{"status": "infra-fail", "stage": <failed scout>,
+    "iteration": iteration}``. The disabled and full-success None cases are
+    distinguishable by the ``run_stage`` call count (0 vs >=1), which the tests pin.
+
+    ``role_file`` is a PARAMETER, never hardcoded, so the literal card name stays
+    out of foundry.py and iters 81/82/83's role-file count-0 dormancy tests stay
+    green -- the wiring bite supplies the concrete scout role card at the call site
+    (mirrors iter-70 deferring ``base``). NEVER reverts the repo on any path: scouts
+    run before anything is built, exactly like ``run_iteration``'s no-revert PM
+    stage, and ``run_scout_phase`` never reverts either. Performs no direct I/O of
+    its own -- every external effect flows through ``run_scout_phase`` ->
+    ``run_stage``; ``decide_scout_phase`` and ``run_scout_phase`` are called by BARE
+    module name so a test's ``monkeypatch.setattr`` bites at call time. ZERO call
+    site -- no orchestrator runs it yet, so the running loop's disabled path is
+    byte-identical and resume semantics are preserved (bite 3b-ii wires it,
+    operator-gated).
+    """
+    if not cfg.dual_pm_scouts:
+        return None
+    plan = decide_scout_phase(cfg.dual_pm_scouts)
+    result = run_scout_phase(cfg, iteration, plan, role_file)
+    if not result.ok:
+        return {"status": "infra-fail", "stage": result.failed_stage,
+                "iteration": iteration}
+    return None
+
+
 # --------------------------------------------------------------------------- #
 # Assertion-free test detector (DORMANT — roadmap item 6, offline slice).
 #
