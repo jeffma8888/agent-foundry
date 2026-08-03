@@ -1011,6 +1011,38 @@ class SpecLint:
         """The operator-facing token: ``"OK"`` when ok, else ``"REVIEW"``."""
         return "OK" if self.ok else "REVIEW"
 
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe lint verdict for machine consumers -- a release
+        gate / CI job / operator reading the offline PM-spec size/completeness
+        lint (roadmap item 5), the read-only `--json` analog of the other
+        observability probes (`ProductGatePrecheck.to_dict()` and siblings).
+
+        Returns EXACTLY 9 keys in a fixed order: the five STORED measurements
+        first -- the two ints (`char_count` / `num_behaviors`) verbatim, then the
+        `missing_sections` labels as a JSON ARRAY via `list(self.missing_sections)`
+        (NOT the frozen tuple, so the payload round-trips through
+        `json.loads(json.dumps(...))` where a tuple would come back a list and
+        break equality), then the two size bools (`size_over_chars` /
+        `size_over_behaviors`) verbatim -- then the four derived scalars REUSING
+        the frozen properties (`sections_ok` / `size_ok` / `ok` bools, `verdict`
+        str). Every value is JSON-native (bool / int / str / list[str]), so
+        `json.dumps(...)` never raises. Pure: touches no filesystem, does not
+        mutate the frozen verdict, and returns a fresh dict each call. NO
+        `exit_code` key: the CLI exit derives from `ok` (0/1) and file-not-found
+        (2) is a CLI-only concern, not part of the verdict.
+        """
+        return {
+            "char_count": self.char_count,
+            "num_behaviors": self.num_behaviors,
+            "missing_sections": list(self.missing_sections),
+            "size_over_chars": self.size_over_chars,
+            "size_over_behaviors": self.size_over_behaviors,
+            "sections_ok": self.sections_ok,
+            "size_ok": self.size_ok,
+            "ok": self.ok,
+            "verdict": self.verdict,
+        }
+
 
 def _count_expected_behaviors(lines: list[str]) -> int:
     """Count ordered-list items inside the ``## Expected Behaviors`` section only.
@@ -1082,15 +1114,18 @@ def spec_lint(spec_text: str) -> SpecLint:
     )
 
 
-def lint_spec_cli(path: str) -> int:
+def lint_spec_cli(path: str, as_json: bool = False) -> int:
     """On-demand CLI: lint a PM spec file for completeness + size.
 
     Reads the file at ``path``, computes `spec_lint`, prints a human-readable
     report, and returns ``0`` (ok) / ``1`` (incomplete or oversized) / ``2``
     (file not found). Writes NOTHING to disk. A thin wrapper over the pure core:
     it adds no lint logic beyond read -> `spec_lint` -> format, so the printed
-    verdict/char/behavior figures always match the ``SpecLint`` fields. A missing
-    file returns ``2`` (distinct from a lint REVIEW) without letting a
+    verdict/char/behavior figures always match the ``SpecLint`` fields. With
+    ``as_json=True`` it prints one ``json.dumps(lint.to_dict(), indent=2)``
+    document (machine-readable) instead of the human report; the ``0``/``1``/``2``
+    exit contract and the missing-file branch are byte-identical in both modes. A
+    missing file returns ``2`` (distinct from a lint REVIEW) without letting a
     ``FileNotFoundError`` propagate.
     """
     p = pathlib.Path(path)
@@ -1098,16 +1133,19 @@ def lint_spec_cli(path: str) -> int:
         print(f"lint-spec: file not found: {path}")
         return 2
     lint = spec_lint(p.read_text())
-    print(f"lint-spec: {path}")
-    print(f"  char_count: {lint.char_count} (warn > {SPEC_SIZE_WARN_CHARS})")
-    print(f"  num_behaviors: {lint.num_behaviors} (max {SPEC_MAX_BEHAVIORS})")
-    if lint.missing_sections:
-        print(f"  missing sections: {', '.join(lint.missing_sections)}")
+    if as_json:
+        print(json.dumps(lint.to_dict(), indent=2))
     else:
-        print("  missing sections: (none)")
-    print(f"  size_over_chars: {lint.size_over_chars}  "
-          f"size_over_behaviors: {lint.size_over_behaviors}")
-    print(f"verdict: {lint.verdict}")
+        print(f"lint-spec: {path}")
+        print(f"  char_count: {lint.char_count} (warn > {SPEC_SIZE_WARN_CHARS})")
+        print(f"  num_behaviors: {lint.num_behaviors} (max {SPEC_MAX_BEHAVIORS})")
+        if lint.missing_sections:
+            print(f"  missing sections: {', '.join(lint.missing_sections)}")
+        else:
+            print("  missing sections: (none)")
+        print(f"  size_over_chars: {lint.size_over_chars}  "
+              f"size_over_behaviors: {lint.size_over_behaviors}")
+        print(f"verdict: {lint.verdict}")
     return 0 if lint.ok else 1
 
 
@@ -9938,6 +9976,10 @@ def main(argv: list[str] | None = None) -> int:
     lnt = sub.add_parser("lint-spec")
     lnt.add_argument("--file", required=True,
                      help="path to a PM spec (pm.md) to lint")
+    lnt.add_argument("--json", action="store_true",
+                     help="emit the lint verdict as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code")
     # `gate-precheck` runs the tri-perspective product gate's DETERMINISTIC
     # pre-checks on a proposal file (item 20 bite 1, the deterministic slice):
     # it bounces FOR FREE -- before any model call -- a proposal missing an
@@ -10564,7 +10606,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     if args.cmd == "lint-spec":
-        return lint_spec_cli(args.file)
+        return lint_spec_cli(args.file, as_json=args.json)
     if args.cmd == "gate-precheck":
         return gate_precheck_cli(args.file, as_json=args.json)
     if args.cmd == "gate-verdict":
