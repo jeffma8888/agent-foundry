@@ -50,10 +50,24 @@ def now() -> str:
 
 
 def dlog(msg: str) -> None:
+    """Append one dispatch-log line. NEVER raises.
+
+    Logging must never be able to kill the always-on brain. The real failure
+    this guards against: the dispatcher inherits stdout from whatever session
+    launched it, and once that session goes away, writing to the now-dead
+    terminal raises OSError(EIO) on macOS. That exception previously escaped
+    the main loop and terminated the whole company mid-shift.
+    """
     line = f"- `{now()}` {msg}"
-    with DISPATCH_LOG.open("a") as f:
-        f.write(line + "\n")
-    print(line, flush=True)
+    try:
+        with DISPATCH_LOG.open("a") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass  # disk / permission trouble must not stop the loop
+    try:
+        print(line, flush=True)
+    except (OSError, ValueError):
+        pass  # dead or closed stdout must not stop the loop
 
 
 def load_dispatch(path: str) -> dict:
@@ -94,9 +108,18 @@ def main(argv: list[str] | None = None) -> int:
             for w in items:
                 if STOP_FILE.exists():
                     break
-                cfg = foundry.load_config(str(
-                    pathlib.Path(w["config"].replace("{FOUNDRY}", str(FOUNDRY)))
-                    .expanduser()))
+                # Resolving ONE team's config must never kill the company. A
+                # missing / malformed config (or an I/O error reading it) skips
+                # just that team for this round instead of propagating out of
+                # the main loop, matching the run_iteration guard below.
+                try:
+                    cfg = foundry.load_config(str(
+                        pathlib.Path(w["config"].replace("{FOUNDRY}", str(FOUNDRY)))
+                        .expanduser()))
+                except Exception as exc:
+                    dlog(f"config load failed for {w.get('name', '?')}: "
+                         f"{exc!r}; skipping this team")
+                    continue
                 if cfg.stop_file.exists():
                     continue  # this team is retired
                 progressed = True
