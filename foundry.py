@@ -3096,6 +3096,22 @@ class RoleModelInvocation:
         """
         return bool(self.model)
 
+    def to_dict(self) -> dict:
+        """Machine-readable dict of this resolution (Behavior 1, item 20).
+
+        The three keys are the two stored fields in declaration order (``model``
+        then ``argv``) followed by the derived ``overridden`` property LAST, so
+        the str-list ``argv`` lands in the MIDDLE. ``argv`` is coerced to a plain
+        ``list`` (one level): the frozen ``tuple`` would round-trip through JSON
+        as a list and break ``json.loads(json.dumps(d)) == d`` otherwise. No
+        ``exit_code`` key -- the CLI derives the exit code from ``overridden``.
+        """
+        return {
+            "model": self.model,
+            "argv": list(self.argv),
+            "overridden": self.overridden,
+        }
+
 
 def resolve_role_model_argv(
     base_argv: Sequence[str],
@@ -3136,7 +3152,7 @@ def resolve_role_model_argv(
     return RoleModelInvocation(model=model, argv=base + appended)
 
 
-def role_model_cli(model_note: str) -> int:
+def role_model_cli(model_note: str, as_json: bool = False) -> int:
     """On-demand CLI: resolve a per-role model note over the launcher base argv.
 
     Resolves `resolve_role_model_argv` over the module ``AGENT_RUN_ARGS`` as the
@@ -3146,13 +3162,18 @@ def role_model_cli(model_note: str) -> int:
     when an override was applied / ``1`` on passthrough (empty/whitespace note).
     Writes NOTHING to disk. A THIN wrapper over the pure core: it adds no logic
     beyond resolve -> format, so the printed argv/model/overridden figures always
-    match the `RoleModelInvocation` fields and property.
+    match the `RoleModelInvocation` fields and property. With ``as_json``
+    the same resolution is emitted as one machine-readable JSON document
+    instead of the human render; the exit code is identical in both modes.
     """
     result = resolve_role_model_argv(AGENT_RUN_ARGS, model_note)
-    print("role-model:")
-    print(f"  argv: {list(result.argv)}")
-    print(f"  model: {result.model or '(none)'}")
-    print(f"  overridden: {'true' if result.overridden else 'false'}")
+    if as_json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print("role-model:")
+        print(f"  argv: {list(result.argv)}")
+        print(f"  model: {result.model or '(none)'}")
+        print(f"  overridden: {'true' if result.overridden else 'false'}")
     return 0 if result.overridden else 1
 
 
@@ -9900,6 +9921,10 @@ def main(argv: list[str] | None = None) -> int:
                      help="per-role model note to resolve into agent-CLI args; "
                           "empty or whitespace-only means passthrough (no "
                           "override)")
+    rmo.add_argument("--json", action="store_true",
+                     help="emit the resolution as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1 exit code")
     # `product-gate` composes the deterministic pre-check (#31 gate-precheck)
     # with the tri-perspective seat aggregation (#32 gate-verdict) into ONE
     # composite decision on a proposal file (item 20 bite 4a): run the free
@@ -10471,7 +10496,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "gate-verdict":
         return gate_verdict_cli(args.business, args.product, args.engineering, as_json=args.json)
     if args.cmd == "role-model":
-        return role_model_cli(args.model)
+        return role_model_cli(args.model, as_json=args.json)
     if args.cmd == "product-gate":
         return product_gate_cli(args.file, args.business, args.product,
                                 args.engineering)
