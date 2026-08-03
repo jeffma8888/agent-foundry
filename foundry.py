@@ -3242,6 +3242,35 @@ class ProductGateDecision:
             return "KILL"
         return self.seats.verdict
 
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe composite product-gate decision for machine
+        consumers -- a release gate, a CI job, or an operator dashboard that
+        needs the WHOLE item-20 gate as one document, the org-design analog of
+        the other read-only `--json` probes. It is the FIRST composite: rather
+        than re-deriving any figure it NESTS the two already-shipped leaf
+        `to_dict`s, so the payload can never disagree with the leaves, the human
+        render, or the exit code.
+
+        Returns EXACTLY 4 keys in a fixed order: `precheck` (the nested 6-key
+        `ProductGatePrecheck.to_dict()` verbatim), then `seats` (the nested
+        6-key `ProductGateVerdict.to_dict()` when the pre-check passed, else JSON
+        ``null`` -- a bounced proposal never computed the seats, Behavior 4),
+        then the two derived scalars `bounced` (bool) / `verdict` (str) REUSING
+        the frozen properties. The nested leaf dicts already coerce their tuple
+        fields to JSON-native lists, and ``None`` round-trips to ``None``, so the
+        whole document round-trips through `json.loads(json.dumps(...))`. Pure:
+        touches no filesystem, does not mutate the frozen decision, and returns a
+        fresh dict each call. NO `exit_code` key: the CLI exit derives from
+        `verdict` (0/1/2 = GO/KILL/RECYCLE) and file-not-found (3) is a CLI-only
+        concern.
+        """
+        return {
+            "precheck": self.precheck.to_dict(),
+            "seats": self.seats.to_dict() if self.seats is not None else None,
+            "bounced": self.bounced,
+            "verdict": self.verdict,
+        }
+
 
 def decide_product_gate(
     proposal_text: str, business: str, product: str, engineering: str
@@ -3274,7 +3303,8 @@ def decide_product_gate(
 
 
 def product_gate_cli(
-    path: str, business: str, product: str, engineering: str
+    path: str, business: str, product: str, engineering: str,
+    as_json: bool = False,
 ) -> int:
     """On-demand CLI: run the composite product gate on a proposal file.
 
@@ -3288,33 +3318,39 @@ def product_gate_cli(
     every verdict code -- WITHOUT letting a ``FileNotFoundError`` propagate.
     Writes NOTHING to disk. A THIN wrapper over the pure core: it adds no gate
     logic beyond read -> `decide_product_gate` -> format, so the printed figures
-    always match the ``ProductGateDecision`` fields and properties.
+    always match the ``ProductGateDecision`` fields and properties. With
+    ``as_json`` the whole decision is emitted as one machine-readable JSON
+    document (nesting both leaf `to_dict` outputs) instead of the human
+    report; the exit code is identical in both modes.
     """
     p = pathlib.Path(path)
     if not p.exists():
         print(f"product-gate: file not found: {path}")
         return 3
     decision = decide_product_gate(p.read_text(), business, product, engineering)
-    pc = decision.precheck
-    print(f"product-gate: {path}")
-    print(f"  impact_present: {pc.impact_present}  "
-          f"appetite_present: {pc.appetite_present}  "
-          f"alternatives_present: {pc.alternatives_present}")
-    if pc.missing:
-        print(f"  missing: {', '.join(pc.missing)}")
+    if as_json:
+        print(json.dumps(decision.to_dict(), indent=2))
     else:
-        print("  missing: (none)")
-    seats = decision.seats
-    if seats is None:
-        print("  seats: bounced (pre-check failed, seats not consulted)")
-    else:
-        print(f"  business: {seats.business}  product: {seats.product}  "
-              f"engineering: {seats.engineering}")
-        print(f"  killers: "
-              f"{', '.join(seats.killers) if seats.killers else '(none)'}")
-        print(f"  recyclers: "
-              f"{', '.join(seats.recyclers) if seats.recyclers else '(none)'}")
-    print(f"verdict: {decision.verdict}")
+        pc = decision.precheck
+        print(f"product-gate: {path}")
+        print(f"  impact_present: {pc.impact_present}  "
+              f"appetite_present: {pc.appetite_present}  "
+              f"alternatives_present: {pc.alternatives_present}")
+        if pc.missing:
+            print(f"  missing: {', '.join(pc.missing)}")
+        else:
+            print("  missing: (none)")
+        seats = decision.seats
+        if seats is None:
+            print("  seats: bounced (pre-check failed, seats not consulted)")
+        else:
+            print(f"  business: {seats.business}  product: {seats.product}  "
+                  f"engineering: {seats.engineering}")
+            print(f"  killers: "
+                  f"{', '.join(seats.killers) if seats.killers else '(none)'}")
+            print(f"  recyclers: "
+                  f"{', '.join(seats.recyclers) if seats.recyclers else '(none)'}")
+        print(f"verdict: {decision.verdict}")
     return {"GO": 0, "KILL": 1, "RECYCLE": 2}[decision.verdict]
 
 
@@ -9945,6 +9981,10 @@ def main(argv: list[str] | None = None) -> int:
                      help="the Product seat's raw Go/Kill/Recycle verdict")
     pgt.add_argument("--engineering", required=True,
                      help="the Senior-engineer seat's raw Go/Kill/Recycle verdict")
+    pgt.add_argument("--json", action="store_true",
+                     help="emit the gate decision as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2/3 exit code")
     # `escalation-check` is the CEO-escalation predicate (item 21, org-design
     # section 9): classify a file/diff's content for the five RESERVED
     # categories (security / PII / money / legal / visibility) that must
@@ -10499,7 +10539,7 @@ def main(argv: list[str] | None = None) -> int:
         return role_model_cli(args.model, as_json=args.json)
     if args.cmd == "product-gate":
         return product_gate_cli(args.file, args.business, args.product,
-                                args.engineering)
+                                args.engineering, as_json=args.json)
     if args.cmd == "escalation-check":
         return escalation_check_cli(args.file, as_json=args.json)
     if args.cmd == "cadence-review":
