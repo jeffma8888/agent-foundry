@@ -3491,6 +3491,35 @@ class CadenceReviewDecision:
         """Operator token: ``"REVIEW"`` when the fallback fires, else ``"CONTINUE"``."""
         return "REVIEW" if self.fires else "CONTINUE"
 
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe cadence-review decision for machine consumers --
+        an operator, a CI job, or a dashboard consuming the fixed-N no-trigger
+        cadence verdict (item 22 bite 1), the org-design analog of
+        `EscalationClassification.to_dict()` and the other read-only `--json`
+        probes.
+
+        Returns EXACTLY 6 keys: the three STORED decision inputs verbatim
+        (`counter`/`trigger_fired`/`threshold`), then the three derived values
+        (`fires` bool / `next_counter` int / `verdict` str), each REUSING the
+        frozen properties so the JSON can never disagree with what the CLI
+        renders or the exit code returns. Every value is a JSON-native scalar
+        (int / bool / str) -- there is NO list/tuple/nested field (unlike
+        `escalation-check`'s `categories`), so `json.dumps(...)` never raises
+        and no `list(...)` coercion is needed. Pure: touches no filesystem,
+        does not mutate the frozen decision, and returns a fresh dict each
+        call. NO `exit_code` key: the CLI exit derives from `fires` (0/1) and
+        `cadence-review` takes no file, so there is no file-not-found (2) path
+        to serialize -- contrast `escalation-check`.
+        """
+        return {
+            "counter": self.counter,
+            "trigger_fired": self.trigger_fired,
+            "threshold": self.threshold,
+            "fires": self.fires,
+            "next_counter": self.next_counter,
+            "verdict": self.verdict,
+        }
+
 
 def decide_cadence_review(
     counter: int, trigger_fired: bool, n: int | None = None
@@ -3515,23 +3544,29 @@ def decide_cadence_review(
     )
 
 
-def cadence_review_cli(counter: int, trigger_fired: bool, n: int | None) -> int:
+def cadence_review_cli(counter: int, trigger_fired: bool, n: int | None, as_json: bool = False) -> int:
     """On-demand CLI: report the fixed-N no-trigger cadence-review decision.
 
     Computes `decide_cadence_review`, prints the counter, trigger_fired,
     threshold, fires, and next_counter figures plus a final ``verdict:`` line,
     and returns ``1`` (REVIEW) / ``0`` (CONTINUE) -- non-zero = action needed,
-    mirroring `escalation-check`. Writes NOTHING to disk. A THIN wrapper over the
+    mirroring `escalation-check`. With ``as_json=True`` it prints one
+    ``json.dumps(result.to_dict(), indent=2)`` document (machine-readable)
+    instead of the human report; the ``0``/``1`` exit contract is
+    byte-identical in both modes. Writes NOTHING to disk. A THIN wrapper over the
     pure core: it adds no logic beyond decide -> format, so the printed figures
     always match the ``CadenceReviewDecision``. Takes no file, so there is no
     file-not-found path.
     """
     result = decide_cadence_review(counter, trigger_fired, n)
-    print(f"cadence-review: counter={result.counter} "
-          f"trigger_fired={result.trigger_fired} threshold={result.threshold}")
-    print(f"  fires: {result.fires}")
-    print(f"  next_counter: {result.next_counter}")
-    print(f"verdict: {result.verdict}")
+    if as_json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(f"cadence-review: counter={result.counter} "
+              f"trigger_fired={result.trigger_fired} threshold={result.threshold}")
+        print(f"  fires: {result.fires}")
+        print(f"  next_counter: {result.next_counter}")
+        print(f"verdict: {result.verdict}")
     return 1 if result.fires else 0
 
 
@@ -9762,6 +9797,10 @@ def main(argv: list[str] | None = None) -> int:
     cad.add_argument("--n", type=int, default=None,
                      help="explicit threshold override; omit to read the "
                           "module-level CADENCE_REVIEW_N (default 5) at call time")
+    cad.add_argument("--json", action="store_true",
+                     help="emit the decision as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1 exit code")
     # `restaffing-review` is the hysteresis-constrained re-staffing DIFF review
     # (item 22 bite 2, org-design section 10): team-composition changes are
     # PROPOSALS, not drift, so a review emits a DIFF against staffing.json
@@ -10267,7 +10306,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "escalation-check":
         return escalation_check_cli(args.file, as_json=args.json)
     if args.cmd == "cadence-review":
-        return cadence_review_cli(args.counter, args.trigger_fired, args.n)
+        return cadence_review_cli(args.counter, args.trigger_fired, args.n, as_json=args.json)
     if args.cmd == "restaffing-review":
         return restaffing_review_cli(args.file)
     if args.cmd == "scout-plan":
