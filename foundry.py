@@ -3725,6 +3725,111 @@ def restaffing_review_cli(path: str) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Dual-PM-scout phase planner: the ordered scout pre-stage plan (DORMANT --
+# dual-PM-scout feature bite 1, docs/DUAL_PM_SCOUT_SPEC.md). The spec wants an
+# OPTIONAL two-scout pre-stage: when a config flag is on, an iteration runs
+# pm_scout_a (new-capability lens) then pm_scout_b (hardening/DX lens)
+# sequentially BEFORE the PM lead, which then triages both slates -- so every
+# product team gets more diverse candidate features than a single PM produces.
+# That payload is control-flow WIRING into run_iteration (a pre-stage sequence +
+# PM-lead triage), the operator-gated later bite; this bite ships only the
+# deterministic PLANNER the wiring will consult to know WHICH scout stages to
+# run, in what ORDER, with which LENS. Same purely-additive, off-control-path,
+# on-demand-CLI class as gate-precheck (item 20 bite 1) / gate-verdict (bite 2)
+# / role-model (bite 3) / product-gate (bite 4a) / escalation-check (item 21
+# bite 1) / cadence-review (item 22 bite 1) / restaffing-review (item 22 bite
+# 2): the pipeline NEVER calls it, so build_prompt/run_stage/run_iteration/
+# run_continuous/run_execution_plan/dispatcher.py are untouched, NO sentinel/
+# config field/artifact is added, and the CLI writes NOTHING. The lens set is a
+# module-level + patchable constant read at CALL time (not captured at import /
+# as a default arg) so it stays tunable per box -- see Behavior 8.
+# --------------------------------------------------------------------------- #
+PM_SCOUT_LENSES: tuple[str, ...] = ("new-capability", "hardening/DX")
+
+
+@dataclasses.dataclass(frozen=True)
+class ScoutPhasePlan:
+    """The ordered scout pre-stage plan for one iteration (dual-PM-scout bite 1).
+
+    Frozen so a computed plan can't be mutated after the fact, which also gives
+    value-equality for free: two `decide_scout_phase` calls on equal arguments
+    hold equal fields, so they compare ``==`` (Behavior 12). ``enabled`` is
+    whether the dual-scout pre-phase runs at all; ``stages`` is the ordered
+    tuple of ``(stage_name, lens)`` pairs the iteration would run before the PM
+    lead (empty when disabled). The three properties are pure derivations, so
+    the whole plan follows deterministically from the two fields (the CLI adds
+    no logic on top).
+    """
+    enabled: bool
+    stages: tuple[tuple[str, str], ...]
+
+    @property
+    def count(self) -> int:
+        """Number of scout stages in the plan (Behaviors 1/2/6)."""
+        return len(self.stages)
+
+    @property
+    def stage_names(self) -> tuple[str, ...]:
+        """The scout stage names in order (Behaviors 2/4)."""
+        return tuple(name for name, _lens in self.stages)
+
+    @property
+    def verdict(self) -> str:
+        """Operator token: ``"DUAL"`` when the pre-phase is enabled, else ``"SINGLE"``."""
+        return "DUAL" if self.enabled else "SINGLE"
+
+
+def decide_scout_phase(
+    dual_pm_scouts: object, lenses: Iterable[str] | None = None
+) -> ScoutPhasePlan:
+    """Compute the ordered scout pre-stage plan for an iteration (pure, total).
+
+    ``dual_pm_scouts`` is the dual-scout flag (coerced with ``bool(...)`` --
+    Behavior 3); ``lenses`` is an optional explicit lens override. When the flag
+    is falsy the plan is disabled with no stages (Behaviors 1/3). When enabled,
+    stage names are assigned BY POSITION ``pm_scout_a``, ``pm_scout_b``,
+    ``pm_scout_c``, ... paired with each lens in input order (Behavior 4). When
+    ``lenses`` is None the lens set is read from the module-level
+    ``PM_SCOUT_LENSES`` AT CALL TIME (not captured as a default arg / at import)
+    so patching it changes a subsequent call's result (Behavior 8); an explicit
+    ``lenses`` (any iterable, including a one-shot generator) overrides it for
+    that call only (Behaviors 7/9/10). Performs NO filesystem/subprocess/network/
+    clock access, never raises for any bool-ish flag or None/iterable ``lenses``
+    (an empty lens set yields an enabled-but-empty plan -- Behavior 6), and is
+    deterministic. Position suffixes past ``z`` are unsupported (Out of Scope),
+    still total.
+    """
+    enabled = bool(dual_pm_scouts)
+    if not enabled:
+        return ScoutPhasePlan(enabled=False, stages=())
+    active = PM_SCOUT_LENSES if lenses is None else tuple(lenses)
+    stages = tuple(
+        (f"pm_scout_{chr(ord('a') + i)}", lens) for i, lens in enumerate(active)
+    )
+    return ScoutPhasePlan(enabled=True, stages=stages)
+
+
+def scout_plan_cli(dual_pm_scouts: bool, lenses: list[str] | None) -> int:
+    """On-demand CLI: report the ordered dual-PM-scout pre-stage plan.
+
+    Computes `decide_scout_phase`, prints the ``dual_pm_scouts`` flag + a
+    ``count`` figure, one line per scout stage naming BOTH the stage name and
+    its lens, and a final ``verdict:`` line, and returns ``1`` (DUAL -- the
+    dual-scout pre-phase is active) / ``0`` (SINGLE) -- non-zero = the pre-phase
+    runs, mirroring `cadence-review` REVIEW / `restaffing-review` DIFF. Writes
+    NOTHING to disk. A THIN wrapper over the pure core: it adds no logic beyond
+    decide -> format, so the printed figures always match the `ScoutPhasePlan`.
+    Takes no file, so there is no file-not-found path.
+    """
+    result = decide_scout_phase(dual_pm_scouts, lenses)
+    print(f"scout-plan: dual_pm_scouts={result.enabled} count={result.count}")
+    for name, lens in result.stages:
+        print(f"  {name} (lens: {lens})")
+    print(f"verdict: {result.verdict}")
+    return 1 if result.enabled else 0
+
+
+# --------------------------------------------------------------------------- #
 # Assertion-free test detector (DORMANT — roadmap item 6, offline slice).
 #
 # Item 6's own failure mode: a fresh Tester agent writes a `test*` function that
@@ -9479,6 +9584,23 @@ def main(argv: list[str] | None = None) -> int:
     rst.add_argument("--file", required=True,
                      help="path to a JSON re-staffing review object (changes / "
                           "tenures / logged_triggers, optional k / cap)")
+    # `scout-plan` is the dual-PM-scout PHASE PLANNER (dual-PM-scout feature
+    # bite 1, docs/DUAL_PM_SCOUT_SPEC.md): given the dual-scout flag (and an
+    # optional lens override), compute the ordered scout pre-stage plan an
+    # iteration would run BEFORE the PM lead -- pm_scout_a (new-capability lens)
+    # then pm_scout_b (hardening/DX lens) by default, positional a/b/c/... for
+    # more lenses. It takes a flag, NOT a product --config or a --file, so like
+    # `cadence-review`/`escalation-check`/`product-gate`/`lint-spec` it is
+    # dispatched BEFORE the top-level `load_config` below. DORMANT / on-demand
+    # only -- the pipeline/gate/dispatcher NEVER call it; it writes nothing.
+    # Exit 1 DUAL / 0 SINGLE.
+    scp = sub.add_parser("scout-plan")
+    scp.add_argument("--dual-pm-scouts", action="store_true",
+                     help="run the two-scout pre-phase (pm_scout_a then "
+                          "pm_scout_b) before the PM lead")
+    scp.add_argument("--lens", action="append", default=None,
+                     help="explicit scout lens (repeatable, in order); omit to "
+                          "read the module-level PM_SCOUT_LENSES at call time")
     # `lint-config` is the CONFIG-validation complement to `doctor` (env, #0)
     # and `lint-spec` (spec, #6): an offline, deterministic linter that inspects
     # a resolved product config for the misconfigurations that silently waste a
@@ -9953,6 +10075,8 @@ def main(argv: list[str] | None = None) -> int:
         return cadence_review_cli(args.counter, args.trigger_fired, args.n)
     if args.cmd == "restaffing-review":
         return restaffing_review_cli(args.file)
+    if args.cmd == "scout-plan":
+        return scout_plan_cli(args.dual_pm_scouts, args.lens)
     if args.cmd == "lint-config":
         return lint_config_cli(args.config, as_json=args.json)
     if args.cmd == "lint-bench":
