@@ -3903,6 +3903,36 @@ class ScoutPhasePlan:
         """Operator token: ``"DUAL"`` when the pre-phase is enabled, else ``"SINGLE"``."""
         return "DUAL" if self.enabled else "SINGLE"
 
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe scout-phase plan for machine consumers -- an
+        operator, a CI job, or a dashboard consuming the dual-PM-scout phase
+        verdict (dual-PM-scout bite 1), the org-design analog of
+        `CadenceReviewDecision.to_dict()` and the other read-only `--json`
+        probes.
+
+        Returns EXACTLY 5 keys: the stored `enabled` bool verbatim, then the
+        derived `stages` / `count` / `stage_names` / `verdict`, each REUSING the
+        frozen field/properties so the JSON can never disagree with what the CLI
+        renders or the exit code returns. `stages` serializes each
+        `(name, lens)` pair as a self-describing `{"stage": name, "lens": lens}`
+        dict (NOT a bare `list(self.stages)`, whose inner tuples json.loads would
+        read back as lists and break the round-trip); `stage_names` is
+        `list(self.stage_names)` (the tuple property coerced to a JSON-native
+        list, like the `escalation-check` categories). Pure: touches no
+        filesystem, does not mutate the frozen plan, and returns a fresh dict
+        (with fresh nested stage dicts) each call. NO `exit_code` key: the CLI
+        exit derives from `enabled` (0/1) and `scout-plan` takes no file, so
+        there is no file-not-found (2) path to serialize -- contrast
+        `escalation-check`.
+        """
+        return {
+            "enabled": self.enabled,
+            "stages": [{"stage": name, "lens": lens} for name, lens in self.stages],
+            "count": self.count,
+            "stage_names": list(self.stage_names),
+            "verdict": self.verdict,
+        }
+
 
 def decide_scout_phase(
     dual_pm_scouts: object, lenses: Iterable[str] | None = None
@@ -3934,7 +3964,7 @@ def decide_scout_phase(
     return ScoutPhasePlan(enabled=True, stages=stages)
 
 
-def scout_plan_cli(dual_pm_scouts: bool, lenses: list[str] | None) -> int:
+def scout_plan_cli(dual_pm_scouts: bool, lenses: list[str] | None, as_json: bool = False) -> int:
     """On-demand CLI: report the ordered dual-PM-scout pre-stage plan.
 
     Computes `decide_scout_phase`, prints the ``dual_pm_scouts`` flag + a
@@ -3944,13 +3974,19 @@ def scout_plan_cli(dual_pm_scouts: bool, lenses: list[str] | None) -> int:
     runs, mirroring `cadence-review` REVIEW / `restaffing-review` DIFF. Writes
     NOTHING to disk. A THIN wrapper over the pure core: it adds no logic beyond
     decide -> format, so the printed figures always match the `ScoutPhasePlan`.
-    Takes no file, so there is no file-not-found path.
+    Takes no file, so there is no file-not-found path. With ``as_json=True`` it
+    prints one ``json.dumps(result.to_dict(), indent=2)`` document
+    (machine-readable) instead of the human report; the ``0``/``1`` exit
+    contract is byte-identical in both modes.
     """
     result = decide_scout_phase(dual_pm_scouts, lenses)
-    print(f"scout-plan: dual_pm_scouts={result.enabled} count={result.count}")
-    for name, lens in result.stages:
-        print(f"  {name} (lens: {lens})")
-    print(f"verdict: {result.verdict}")
+    if as_json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(f"scout-plan: dual_pm_scouts={result.enabled} count={result.count}")
+        for name, lens in result.stages:
+            print(f"  {name} (lens: {lens})")
+        print(f"verdict: {result.verdict}")
     return 1 if result.enabled else 0
 
 
@@ -9890,6 +9926,10 @@ def main(argv: list[str] | None = None) -> int:
     scp.add_argument("--lens", action="append", default=None,
                      help="explicit scout lens (repeatable, in order); omit to "
                           "read the module-level PM_SCOUT_LENSES at call time")
+    scp.add_argument("--json", action="store_true",
+                     help="emit the plan as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1 exit code")
     # `lint-config` is the CONFIG-validation complement to `doctor` (env, #0)
     # and `lint-spec` (spec, #6): an offline, deterministic linter that inspects
     # a resolved product config for the misconfigurations that silently waste a
@@ -10365,7 +10405,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "restaffing-review":
         return restaffing_review_cli(args.file, as_json=args.json)
     if args.cmd == "scout-plan":
-        return scout_plan_cli(args.dual_pm_scouts, args.lens)
+        return scout_plan_cli(args.dual_pm_scouts, args.lens, as_json=args.json)
     if args.cmd == "lint-config":
         return lint_config_cli(args.config, as_json=args.json)
     if args.cmd == "lint-bench":
