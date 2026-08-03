@@ -453,3 +453,32 @@ optional two-scout pre-stage (config flag `dual_pm_scouts`, default off) before 
 lead: `pm_scout_a` (new-capability lens) + `pm_scout_b` (hardening/DX lens) run
 sequentially, then the PM lead triages both slates and picks one feature. Backward-
 compatible; the disabled path must be byte-identical to today. Add tests.
+
+
+---
+
+## Item 23 -- dispatcher survives a dead stdout (SMALL, incident-driven 2026-08-03)
+
+**Problem.** A 68-shift dispatcher session died at 09:18 on `OSError(5, 'Input/output
+error')` raised during a product shift and again on shutdown logging. Root cause: the
+hosting terminal/PTY was torn down while the process kept running, so every later
+`print()`/console write raised `OSError` -- the per-shift handler logged "continuing"
+but the next console write killed the outer loop anyway. The durable log file
+(`DISPATCH_LOG.md`) was fine; only the console stream was dead. An always-on brain must
+not die because its terminal did.
+
+**What ships.**
+- A tiny safe-console-write helper in `dispatcher.py` (and `foundry.py` if it prints on
+  the control path): wrap console writes so `OSError`/`ValueError` (closed stream) is
+  swallowed after the first failure and console output is disabled for the rest of the
+  session -- file logging is untouched and remains the record.
+- The shutdown path ("dispatcher down; shifts this session=N") writes to the log FILE
+  first, console second, so the summary always lands.
+- Unit tests: a stream whose `write` raises `OSError` neither propagates nor stops shift
+  scheduling; the log file still receives every line; console re-disable is one-shot
+  (no per-line retry storm).
+
+**Done when.**
+- [ ] All dispatcher/foundry control-path console writes go through the helper; a dead
+      stdout mid-session cannot terminate the loop (regression test simulates it).
+- [ ] Shutdown summary reaches the log file even with a dead console; `tests/` green.
