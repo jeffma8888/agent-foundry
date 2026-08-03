@@ -2912,6 +2912,34 @@ class ProductGateVerdict:
                  ("engineering", self.engineering))
         return tuple(name for name, verdict in seats if verdict == token)
 
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe product-gate verdict for machine consumers -- a
+        release gate, a CI job, or an operator dashboard consuming the
+        tri-perspective seat aggregation (item 20 bite 2), the org-design analog
+        of `ScoutPhasePlan.to_dict()` and the other read-only `--json` probes.
+
+        Returns EXACTLY 6 keys: the three stored seat tokens verbatim
+        (`business` / `product` / `engineering`), then the derived `verdict` /
+        `killers` / `recyclers`, each REUSING the frozen fields/properties so the
+        JSON can never disagree with what the CLI renders or the exit code
+        returns. `killers` / `recyclers` are `list(self.killers)` /
+        `list(self.recyclers)` (the tuple properties coerced to JSON-native
+        lists, like the `escalation-check` categories -- a bare tuple would be
+        read back by json.loads as a list and break the round-trip). Pure:
+        touches no filesystem, does not mutate the frozen verdict, and returns a
+        fresh dict each call. NO `exit_code` key: the CLI exit derives from
+        `verdict` (0/1/2 = GO/KILL/RECYCLE) and the value object does not carry
+        one -- same as every prior org-design CLI.
+        """
+        return {
+            "business": self.business,
+            "product": self.product,
+            "engineering": self.engineering,
+            "verdict": self.verdict,
+            "killers": list(self.killers),
+            "recyclers": list(self.recyclers),
+        }
+
 
 def aggregate_gate_verdict(
     business: str, product: str, engineering: str
@@ -2954,7 +2982,7 @@ def aggregate_gate_verdict(
     )
 
 
-def gate_verdict_cli(business: str, product: str, engineering: str) -> int:
+def gate_verdict_cli(business: str, product: str, engineering: str, as_json: bool = False) -> int:
     """On-demand CLI: aggregate three raw seat verdicts into one gate verdict.
 
     Computes `aggregate_gate_verdict`, prints the three NORMALIZED seat verdicts,
@@ -2962,16 +2990,22 @@ def gate_verdict_cli(business: str, product: str, engineering: str) -> int:
     then returns ``0`` (GO) / ``1`` (KILL) / ``2`` (RECYCLE). Writes NOTHING to
     disk. A THIN wrapper over the pure core: it adds no aggregation logic beyond
     aggregate -> format, so the printed seat/roster/verdict figures always match
-    the ``ProductGateVerdict`` fields and properties.
+    the ``ProductGateVerdict`` fields and properties. With ``as_json=True`` it
+    prints one ``json.dumps(result.to_dict(), indent=2)`` document
+    (machine-readable) instead of the human report; the ``0``/``1``/``2`` exit
+    contract is byte-identical in both modes.
     """
     result = aggregate_gate_verdict(business, product, engineering)
-    print("gate-verdict:")
-    print(f"  business: {result.business}  product: {result.product}  "
-          f"engineering: {result.engineering}")
-    print(f"  killers: {', '.join(result.killers) if result.killers else '(none)'}")
-    print(f"  recyclers: "
-          f"{', '.join(result.recyclers) if result.recyclers else '(none)'}")
-    print(f"verdict: {result.verdict}")
+    if as_json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print("gate-verdict:")
+        print(f"  business: {result.business}  product: {result.product}  "
+              f"engineering: {result.engineering}")
+        print(f"  killers: {', '.join(result.killers) if result.killers else '(none)'}")
+        print(f"  recyclers: "
+              f"{', '.join(result.recyclers) if result.recyclers else '(none)'}")
+        print(f"verdict: {result.verdict}")
     return {"GO": 0, "KILL": 1, "RECYCLE": 2}[result.verdict]
 
 
@@ -9810,6 +9844,10 @@ def main(argv: list[str] | None = None) -> int:
                      help="the Product seat's raw Go/Kill/Recycle verdict")
     gvd.add_argument("--engineering", required=True,
                      help="the Senior-engineer seat's raw Go/Kill/Recycle verdict")
+    gvd.add_argument("--json", action="store_true",
+                     help="emit the gate verdict as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code")
     # `role-model` resolves a per-role MODEL-OVERRIDE note (item 20 bite 3) into
     # the agent-CLI argv a launcher would use over the module `AGENT_RUN_ARGS`
     # base + `MODEL_ARG_TEMPLATE` (both read at call time). It takes an optional
@@ -10392,7 +10430,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "gate-precheck":
         return gate_precheck_cli(args.file)
     if args.cmd == "gate-verdict":
-        return gate_verdict_cli(args.business, args.product, args.engineering)
+        return gate_verdict_cli(args.business, args.product, args.engineering, as_json=args.json)
     if args.cmd == "role-model":
         return role_model_cli(args.model)
     if args.cmd == "product-gate":
