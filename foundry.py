@@ -3830,6 +3830,48 @@ def scout_plan_cli(dual_pm_scouts: bool, lenses: list[str] | None) -> int:
     return 1 if result.enabled else 0
 
 
+@dataclasses.dataclass(frozen=True)
+class ScoutStageSpec:
+    """One scout's concrete run_stage descriptor (dual-PM-scout bite 3a).
+
+    Bridges the iter-80 abstract ``ScoutPhasePlan`` (ordered ``(stage_name,
+    lens)`` pairs) to the concrete per-scout arguments the operator-gated
+    bite-3b wiring will loop over. Frozen for the same reason as
+    ``ScoutPhasePlan``: a derived descriptor must not be mutated after the fact,
+    and value-equality comes free (Behavior 11). ``stage`` is the scout's stage
+    name; ``out_name`` is the exact output file that scout must write, tying its
+    output-file-success contract to a named file (``stage + ".md"`` -- Behavior
+    3); ``lens`` is the assigned candidate-generation lens, carried verbatim
+    (Behavior 8). The shared scout role card is INVARIANT across scouts, so it is
+    NOT per-descriptor data: it lives at the bite-3b ``run_stage`` call site, not
+    here (keeping this bite off iter-81's role-file dormancy -- Behavior 15).
+    """
+    stage: str
+    out_name: str
+    lens: str
+
+
+def derive_scout_stage_specs(plan: ScoutPhasePlan) -> tuple[ScoutStageSpec, ...]:
+    """Map an abstract scout plan to its concrete per-scout run_stage descriptors.
+
+    The direct analog of iter-69's ``derive_execution_plan`` (abstract plan ->
+    concrete execution descriptor): given the iter-80 ``ScoutPhasePlan`` it
+    returns one ``ScoutStageSpec`` per ordered ``(stage_name, lens)`` pair,
+    pinning each scout's output-file-success contract to ``stage_name + ".md"``.
+    Order is preserved from ``plan.stages`` (Behavior 4); a disabled or
+    enabled-but-empty plan yields an empty tuple (Behaviors 1/7). Pure, total,
+    deterministic, offline: performs NO filesystem/subprocess/network/clock
+    access and never raises for any ``ScoutPhasePlan`` input (Behavior 12).
+    ZERO call site -- the operator-gated bite-3b wiring loops over the result;
+    nothing in the running loop constructs or calls it, so the disabled path is
+    byte-identical (Behavior 14).
+    """
+    return tuple(
+        ScoutStageSpec(stage=name, out_name=f"{name}.md", lens=lens)
+        for name, lens in plan.stages
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Assertion-free test detector (DORMANT — roadmap item 6, offline slice).
 #
