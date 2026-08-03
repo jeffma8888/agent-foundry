@@ -44,7 +44,7 @@ import subprocess
 import sys
 import time
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Mapping, Sequence
 
 FOUNDRY = pathlib.Path(__file__).resolve().parent
 # The agent CLI is configurable so the foundry stays tool-agnostic. AGENT_BIN
@@ -3494,6 +3494,234 @@ def cadence_review_cli(counter: int, trigger_fired: bool, n: int | None) -> int:
     print(f"  next_counter: {result.next_counter}")
     print(f"verdict: {result.verdict}")
     return 1 if result.fires else 0
+
+
+# --------------------------------------------------------------------------- #
+# Bounded re-staffing: the hysteresis-constrained re-staffing DIFF core (DORMANT
+# -- roadmap item 22 bite 2, org-design section 10). Team-composition changes
+# are PROPOSALS, not drift: a re-staffing review emits a DIFF against
+# staffing.json (it never edits it) constrained by three hysteresis rules that
+# prevent thrash (the multi-agent equivalent of a re-org every sprint) --
+# (1) a role must serve a minimum tenure K before it can be deactivated,
+# (2) at most a capped number of changes are accepted per review, and
+# (3) every change must cite the logged trigger that motivated it. Item 22 bite
+# 1 (iter 78) shipped the cadence half (decide_cadence_review); this bite ships
+# the DIFF half: take a set of PROPOSED changes and partition them into a
+# hysteresis-valid ACCEPTED diff plus tagged REJECTIONS. Same purely-additive,
+# off-control-path, on-demand-CLI class as gate-precheck (item 20 bite 1) /
+# gate-verdict (bite 2) / role-model (bite 3) / product-gate (bite 4a) /
+# escalation-check (item 21 bite 1) / cadence-review (item 22 bite 1): the
+# pipeline NEVER calls it, so build_prompt/run_stage/run_iteration/
+# run_continuous/run_execution_plan/dispatcher.py are untouched, NO
+# sentinel/config field/artifact is added, and the CLI writes NOTHING. The two
+# thresholds K and cap are module-level + patchable constants read at CALL time
+# (not captured at import / as default args) so they stay tunable per box --
+# see Behaviors 9/10. WIRING a re-staffing STAGE into the pipeline (and APPLYING
+# the accepted diff to staffing.json) is the item-22 final control-flow bite;
+# this bite only DECIDES.
+# --------------------------------------------------------------------------- #
+RESTAFFING_MIN_TENURE_K: int = 3
+RESTAFFING_MAX_CHANGES: int = 2
+
+
+@dataclasses.dataclass(frozen=True)
+class RestaffingChange:
+    """A single proposed team-composition change (item 22 bite 2).
+
+    Frozen so a normalized change can't be mutated after the fact, which also
+    gives value-equality for free. ``action`` is the proposed operation
+    (lower-cased + stripped -- only ``"deactivate"`` is tenure-gated, any other
+    action is treated as non-deactivating), ``role`` is the target role id
+    (stripped), and ``trigger`` is the logged-trigger citation (stripped). A
+    missing key normalizes to the empty string (Behavior 3).
+    """
+    action: str
+    role: str
+    trigger: str
+
+
+@dataclasses.dataclass(frozen=True)
+class RestaffingRejection:
+    """A proposed change rejected by a named hysteresis rule (item 22 bite 2).
+
+    ``change`` is the normalized `RestaffingChange` that failed; ``rule`` is the
+    FIRST rule it violated in the fixed order trigger -> tenure -> cap (Behavior
+    8). Frozen for value-equality and immutability.
+    """
+    change: RestaffingChange
+    rule: str
+
+
+@dataclasses.dataclass(frozen=True)
+class RestaffingDiff:
+    """The partition of proposed changes into accepted + rejected (item 22 bite 2).
+
+    Frozen so a computed diff can't be mutated and two `decide_restaffing` calls
+    on equal arguments compare ``==`` (Behavior 1). ``accepted`` is the tuple of
+    hysteresis-valid `RestaffingChange`s (in input order, at most ``cap`` of
+    them); ``rejected`` is the tuple of `RestaffingRejection`s; ``k`` and ``cap``
+    are the EFFECTIVE thresholds that were used (Behavior 11). The four
+    properties are pure derivations, so the whole diff follows deterministically
+    from the stored fields (the CLI adds no logic on top).
+    """
+    accepted: tuple[RestaffingChange, ...]
+    rejected: tuple[RestaffingRejection, ...]
+    k: int
+    cap: int
+
+    @property
+    def accepted_count(self) -> int:
+        """Number of accepted changes (Behavior 12)."""
+        return len(self.accepted)
+
+    @property
+    def rejected_count(self) -> int:
+        """Number of rejected changes (Behavior 12)."""
+        return len(self.rejected)
+
+    @property
+    def has_diff(self) -> bool:
+        """True iff at least one change was accepted (Behavior 12)."""
+        return bool(self.accepted)
+
+    @property
+    def verdict(self) -> str:
+        """Operator token: ``"DIFF"`` when >= 1 change accepted, else ``"NOOP"``."""
+        return "DIFF" if self.has_diff else "NOOP"
+
+
+def _normalize_restaffing_change(
+    change: Mapping[str, object] | RestaffingChange,
+) -> RestaffingChange:
+    """Normalize a proposed change (a mapping or a `RestaffingChange`) to a change.
+
+    Accepts either a mapping with keys ``action`` / ``role`` / ``trigger`` or an
+    already-built `RestaffingChange` (idempotent). ``action`` is lower-cased +
+    stripped; ``role`` and ``trigger`` are stripped; a missing key becomes the
+    empty string (Behavior 3). Pure and total.
+    """
+    if isinstance(change, RestaffingChange):
+        action, role, trigger = change.action, change.role, change.trigger
+    else:
+        action = change.get("action", "")
+        role = change.get("role", "")
+        trigger = change.get("trigger", "")
+    return RestaffingChange(
+        action=str(action).strip().lower(),
+        role=str(role).strip(),
+        trigger=str(trigger).strip(),
+    )
+
+
+def decide_restaffing(
+    changes: Iterable[Mapping[str, object] | RestaffingChange],
+    tenures: Mapping[str, int] | None = None,
+    logged_triggers: Iterable[str] | None = None,
+    *,
+    k: int | None = None,
+    cap: int | None = None,
+) -> RestaffingDiff:
+    """Partition proposed re-staffing changes into a hysteresis-valid diff (pure, total).
+
+    ``changes`` is an iterable of proposed changes (mappings or
+    `RestaffingChange`s); ``tenures`` maps role -> iterations served (a role
+    absent from it, or ``tenures=None``, is treated as tenure 0 -- Behavior 6);
+    ``logged_triggers`` is the set of trigger ids that have actually been logged
+    (``None`` == none logged, so every change fails citation -- Behavior 4).
+    Each change is evaluated in the FIXED order trigger -> tenure -> cap and the
+    FIRST failing rule tags its rejection (Behavior 8): a change must cite a
+    LOGGED trigger (else rule ``"trigger"``); a ``"deactivate"`` whose role
+    tenure is ``< k`` is rejected (rule ``"tenure"``, an ``"activate"`` is never
+    tenure-gated -- Behavior 5); and only OTHERWISE-VALID changes consume cap
+    slots, so at most ``cap`` are accepted in input order (rule ``"cap"`` for the
+    overflow -- Behavior 7). When ``k`` / ``cap`` are None the thresholds are
+    read from the module-level ``RESTAFFING_MIN_TENURE_K`` /
+    ``RESTAFFING_MAX_CHANGES`` AT CALL TIME (not captured as default args / at
+    import) so patching them changes a subsequent call's result (Behaviors
+    9/10); an explicit ``k`` / ``cap`` overrides for that call only (Behavior
+    11). Performs NO filesystem/subprocess/network/clock access, never raises
+    for well-formed or empty input, and is deterministic.
+    """
+    threshold_k = RESTAFFING_MIN_TENURE_K if k is None else k
+    threshold_cap = RESTAFFING_MAX_CHANGES if cap is None else cap
+    tenure_map = tenures or {}
+    logged = set(logged_triggers or ())
+
+    accepted: list[RestaffingChange] = []
+    rejected: list[RestaffingRejection] = []
+    for raw in changes:
+        change = _normalize_restaffing_change(raw)
+        # Rule 1 (trigger): every change must cite a LOGGED trigger.
+        if not change.trigger or change.trigger not in logged:
+            rejected.append(RestaffingRejection(change=change, rule="trigger"))
+            continue
+        # Rule 2 (tenure): a deactivate needs minimum tenure K; activate exempt.
+        if change.action == "deactivate":
+            tenure = tenure_map.get(change.role, 0)
+            if tenure < threshold_k:
+                rejected.append(
+                    RestaffingRejection(change=change, rule="tenure")
+                )
+                continue
+        # Rule 3 (cap): only otherwise-valid changes consume a slot.
+        if len(accepted) >= threshold_cap:
+            rejected.append(RestaffingRejection(change=change, rule="cap"))
+            continue
+        accepted.append(change)
+    return RestaffingDiff(
+        accepted=tuple(accepted),
+        rejected=tuple(rejected),
+        k=threshold_k,
+        cap=threshold_cap,
+    )
+
+
+def restaffing_review_cli(path: str) -> int:
+    """On-demand CLI: report the hysteresis re-staffing diff for a JSON review.
+
+    Reads the JSON review object at ``path`` (keys ``changes`` [list, default
+    []], ``tenures`` [object role->int, default {}], ``logged_triggers`` [list,
+    default []], and optional ``k`` / ``cap`` integer overrides used when
+    present, else the module defaults), computes `decide_restaffing`, prints the
+    effective k / cap / accepted / rejected figures, one line per accepted
+    change (with a ``+`` marker) and per rejected change (with its failing rule),
+    and a final ``verdict:`` line, and returns ``1`` (DIFF -- a diff to apply) /
+    ``0`` (NOOP) -- non-zero = action needed, mirroring `cadence-review` REVIEW /
+    `escalation-check` ESCALATE. Writes NOTHING to disk. A THIN wrapper over the
+    pure core: it adds no decision logic beyond read -> `decide_restaffing` ->
+    format. A missing file, invalid JSON, or a non-object review prints a message
+    naming the problem and returns ``2`` (distinct from a verdict code) WITHOUT
+    letting an exception propagate.
+    """
+    p = pathlib.Path(path)
+    if not p.exists():
+        print(f"restaffing-review: file not found: {path}")
+        return 2
+    try:
+        review = json.loads(p.read_text())
+    except (ValueError, OSError) as exc:
+        print(f"restaffing-review: invalid JSON in {path}: {exc}")
+        return 2
+    if not isinstance(review, dict):
+        print(f"restaffing-review: review in {path} is not a JSON object")
+        return 2
+    result = decide_restaffing(
+        review.get("changes", []),
+        tenures=review.get("tenures", {}),
+        logged_triggers=review.get("logged_triggers", []),
+        k=review.get("k"),
+        cap=review.get("cap"),
+    )
+    print(f"restaffing-review: {path}")
+    print(f"  k={result.k} cap={result.cap} "
+          f"accepted={result.accepted_count} rejected={result.rejected_count}")
+    for change in result.accepted:
+        print(f"  + {change.action} {change.role} (trigger: {change.trigger})")
+    for rejection in result.rejected:
+        c = rejection.change
+        print(f"  - {c.action} {c.role} (rule: {rejection.rule})")
+    print(f"verdict: {result.verdict}")
+    return 1 if result.has_diff else 0
 
 
 # --------------------------------------------------------------------------- #
@@ -9234,6 +9462,23 @@ def main(argv: list[str] | None = None) -> int:
     cad.add_argument("--n", type=int, default=None,
                      help="explicit threshold override; omit to read the "
                           "module-level CADENCE_REVIEW_N (default 5) at call time")
+    # `restaffing-review` is the hysteresis-constrained re-staffing DIFF review
+    # (item 22 bite 2, org-design section 10): team-composition changes are
+    # PROPOSALS, not drift, so a review emits a DIFF against staffing.json
+    # (never editing it) partitioned by three hysteresis rules that prevent
+    # thrash -- every change must cite a LOGGED trigger, a deactivate needs
+    # minimum tenure K, and at most `cap` changes are accepted per review. Given
+    # a `--file` JSON review object (changes / tenures / logged_triggers, and
+    # optional k / cap overrides), it partitions the proposed changes into an
+    # ACCEPTED diff plus tagged REJECTIONS. It takes a `--file`, NOT a product
+    # --config, so like `cadence-review`/`escalation-check`/`product-gate`/
+    # `lint-spec` it is dispatched BEFORE the top-level `load_config` below.
+    # DORMANT / on-demand only -- the pipeline/gate/dispatcher NEVER call it; it
+    # writes nothing. Exit 1 DIFF / 0 NOOP / 2 file-not-found-or-invalid-JSON.
+    rst = sub.add_parser("restaffing-review")
+    rst.add_argument("--file", required=True,
+                     help="path to a JSON re-staffing review object (changes / "
+                          "tenures / logged_triggers, optional k / cap)")
     # `lint-config` is the CONFIG-validation complement to `doctor` (env, #0)
     # and `lint-spec` (spec, #6): an offline, deterministic linter that inspects
     # a resolved product config for the misconfigurations that silently waste a
@@ -9706,6 +9951,8 @@ def main(argv: list[str] | None = None) -> int:
         return escalation_check_cli(args.file)
     if args.cmd == "cadence-review":
         return cadence_review_cli(args.counter, args.trigger_fired, args.n)
+    if args.cmd == "restaffing-review":
+        return restaffing_review_cli(args.file)
     if args.cmd == "lint-config":
         return lint_config_cli(args.config, as_json=args.json)
     if args.cmd == "lint-bench":
