@@ -149,7 +149,7 @@ uv run python foundry.py lint-spec --file products/repolens/state/iter-NN/pm.md 
 uv run python foundry.py prd --config products/repolens/config.json  # [--json for one machine-readable prd-status doc: dashboards/reporter/CI; same 0/1/2 exit code; a missing file stays the plain-text error]
 
 # 8. Classify a diff's scope (coverage-only "light" vs "full"); DORMANT — the gate does not consult it yet:
-uv run python foundry.py gate-scope --config products/repolens/config.json  # [--base REF] [--files path ...]
+uv run python foundry.py gate-scope --config products/repolens/config.json  # [--base REF] [--files path ...] [--json for one machine-readable scope classification: dashboards/CI/gate-wiring; same 0/1/2 exit code (2 = git-diff-seam failure, only without --files, always plain-text)]
 
 # 9. Company-health probe: latest iter + last ship's POSTRELEASE verdict + the HOTFIX/SPEED flags + prd (exit 0 healthy/1 attention/2 nothing shipped):
 uv run python foundry.py status --config products/repolens/config.json  # [--json for one machine-readable snapshot: dashboards/alerts; same 0/1/2 exit code]

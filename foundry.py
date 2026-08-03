@@ -2667,6 +2667,27 @@ class GateScope:
         """The operator one-word verdict: `"light"` when `light` else `"full"`."""
         return "light" if self.light else "full"
 
+    def to_dict(self) -> dict:
+        """Machine-readable dict of this diff-scope classification (item 4).
+
+        The six keys are the four stored bucket fields in declaration order
+        (``changed``, ``source``, ``test``, ``doc``) FIRST, then the two derived
+        properties (``light`` then ``scope``) LAST -- so all four str-lists group
+        at the front. Each bucket is coerced to a plain ``list`` (one level): the
+        frozen ``tuple`` would round-trip through JSON as a list and break
+        ``json.loads(json.dumps(d)) == d`` otherwise. No ``exit_code`` key -- the
+        CLI derives the exit code from ``light`` (0/1) and a git-diff-seam failure
+        (2) is a CLI-only concern, not part of the classification.
+        """
+        return {
+            "changed": list(self.changed),
+            "source": list(self.source),
+            "test": list(self.test),
+            "doc": list(self.doc),
+            "light": self.light,
+            "scope": self.scope,
+        }
+
 
 def _is_test_path(path: str) -> bool:
     """True iff `path` is a test file (pure, total).
@@ -2718,7 +2739,7 @@ def classify_gate_scope(changed_paths) -> GateScope:
                      test=tuple(test), doc=tuple(doc))
 
 
-def gate_scope_cli(cfg: ProductConfig, files=None, base=None) -> int:
+def gate_scope_cli(cfg: ProductConfig, files=None, base=None, as_json: bool = False) -> int:
     """On-demand CLI: classify a diff's scope and report it (item 4, DORMANT).
 
     Obtains the changed paths one of two ways, then hands them to the pure core:
@@ -2728,6 +2749,9 @@ def gate_scope_cli(cfg: ProductConfig, files=None, base=None) -> int:
         and `.splitlines()` its output.
     Prints a report CONTAINING the literal `scope: <light|full>` plus the bucket
     counts, and returns `0` (light) / `1` (full) / `2` (git seam `ok=False`).
+    With `as_json=True` it prints one `json.dumps(result.to_dict(), indent=2)`
+    document (machine-readable) instead of the human report; the exit contract
+    and the git-diff-seam-failure branch are byte-identical in both modes.
     Writes NOTHING to disk. A THIN wrapper over `classify_gate_scope`: it adds NO
     classification logic beyond (files or `run_cmd` output) -> splitlines ->
     `classify_gate_scope` -> format, so the printed buckets always equal the
@@ -2745,10 +2769,13 @@ def gate_scope_cli(cfg: ProductConfig, files=None, base=None) -> int:
     else:
         paths = list(files)
     result = classify_gate_scope(paths)
-    print(f"gate-scope: repo {cfg.repo}")
-    print(f"  changed: {len(result.changed)}  test: {len(result.test)}  "
-          f"doc: {len(result.doc)}  source: {len(result.source)}")
-    print(f"scope: {result.scope}")
+    if as_json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(f"gate-scope: repo {cfg.repo}")
+        print(f"  changed: {len(result.changed)}  test: {len(result.test)}  "
+              f"doc: {len(result.doc)}  source: {len(result.source)}")
+        print(f"scope: {result.scope}")
     return 0 if result.light else 1
 
 
@@ -10243,6 +10270,10 @@ def main(argv: list[str] | None = None) -> int:
                      help="git base ref to diff against (default origin/<branch>)")
     gsc.add_argument("--files", nargs="*", default=None,
                      help="classify these paths directly instead of a git diff")
+    gsc.add_argument("--json", action="store_true",
+                     help="emit the scope classification as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code")
     # `status` prints a read-only company-health snapshot for one product (the
     # latest iter + the last ship's POSTRELEASE verdict + the two flag files +
     # the prd line) and returns 0 healthy / 1 needs-attention / 2 nothing-shipped.
@@ -10665,7 +10696,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "prd":
         return prd_status_cli(cfg, as_json=args.json)
     if args.cmd == "gate-scope":
-        return gate_scope_cli(cfg, files=args.files, base=args.base)
+        return gate_scope_cli(cfg, files=args.files, base=args.base, as_json=args.json)
     if args.cmd == "status":
         return status_cli(cfg, as_json=args.json)
     if args.cmd == "history":
