@@ -3613,6 +3613,15 @@ class RestaffingChange:
     role: str
     trigger: str
 
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe ``{"action","role","trigger"}`` triple (fixed order).
+
+        The leaf of the composite `RestaffingDiff.to_dict` serialization -- mirrors
+        `ConfigFinding.to_dict`. Every value is the STORED string verbatim, so
+        ``json.dumps`` never raises and the payload can never disagree with the
+        human ``+ action role (trigger)`` render (Behavior 1)."""
+        return {"action": self.action, "role": self.role, "trigger": self.trigger}
+
 
 @dataclasses.dataclass(frozen=True)
 class RestaffingRejection:
@@ -3624,6 +3633,15 @@ class RestaffingRejection:
     """
     change: RestaffingChange
     rule: str
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe ``{"change","rule"}`` pair (fixed order).
+
+        ``change`` is the NESTED `RestaffingChange.to_dict()` (a plain ``dict``,
+        never a dataclass instance -- so ``json.dumps`` cannot raise), matching
+        the human ``- action role (rule)`` render; ``rule`` is the stored rule
+        string (Behavior 2)."""
+        return {"change": self.change.to_dict(), "rule": self.rule}
 
 
 @dataclasses.dataclass(frozen=True)
@@ -3662,6 +3680,33 @@ class RestaffingDiff:
     def verdict(self) -> str:
         """Operator token: ``"DIFF"`` when >= 1 change accepted, else ``"NOOP"``."""
         return "DIFF" if self.has_diff else "NOOP"
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of the whole diff.
+
+        Returns EXACTLY these 8 keys in this fixed order: ``accepted`` (a LIST of
+        ``{"action","role","trigger"}`` dicts in accepted order), ``rejected`` (a
+        LIST of ``{"change",...,"rule"}`` dicts in rejection order), ``k``,
+        ``cap``, ``accepted_count``, ``rejected_count``, ``has_diff``,
+        ``verdict``. ``accepted`` / ``rejected`` are LISTS (not the frozen
+        tuples) of NESTED dicts (not dataclass instances) -- mirrors
+        `ConfigLint.to_dict` one level deeper -- so ``json.dumps(...)`` never
+        raises and the dict round-trips through ``json.loads(json.dumps(...))``
+        (Behaviors 4/6). There is NO ``exit_code`` key: the CLI derives its exit
+        from ``has_diff`` (0/1) and the file-error 2 is a CLI-only concern (RD,
+        like `EscalationClassification`, has no ``exit_code`` property). Every
+        scalar REUSES a frozen field/property so the payload can never disagree
+        with the render/exit (single source of truth). Pure: no filesystem."""
+        return {
+            "accepted": [c.to_dict() for c in self.accepted],
+            "rejected": [r.to_dict() for r in self.rejected],
+            "k": self.k,
+            "cap": self.cap,
+            "accepted_count": self.accepted_count,
+            "rejected_count": self.rejected_count,
+            "has_diff": self.has_diff,
+            "verdict": self.verdict,
+        }
 
 
 def _normalize_restaffing_change(
@@ -3750,7 +3795,7 @@ def decide_restaffing(
     )
 
 
-def restaffing_review_cli(path: str) -> int:
+def restaffing_review_cli(path: str, as_json: bool = False) -> int:
     """On-demand CLI: report the hysteresis re-staffing diff for a JSON review.
 
     Reads the JSON review object at ``path`` (keys ``changes`` [list, default
@@ -3763,9 +3808,12 @@ def restaffing_review_cli(path: str) -> int:
     ``0`` (NOOP) -- non-zero = action needed, mirroring `cadence-review` REVIEW /
     `escalation-check` ESCALATE. Writes NOTHING to disk. A THIN wrapper over the
     pure core: it adds no decision logic beyond read -> `decide_restaffing` ->
-    format. A missing file, invalid JSON, or a non-object review prints a message
-    naming the problem and returns ``2`` (distinct from a verdict code) WITHOUT
-    letting an exception propagate.
+    format. With ``as_json=True`` it prints one ``json.dumps(result.to_dict(),
+    indent=2)`` document (machine-readable) instead of the human report; the
+    ``0``/``1``/``2`` exit contract and the three error branches are
+    byte-identical in both modes. A missing file, invalid JSON, or a non-object
+    review prints a message naming the problem and returns ``2`` (distinct from a
+    verdict code) WITHOUT letting an exception propagate.
     """
     p = pathlib.Path(path)
     if not p.exists():
@@ -3786,15 +3834,18 @@ def restaffing_review_cli(path: str) -> int:
         k=review.get("k"),
         cap=review.get("cap"),
     )
-    print(f"restaffing-review: {path}")
-    print(f"  k={result.k} cap={result.cap} "
-          f"accepted={result.accepted_count} rejected={result.rejected_count}")
-    for change in result.accepted:
-        print(f"  + {change.action} {change.role} (trigger: {change.trigger})")
-    for rejection in result.rejected:
-        c = rejection.change
-        print(f"  - {c.action} {c.role} (rule: {rejection.rule})")
-    print(f"verdict: {result.verdict}")
+    if as_json:
+        print(json.dumps(result.to_dict(), indent=2))
+    else:
+        print(f"restaffing-review: {path}")
+        print(f"  k={result.k} cap={result.cap} "
+              f"accepted={result.accepted_count} rejected={result.rejected_count}")
+        for change in result.accepted:
+            print(f"  + {change.action} {change.role} (trigger: {change.trigger})")
+        for rejection in result.rejected:
+            c = rejection.change
+            print(f"  - {c.action} {c.role} (rule: {rejection.rule})")
+        print(f"verdict: {result.verdict}")
     return 1 if result.has_diff else 0
 
 
@@ -9818,6 +9869,10 @@ def main(argv: list[str] | None = None) -> int:
     rst.add_argument("--file", required=True,
                      help="path to a JSON re-staffing review object (changes / "
                           "tenures / logged_triggers, optional k / cap)")
+    rst.add_argument("--json", action="store_true",
+                     help="emit the diff as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code")
     # `scout-plan` is the dual-PM-scout PHASE PLANNER (dual-PM-scout feature
     # bite 1, docs/DUAL_PM_SCOUT_SPEC.md): given the dual-scout flag (and an
     # optional lens override), compute the ordered scout pre-stage plan an
@@ -10308,7 +10363,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "cadence-review":
         return cadence_review_cli(args.counter, args.trigger_fired, args.n, as_json=args.json)
     if args.cmd == "restaffing-review":
-        return restaffing_review_cli(args.file)
+        return restaffing_review_cli(args.file, as_json=args.json)
     if args.cmd == "scout-plan":
         return scout_plan_cli(args.dual_pm_scouts, args.lens)
     if args.cmd == "lint-config":
