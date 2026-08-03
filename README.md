@@ -146,7 +146,7 @@ uv run python foundry.py agents --config products/repolens/config.json  # [--rec
 uv run python foundry.py lint-spec --file products/repolens/state/iter-NN/pm.md
 
 # 7. Report "N/M stories pass" from a product prd.json (exit 0 complete/1 incomplete/2 missing|invalid):
-uv run python foundry.py prd --config products/repolens/config.json
+uv run python foundry.py prd --config products/repolens/config.json  # [--json for one machine-readable prd-status doc: dashboards/reporter/CI; same 0/1/2 exit code; a missing file stays the plain-text error]
 
 # 8. Classify a diff's scope (coverage-only "light" vs "full"); DORMANT — the gate does not consult it yet:
 uv run python foundry.py gate-scope --config products/repolens/config.json  # [--base REF] [--files path ...]
