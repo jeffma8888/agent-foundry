@@ -2418,6 +2418,26 @@ class PrdStatus:
         """The operator one-liner, e.g. ``"2/5 stories pass"`` (Behavior 6)."""
         return f"{self.passed}/{self.total} stories pass"
 
+    def to_dict(self) -> dict:
+        """Machine-readable dict of this story-pass status (item 1, jq-able).
+
+        The six keys are the four stored fields in declaration order (``valid``,
+        ``total``, ``passed``, ``pending``) then the two derived properties
+        (``complete`` then ``summary``) LAST, so the str-list ``pending`` lands
+        in the MIDDLE. ``pending`` is coerced to a plain ``list`` (one level):
+        the frozen ``tuple`` would round-trip through JSON as a list and break
+        ``json.loads(json.dumps(d)) == d`` otherwise. No ``exit_code`` key -- the
+        CLI derives the exit code from the fields.
+        """
+        return {
+            "valid": self.valid,
+            "total": self.total,
+            "passed": self.passed,
+            "pending": list(self.pending),
+            "complete": self.complete,
+            "summary": self.summary,
+        }
+
 
 def prd_status(prd_text: str) -> PrdStatus:
     """Count passing stories in a prd.json machine roadmap (pure, total).
@@ -2465,33 +2485,43 @@ def prd_status(prd_text: str) -> PrdStatus:
                      pending=tuple(pending))
 
 
-def prd_status_cli(cfg: ProductConfig) -> int:
+def prd_status_cli(cfg: ProductConfig, as_json: bool = False) -> int:
     """On-demand CLI: report "N/M stories pass" from a product's ``cfg.prd``.
 
     Reads the file at ``cfg.prd``, computes `prd_status`, prints a human-readable
     report, and returns ``0`` (complete) / ``1`` (incomplete) / ``2`` (missing or
-    invalid prd). Writes NOTHING to disk (Behavior 14). A thin wrapper over the
-    pure core -- it adds no counting logic beyond read -> `prd_status` -> format,
-    so the printed figures always match the ``PrdStatus`` fields. A missing file
-    returns ``2`` naming the path (Behavior 11) without letting a
-    ``FileNotFoundError`` propagate; an existing-but-malformed file returns ``2``
-    flagged as invalid JSON (Behavior 13).
+    invalid prd). With `as_json=True` the entire stdout for an EXISTING file is
+    ONE `json.dumps(status.to_dict(), indent=2)` document (the stable machine
+    contract for dashboards/reporter/CI), so item 1's jq-able roadmap is served
+    without scraping prose; either way the RETURN value is the same exit code.
+    A MISSING file precedes the mode branch, so it stays the plain-text
+    `prd: file not found: <path>` line + ``2`` under BOTH modes (never
+    fabricating a JSON object for a file that is not there). Writes NOTHING to
+    disk (Behavior 14). A thin wrapper over the pure core -- it adds no counting
+    logic beyond read -> `prd_status` -> format, so the printed figures always
+    match the ``PrdStatus`` fields. A missing file returns ``2`` naming the path
+    (Behavior 11) without letting a ``FileNotFoundError`` propagate; an
+    existing-but-malformed file returns ``2`` flagged as invalid JSON
+    (Behavior 13).
     """
     path = pathlib.Path(cfg.prd)
     if not path.exists():
         print(f"prd: file not found: {cfg.prd}")
         return 2
     status = prd_status(path.read_text())
-    print(f"prd: {cfg.prd}")
-    if not status.valid:
-        print('prd: invalid JSON -- expected an array of story objects '
-              'or a {"stories": [...]} object')
-        return 2
-    print(f"  {status.summary}")
-    print(f"  complete: {status.complete}")
-    if status.pending:
-        print(f"  pending: {', '.join(str(x) for x in status.pending)}")
-    return 0 if status.complete else 1
+    if as_json:
+        print(json.dumps(status.to_dict(), indent=2))
+    else:
+        print(f"prd: {cfg.prd}")
+        if not status.valid:
+            print('prd: invalid JSON -- expected an array of story objects '
+                  'or a {"stories": [...]} object')
+        else:
+            print(f"  {status.summary}")
+            print(f"  complete: {status.complete}")
+            if status.pending:
+                print(f"  pending: {', '.join(str(x) for x in status.pending)}")
+    return 2 if not status.valid else (0 if status.complete else 1)
 
 
 # --------------------------------------------------------------------------- #
@@ -10155,6 +10185,10 @@ def main(argv: list[str] | None = None) -> int:
     prd = sub.add_parser("prd")
     prd.add_argument("--config", required=True,
                      help="path to product JSON config")
+    prd.add_argument("--json", action="store_true",
+                     help="emit the story-pass status as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code")
     # `gate-scope` classifies a diff (via --files, or the run_cmd git-diff seam)
     # into test/doc/source and reports whether it is coverage-only ("light").
     # DORMANT / on-demand only -- the gate never consults it (item 4 bite 2 wires
@@ -10587,7 +10621,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "agents":
         return agents_cli(cfg, recent=args.recent, print_only=args.print_only)
     if args.cmd == "prd":
-        return prd_status_cli(cfg)
+        return prd_status_cli(cfg, as_json=args.json)
     if args.cmd == "gate-scope":
         return gate_scope_cli(cfg, files=args.files, base=args.base)
     if args.cmd == "status":
