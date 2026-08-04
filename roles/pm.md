@@ -69,3 +69,9 @@ learnings log are given in the `## Context` block of your prompt.
 - SMALL increments beat ambition. If in doubt, cut scope.
 - Honor the product quality bar from Context (e.g. offline-only, deterministic).
 - Append any notable product lesson to the foundry learnings log as `- [PM iterNN] ...`.
+- REPETITION BRAKE: if your stage prompt carries a `NOVELTY CHECK (repetition
+  brake)` block with `verdict=RUT`, you MUST break the rut -- pick a feature
+  whose shape DIFFERS from the reported dominant shape, and state in `## Triage`
+  which rut you are breaking and how your pick differs in shape. A
+  `verdict=VARIED` block means no rut was detected; proceed with the
+  highest-value pick.
