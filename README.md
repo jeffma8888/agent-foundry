@@ -25,9 +25,12 @@ DevRel, TPM, ...) that activate only when a written trigger fires.
    │ improves   │              └─────┬──────┘
    │ the foundry│                    │
    └────────────┘         per iteration, one small feature:
-                          PM → Engineer → Reviewer → [Fix]
+                          [2 PM Scouts →] PM → Engineer → Reviewer → [Fix]
                               → Isolated Tester → [Fix → Tester]
                               → Final Reviewer (ships or reverts)
+                          (scouts = opt-in dual-lens candidate generation,
+                           `dual_pm_scouts` in config; the PM lead triages
+                           their combined slate and picks ONE feature)
 ```
 
 Each stage is a **fresh** agent-CLI run (clean context, no memory bloat).

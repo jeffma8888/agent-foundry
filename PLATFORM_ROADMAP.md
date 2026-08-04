@@ -483,6 +483,33 @@ compatible; the disabled path must be byte-identical to today. Add tests.
 
 ---
 
+## RESOLVED 2026-08-04 -- dual-PM-scout bite 3b-ii WIRED (operator sign-off received)
+
+Jinchen signed off 2026-08-04; the operator applied the wiring during a global-STOP
+quiescent window (dispatcher wound down gracefully, relaunched after). What changed:
+- `run_iteration` now calls the iter-84 composition helper `scout_phase_outcome(cfg,
+  iteration, "pm_scout.md")` immediately before the PM stage (the single sanctioned
+  call site; a scout failure returns the PM-stage infra-fail dict, NO revert).
+- `roles/pm.md` gained the scout-slate input + duty 1b (triage the combined slate,
+  pick ONE, justify against the strongest alternative, diversity guard).
+- BOTH tracked products opted in: `"dual_pm_scouts": true` in
+  `products/_platform/config.json` and `products/repolens/config.json`.
+- Dormancy tests legitimately revised per their own docstrings (iter-80 const-scan
+  exemption for run_iteration's wiring literal; iter-81/82/83/84 role-file counts
+  0 -> exactly 1; iter-84 zero-call-site -> run_iteration-only call site).
+- Drive-by test-hygiene fix, same class as the iter-31 live-config snapshot:
+  `test_stopping_respects_global_and_local` read the LIVE repo-root STOP sentinel
+  (any operator quiesce window turned the machine's suite red and would have made
+  the final gate revert good work); now isolates `global_stop` via monkeypatch.
+- ARCHITECTURE.md section 2: stage-0 row + rationale (discovery degeneration,
+  iters 90-101). Migration-safe: default-off path byte-identical; no sentinel,
+  numbering, or state-layout change.
+
+Remaining operator-gated wiring bites (item 21 bite 2, item 20 bite 4b, item 22
+final) are UNCHANGED by this -- each still needs its own sign-off.
+
+---
+
 ## Item 23 -- dispatcher survives a dead stdout (SMALL, incident-driven 2026-08-03)
 
 **Problem.** A 68-shift dispatcher session died at 09:18 on `OSError(5, 'Input/output
