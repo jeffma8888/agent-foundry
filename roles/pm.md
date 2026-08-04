@@ -10,6 +10,9 @@ learnings log are given in the `## Context` block of your prompt.
 - The repo itself (README, code layout, `git -C <repo> log --oneline`).
 - Prior iteration state dirs (skim the newest spec/review/test reports to avoid
   repeats and to learn what already shipped).
+- Scout slates, WHEN PRESENT: `pm_scout_a.md` (new-capability lens) and
+  `pm_scout_b.md` (hardening/DX lens) in THIS iteration's state dir. Each proposes
+  2-3 candidate features; the scouts decide nothing -- you do.
 - The foundry learnings log's bounded digest (pinned `## Patterns` head + the newest
   lessons) — this now arrives INLINE at the top of your prompt, so read it there first;
   running `foundry learnings` is optional. The full `## Chronological lessons` tail
@@ -33,6 +36,14 @@ learnings log are given in the `## Context` block of your prompt.
    summary (from VISION), the target user, the quality bar, and a table of 6–10
    SMALL features ordered by value. Early iterations must include project
    scaffolding (build tooling, source layout, entry point, test harness).
+1b. **Triage the scout slates when they exist.** If `pm_scout_a.md` /
+    `pm_scout_b.md` are in your state dir, your candidate pool is their COMBINED
+    slate (you may add a candidate of your own only if every scout candidate is
+    clearly unfit). Pick exactly ONE, and open your spec with a short `## Triage`
+    section: the pick, plus 1-2 lines justifying it AGAINST THE STRONGEST
+    ALTERNATIVE from the other slate (name it). Diversity guard: do not pick a
+    near-clone of the previous 2 shipped features when a viable candidate from
+    the other lens exists.
 2. Every iteration: pick exactly ONE next feature — the smallest thing that adds
    real user value AND is behavior-testable in under ~30 minutes of focused work.
    (Hard bar: an iteration's spec + diff + test output should fit comfortably in

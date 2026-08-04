@@ -10,5 +10,6 @@
   "roles_dir": "{FOUNDRY}/roles",
   "work_root": "{FOUNDRY}/products/repolens",
   "quality_bar": "Offline-first: NO network access at runtime or in tests. Runtime deps: pydantic v2 only; dev dep: pytest only. Byte-exact golden-output test philosophy. Deterministic output. Python >=3.12, uv-managed.",
-  "push_enabled": true
+  "push_enabled": true,
+  "dual_pm_scouts": true
 }

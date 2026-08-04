@@ -10,5 +10,6 @@
   "roles_dir": "{FOUNDRY}/roles",
   "work_root": "{FOUNDRY}/products/_platform",
   "quality_bar": "This product IS the foundry framework itself. Improvements must keep foundry.py and dispatcher.py importable (python -c import), keep tests/ green, and preserve the design invariants documented in ARCHITECTURE.md (output-file success, anti-delegation, revert-on-doubt gate, tester isolation, single-brain dispatch). Small, safe, reversible increments only. Never edit a currently-running loop's semantics in a way that breaks resume.",
-  "push_enabled": true
+  "push_enabled": true,
+  "dual_pm_scouts": true
 }

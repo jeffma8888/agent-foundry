@@ -503,6 +503,14 @@ def test_ac_dormant_zero_call_site():
         consts = _co_consts_deep(fn)
         for s in NEW_STRINGS:
             hits = [c for c in consts if s in c]
+            if fn is foundry.run_iteration and s == "pm_scout":
+                # bite 3b-ii wired 2026-08-04 (operator-signed-off): run_iteration is the single sanctioned call site;
+                # it passes the role-card literal "pm_scout.md" to the iter-84
+                # composition helper. THIS bite's own symbols stay un-referenced
+                # (the refs check above still covers all five orchestrators).
+                assert hits == ["pm_scout.md"], (
+                    f"run_iteration may embed ONLY the wiring literal: {hits}")
+                continue
             assert hits == [], f"foundry.{fn.__name__} embeds dormant string {s!r}: {hits}"
     dtext = DISPATCHER_PY.read_text(encoding="utf-8")
     for sym in NEW_SYMBOLS:

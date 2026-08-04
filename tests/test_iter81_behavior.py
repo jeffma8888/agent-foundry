@@ -296,8 +296,12 @@ def test_b15_role_file_name_absent_from_foundry():
     ftext = FOUNDRY_PY.read_text(encoding="utf-8")
     # the exact .md-suffixed file-name string, NOT the bare pm_scout prefix
     # (the prefix legitimately exists from iter-80's runtime stage naming).
-    assert ftext.count(ROLE_FILE_NAME) == 0, (
-        f"foundry.py references the role-file name {ROLE_FILE_NAME!r} -- not dormant"
+    # bite 3b-ii wired 2026-08-04 (operator-signed-off): run_iteration is the single sanctioned call site,
+    # passing the role-card literal to scout_phase_outcome. Exactly ONE
+    # occurrence: a second would mean the literal leaked past the call site.
+    assert ftext.count(ROLE_FILE_NAME) == 1, (
+        f"foundry.py must reference {ROLE_FILE_NAME!r} exactly once (the "
+        f"run_iteration wiring call site); got {ftext.count(ROLE_FILE_NAME)}"
     )
 
 

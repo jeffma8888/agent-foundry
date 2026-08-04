@@ -363,7 +363,10 @@ def test_b15_role_card_not_referenced():
     A mechanical byte-count of the module text -- NOT a read of implementation
     logic (established iter-80/81 dormancy-hygiene convention)."""
     text = _MAIN_MODULE.read_text(encoding="utf-8")
-    assert text.count("pm_scout.md") == 0, "this bite must not reference the role card"
+    # bite 3b-ii wired 2026-08-04 (operator-signed-off): run_iteration is the single sanctioned call site.
+    assert text.count("pm_scout.md") == 1, (
+        "foundry.py must reference pm_scout.md exactly once (the run_iteration "
+        "wiring call site)")
 
 
 # ==========================================================================
