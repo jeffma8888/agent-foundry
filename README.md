@@ -233,6 +233,9 @@ uv run python foundry.py scout-plan --dual-pm-scouts  # takes a --dual-pm-scouts
 
 # 39. Per-iteration GATE-OUTCOME ledger: each iteration's reviewer VERDICT (APPROVE/CHANGES_REQUIRED) + isolated-tester RESULT (PASS/FAIL) + ship ACTION, ascending, + a rollup -- the INTERNAL-gate-flow complement to #10 `history` (which reports only the ship ACTION), so you see which iterations sailed through clean vs needed a reviewer bounce / a fix pass (exit 0 has-iterations/2 none); read-only:
 uv run python foundry.py outcomes --config products/repolens/config.json  # [--limit N] [--json for one machine-readable gate-outcome ledger doc: dashboards/reporter/CI; same 0/2 exit code, honours --limit]
+
+# 40. Repetition brake: sample the recent commit subjects + newest roadmap entries, normalize each into a "shape" (conventional-commit prefix + trailing (... iter N) tag stripped), and flag a RUT when any single shape recurs at least NOVELTY_RUT_THRESHOLD times -- the "twelve near-identical increments" drift the discovery loop is meant to catch -- else VARIED; DORMANT -- the PM/pipeline does not consult it yet (the PM-obeys-RUT wiring is a later bite) (exit 0 VARIED / 1 RUT); read-only, writes nothing:
+uv run python foundry.py novelty-check --config products/repolens/config.json  # [--limit N] sample the most-recent N commits + roadmap entries (default NOVELTY_DEFAULT_N) [--json for one machine-readable novelty verdict doc: dashboards/reporter/CI; same 0/1 exit code, honours --limit]
 ```
 
 Stop any time: `touch STOP` (whole company) or `touch products/<name>/STOP`
