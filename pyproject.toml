@@ -3,7 +3,9 @@ name = "agent-foundry"
 version = "0.1.0"
 description = "An always-on autonomous product org: PM, engineers, isolated QA, and a release gate that ships real software 24/7. Point it at any repo."
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "resilient-agent-loop-primitives @ git+https://github.com/jeffma8888/resilient-agent-loop-primitives@v0.1.0",
+]
 
 [dependency-groups]
 dev = ["pytest>=8.0"]
