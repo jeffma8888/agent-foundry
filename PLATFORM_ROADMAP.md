@@ -444,9 +444,19 @@ source of truth for the three reliability primitives, and have this platform DEP
 on it instead of keeping inline copies. Do this AFTER that library's product team
 has shipped the corresponding modules (scheduler, runner, watchdog).
 
+**STATUS 2026-08-03: UNBLOCKED and STARTED.** The gate in `docs/STRANGLER_PLAN.md`
+is satisfied (the library repo is PUBLIC, verified via the gh CLI on 2026-08-03), and
+step 1 is DONE: the dependency is declared in `pyproject.toml` pinned to the immutable
+`v0.1.0` tag, the lock is refreshed, `import resilient_agent_loop` (all three
+submodules) is proven, and the full suite is green (2678 passed). Steps 2-5 are NEXT
+for this team -- read `docs/STRANGLER_PLAN.md` FIRST: it carries the verified v0.1.0
+API signatures and the behavior traps each step must preserve (shift-vs-round
+counting, per-round config re-read, log line ordering, output-file success predicate,
+retry timing constants, single-brain relaunch invariant).
+
 Strangler steps (each a small, separately-shippable, behavior-preserving iteration):
-1. Add `resilient-agent-loop-primitives` as a dependency of the foundry (uv add;
-   it is stdlib-only so no transitive weight).
+1. [x] Add `resilient-agent-loop-primitives` as a dependency of the foundry (pinned
+   `@v0.1.0` git dependency; it is stdlib-only so no transitive weight). **(2026-08-03)**
 2. **dispatcher.py -> scheduler:** replace the inline round-robin/STOP/priority loop
    with a call into the library's `scheduler`. Keep dispatcher.py's config parsing +
    logging; delegate only the scheduling core. Prove equivalence: existing dispatcher
