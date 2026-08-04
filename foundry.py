@@ -6901,6 +6901,237 @@ def history_cli(cfg: ProductConfig, limit: int | None = None,
     return summary.exit_code
 
 
+def parse_review_verdict(text: str) -> str | None:
+    """Extract the reviewer VERDICT from a `reviewer.md` body (pure, total).
+
+    The verdict is the token on the LAST non-empty line when that line reads
+    `VERDICT: APPROVE` (-> `"APPROVE"`) or `VERDICT: CHANGES_REQUIRED`
+    (-> `"CHANGES_REQUIRED"`) -- mirroring `parse_ship_action` /
+    `parse_postrelease_verdict` and the sentinel `roles/reviewer.md` mandates as
+    the artifact's final non-empty line. Trailing blank lines are ignored (the
+    last NON-empty line wins) and leading/trailing whitespace on the sentinel
+    line AND around the token is tolerated (`  VERDICT:  APPROVE  ` ->
+    `"APPROVE"`).
+
+    Returns `None` -- never raising for ANY string -- when there is no verdict:
+    empty / whitespace-only text; no `VERDICT:` line; an unrecognized token
+    (`VERDICT: MAYBE`, or a bare `VERDICT:` with nothing after); or a `VERDICT:`
+    line that is NOT the last non-empty line (prose follows it -- a malformed or
+    in-progress artifact). Requiring the sentinel to be LAST matches how the
+    artifact is emitted, so a stray earlier mention can never be misread.
+    """
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    if not lines:
+        return None
+    last = lines[-1]
+    prefix = "VERDICT:"
+    if not last.startswith(prefix):
+        return None
+    token = last[len(prefix):].strip()
+    return token if token in ("APPROVE", "CHANGES_REQUIRED") else None
+
+
+def parse_tester_result(text: str) -> str | None:
+    """Extract the isolated tester RESULT from a `tester.md` body (pure, total).
+
+    The result is the token on the LAST non-empty line when that line reads
+    `RESULT: PASS` (-> `"PASS"`) or `RESULT: FAIL` (-> `"FAIL"`) -- mirroring
+    `parse_ship_action` / `parse_postrelease_verdict` and the sentinel
+    `roles/tester.md` mandates as the artifact's final non-empty line. Trailing
+    blank lines are ignored (the last NON-empty line wins) and leading/trailing
+    whitespace on the sentinel line AND around the token is tolerated
+    (`  RESULT:  PASS  ` -> `"PASS"`).
+
+    Returns `None` -- never raising for ANY string -- when there is no result:
+    empty / whitespace-only text; no `RESULT:` line; an unrecognized token
+    (`RESULT: MAYBE`, or a bare `RESULT:`); or a `RESULT:` line that is NOT the
+    last non-empty line (prose follows it -- a malformed or in-progress
+    artifact). Requiring the sentinel to be LAST matches how the artifact is
+    emitted, so a stray earlier mention can never be misread.
+    """
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    if not lines:
+        return None
+    last = lines[-1]
+    prefix = "RESULT:"
+    if not last.startswith(prefix):
+        return None
+    token = last[len(prefix):].strip()
+    return token if token in ("PASS", "FAIL") else None
+
+
+@dataclasses.dataclass(frozen=True)
+class IterationOutcome:
+    """One iteration's INTERNAL gate outcome (the `outcomes` ledger row).
+
+    Frozen so a computed record can't be mutated after the fact (value equality
+    for free, matching the other pure cores). Fields, in declaration order:
+      * `iteration` -- the iteration number (e.g. `3` for `iter-03`).
+      * `review` -- the reviewer verdict: `"APPROVE"` / `"CHANGES_REQUIRED"` /
+        `None` (no `reviewer.md` / no recognizable `VERDICT:` sentinel).
+      * `tester` -- the isolated tester result: `"PASS"` / `"FAIL"` / `None`
+        (no `tester.md` / no recognizable `RESULT:` sentinel).
+      * `action` -- the ship action: `"PUSHED"` / `"REVERTED"` / `None`
+        (no `final.md` / no recognizable `ACTION:` sentinel).
+    """
+    iteration: int
+    review: str | None
+    tester: str | None
+    action: str | None
+
+
+@dataclasses.dataclass(frozen=True)
+class OutcomesSummary:
+    """A per-iteration gate-OUTCOME ledger for one product (the `outcomes` core).
+
+    Frozen (value equality, no post-hoc mutation). `records` is stored as a
+    `tuple` in the order to render. `total`, the four counts, and `exit_code`
+    are pure derivations of `records`. `exit_code` is `2` iff there is NOTHING
+    to report (`total == 0`) else `0`: outcomes is INFORMATIONAL like `history`
+    -- a past `CHANGES_REQUIRED` / `FAIL` never gates (that is `foundry
+    status`'s current-attention job), so a clean ledger and a ledger with old
+    rework both exit `0`.
+    """
+    product: str
+    records: tuple["IterationOutcome", ...]
+
+    @property
+    def total(self) -> int:
+        return len(self.records)
+
+    @property
+    def approved(self) -> int:
+        return sum(1 for r in self.records if r.review == "APPROVE")
+
+    @property
+    def changes_required(self) -> int:
+        return sum(1 for r in self.records if r.review == "CHANGES_REQUIRED")
+
+    @property
+    def tester_passed(self) -> int:
+        return sum(1 for r in self.records if r.tester == "PASS")
+
+    @property
+    def tester_failed(self) -> int:
+        return sum(1 for r in self.records if r.tester == "FAIL")
+
+    @property
+    def exit_code(self) -> int:
+        """`2` iff nothing to report else `0` -- outcomes never gates on a past
+        rework (current attention is `foundry status`'s job)."""
+        return 2 if self.total == 0 else 0
+
+    def render(self) -> str:
+        """A deterministic multi-line ledger carrying every per-iter gate outcome.
+
+        Contains, as substrings (the CLI's black-box contract): the header line
+        `foundry outcomes -- {product}`; for EACH record (in stored order) a row
+        with `iter-NN` (2-digit zero-pad), `review: {rv}`, `tester: {tv}`, and
+        `ship: {av}` -- where each of `rv`/`tv`/`av` is the field value (e.g.
+        `APPROVE`, `CHANGES_REQUIRED`, `PASS`, `FAIL`, `PUSHED`, `REVERTED`) or
+        the literal `unknown` when that field is `None`; and a final rollup line
+        `{total} iterations: {approved} approved, {changes_required}
+        changes-required, {tester_passed} tester-pass, {tester_failed}
+        tester-fail`. When there are no records it also carries `no iterations
+        yet` (and the rollup naturally shows `0 iterations`)."""
+        header = f"foundry outcomes -- {self.product}"
+        rollup = (f"{self.total} iterations: {self.approved} approved, "
+                  f"{self.changes_required} changes-required, "
+                  f"{self.tester_passed} tester-pass, "
+                  f"{self.tester_failed} tester-fail")
+        if not self.records:
+            return "\n".join([header, "  no iterations yet", rollup])
+        rows = []
+        for r in self.records:
+            rv = r.review if r.review is not None else "unknown"
+            tv = r.tester if r.tester is not None else "unknown"
+            av = r.action if r.action is not None else "unknown"
+            rows.append(f"  iter-{r.iteration:02d}  review: {rv}  "
+                        f"tester: {tv}  ship: {av}")
+        return "\n".join([header, *rows, rollup])
+
+
+def summarize_outcomes(*, product: str, records) -> OutcomesSummary:
+    """Pure keyword-only constructor for an `OutcomesSummary`.
+
+    A thin, total wrapper that packs the product name + an iterable of
+    `IterationOutcome` into the frozen ledger, materializing `records` as a
+    `tuple` (so the frozen dataclass stays immutable and a caller's list can
+    never be mutated out from under it). Keyword-only so the two fields can
+    never be transposed; it never raises. Kept separate from `outcomes_cli` so
+    the decision core stays a pure function the tester can drive without any
+    filesystem (mirrors `summarize_history`)."""
+    return OutcomesSummary(product=product, records=tuple(records))
+
+
+def gather_outcomes(cfg: ProductConfig,
+                    limit: int | None = None) -> OutcomesSummary:
+    """Gather one product's per-iteration gate-OUTCOME ledger into an `OutcomesSummary`.
+
+    Mirrors `gather_history` (iter 31) exactly, but reads the THREE final gate
+    sentinels per iteration instead of the ship action + post-release verdict:
+    for each `state/iter-NN/` it reads the reviewer verdict from `reviewer.md`
+    via `parse_review_verdict`, the tester result from `tester.md` via
+    `parse_tester_result`, and the ship action from `final.md` via
+    `parse_ship_action`. Every signal is read through the module-level seams by
+    BARE name so a `monkeypatch.setattr(foundry, ...)` in a test bites, and each
+    is guarded via `_read_sentinel` to `None` on an absent file / read error.
+
+      * lists `cfg.state`'s dir names (guarded -- a missing / unreadable state
+        dir yields no names, never an error) and derives the iteration numbers
+        via `iteration_numbers`;
+      * applies `limit` -- keep the highest-N iterations when `limit` is a
+        POSITIVE int, else ALL (a `None` / non-positive `limit` shows the full
+        run); the numbers stay ascending so the ledger reads oldest-first.
+
+    Returns the pure `summarize_outcomes` / `OutcomesSummary` core; writes
+    NOTHING to disk (read-only). A missing / unreadable `cfg.state` yields an
+    empty ledger (`total == 0`), never raising. `product` == `cfg.name`."""
+    state = cfg.state
+    try:
+        names = [p.name for p in state.iterdir()] if state.exists() else []
+    except OSError:
+        # A read error on the state dir must degrade to "no iterations", never
+        # crash the read-only probe (same contract as the artifact reads).
+        names = []
+    numbers = iteration_numbers(names)
+    if isinstance(limit, int) and limit > 0:
+        # `numbers` is ascending, so the most-recent N are the LAST N; the slice
+        # preserves ascending order for the ledger.
+        numbers = numbers[-limit:]
+    records = [
+        IterationOutcome(
+            iteration=n,
+            review=_read_sentinel(state / f"iter-{n:02d}" / "reviewer.md",
+                                  parse_review_verdict),
+            tester=_read_sentinel(state / f"iter-{n:02d}" / "tester.md",
+                                  parse_tester_result),
+            action=_read_sentinel(state / f"iter-{n:02d}" / "final.md",
+                                  parse_ship_action),
+        )
+        for n in numbers
+    ]
+    return summarize_outcomes(product=cfg.name, records=records)
+
+
+def outcomes_cli(cfg: ProductConfig, limit: int | None = None) -> int:
+    """On-demand CLI: print a per-iteration gate-OUTCOME ledger + a 0/2 exit code.
+
+    Gathers the ledger through the `gather_outcomes(cfg, limit)` seam (which
+    reads each iteration's `reviewer.md` / `tester.md` / `final.md` sentinels
+    via the EXISTING module-level parsers, called by BARE name so a
+    `monkeypatch.setattr(foundry, ...)` bites) then prints the pure
+    `OutcomesSummary` core's human `render()`. Returns `summary.exit_code`
+    (`0` when the state dir has iterations, `2` when empty). Writes NOTHING to
+    disk (read-only) and creates no directories -- a thin printer over the pure
+    core that adds no decision logic of its own, so the printed rollup always
+    equals the `OutcomesSummary` fields. The machine-readable `--json` is the
+    pre-declared bite 2."""
+    summary = gather_outcomes(cfg, limit)
+    print(summary.render())
+    return summary.exit_code
+
+
 # --------------------------------------------------------------------------- #
 # Company-wide ship LEDGER roll-up (`company-history`) -- roadmap iter 31.
 #
@@ -10447,6 +10678,18 @@ def main(argv: list[str] | None = None) -> int:
     his.add_argument("--json", action="store_true",
                      help="emit the ledger as one JSON document (machine-readable) "
                           "instead of the human report; same 0/2 exit code, honours --limit")
+    # `outcomes` prints a read-only, offline per-iteration gate-OUTCOME ledger
+    # for one product: reviewer VERDICT + tester RESULT + ship ACTION, one row
+    # per iteration, parsed from each iter's `reviewer.md` / `tester.md` /
+    # `final.md` sentinels, ascending. `--limit N` shows only the most-recent N.
+    # On-demand only -- the pipeline/dispatcher NEVER call it; it writes nothing.
+    # Exit 0 (has iterations) / 2 (none yet). The `--json` surface arrives with
+    # bite 2.
+    outc = sub.add_parser("outcomes")
+    outc.add_argument("--config", required=True,
+                      help="path to product JSON config")
+    outc.add_argument("--limit", type=int, default=None,
+                      help="show only the most-recent N iterations (default: all)")
     # `timing` prints a read-only, offline per-iteration suite-wall-time DIGEST
     # (min/max/avg/last/slow-count) for one product, parsed from each iter's
     # `postrelease.md` `suite_seconds` body line, ascending. `--limit N` shows
@@ -10851,6 +11094,8 @@ def main(argv: list[str] | None = None) -> int:
         return status_cli(cfg, as_json=args.json)
     if args.cmd == "history":
         return history_cli(cfg, limit=args.limit, as_json=args.json)
+    if args.cmd == "outcomes":
+        return outcomes_cli(cfg, limit=args.limit)
     if args.cmd == "timing":
         return timing_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "weak-tests":
