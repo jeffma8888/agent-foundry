@@ -85,6 +85,20 @@ PROMPT_LEARNINGS_LABEL = (
 )
 
 
+# Character bounds for the learnings digest inlined into every stage prompt.
+# `recent` bounds the tail by NUMBER of lessons, but the unit of prompt cost is
+# CHARACTERS and a single lesson can run to several KB, so `build_prompt` also
+# truncates each lesson line to at most PROMPT_LEARNINGS_LESSON_CHARS and admits
+# lessons newest-first only while their cumulative length stays within
+# PROMPT_LEARNINGS_BUDGET_CHARS. This bounds the per-prompt digest no matter how
+# long roles' lessons grow (a first-order throttle / time-to-first-token cost).
+# The `foundry learnings` CLI and AGENTS.md renderers do NOT pass these caps --
+# they show the full, untruncated digest.
+PROMPT_LEARNINGS_LESSON_CHARS = 800     # per-lesson truncation cap (prompt path)
+PROMPT_LEARNINGS_BUDGET_CHARS = 10000   # total char cap on the lessons tail (prompt)
+LEARNINGS_TRUNCATION_MARKER = " [...]"  # ASCII ellipsis appended to a truncated line
+
+
 # --------------------------------------------------------------------------- #
 # Config
 # --------------------------------------------------------------------------- #
@@ -820,20 +834,64 @@ def preflight_cli(cfg: ProductConfig, pattern: str = "dispatcher.py",
 # prints it. NOTHING on a control path reads the digest yet — wiring it into
 # `build_prompt` is bite 2 (a later iteration); this bite is purely additive.
 # --------------------------------------------------------------------------- #
-def learnings_digest(text: str, recent: int = 12) -> str:
+def _truncate_lesson(line: str, cap: int) -> str:
+    """Truncate one lesson line to at most ``cap`` characters (prompt digest).
+
+    A line already ``<= cap`` is returned verbatim (NO marker). A longer line is
+    cut to ``line[:cap - len(marker)] + marker`` -- length EXACTLY ``cap``,
+    ending in ``LEARNINGS_TRUNCATION_MARKER`` -- so one multi-KB lesson can never
+    dominate a stage prompt. The marker is read from the module global at call
+    time. Pure; ``cap`` is assumed ``> len(marker)`` (its only caller passes
+    ``PROMPT_LEARNINGS_LESSON_CHARS`` = 800, far above the 5-char marker).
+    """
+    if len(line) <= cap:
+        return line
+    marker = LEARNINGS_TRUNCATION_MARKER
+    return line[:cap - len(marker)] + marker
+
+
+def learnings_digest(
+    text: str,
+    recent: int = 12,
+    max_chars: int | None = None,
+    lesson_chars: int | None = None,
+) -> str:
     """Reduce a role-tagged learnings log to a bounded, high-signal view.
 
     Returns the pinned ``## Patterns`` head verbatim (the durable curated rules)
-    followed by an accurate ``## Recent lessons (last N of M)`` header and only
-    the ``recent`` most-recent lesson lines. Pure — no filesystem/subprocess/
-    network — so it is fully offline-testable and can back both the CLI and, in
-    a later bite, the prompt builder.
+    followed by an accurate ``## Recent lessons (last K of M)`` header and only
+    the recent-most lesson lines. Pure -- no filesystem/subprocess/network -- so
+    it is fully offline-testable and backs both the CLI and the prompt builder.
+
+    ``recent`` bounds the lesson tail by NUMBER of lessons. That alone is not a
+    real cost bound: the unit of prompt cost is CHARACTERS and a single lesson can
+    run to several KB, so the digest inlined into every stage prompt could grow
+    without limit as roles write longer lessons. Two OPTIONAL character bounds
+    make the "bounded" claim true for the prompt path (``build_prompt`` opts in;
+    the CLI / AGENTS.md renderers leave both ``None`` and show the full digest):
+
+    * ``lesson_chars`` -- when set, truncate each emitted lesson line to at most
+      this many characters (see ``_truncate_lesson``): a longer line becomes
+      ``line[:cap - len(marker)] + marker`` (length exactly the cap), a line
+      already within the cap is emitted verbatim with no marker.
+    * ``max_chars`` -- when set, admit lessons NEWEST-FIRST while the cumulative
+      character length of admitted lines stays within this total budget, stopping
+      at the first line that would exceed it, then emit the admitted CONTIGUOUS
+      suffix in document (ascending) order. The emitted lessons' total length is
+      then ``<= max_chars``.
+
+    Both bounds default to ``None`` = today's exact output (no truncation, no
+    budget drop), so the CLI/agents callers stay byte-identical. When both are
+    set truncation is applied FIRST and the budget SECOND, so both invariants
+    hold at once. The ``## Patterns`` head is NEVER truncated or budgeted -- only
+    lesson lines are; the header count K reflects the lessons actually emitted
+    (after any budget drop) while M counts ALL lesson lines in the log.
 
     A *lesson line* is any line whose left-stripped form starts with ``- [`` (the
     ``- [ROLE iterNN] ...`` bullet). A *pattern bullet* is a plain ``- `` bullet
     that is NOT a lesson line, so curated head rules are never miscounted. The
     ``## Patterns`` head runs from its heading up to (exclusive) the first later
-    ``## `` heading OR the first lesson line, whichever comes first — robust even
+    ``## `` heading OR the first lesson line, whichever comes first -- robust even
     when a file omits the ``## Chronological lessons`` marker. With no ``## Patterns``
     section a two-line placeholder head is emitted so the output shape is stable.
     """
@@ -864,9 +922,29 @@ def learnings_digest(text: str, recent: int = 12) -> str:
     # Bounded tail: every lesson line in document order, keep the last `recent`.
     lessons = [ln for ln in lines if is_lesson(ln)]
     total = len(lessons)
-    kept = lessons[max(0, total - recent):]
+    window = lessons[max(0, total - recent):]
 
-    parts = [*head, "", f"## Recent lessons (last {len(kept)} of {total})", *kept]
+    # Optional per-lesson truncation (chars): applied BEFORE the budget so one
+    # multi-KB lesson cannot dominate the tail. Default None => no truncation.
+    if lesson_chars is not None:
+        window = [_truncate_lesson(ln, lesson_chars) for ln in window]
+
+    # Optional total-character budget: admit lessons NEWEST-FIRST while the
+    # running total stays within budget, stop at the first that would exceed it,
+    # then restore document (ascending) order -- a contiguous newest suffix.
+    # Default None => every windowed lesson is kept (today's behavior).
+    if max_chars is not None:
+        admitted: list[str] = []
+        running = 0
+        for ln in reversed(window):
+            if running + len(ln) > max_chars:
+                break
+            admitted.append(ln)
+            running += len(ln)
+        admitted.reverse()
+        window = admitted
+
+    parts = [*head, "", f"## Recent lessons (last {len(window)} of {total})", *window]
     return "\n".join(parts)
 
 
@@ -10159,7 +10237,16 @@ def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
         text = lp.read_text() if lp.exists() else ""
     except OSError:
         text = ""
-    digest = learnings_digest(text, recent=PROMPT_LEARNINGS_RECENT)
+    # `PROMPT_LEARNINGS_BUDGET_CHARS` / `PROMPT_LEARNINGS_LESSON_CHARS` bound the
+    # digest by CHARACTERS (not just lesson count), so the per-prompt cost cannot
+    # grow without limit as roles write longer lessons; read as module globals so
+    # a `monkeypatch.setattr(foundry, ...)` bites at call time.
+    digest = learnings_digest(
+        text,
+        recent=PROMPT_LEARNINGS_RECENT,
+        max_chars=PROMPT_LEARNINGS_BUDGET_CHARS,
+        lesson_chars=PROMPT_LEARNINGS_LESSON_CHARS,
+    )
     return (
         f"You are the {stage.upper()} in iteration {iteration} of the "
         f"autonomous product team building the product '{cfg.name}'.\n\n"
