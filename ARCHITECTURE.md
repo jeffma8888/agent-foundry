@@ -21,7 +21,8 @@ reusable, repo-agnostic org.
 
 | # | Stage | Role file | Output file (success = it exists) | Can touch git? |
 |---|---|---|---|---|
-| 1 | PM / TPM | `pm.md` | `pm.md` (the spec) | no |
+| 0 | Dual PM scouts (OPT-IN: `dual_pm_scouts` in config) | `pm_scout.md` x2 | `pm_scout_a.md` (new-capability lens), `pm_scout_b.md` (hardening/DX lens) | no |
+| 1 | PM / TPM (triages the scout slates when present) | `pm.md` | `pm.md` (the spec) | no |
 | 2 | Engineer | `engineer.md` | `engineer.md` | no |
 | 3 | Reviewer | `reviewer.md` | `reviewer.md` (`VERDICT:` line) | no |
 | 3b| Fix (if CHANGES_REQUIRED) | `fix.md` | `fix_review.md` | no |
@@ -39,6 +40,17 @@ no-ship iteration. It is a deterministic inline step, not an agent-CLI run
 (bite 1 built the whole verify as a mechanical helper, and the quality bar demands
 deterministic + offline-testable — an agent stage is neither). It never touches
 git write state: its only git is the read-only clone inside `verify_fresh_clone`.
+
+Stage 0 (dual-PM-scout pre-stage, wired 2026-08-04 with operator sign-off) runs
+ONLY when a product opts in via `"dual_pm_scouts": true` in its config.json; the
+default-off path is byte-identical to the pre-wiring pipeline. Two scouts run
+SEQUENTIALLY (single-brain concurrency preserved), each proposing 2-3 candidates
+in its assigned lens; they decide nothing. The PM lead then triages the combined
+slate and picks exactly ONE feature, justifying it against the strongest
+alternative (see `roles/pm.md`). A failed scout maps to the PM-stage infra-fail
+idiom -- no revert, since nothing is built yet. Rationale: single-PM discovery
+degenerates into shape-clones once a roadmap is exhausted (observed iters
+90-101); two decorrelated lenses restore candidate diversity.
 
 As of iter 72 the stage SEQUENCE is manifest-derivable: a product may drop a
 `staffing.json` to activate an extra (or reordered) seat, and `run_iteration`
