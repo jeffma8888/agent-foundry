@@ -6979,6 +6979,25 @@ class IterationOutcome:
     tester: str | None
     action: str | None
 
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of one ledger row for machine
+        consumers (dashboards / the reporter / CI), mirroring iter-17's
+        `IterationRecord.to_dict()` but WITHOUT any derived key.
+
+        Returns EXACTLY 4 keys in a fixed order: the four STORED fields verbatim
+        in declaration order (`iteration`/`review`/`tester`/`action`). UNLIKE
+        `IterationRecord.to_dict` there is NO derived key (the outcome stores all
+        four fields raw), so nothing is recomputed. Every value is JSON-native
+        (int / str / None), so `json.dumps(...)` never raises and the dict
+        round-trips through `json.loads(json.dumps(...))`. Pure: touches no
+        filesystem, only the already-computed record."""
+        return {
+            "iteration": self.iteration,
+            "review": self.review,
+            "tester": self.tester,
+            "action": self.action,
+        }
+
 
 @dataclasses.dataclass(frozen=True)
 class OutcomesSummary:
@@ -7050,6 +7069,31 @@ class OutcomesSummary:
                         f"tester: {tv}  ship: {av}")
         return "\n".join([header, *rows, rollup])
 
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of the whole ledger for machine
+        consumers (dashboards / the reporter / CI), mirroring iter-20's
+        `HistorySummary.to_dict()`.
+
+        Returns EXACTLY 8 keys in a fixed order: `product` verbatim, the five
+        counts + `exit_code` each REUSING the frozen properties (`total`/
+        `approved`/`changes_required`/`tester_passed`/`tester_failed`/
+        `exit_code`) so the payload can never disagree with `render()` / the
+        returned exit code, then `records` as a JSON array of each record's
+        `to_dict()` in the SAME order as `self.records`. Every value is
+        JSON-native (str / int / list of dicts), so `json.dumps(...)` never
+        raises and the dict round-trips through `json.loads(json.dumps(...))`.
+        Pure: touches no filesystem, only the already-gathered records."""
+        return {
+            "product": self.product,
+            "total": self.total,
+            "approved": self.approved,
+            "changes_required": self.changes_required,
+            "tester_passed": self.tester_passed,
+            "tester_failed": self.tester_failed,
+            "exit_code": self.exit_code,
+            "records": [r.to_dict() for r in self.records],
+        }
+
 
 def summarize_outcomes(*, product: str, records) -> OutcomesSummary:
     """Pure keyword-only constructor for an `OutcomesSummary`.
@@ -7114,21 +7158,30 @@ def gather_outcomes(cfg: ProductConfig,
     return summarize_outcomes(product=cfg.name, records=records)
 
 
-def outcomes_cli(cfg: ProductConfig, limit: int | None = None) -> int:
+def outcomes_cli(cfg: ProductConfig, limit: int | None = None,
+                 as_json: bool = False) -> int:
     """On-demand CLI: print a per-iteration gate-OUTCOME ledger + a 0/2 exit code.
+
+    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
+    indent=2)` document (the stable machine contract for dashboards / reporters /
+    CI, mirroring `history --json`); the default `as_json=False` is byte-for-byte
+    the iter-100 human `render()` text. Either way the RETURN value is the same
+    `summary.exit_code`, `--limit` selection is identical, and nothing is written
+    to disk.
 
     Gathers the ledger through the `gather_outcomes(cfg, limit)` seam (which
     reads each iteration's `reviewer.md` / `tester.md` / `final.md` sentinels
     via the EXISTING module-level parsers, called by BARE name so a
     `monkeypatch.setattr(foundry, ...)` bites) then prints the pure
-    `OutcomesSummary` core's human `render()`. Returns `summary.exit_code`
-    (`0` when the state dir has iterations, `2` when empty). Writes NOTHING to
-    disk (read-only) and creates no directories -- a thin printer over the pure
-    core that adds no decision logic of its own, so the printed rollup always
-    equals the `OutcomesSummary` fields. The machine-readable `--json` is the
-    pre-declared bite 2."""
+    `OutcomesSummary` core. Returns `summary.exit_code` (`0` when the state dir
+    has iterations, `2` when empty). Writes NOTHING to disk (read-only) and
+    creates no directories -- a thin printer over the pure core that adds no
+    decision logic of its own, so the printed rollup / JSON always equals the
+    `OutcomesSummary` fields."""
     summary = gather_outcomes(cfg, limit)
-    print(summary.render())
+    # `--json` emits the pure ledger as a single JSON document (stdout-only, no
+    # decision logic added); the default stays the exact iter-100 human report.
+    print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
     return summary.exit_code
 
 
@@ -10690,6 +10743,9 @@ def main(argv: list[str] | None = None) -> int:
                       help="path to product JSON config")
     outc.add_argument("--limit", type=int, default=None,
                       help="show only the most-recent N iterations (default: all)")
+    outc.add_argument("--json", action="store_true",
+                      help="emit the ledger as one JSON document (machine-readable) "
+                           "instead of the human report; same 0/2 exit code, honours --limit")
     # `timing` prints a read-only, offline per-iteration suite-wall-time DIGEST
     # (min/max/avg/last/slow-count) for one product, parsed from each iter's
     # `postrelease.md` `suite_seconds` body line, ascending. `--limit N` shows
@@ -11095,7 +11151,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "history":
         return history_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "outcomes":
-        return outcomes_cli(cfg, limit=args.limit)
+        return outcomes_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "timing":
         return timing_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "weak-tests":
