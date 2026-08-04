@@ -7186,6 +7186,51 @@ def novelty_check_cli(cfg: ProductConfig, limit: int | None = None,
     return report.exit_code
 
 
+def novelty_advice(report: NoveltyReport) -> str:
+    """Render a NoveltyReport into a PM-facing directive string (pure; NO
+    trailing newline). On RUT it names the dominant shape + count and orders a
+    shape-break stated in the spec's ## Triage; on VARIED it clears the PM to
+    proceed with the highest-value pick. Deterministic -- same report yields the
+    identical string and performs no disk/network/subprocess I/O (discovery bite
+    3b: this is the human-readable directive the brake injects into the PM
+    prompt)."""
+    if report.verdict == "RUT":
+        shape = report.dominant_shape
+        count = report.dominant_count
+        return (
+            "NOVELTY CHECK (repetition brake): verdict=RUT\n"
+            f"The recent increments share the shape '{shape}' (count {count}). "
+            "You are in a REPETITION RUT.\n"
+            "Your pick MUST break it: choose a feature whose shape DIFFERS from "
+            f"'{shape}', and state\n"
+            "in your spec's ## Triage which rut you are breaking and how your "
+            "pick differs in shape.\n"
+            f"Do NOT ship another '{shape}'-shaped increment this iteration."
+        )
+    return (
+        "NOVELTY CHECK (repetition brake): verdict=VARIED\n"
+        "Recent work is varied; no rut detected. Proceed with the highest-value "
+        "pick."
+    )
+
+
+def pm_novelty_block(cfg: ProductConfig, stage: str) -> str:
+    """Read-only injection seam: the PM-stage repetition brake for build_prompt.
+
+    Returns "" for every non-`pm` stage, so those prompts stay BYTE-IDENTICAL to
+    the pre-3b prompt; for the `pm` stage returns the novelty directive plus a
+    single trailing newline. `gather_novelty` and `novelty_advice` are called by
+    BARE module name so a `monkeypatch.setattr(foundry, ...)` bites at call time.
+    Defensive: any gather/render hiccup degrades to "" (== the pre-3b prompt) so a
+    novelty-sampling error can NEVER crash the PM stage. Writes nothing."""
+    if stage != "pm":
+        return ""
+    try:
+        return novelty_advice(gather_novelty(cfg)) + "\n"
+    except Exception:
+        return ""
+
+
 def parse_review_verdict(text: str) -> str | None:
     """Extract the reviewer VERDICT from a `reviewer.md` body (pure, total).
 
@@ -10454,6 +10499,12 @@ def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
         max_chars=PROMPT_LEARNINGS_BUDGET_CHARS,
         lesson_chars=PROMPT_LEARNINGS_LESSON_CHARS,
     )
+    # PM-stage repetition brake (discovery bite 3b): pm_novelty_block injects
+    # the RUT/VARIED verdict + a shape-break directive into the PM lead's
+    # prompt so the iter-105 novelty-check actually engages the PM decision.
+    # It returns "" for every non-pm stage (those prompts stay byte-identical)
+    # and is called by bare name so monkeypatch bites; the novelty PRIMITIVES
+    # stay encapsulated behind this one seam (keeps the iter-105 b10 test green).
     return (
         f"You are the {stage.upper()} in iteration {iteration} of the "
         f"autonomous product team building the product '{cfg.name}'.\n\n"
@@ -10470,6 +10521,7 @@ def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
         f"- Foundry learnings log (append your role lessons here): "
         f"{cfg.learnings}\n"
         f"{PROMPT_LEARNINGS_LABEL}\n{digest}\n"
+        f"{pm_novelty_block(cfg, stage)}"
         f"- Iteration number for file naming: {iteration:02d}\n"
         f"- YOUR REQUIRED OUTPUT FILE: {out_file} -- you MUST write it before "
         f"finishing, even on failure (state what failed and why).\n\n"
