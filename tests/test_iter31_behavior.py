@@ -751,9 +751,19 @@ def test_b13_live_smoke_on_real_dispatch_config():
     doc = json.loads(out_j.strip())  # ONE parseable JSON document
     assert rc_j == rc_h == doc["exit_code"], "json/human exit codes must agree"
     assert doc["verdict"] == _VERDICT_FOR_CODE[doc["exit_code"]]
-    names = [p["product"] for p in doc["products"]]
-    assert "_platform" in names, f"the enabled _platform team must be gathered: {names}"
-    assert "repolens" in doc["disabled"], f"repolens is disabled: {doc['disabled']}"
+    # Structural, not a snapshot: the operator's live config is MUTABLE state
+    # (teams get enabled/disabled over time), so assert the doc PARTITIONS the
+    # config's work items exactly -- never that a specific team is on or off.
+    cfg_items = json.loads((froot / "foundry.config.json").read_text())["work_items"]
+    cfg_enabled = sorted(w["name"] for w in cfg_items if w.get("enabled"))
+    cfg_disabled = sorted(w["name"] for w in cfg_items if not w.get("enabled"))
+    names = sorted(p["product"] for p in doc["products"])
+    assert names == cfg_enabled, (
+        f"gathered products must be exactly the enabled work items: {names} != {cfg_enabled}"
+    )
+    assert sorted(doc["disabled"]) == cfg_disabled, (
+        f"disabled must be exactly the enabled=False work items: {doc['disabled']} != {cfg_disabled}"
+    )
 
 
 # ==========================================================================
