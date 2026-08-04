@@ -10260,6 +10260,18 @@ def run_iteration(cfg: ProductConfig, iteration: int | None = None) -> dict:
             f"team ({len(sequence)} seats) but is not delegable; running the "
             f"fixed pipeline")
 
+    # Dual-PM-scout pre-stage (bite 3b-ii WIRING, operator-signed-off 2026-08-04).
+    # The iter-84 helper composes the whole pre-phase: config gate (cfg.dual_pm_scouts,
+    # default off -> None immediately, disabled path byte-identical), the iter-80
+    # planner, and the iter-83 sequential executor (concurrency 1 preserved). None
+    # means "proceed to the PM lead" (disabled OR every scout wrote its slate); a
+    # dict is the PM-stage infra-fail idiom for a failed scout (NO revert: nothing
+    # is built yet, exactly like the pm stage below). The role-card literal lives
+    # HERE at the single call site, per the iters 81-84 dormancy design.
+    scout_status = scout_phase_outcome(cfg, iteration, "pm_scout.md")
+    if scout_status is not None:
+        return scout_status
+
     ok, _ = run_stage(cfg, iteration, "pm", "pm.md", "pm.md")
     if not ok:
         return {"status": "infra-fail", "stage": "pm", "iteration": iteration}

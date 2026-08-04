@@ -386,7 +386,11 @@ def test_b15_role_card_not_referenced():
     of implementation logic (established iter-80/81/82 dormancy-hygiene convention)."""
     mtext = _MAIN_MODULE.read_text(encoding="utf-8")
     dtext = DISPATCHER_PY.read_text(encoding="utf-8")
-    assert mtext.count("pm_scout.md") == 0, "this bite must not reference the role card"
+    # bite 3b-ii wired 2026-08-04 (operator-signed-off): run_iteration is the
+    # single sanctioned call site supplying the role-card literal.
+    assert mtext.count("pm_scout.md") == 1, (
+        "foundry.py must reference pm_scout.md exactly once (the run_iteration "
+        "wiring call site)")
     assert dtext.count("pm_scout.md") == 0
 
 

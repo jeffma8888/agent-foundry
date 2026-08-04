@@ -362,11 +362,15 @@ def test_b12_opens_no_file(monkeypatch):
 # Behavior 13 -- DORMANT / ZERO CALL SITE
 # ==========================================================================
 def test_b13_dormant_zero_call_site():
-    orchestrators = (foundry.build_prompt, foundry.run_stage, foundry.run_iteration,
-                     foundry.run_continuous, foundry.run_execution_plan)
-    for fn in orchestrators:
+    # bite 3b-ii wired 2026-08-04 (operator-signed-off): run_iteration is the
+    # single sanctioned call site (and run_continuous nests it); the pipeline
+    # PRIMITIVES and the manifest executor stay clean, and dispatcher.py never
+    # grows a reference.
+    assert NEW_SYMBOL in _co_names_deep(foundry.run_iteration), \
+        f"run_iteration must call {NEW_SYMBOL!r} (bite 3b-ii wiring)"
+    for fn in (foundry.build_prompt, foundry.run_stage, foundry.run_execution_plan):
         assert NEW_SYMBOL not in _co_names_deep(fn), \
-            f"foundry.{fn.__name__} references dormant symbol {NEW_SYMBOL!r}"
+            f"foundry.{fn.__name__} references {NEW_SYMBOL!r} (only run_iteration may)"
     dtext = DISPATCHER_PY.read_text(encoding="utf-8")
     assert dtext.count(NEW_SYMBOL) == 0, \
         f"dispatcher.py references dormant symbol {NEW_SYMBOL!r}"
@@ -383,7 +387,11 @@ def test_b14_role_card_not_referenced():
     (established iter-80/81/82/83 dormancy-hygiene convention)."""
     mtext = _MAIN_MODULE.read_text(encoding="utf-8")
     dtext = DISPATCHER_PY.read_text(encoding="utf-8")
-    assert mtext.count("pm_scout.md") == 0, "this bite must not reference the role card"
+    # bite 3b-ii wired 2026-08-04 (operator-signed-off): run_iteration is the
+    # single sanctioned call site supplying the role-card literal.
+    assert mtext.count("pm_scout.md") == 1, (
+        "foundry.py must reference pm_scout.md exactly once (the run_iteration "
+        "wiring call site)")
     assert dtext.count("pm_scout.md") == 0
 
 
