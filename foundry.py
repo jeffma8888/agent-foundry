@@ -1017,8 +1017,53 @@ def render_agents_md(learnings_text: str, product_name: str,
     return "\n".join(parts)
 
 
+@dataclasses.dataclass(frozen=True)
+class AgentsView:
+    """A machine-readable envelope of a product's rendered AGENTS.md doc (item 5).
+
+    Frozen so a computed view cannot be mutated after the fact (value-equality
+    for free, matching the other pure cores). ``product_name`` is the product's
+    name; ``doc`` is the FULL rendered ``render_agents_md`` output verbatim (the
+    title + banner + the bounded learnings digest). Both fields are plain ``str``
+    -- there is no str-list bucket, so ``to_dict`` needs no coercion and the dict
+    round-trips through JSON directly.
+    """
+    product_name: str
+    doc: str
+
+    def to_dict(self) -> dict:
+        """Machine-readable dict of this agents view (item 5).
+
+        The two keys are the stored fields in declaration order: ``product_name``
+        then ``doc``. Both values are plain ``str`` emitted verbatim (no
+        list/tuple coercion needed -- ``json.loads(json.dumps(d)) == d`` holds
+        directly). No ``exit_code`` key -- this CLI has no error path (every mode
+        always returns 0).
+        """
+        return {
+            "product_name": self.product_name,
+            "doc": self.doc,
+        }
+
+
+def agents_view(learnings_text: str, product_name: str,
+                recent: int = 12) -> AgentsView:
+    """Build the read-only :class:`AgentsView` envelope for a product's doc (item 5).
+
+    Wraps the byte-untouched pure ``render_agents_md`` so ``.doc`` is exactly the
+    doc that ``foundry agents`` would write or print -- no duplication of the
+    title or banner literals here (they, and the digest, live in
+    ``render_agents_md``). Pure: no filesystem/subprocess/network/clock, so
+    identical arguments always yield an ``AgentsView`` with byte-identical ``.doc``.
+    """
+    return AgentsView(
+        product_name=product_name,
+        doc=render_agents_md(learnings_text, product_name, recent=recent),
+    )
+
+
 def agents_cli(cfg: ProductConfig, recent: int = 12,
-               print_only: bool = False) -> int:
+               print_only: bool = False, as_json: bool = False) -> int:
     """CLI entry: render a product's ``AGENTS.md`` house-rules doc; return 0.
 
     Reads ``cfg.learnings`` defensively — a missing file yields the empty-text
@@ -1027,9 +1072,18 @@ def agents_cli(cfg: ProductConfig, recent: int = 12,
     (creating the repo dir first, so a valid config never fails on a first write);
     ``print_only`` writes the doc to stdout and touches NO file. Repo-agnostic: the
     target path derives only from ``cfg.repo``.
+
+    With ``as_json`` the same rendered doc is emitted as one machine-readable JSON
+    object (``agents_view(...).to_dict()``) for a doc-publisher/CI/dashboard; this
+    mode is READ-ONLY and takes precedence over both the default write and
+    ``print_only`` (it writes NO file and creates no repo dir). All modes return 0.
     """
     path = pathlib.Path(cfg.learnings)
     text = path.read_text() if path.exists() else ""
+    if as_json:
+        print(json.dumps(agents_view(text, cfg.name, recent=recent).to_dict(),
+                         indent=2))
+        return 0
     doc = render_agents_md(text, cfg.name, recent=recent)
     if print_only:
         print(doc)
@@ -10091,6 +10145,8 @@ def main(argv: list[str] | None = None) -> int:
                      help="most-recent lessons to embed (default 12)")
     agt.add_argument("--print", dest="print_only", action="store_true",
                      help="print to stdout instead of writing <repo>/AGENTS.md")
+    agt.add_argument("--json", action="store_true",
+                     help="emit one machine-readable JSON view instead of writing/printing")
     # `lint-spec` scores a PM spec file for completeness + size. It takes a spec
     # PATH (--file), NOT a product --config, so it is dispatched BEFORE
     # `load_config` below. On-demand only — the pipeline never calls it.
@@ -10786,7 +10842,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "learnings":
         return learnings_cli(cfg, recent=args.recent, as_json=args.json)
     if args.cmd == "agents":
-        return agents_cli(cfg, recent=args.recent, print_only=args.print_only)
+        return agents_cli(cfg, recent=args.recent, print_only=args.print_only, as_json=args.json)
     if args.cmd == "prd":
         return prd_status_cli(cfg, as_json=args.json)
     if args.cmd == "gate-scope":
