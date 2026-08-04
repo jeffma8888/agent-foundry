@@ -83,6 +83,13 @@ def test_next_iteration_counts_from_state(tmp_path):
 
 def test_stopping_respects_global_and_local(tmp_path, monkeypatch):
     cfg = foundry.load_config(str(_write_cfg(tmp_path)))
+    # Isolate from LIVE operator state: global_stop() reads the real repo-root
+    # STOP sentinel, which legitimately exists whenever an operator quiesces the
+    # company (e.g. a maintenance window) -- and this suite runs on the live
+    # machine (the final gate re-runs it). Pin the global to False for the
+    # local-file assertions; the monkeypatched-True branch below still covers
+    # the global path.
+    monkeypatch.setattr(foundry, "global_stop", lambda: False)
     assert foundry.stopping(cfg) is False
     cfg.stop_file.write_text("stop")
     assert foundry.stopping(cfg) is True
