@@ -4318,6 +4318,51 @@ def restaffing_review_cli(path: str, as_json: bool = False) -> int:
 PM_SCOUT_LENSES: tuple[str, ...] = ("new-capability", "hardening/DX")
 
 
+# --------------------------------------------------------------------------- #
+# Scout-lens ROTATION POOL (discovery bite 2, docs/DISCOVERY_LOOP_PLAN.md sec 4)
+# --------------------------------------------------------------------------- #
+# Two FIXED scout lenses re-converge over a long run, so the exploration the
+# loop needs is a WIDER pool ROTATED deterministically by iteration number --
+# reproducible (never random.*, per the offline-test quality bar) yet varied,
+# and it finally puts `simplification-and-deletion` on the table after 100+
+# additive iterations. This is the pure, testable CORE only: `select_scout_lenses`
+# has ZERO orchestrator/dispatcher call site (its sole in-module caller is
+# `scout_plan_cli`), so the running loop is byte-identical -- `scout_phase_outcome`
+# still reads `PM_SCOUT_LENSES` above. WIRING the rotation into the live scout
+# pre-phase is the pre-declared next bite. Like `PM_SCOUT_LENSES`, the pool is a
+# module-level + patchable constant read at CALL time (Behavior 6).
+PM_SCOUT_LENS_POOL: tuple[str, ...] = (
+    "new-capability",
+    "hardening/DX",
+    "integration-and-adoption",
+    "simplification-and-deletion",
+    "performance-and-throughput",
+    "narrative-and-docs",
+)
+
+
+def select_scout_lenses(iteration: int) -> tuple[str, str]:
+    """Deterministically pick the two scout lenses for a given iteration.
+
+    Rotates a sliding window of width 2 over ``PM_SCOUT_LENS_POOL``: with
+    ``i = iteration % len(pool)`` it returns
+    ``(pool[i], pool[(i + 1) % len(pool)])``. Consecutive iterations advance the
+    window by one, so they always differ (the pair is never repeated two
+    iterations running, ordered or unordered), and the sequence cycles with the
+    pool length. Reads ``PM_SCOUT_LENS_POOL`` AT CALL TIME (a module-global
+    lookup in the body, NOT captured as a default arg / at import) so a
+    ``monkeypatch.setattr`` on the pool changes a subsequent call's result
+    (Behavior 6). Pure and total: never raises for ANY int -- Python's ``%``
+    wraps negatives, so ``select_scout_lenses(-1)`` selects the last window --
+    performs NO filesystem/subprocess/network/clock access, and returns a fresh
+    tuple each call. DORMANT: no orchestrator/dispatcher references this; the
+    sole in-module caller is ``scout_plan_cli`` (Behavior 8).
+    """
+    pool = PM_SCOUT_LENS_POOL
+    i = iteration % len(pool)
+    return (pool[i], pool[(i + 1) % len(pool)])
+
+
 @dataclasses.dataclass(frozen=True)
 class ScoutPhasePlan:
     """The ordered scout pre-stage plan for one iteration (dual-PM-scout bite 1).
@@ -4410,7 +4455,8 @@ def decide_scout_phase(
     return ScoutPhasePlan(enabled=True, stages=stages)
 
 
-def scout_plan_cli(dual_pm_scouts: bool, lenses: list[str] | None, as_json: bool = False) -> int:
+def scout_plan_cli(dual_pm_scouts: bool, lenses: list[str] | None, as_json: bool = False,
+                   iteration: int | None = None) -> int:
     """On-demand CLI: report the ordered dual-PM-scout pre-stage plan.
 
     Computes `decide_scout_phase`, prints the ``dual_pm_scouts`` flag + a
@@ -4423,9 +4469,20 @@ def scout_plan_cli(dual_pm_scouts: bool, lenses: list[str] | None, as_json: bool
     Takes no file, so there is no file-not-found path. With ``as_json=True`` it
     prints one ``json.dumps(result.to_dict(), indent=2)`` document
     (machine-readable) instead of the human report; the ``0``/``1`` exit
-    contract is byte-identical in both modes.
+    contract is byte-identical in both modes. The optional ``iteration``
+    rotates the two lenses via ``select_scout_lenses(N)`` when no explicit
+    ``lenses`` is passed; an explicit ``lenses`` wins over ``iteration``
+    (Behavior 12), and with neither the plan reads ``PM_SCOUT_LENSES`` for
+    the byte-identical default path (Behavior 13).
     """
-    result = decide_scout_phase(dual_pm_scouts, lenses)
+    # Lens-resolution precedence: an explicit --lens override wins; else, when
+    # an --iteration is given, use the deterministic rotation pool; else stay
+    # None so decide_scout_phase reads PM_SCOUT_LENSES (the byte-identical
+    # default -- Behavior 13). --lens beats --iteration (Behavior 12).
+    effective_lenses = lenses
+    if effective_lenses is None and iteration is not None:
+        effective_lenses = list(select_scout_lenses(iteration))
+    result = decide_scout_phase(dual_pm_scouts, effective_lenses)
     if as_json:
         print(json.dumps(result.to_dict(), indent=2))
     else:
@@ -10959,6 +11016,10 @@ def main(argv: list[str] | None = None) -> int:
     scp.add_argument("--lens", action="append", default=None,
                      help="explicit scout lens (repeatable, in order); omit to "
                           "read the module-level PM_SCOUT_LENSES at call time")
+    scp.add_argument("--iteration", type=int, default=None,
+                     help="rotate the two scout lenses deterministically for "
+                          "this iteration number via select_scout_lenses(N); "
+                          "ignored when --lens is given")
     scp.add_argument("--json", action="store_true",
                      help="emit the plan as one JSON document "
                           "(machine-readable) instead of the human report; "
@@ -11477,7 +11538,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "restaffing-review":
         return restaffing_review_cli(args.file, as_json=args.json)
     if args.cmd == "scout-plan":
-        return scout_plan_cli(args.dual_pm_scouts, args.lens, as_json=args.json)
+        # Pass `iteration` ONLY when --iteration was supplied so the default
+        # dispatch call shape stays byte-identical to the pre-bite one -- an
+        # existing monkeypatched spy with the old 3-arg signature still works
+        # and the no-flag path is unchanged (Behavior 13); when given, the
+        # rotation flows into scout_plan_cli's optional kwarg (Behaviors 10-12).
+        sp_kwargs = {"as_json": args.json}
+        if args.iteration is not None:
+            sp_kwargs["iteration"] = args.iteration
+        return scout_plan_cli(args.dual_pm_scouts, args.lens, **sp_kwargs)
     if args.cmd == "lint-config":
         return lint_config_cli(args.config, as_json=args.json)
     if args.cmd == "lint-bench":
