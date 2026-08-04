@@ -229,7 +229,7 @@ uv run python foundry.py restaffing-review --file products/<name>/restaffing.jso
 uv run python foundry.py scout-plan --dual-pm-scouts  # takes a --dual-pm-scouts flag (and optional repeatable --lens), NOT a product --config or --file, so like `cadence-review`/`restaffing-review`/`escalation-check`/`lint-spec` it is dispatched before load_config; prints the dual_pm_scouts flag + a count figure + one line per scout stage (name + lens) + a verdict: line; DUAL is exit 1, SINGLE exit 0; writes nothing [--json for one machine-readable scout-plan doc: release-gate/CI/operator; same 0/1 exit code]
 
 # 39. Per-iteration GATE-OUTCOME ledger: each iteration's reviewer VERDICT (APPROVE/CHANGES_REQUIRED) + isolated-tester RESULT (PASS/FAIL) + ship ACTION, ascending, + a rollup -- the INTERNAL-gate-flow complement to #10 `history` (which reports only the ship ACTION), so you see which iterations sailed through clean vs needed a reviewer bounce / a fix pass (exit 0 has-iterations/2 none); read-only:
-uv run python foundry.py outcomes --config products/repolens/config.json  # [--limit N]
+uv run python foundry.py outcomes --config products/repolens/config.json  # [--limit N] [--json for one machine-readable gate-outcome ledger doc: dashboards/reporter/CI; same 0/2 exit code, honours --limit]
 ```
 
 Stop any time: `touch STOP` (whole company) or `touch products/<name>/STOP`

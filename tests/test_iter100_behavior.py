@@ -632,7 +632,7 @@ def test_b15_main_limit_passthrough_via_spy(tmp_path, monkeypatch):
     cfg_path = _write_cfg(tmp_path)
     captured = {}
 
-    def spy(cfg, limit=None):
+    def spy(cfg, limit=None, as_json=False):
         captured["limit"] = limit
         return 0
 
