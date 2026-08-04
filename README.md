@@ -137,7 +137,7 @@ uv run python dispatcher.py --config foundry.config.json
 #     any product that has a prd.json; a no-op for products without one.)
 
 # 4. Read the bounded learnings digest (pinned `## Patterns` head + recent tail):
-uv run python foundry.py learnings --config products/repolens/config.json  # [--recent N]
+uv run python foundry.py learnings --config products/repolens/config.json  # [--recent N] [--json for one machine-readable learnings view: dashboards/reporters/CI; same exit 0 both modes]
 
 # 5. Emit an AGENTS.md house-rules file into the product repo from its learnings:
 uv run python foundry.py agents --config products/repolens/config.json  # [--recent N] [--print]

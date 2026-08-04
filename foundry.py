@@ -870,17 +870,109 @@ def learnings_digest(text: str, recent: int = 12) -> str:
     return "\n".join(parts)
 
 
-def learnings_cli(cfg: ProductConfig, recent: int = 12) -> int:
+@dataclasses.dataclass(frozen=True)
+class LearningsView:
+    """A machine-readable decomposition of the bounded learnings digest (item 10).
+
+    Frozen so a computed view cannot be mutated after the fact (value-equality
+    for free, matching the other pure cores). ``head`` is the pinned
+    ``## Patterns`` block verbatim (or the two-line placeholder when absent);
+    ``recent_lessons`` is the last ``recent`` lesson lines in document order;
+    ``total`` is the count of ALL lesson lines and ``kept`` is
+    ``len(recent_lessons)``. ``head`` and ``recent_lessons`` are
+    ``tuple[str, ...]`` (hashable + order-stable); ``total`` and ``kept`` are
+    plain ints.
+    """
+    head: tuple[str, ...]
+    recent_lessons: tuple[str, ...]
+    total: int
+    kept: int
+
+    def to_dict(self) -> dict:
+        """Machine-readable dict of this learnings view (item 10).
+
+        The four keys are the stored fields in declaration order: the two
+        str-lists (``head``, ``recent_lessons``) FIRST, then the two counts
+        (``total``, ``kept``) LAST. Each str-list is coerced to a plain ``list``
+        (one level): the frozen ``tuple`` would round-trip through JSON as a list
+        and break ``json.loads(json.dumps(d)) == d`` otherwise. No ``exit_code``
+        key -- this CLI has no error path (both modes always return 0).
+        """
+        return {
+            "head": list(self.head),
+            "recent_lessons": list(self.recent_lessons),
+            "total": self.total,
+            "kept": self.kept,
+        }
+
+
+def learnings_view(text: str, recent: int = 12) -> LearningsView:
+    """Decompose a role-tagged learnings log into a structured view (item 10).
+
+    Pure -- no filesystem/subprocess/network. DELIBERATELY re-implements the same
+    head/lesson/count selection as ``learnings_digest`` (a small local duplicate)
+    so the wired renderer stays byte-untouched; parity is pinned by a behavior
+    test. Unifying the two onto one shared parse is a future quiescent-window
+    refactor, not this bite.
+
+    A *lesson line* is any line whose left-stripped form starts with ``- [``. The
+    ``## Patterns`` head runs from its heading up to (exclusive) the first later
+    ``## `` heading OR the first lesson line, whichever comes first; a two-line
+    placeholder head is used when the section is absent. The tail keeps the last
+    ``recent`` lesson lines in document order.
+    """
+    lines = text.splitlines()
+
+    def is_lesson(line: str) -> bool:
+        return line.lstrip().startswith("- [")
+
+    def is_h2(line: str) -> bool:
+        return line.lstrip().startswith("## ")
+
+    head_start = next(
+        (i for i, ln in enumerate(lines)
+         if ln.lstrip().startswith("## Patterns")),
+        None,
+    )
+    if head_start is None:
+        head = ["## Patterns", "(none recorded yet)"]
+    else:
+        head = [lines[head_start]]
+        for ln in lines[head_start + 1:]:
+            if is_h2(ln) or is_lesson(ln):
+                break
+            head.append(ln)
+
+    lessons = [ln for ln in lines if is_lesson(ln)]
+    total = len(lessons)
+    recent_lessons = lessons[max(0, total - recent):]
+    return LearningsView(
+        head=tuple(head),
+        recent_lessons=tuple(recent_lessons),
+        total=total,
+        kept=len(recent_lessons),
+    )
+
+
+def learnings_cli(cfg: ProductConfig, recent: int = 12, as_json: bool = False) -> int:
     """CLI entry: print the bounded learnings digest for a product; return 0.
 
     Reads ``cfg.learnings`` defensively — a missing file yields an empty-text
     digest (the ``## Patterns`` placeholder + a zero-count header) instead of a
     ``FileNotFoundError`` — so it works on a product that has recorded nothing
     yet. Purely diagnostic: reads one file, prints, exits 0.
+
+    With ``as_json`` the same head/lessons/counts are emitted as one
+    machine-readable JSON object (``learnings_view(...).to_dict()``) for a
+    dashboard/reporter/CI job; the default human digest is byte-unchanged. Both
+    modes always return 0 (this CLI has no error path).
     """
     path = pathlib.Path(cfg.learnings)
     text = path.read_text() if path.exists() else ""
-    print(learnings_digest(text, recent=recent))
+    if as_json:
+        print(json.dumps(learnings_view(text, recent=recent).to_dict(), indent=2))
+    else:
+        print(learnings_digest(text, recent=recent))
     return 0
 
 
@@ -9989,6 +10081,8 @@ def main(argv: list[str] | None = None) -> int:
     lrn.add_argument("--config", required=True, help="path to product JSON config")
     lrn.add_argument("--recent", type=int, default=12,
                      help="most-recent lessons to include (default 12)")
+    lrn.add_argument("--json", action="store_true",
+                     help="emit one machine-readable JSON view instead of the human digest")
     # `agents` renders (writes, or --print) the product repo's AGENTS.md from its
     # learnings. On-demand only — the pipeline never calls it (bite 2 wires it in).
     agt = sub.add_parser("agents")
@@ -10690,7 +10784,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "doctor":
         return run_doctor_cli(cfg)
     if args.cmd == "learnings":
-        return learnings_cli(cfg, recent=args.recent)
+        return learnings_cli(cfg, recent=args.recent, as_json=args.json)
     if args.cmd == "agents":
         return agents_cli(cfg, recent=args.recent, print_only=args.print_only)
     if args.cmd == "prd":
