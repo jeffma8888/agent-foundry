@@ -38,6 +38,7 @@ import datetime as dt
 import json
 import os
 import pathlib
+import re
 import shlex
 import shutil
 import subprocess
@@ -6979,6 +6980,212 @@ def history_cli(cfg: ProductConfig, limit: int | None = None,
     return summary.exit_code
 
 
+# --------------------------------------------------------------------------- #
+# Repetition brake (`novelty-check`) -- discovery bite 3
+# (docs/DISCOVERY_LOOP_PLAN.md section 5).
+#
+# The read-only, offline probe that answers "am I shipping the SAME increment
+# shape over and over?". The pipeline grades CORRECTNESS, never marginal WORTH,
+# so an exhausted roadmap makes a clone the safest pick (iters 90-103 shipped a
+# long `--json` / `company-*` streak). `novelty-check` derives a RUT / VARIED
+# verdict from the branch's recent commit subjects + the newest roadmap entries
+# via a pure shape classifier, giving the loop an objective, testable signal it
+# is repeating itself -- "the mechanism that would have caught iterations 90-101
+# at iteration 92". Built with the proven pattern (pure decision functions + a
+# thin CLI over the existing `git` seam, called by BARE name so a monkeypatch
+# bites). Purely additive + DORMANT: no orchestrator / dispatcher calls it this
+# bite (the PM-obeys-RUT wiring is a separate control-flow bite that also needs
+# the bite-2 lens pool), so the running loop + resume are untouched. It writes
+# NOTHING.
+# --------------------------------------------------------------------------- #
+NOVELTY_RUT_THRESHOLD = 3        # a shape shared by >= N pooled items => a RUT
+NOVELTY_DEFAULT_N = 5            # commits + roadmap entries sampled when no --limit
+NOVELTY_SELF_DESCRIBE_PHRASES = ("clone", "mirror", "same shape as")
+
+
+def novelty_shape(text: str) -> str:
+    r"""Map a commit-subject / roadmap-entry string to a coarse SHAPE key.
+
+    Pure + TOTAL -- never raises for any input. The key groups increments that
+    are "the same shape" so a streak of clones collapses onto one key.
+
+    NORMALIZATION (in order): drop a leading conventional-commit prefix matching
+    `^[a-z]+(\([^)]*\))?:` plus following whitespace (`feat:`, `fix(tests):`);
+    drop a TRAILING parenthetical iteration tag whose inner text carries `iter`
+    followed by digits (` (foundry iter 104)`); lowercase; collapse internal
+    whitespace runs to single spaces; strip. The prefix / tag strips run
+    pre-lowercase because both are lowercase by convention.
+
+    CLASSIFICATION, first match wins on the normalized text `norm`:
+      (a) contains any phrase in `NOVELTY_SELF_DESCRIBE_PHRASES` -> "self-describe";
+      (b) elif its LAST whitespace token equals "--json"          -> "tail:--json";
+      (c) elif it starts with "company-"                          -> "family:company-*";
+      (d) else -> "lead:" + the first up-to-two whitespace tokens joined by a space.
+    A blank / whitespace-only input (or one that normalizes to empty) returns the
+    empty key `""`. The module constants are read at CALL time (patchable), never
+    captured at import."""
+    s = text or ""
+    # 1. drop a leading conventional-commit prefix + its trailing whitespace.
+    s = re.sub(r"^[a-z]+(\([^)]*\))?:\s*", "", s)
+    # 2. drop a TRAILING iteration tag -- a final parenthetical whose inner text
+    #    carries `iter` then digits; the `[^)]` classes + the `$` anchor keep the
+    #    match to the last group only, so a mid-string "(iter 3)" is left alone.
+    s = re.sub(r"\s*\([^)]*iter\s*\d[^)]*\)\s*$", "", s)
+    # 3-5. lowercase, collapse internal whitespace runs, strip -- one pass.
+    norm = " ".join(s.lower().split())
+    if not norm:
+        return ""
+    for phrase in NOVELTY_SELF_DESCRIBE_PHRASES:
+        if phrase in norm:
+            return "self-describe"
+    tokens = norm.split()
+    if tokens[-1] == "--json":
+        return "tail:--json"
+    if norm.startswith("company-"):
+        return "family:company-*"
+    return "lead:" + " ".join(tokens[:2])
+
+
+def novelty_verdict(commit_subjects, roadmap_entries) -> str:
+    """Return "RUT" or "VARIED" for a pooled sample (pure + total).
+
+    Pools `list(commit_subjects) + list(roadmap_entries)`, shapes each, drops the
+    empty keys, and returns "RUT" iff the non-empty pool has some shape shared by
+    at least `NOVELTY_RUT_THRESHOLD` items (read at call time so a test can patch
+    it); else "VARIED". Both-empty / all-blank pools -> "VARIED"."""
+    pooled = list(commit_subjects) + list(roadmap_entries)
+    keys = [k for k in (novelty_shape(x) for x in pooled) if k]
+    if not keys:
+        return "VARIED"
+    counts: dict[str, int] = {}
+    for k in keys:
+        counts[k] = counts.get(k, 0) + 1
+    return "RUT" if max(counts.values()) >= NOVELTY_RUT_THRESHOLD else "VARIED"
+
+
+@dataclasses.dataclass(frozen=True)
+class NoveltyReport:
+    """A frozen RUT/VARIED novelty report over a pooled sample (bite 3).
+
+    Stores EXACTLY the two raw samples (commit subjects + roadmap entries) as
+    tuples; every headline is a DERIVED property so the machine payload can never
+    disagree with the human report. `verdict` / `exit_code` reuse
+    `novelty_verdict`; `dominant_shape` / `dominant_count` name the most-frequent
+    non-empty shape (ties -> first appearance). Frozen for value equality + no
+    post-hoc mutation, matching the other pure cores (`HistorySummary`)."""
+    commit_subjects: tuple[str, ...]
+    roadmap_entries: tuple[str, ...]
+
+    def _pooled_keys(self) -> list[str]:
+        """Non-empty shape keys over the pooled items in pooled order
+        (commits first, then roadmap entries). Pure."""
+        pooled = list(self.commit_subjects) + list(self.roadmap_entries)
+        return [k for k in (novelty_shape(x) for x in pooled) if k]
+
+    def _dominant(self) -> tuple[str, int]:
+        """The most-frequent non-empty shape key + its count; ties broken by
+        FIRST appearance in pooled order; ("", 0) for an empty pool. Pure --
+        iterating in first-appearance order and replacing only on a STRICTLY
+        greater count makes the earliest winner survive a tie."""
+        keys = self._pooled_keys()
+        if not keys:
+            return ("", 0)
+        counts: dict[str, int] = {}
+        order: list[str] = []
+        for k in keys:
+            if k not in counts:
+                counts[k] = 0
+                order.append(k)
+            counts[k] += 1
+        best = order[0]
+        for k in order:
+            if counts[k] > counts[best]:
+                best = k
+        return (best, counts[best])
+
+    @property
+    def verdict(self) -> str:
+        return novelty_verdict(self.commit_subjects, self.roadmap_entries)
+
+    @property
+    def exit_code(self) -> int:
+        """0 when VARIED else 1 -- a non-zero verdict-style code (like
+        cadence-review / escalation-check) means "action needed"."""
+        return 0 if self.verdict == "VARIED" else 1
+
+    @property
+    def dominant_shape(self) -> str:
+        return self._dominant()[0]
+
+    @property
+    def dominant_count(self) -> int:
+        return self._dominant()[1]
+
+    def render(self) -> str:
+        """A deterministic multi-line human report; the FINAL line is
+        `verdict: <VERDICT>` (the CLI's black-box contract). Carries the header
+        `foundry novelty-check`, the counts considered, and -- when at least one
+        item classified (`dominant_count >= 1`) -- the dominant shape + count."""
+        shape, count = self._dominant()
+        lines = [
+            "foundry novelty-check",
+            (f"considered {len(self.commit_subjects)} commits and "
+             f"{len(self.roadmap_entries)} roadmap entries"),
+        ]
+        if count >= 1:
+            lines.append(f"dominant shape: {shape} (count {count})")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-native payload with EXACTLY six ordered keys; the scalars
+        REUSE the derived properties so the JSON can never disagree with
+        `render()` / the exit code. `json.loads(json.dumps(d)) == d` holds."""
+        return {
+            "commit_subjects": list(self.commit_subjects),
+            "roadmap_entries": list(self.roadmap_entries),
+            "dominant_shape": self.dominant_shape,
+            "dominant_count": self.dominant_count,
+            "verdict": self.verdict,
+            "exit_code": self.exit_code,
+        }
+
+
+def gather_novelty(cfg: ProductConfig, limit: int | None = None) -> NoveltyReport:
+    """Sample recent commit subjects + newest roadmap entries into a
+    `NoveltyReport` (read-only; writes NOTHING).
+
+    `n` = `limit` when it is a POSITIVE int, else `NOVELTY_DEFAULT_N`. Commit
+    subjects come from the module-level `git` seam called by BARE name (so a
+    `monkeypatch.setattr(foundry, "git", ...)` bites) -- its output is split on
+    newlines, non-empty stripped lines kept, first `n` taken. Roadmap entries are
+    the bullet lines (whose LEFT-STRIPPED form starts with "- ") of `cfg.roadmap`,
+    the LAST `n` in file order; a missing / unreadable roadmap yields no entries
+    (guarded, never raising)."""
+    n = limit if isinstance(limit, int) and limit > 0 else NOVELTY_DEFAULT_N
+    raw = git(cfg, "log", "--format=%s", "-n", str(n))
+    subjects = [ln.strip() for ln in raw.splitlines() if ln.strip()][:n]
+    try:
+        text = pathlib.Path(cfg.roadmap).read_text()
+    except OSError:
+        text = ""
+    bullets = [ln for ln in text.splitlines() if ln.lstrip().startswith("- ")]
+    return NoveltyReport(commit_subjects=tuple(subjects),
+                         roadmap_entries=tuple(bullets[-n:]))
+
+
+def novelty_check_cli(cfg: ProductConfig, limit: int | None = None,
+                      as_json: bool = False) -> int:
+    """On-demand CLI: print the novelty report + return its 0/1 exit code.
+
+    Gathers through `gather_novelty(cfg, limit)` (bare name -> monkeypatchable),
+    prints the JSON payload when `as_json` else the human `render()`; the RETURN
+    value is `report.exit_code` in BOTH modes. Writes NOTHING to disk."""
+    report = gather_novelty(cfg, limit)
+    print(json.dumps(report.to_dict(), indent=2) if as_json else report.render())
+    return report.exit_code
+
+
 def parse_review_verdict(text: str) -> str | None:
     """Extract the reviewer VERDICT from a `reviewer.md` body (pure, total).
 
@@ -10830,6 +11037,22 @@ def main(argv: list[str] | None = None) -> int:
     his.add_argument("--json", action="store_true",
                      help="emit the ledger as one JSON document (machine-readable) "
                           "instead of the human report; same 0/2 exit code, honours --limit")
+    # `novelty-check` is the read-only REPETITION BRAKE (discovery bite 3):
+    # it derives a RUT / VARIED verdict from the branch's recent commit
+    # subjects + the newest roadmap entries, an objective signal the loop is
+    # shipping the same increment shape over and over. DORMANT / on-demand
+    # only -- the pipeline/dispatcher NEVER call it; it writes nothing.
+    # `--limit N` samples the most-recent N of each source (default
+    # NOVELTY_DEFAULT_N). Exit 0 (VARIED) / 1 (RUT).
+    nvc = sub.add_parser("novelty-check")
+    nvc.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    nvc.add_argument("--limit", type=int, default=None,
+                     help="sample the most-recent N commits + roadmap entries "
+                          "(default: NOVELTY_DEFAULT_N)")
+    nvc.add_argument("--json", action="store_true",
+                     help="emit the report as one JSON document (machine-readable) "
+                          "instead of the human report; same 0/1 exit code, honours --limit")
     # `outcomes` prints a read-only, offline per-iteration gate-OUTCOME ledger
     # for one product: reviewer VERDICT + tester RESULT + ship ACTION, one row
     # per iteration, parsed from each iter's `reviewer.md` / `tester.md` /
@@ -11249,6 +11472,8 @@ def main(argv: list[str] | None = None) -> int:
         return status_cli(cfg, as_json=args.json)
     if args.cmd == "history":
         return history_cli(cfg, limit=args.limit, as_json=args.json)
+    if args.cmd == "novelty-check":
+        return novelty_check_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "outcomes":
         return outcomes_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "timing":
