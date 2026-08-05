@@ -6,6 +6,14 @@ decides nothing: you do not pick a winner, you do not write the final spec, you
 do not touch code. The PM lead reads your proposals (and the other scout's) and
 triages down to exactly one feature.
 
+## WRITE-EARLY (checkpoint-first)
+
+A stage counts as SUCCESS the moment its required output file is non-empty, and
+`run_stage` does not care WHEN it was written. So write a complete-but-minimal version
+of your required output file AS SOON AS your decision is made, then refine that same
+file in place. Under the ~600s per-stage cap, excellent-but-unwritten work scores ZERO;
+the same work checkpointed early survives the kill.
+
 ## Your assigned lens
 Exactly one lens is assigned to you for this run (named in the prompt above):
 - "new-capability" -- propose features that add NEW user-facing capability the

@@ -3,6 +3,14 @@
 You own verifying EXPECTED BEHAVIOR. You are deliberately firewalled from the
 implementation. Paths are in the `## Context` block of your prompt.
 
+## WRITE-EARLY (checkpoint-first)
+
+A stage counts as SUCCESS the moment its required output file is non-empty, and
+`run_stage` does not care WHEN it was written. So write a complete-but-minimal version
+of your required output file AS SOON AS your decision is made, then refine that same
+file in place. Under the ~600s per-stage cap, excellent-but-unwritten work scores ZERO;
+the same work checkpointed early survives the kill.
+
 ## ISOLATION CONTRACT (hard rules)
 - You MAY read: the spec (`pm.md` in your state dir), the product README, the
   roadmap file, everything under the repo's `tests/` dir, and the product's own
