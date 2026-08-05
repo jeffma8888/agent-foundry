@@ -465,8 +465,24 @@ def test_b11_orchestrators_present():
 
 
 def test_b11_learnings_digest_signature_is_additive():
+    # The invariant this test owns is ADDITIVITY: the iter-104 params keep their
+    # names, ORDER and defaults so every older caller stays byte-identical. It
+    # originally asserted exact list equality, which also forbade ever adding a
+    # new optional param -- stricter than its own name and stricter than the
+    # additive contract. iter 118 added the head bounds (`head_bullet_chars` /
+    # `head_chars`, both keyword, both defaulting to None = today's output), so
+    # the check is now a PREFIX assertion plus an explicit default check on every
+    # later param: renaming, reordering or re-defaulting any existing param still
+    # fails, and any NEW param that is not opt-in (default None) also fails.
     params = inspect.signature(foundry.learnings_digest).parameters
-    assert list(params) == ["text", "recent", "max_chars", "lesson_chars"], list(params)
+    names = list(params)
+    assert names[:4] == ["text", "recent", "max_chars", "lesson_chars"], names
     assert params["recent"].default == 12
     assert params["max_chars"].default is None
     assert params["lesson_chars"].default is None
+    for extra in names[4:]:
+        assert params[extra].default is None, extra
+        assert params[extra].kind in (
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+            inspect.Parameter.KEYWORD_ONLY,
+        ), extra

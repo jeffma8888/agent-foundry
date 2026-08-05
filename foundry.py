@@ -108,6 +108,18 @@ PROMPT_LEARNINGS_LESSON_CHARS = 800     # per-lesson truncation cap (prompt path
 PROMPT_LEARNINGS_BUDGET_CHARS = 10000   # total char cap on the lessons tail (prompt)
 LEARNINGS_TRUNCATION_MARKER = " [...]"  # ASCII ellipsis appended to a truncated line
 
+# Character bounds for the PINNED `## Patterns` HEAD of the same prompt digest.
+# The lesson-tail bounds above left the head verbatim because it was "curated and
+# small" -- a premise that expired: operators append multi-paragraph directives to
+# it, so it became the ONLY region of the digest with an unbounded writer (measured
+# 2026-08-05: head 13,810 chars = 63% of a 21,846-char digest whose lesson tail was
+# fully COMPLIANT). `build_prompt` therefore caps each head BULLET BLOCK and bounds
+# the whole head, mirroring the lesson cap/budget pair. Same opt-in shape: the
+# `foundry learnings` CLI and the AGENTS.md renderer do NOT pass these, so they
+# still show the full head; only the hot prompt path pays a bound.
+PROMPT_LEARNINGS_HEAD_BULLET_CHARS = 800    # per-head-bullet truncation cap (prompt)
+PROMPT_LEARNINGS_HEAD_BUDGET_CHARS = 10000  # total char cap on the head (prompt)
+
 
 # --------------------------------------------------------------------------- #
 # Config
@@ -860,11 +872,90 @@ def _truncate_lesson(line: str, cap: int) -> str:
     return line[:cap - len(marker)] + marker
 
 
+def _bound_head(head: list[str], bullet_cap: int | None,
+                budget: int | None) -> tuple[list[str], int, int, int]:
+    """Bound the pinned ``## Patterns`` head by CHARACTERS (prompt path only).
+
+    Why this exists: the lesson tail has had a character bound since iter 104 but
+    the head was exempted for being "curated and small". That premise expired --
+    operators append multi-paragraph directives to the head, making it the only
+    region of the digest with an unbounded writer, in the hot path of every stage
+    prompt. An exemption is where a bound can never look, so the head gets the
+    same treatment its own lessons prescribe.
+
+    A *bullet block* starts at a head line beginning with ``- `` at column 0 and
+    runs through every following head line up to (exclusive) the next such line
+    or the end of the head -- so an indented continuation line (or a blank line)
+    belongs to the bullet above it and is truncated as part of ONE block, never
+    mistaken for a bullet of its own. The *preamble* is everything before the
+    first bullet block (the heading and its intro prose); it is always emitted
+    verbatim and is counted INSIDE ``budget``.
+
+    Truncation is applied FIRST and the budget SECOND -- the same order as
+    ``lesson_chars`` then ``max_chars`` -- so both invariants hold at once.
+    Blocks are admitted TOP-DOWN and therefore dropped from the BOTTOM, because
+    the head is written highest-precedence-first (operator directives lead), so a
+    surviving prefix is the most valuable prefix. Newlines between emitted chunks
+    are charged to the budget, so ``len("\n".join(segments)) <= budget`` is
+    literally true (assuming ``budget >= len(preamble)``, the same style of
+    documented precondition as ``_truncate_lesson``'s ``cap > len(marker)``).
+
+    Pure -- no filesystem/subprocess/network/clock. Returns
+    ``(segments, total, truncated, dropped)``: ``segments`` are the head chunks to
+    join with newlines (each may itself be multi-line), ``total`` counts bullet
+    blocks in the INPUT head, ``truncated`` counts EMITTED blocks that were cut
+    and ``dropped`` counts blocks the budget refused -- the three numbers the
+    caller's loud notice line reports.
+    """
+    preamble: list[str] = []
+    blocks: list[list[str]] = []
+    for line in head:
+        if line.startswith("- "):
+            blocks.append([line])
+        elif blocks:
+            blocks[-1].append(line)
+        else:
+            preamble.append(line)
+    total = len(blocks)
+
+    # Per-block truncation first: reuse the lesson helper so one multi-KB head
+    # bullet can never dominate the prompt (exact-cap output ending in MARKER).
+    capped: list[tuple[str, bool]] = []
+    for block in blocks:
+        text = "\n".join(block)
+        if bullet_cap is None:
+            capped.append((text, False))
+            continue
+        cut = _truncate_lesson(text, bullet_cap)
+        capped.append((cut, cut != text))
+
+    # Then the whole-head budget over already-capped blocks: admit top-down while
+    # the emitted head (preamble + admitted blocks + joining newlines) fits, and
+    # drop every block from the first that would exceed it.
+    dropped = 0
+    admitted: list[tuple[str, bool]] = capped
+    if budget is not None:
+        admitted = []
+        running = len("\n".join(preamble))
+        for index, entry in enumerate(capped):
+            grew = len(entry[0]) + (1 if (preamble or admitted) else 0)
+            if running + grew > budget:
+                dropped = total - index
+                break
+            admitted.append(entry)
+            running += grew
+
+    truncated = sum(1 for _, was_cut in admitted if was_cut)
+    return [*preamble, *(text for text, _ in admitted)], total, truncated, dropped
+
+
 def learnings_digest(
     text: str,
     recent: int = 12,
     max_chars: int | None = None,
     lesson_chars: int | None = None,
+    head_bullet_chars: int | None = None,
+    head_chars: int | None = None,
 ) -> str:
     """Reduce a role-tagged learnings log to a bounded, high-signal view.
 
@@ -890,12 +981,30 @@ def learnings_digest(
       suffix in document (ascending) order. The emitted lessons' total length is
       then ``<= max_chars``.
 
-    Both bounds default to ``None`` = today's exact output (no truncation, no
-    budget drop), so the CLI/agents callers stay byte-identical. When both are
-    set truncation is applied FIRST and the budget SECOND, so both invariants
-    hold at once. The ``## Patterns`` head is NEVER truncated or budgeted -- only
-    lesson lines are; the header count K reflects the lessons actually emitted
-    (after any budget drop) while M counts ALL lesson lines in the log.
+    The pinned head was originally exempt from both bounds on the grounds that it
+    was "curated and small". Measurement falsified that premise (it grew to 63% of
+    the digest, being the one region with an unbounded writer), so it now carries
+    the same pair of OPTIONAL bounds -- see ``_bound_head`` for the bullet-block
+    grouping and the top-down admission order:
+
+    * ``head_bullet_chars`` -- when set, truncate each head BULLET BLOCK (a ``- ``
+      bullet at column 0 plus its continuation lines) to at most this many
+      characters, exactly as ``lesson_chars`` does for one lesson line.
+    * ``head_chars`` -- when set, admit head bullet blocks TOP-DOWN while the
+      emitted head stays within this total budget, dropping from the BOTTOM (the
+      head is written highest-precedence-first, so a prefix is what to keep).
+
+    Whenever a head bullet is truncated or dropped, exactly ONE loud notice line
+    (``> [head bounded: T of M bullets truncated, D dropped ...]``) is emitted as
+    the last line of the head region, so an elision can never be silent and an
+    operator can grep for it; when nothing is elided no notice appears at all.
+
+    All four bounds default to ``None`` = today's exact output (verbatim head, no
+    truncation, no budget drop), so the CLI/agents callers stay byte-identical.
+    When both members of a pair are set truncation is applied FIRST and the budget
+    SECOND, so both invariants hold at once. The header count K reflects the
+    lessons actually emitted (after any budget drop) while M counts ALL lesson
+    lines in the log.
 
     A *lesson line* is any line whose left-stripped form starts with ``- [`` (the
     ``- [ROLE iterNN] ...`` bullet). A *pattern bullet* is a plain ``- `` bullet
@@ -954,7 +1063,22 @@ def learnings_digest(
         admitted.reverse()
         window = admitted
 
-    parts = [*head, "", f"## Recent lessons (last {len(window)} of {total})", *window]
+    # Optional head bounds (bullet cap first, then the total budget) -- default
+    # None => verbatim head and no notice, byte-identical to the pre-bound
+    # output, so a bounded call on a small head is indistinguishable from an
+    # unbounded one and only `build_prompt` pays a bound.
+    notice: list[str] = []
+    if head_bullet_chars is not None or head_chars is not None:
+        head, bullets, cut, dropped = _bound_head(
+            head, head_bullet_chars, head_chars)
+        if cut or dropped:
+            notice = [
+                f"> [head bounded: {cut} of {bullets} bullets truncated, "
+                f"{dropped} dropped -- full text in the learnings log]"
+            ]
+
+    parts = [*head, *notice, "",
+             f"## Recent lessons (last {len(window)} of {total})", *window]
     return "\n".join(parts)
 
 
@@ -11397,11 +11521,17 @@ def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
     # digest by CHARACTERS (not just lesson count), so the per-prompt cost cannot
     # grow without limit as roles write longer lessons; read as module globals so
     # a `monkeypatch.setattr(foundry, ...)` bites at call time.
+    # `PROMPT_LEARNINGS_HEAD_*` bound the pinned `## Patterns` head the same way:
+    # it is 63% of the digest and the only region with an unbounded writer, so
+    # leaving it exempt made the "bounded digest" claim false on the hot path.
+    # Read as module globals so `monkeypatch.setattr(foundry, ...)` bites here.
     digest = learnings_digest(
         text,
         recent=PROMPT_LEARNINGS_RECENT,
         max_chars=PROMPT_LEARNINGS_BUDGET_CHARS,
         lesson_chars=PROMPT_LEARNINGS_LESSON_CHARS,
+        head_bullet_chars=PROMPT_LEARNINGS_HEAD_BULLET_CHARS,
+        head_chars=PROMPT_LEARNINGS_HEAD_BUDGET_CHARS,
     )
     # PM-stage repetition brake (discovery bite 3b): pm_novelty_block injects
     # the RUT/VARIED verdict + a shape-break directive into the PM lead's

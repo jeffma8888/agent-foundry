@@ -1,13 +1,27 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-118
+    lenses: performance-and-throughput, narrative-and-docs
+    winner: C2
+    ship: unknown
+  iter-117
+    lenses: new-capability, hardening/DX
+    - Candidate C1 -- `foundry init`: the product-onboarding front door (bite 1 = pure scaffold renderer + read-only preview)
+    - Candidate C2 -- `foundry pause <product> [--reason R]`: a guarded, well-formed per-team STOP writer (the offboarding verb, symmetric to init)
+    - Candidate C3 -- `foundry goal "<text>"`: an append-only operator steering channel for the "weekly-defined goal"
+    - Candidate B1 -- `foundry stage-times`: per-stage duration observability CLI (operator fix #2, priority-2 of three)
+    - Candidate B2 -- `foundry doctor` stale-IPC-endpoint advisory (completes the iter-114 self-heal)
+    - Candidate B3 -- fix `roles/pm.md` lint-spec invocation (kill a recurring per-PM-turn tax)
+    winner: B1
+    ship: PUSHED 705388a
   iter-116
     lenses: new-capability, hardening/DX
     - Candidate C1 -- Wire discovery bite 4b: append a dated decision block to a TRACKED DIRECTIONS.md on every scouted iteration
     - Candidate C2 -- `foundry init <repo> [--name N]`: the product-onboarding front door
     - Candidate C3 -- `foundry goal "<text>"`: an operator steering channel for the "weekly-defined goal"
     winner: C1
-    ship: unknown
+    ship: PUSHED ebcaff9
   iter-115
     lenses: new-capability, hardening/DX
     - Candidate C1 -- `foundry directions`: the DIRECTIONS.md decision-log render CLI (discovery bite 4a)
@@ -118,4 +132,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-13 scouted iterations
+15 scouted iterations
