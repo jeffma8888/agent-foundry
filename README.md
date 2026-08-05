@@ -236,6 +236,9 @@ uv run python foundry.py outcomes --config products/repolens/config.json  # [--l
 
 # 40. Repetition brake: sample the recent commit subjects + newest roadmap entries, normalize each into a "shape" (conventional-commit prefix + trailing (... iter N) tag stripped), and flag a RUT when any single shape recurs at least NOVELTY_RUT_THRESHOLD times -- the "twelve near-identical increments" drift the discovery loop is meant to catch -- else VARIED; DORMANT -- the PM/pipeline does not consult it yet (the PM-obeys-RUT wiring is a later bite) (exit 0 VARIED / 1 RUT); read-only, writes nothing:
 uv run python foundry.py novelty-check --config products/repolens/config.json  # [--limit N] sample the most-recent N commits + roadmap entries (default NOVELTY_DEFAULT_N) [--json for one machine-readable novelty verdict doc: dashboards/reporter/CI; same 0/1 exit code, honours --limit]
+
+# 41. Per-iteration DECISION-LOG digest (discovery bite 4a): render, NEWEST-FIRST, one decision block per SCOUTED iteration from EXISTING committed state (`state/iter-NN/{pm_scout_a.md,pm_scout_b.md,pm.md,final.md}`) -- the scout LENSES + the candidate slate + the PM's triage WINNER + the ship ACTION/sha -- so an operator reads "what the loop considered and rejected" in ONE command instead of hand-opening four files across a dozen iter dirs; the DISCOVERY complement to #39 `outcomes` (internal gate flow) and #10 `history` (ships). DORMANT -- the pipeline/gate never call it and no `DIRECTIONS.md` is written (the live `run_iteration` append is the pre-declared next bite) (exit 0 has-scouted-iterations/2 none); read-only, writes nothing:
+uv run python foundry.py directions --config products/repolens/config.json  # [--limit N most-recent scouted iterations] [--json for one machine-readable directions doc: dashboards/reporter/CI; same 0/2 exit code, honours --limit]
 ```
 
 Stop any time: `touch STOP` (whole company) or `touch products/<name>/STOP`

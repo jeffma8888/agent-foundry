@@ -7669,6 +7669,354 @@ def outcomes_cli(cfg: ProductConfig, limit: int | None = None,
 
 
 # --------------------------------------------------------------------------- #
+# Decision-log render (`directions`) -- discovery bite 4a (roadmap iter 115).
+#
+# The operator needs to read, in ONE place, WHAT each scouted iteration
+# considered and which candidate the PM lead picked -- today that means
+# hand-opening `pm_scout_a.md` + `pm_scout_b.md` + `pm.md` + `final.md` across a
+# dozen `state/iter-NN/` dirs. `directions` renders that decision history from
+# the EXISTING committed state artifacts, newest-first, in one read-only
+# command, directly serving the VISION's "eliminate the babysitting" goal.
+#
+# Purely ADDITIVE + OFF the control path: it only READS committed state and
+# prints; `run_iteration` / `run_continuous` / `run_stage` / the dispatcher
+# NEVER call it and it writes NOTHING. Same "compose small pure parsers + frozen
+# cores + one gathering seam, add no new I/O seam" pattern the shipped
+# `outcomes` command (iters 100/101) uses. INFORMATIONAL like `outcomes`: a
+# scouted-but-reverted iteration still shows up; only an EMPTY ledger exits 2.
+# The LIVE append into `run_iteration` + a tracked `DIRECTIONS.md` file is the
+# pre-declared NEXT bite (4b) and is deliberately OUT OF SCOPE here.
+# --------------------------------------------------------------------------- #
+def parse_scout_lens(text: str) -> str | None:
+    """Extract a scout file's LENS from its title heading (pure, total).
+
+    Locates the FIRST line whose stripped form starts with ``#`` (the scout
+    title heading) AND contains ``lens:`` (case-insensitive), then returns the
+    remainder of that line AFTER the LAST ``lens:`` occurrence, stripped -- so a
+    title `# PM_SCOUT_A -- iteration 115 -- lens: new-capability` yields
+    ``new-capability`` and the em-dash variant `# PM Scout B - iteration 115 -
+    lens: hardening/DX` yields ``hardening/DX``. Case-insensitive matching is
+    positional (`.lower()` preserves ASCII offsets), so the slice indexes the
+    ORIGINAL line and the returned lens keeps its original case.
+
+    Returns ``None`` -- never raising for ANY string -- when the text is empty,
+    has no leading-``#`` heading carrying a ``lens:`` token, or the remainder
+    after ``lens:`` is empty / whitespace-only."""
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line.startswith("#"):
+            continue
+        idx = line.lower().rfind("lens:")
+        if idx == -1:
+            continue
+        # `.lower()` preserves character offsets for ASCII, so `idx` indexes the
+        # ORIGINAL line; slice past the 5-char `lens:` token, then strip.
+        remainder = line[idx + len("lens:"):].strip()
+        return remainder or None
+    return None
+
+
+def parse_scout_candidates(text: str) -> tuple[str, ...]:
+    """Extract a scout file's CANDIDATE one-liners in file order (pure, total).
+
+    For EACH line whose stripped form starts with ``## Candidate``
+    (case-insensitive) returns the stripped line with its leading ``#``
+    characters and the following whitespace removed -- e.g. `## Candidate C1 --
+    foundry directions: ...` -> ``Candidate C1 -- foundry directions: ...``.
+    Non-candidate ``##`` headings (`## Note to the PM lead`, `## Diversity
+    note`) are skipped. Returns an EMPTY tuple -- never raising for ANY string
+    -- when the text is empty or carries no such heading."""
+    out: list[str] = []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if line.lower().startswith("## candidate"):
+            # Drop the leading `#` run, then the whitespace that followed it, so
+            # only the human title text remains.
+            out.append(line.lstrip("#").lstrip())
+    return tuple(out)
+
+
+def parse_triage_winner(text: str) -> str | None:
+    """Extract the PM lead's WINNER candidate id from a `pm.md` body (pure, total).
+
+    Best-effort: locates the FIRST line whose stripped form starts with
+    ``## Triage`` (case-insensitive), then returns the FIRST token matching the
+    regex ``\\b[ABC][0-9]\\b`` found in the text AFTER that heading line,
+    uppercased (already uppercase for the literal class, so a no-op that documents
+    intent) -- so a Triage section naming "Pick: C1" yields ``C1``. Requiring the
+    match to follow the ``## Triage`` heading avoids misreading a candidate id
+    mentioned earlier in the spec.
+
+    Returns ``None`` -- never raising for ANY string -- when there is no
+    ``## Triage`` heading or no such id token follows it."""
+    lines = (text or "").splitlines()
+    heading_idx = None
+    for i, raw in enumerate(lines):
+        if raw.strip().lower().startswith("## triage"):
+            heading_idx = i
+            break
+    if heading_idx is None:
+        return None
+    rest = "\n".join(lines[heading_idx + 1:])
+    match = re.search(r"\b[ABC][0-9]\b", rest)
+    return match.group(0).upper() if match else None
+
+
+def parse_ship_sha(text: str) -> str | None:
+    """Extract the pushed SHA from a `final.md` body (pure, total).
+
+    Mirrors `parse_ship_action`'s last-non-empty-line rule: when the LAST
+    non-empty line reads ``ACTION: PUSHED <sha>`` returns ``<sha>`` (the token
+    after ``PUSHED``), tolerating surrounding whitespace. Returns ``None`` --
+    never raising for ANY string -- for ``ACTION: REVERTED``, a bare
+    ``ACTION: PUSHED`` with no sha, an ``ACTION:`` line that is NOT the last
+    non-empty line (prose follows it), or empty / absent / unrecognized text.
+    Requiring the sentinel to be LAST matches how the artifact is emitted, so a
+    stray earlier mention can never be misread."""
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    if not lines:
+        return None
+    last = lines[-1]
+    prefix = "ACTION:"
+    if not last.startswith(prefix):
+        return None
+    # `.split()` collapses runs of whitespace after `ACTION:`; a `PUSHED <sha>`
+    # yields >= 2 tokens and the sha is the token after `PUSHED`. A bare
+    # `ACTION: PUSHED` (1 token) or a `REVERTED` first token -> no sha.
+    tokens = last[len(prefix):].split()
+    if len(tokens) >= 2 and tokens[0] == "PUSHED":
+        return tokens[1]
+    return None
+
+
+@dataclasses.dataclass(frozen=True)
+class DirectionsEntry:
+    """One SCOUTED iteration's decision block (the `directions` ledger row).
+
+    Frozen so a computed entry can't be mutated after the fact (value equality
+    for free, matching the other pure cores). Fields, in declaration order:
+      * `iteration` -- the iteration number (e.g. `115` for `iter-115`).
+      * `lenses` -- the scout lenses considered, in scout-A-then-B order (a
+        scout whose lens could not be parsed is omitted).
+      * `candidates` -- the candidate one-liners, scout-A-then-B order.
+      * `winner` -- the PM lead's picked candidate id (`"C1"`) or `None`.
+      * `action` -- the ship action `"PUSHED"` / `"REVERTED"` / `None`.
+      * `sha` -- the pushed sha when `action == "PUSHED"` (else `None`).
+    """
+    iteration: int
+    lenses: tuple[str, ...]
+    candidates: tuple[str, ...]
+    winner: str | None
+    action: str | None
+    sha: str | None
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of one decision row for machine
+        consumers, mirroring `IterationOutcome.to_dict()`.
+
+        Returns EXACTLY 6 keys in declaration order
+        (`iteration`/`lenses`/`candidates`/`winner`/`action`/`sha`). The two
+        tuples become JSON lists; the three optionals stay str-or-null; every
+        value is JSON-native, so `json.dumps(...)` never raises and the dict
+        round-trips through `json.loads(json.dumps(...))`. Pure: touches no
+        filesystem, only the already-computed entry."""
+        return {
+            "iteration": self.iteration,
+            "lenses": list(self.lenses),
+            "candidates": list(self.candidates),
+            "winner": self.winner,
+            "action": self.action,
+            "sha": self.sha,
+        }
+
+
+@dataclasses.dataclass(frozen=True)
+class DirectionsDigest:
+    """A per-iteration DECISION ledger for one product (the `directions` core).
+
+    Frozen (value equality, no post-hoc mutation). `entries` is stored as a
+    `tuple` in the order to render (newest-first, as `gather_directions`
+    supplies). `total` and `exit_code` are pure derivations. `exit_code` is `2`
+    iff there is NOTHING to report (`total == 0`) else `0`: directions is
+    INFORMATIONAL like `outcomes` -- it never gates on the past (a scouted iter
+    that reverted still lists), so only an empty ledger exits non-zero."""
+    product: str
+    entries: tuple["DirectionsEntry", ...]
+
+    @property
+    def total(self) -> int:
+        return len(self.entries)
+
+    @property
+    def exit_code(self) -> int:
+        """`2` iff nothing to report else `0` -- directions never gates on a past
+        decision (it is a read-only history, not a current-attention probe)."""
+        return 2 if self.total == 0 else 0
+
+    @staticmethod
+    def _ship_label(entry: "DirectionsEntry") -> str:
+        """The `ship:` field text for one entry: `PUSHED <sha>` / `PUSHED` /
+        `REVERTED` / `unknown` -- a PUSH with a sha is the common case, a PUSH
+        without one and a REVERT are named plainly, everything else is
+        `unknown`."""
+        if entry.action == "PUSHED":
+            return f"PUSHED {entry.sha}" if entry.sha else "PUSHED"
+        if entry.action == "REVERTED":
+            return "REVERTED"
+        return "unknown"
+
+    def render(self) -> str:
+        """A deterministic multi-line decision log (the CLI's black-box contract).
+
+        Contains, as substrings: the header `foundry directions -- {product}`;
+        for EACH entry (in stored order) a block carrying `iter-NN` (2-digit
+        zero-pad), a `lenses: {L}` line (L = the lenses joined by `, ` in order,
+        or the literal `unknown` when empty), ONE line per candidate with the
+        candidate string verbatim, a `winner: {W}` line (W = the winner id or
+        the literal `unknown`), and a `ship: {S}` line (S from `_ship_label`);
+        and a rollup line `{total} scouted iterations`. When there are NO entries
+        it also carries the literal `no scouted iterations yet` (and the rollup
+        reads `0 scouted iterations`)."""
+        header = f"foundry directions -- {self.product}"
+        rollup = f"{self.total} scouted iterations"
+        if not self.entries:
+            return "\n".join([header, "  no scouted iterations yet", rollup])
+        lines = [header]
+        for e in self.entries:
+            lines.append(f"  iter-{e.iteration:02d}")
+            lenses = ", ".join(e.lenses) if e.lenses else "unknown"
+            lines.append(f"    lenses: {lenses}")
+            for cand in e.candidates:
+                lines.append(f"    - {cand}")
+            winner = e.winner if e.winner is not None else "unknown"
+            lines.append(f"    winner: {winner}")
+            lines.append(f"    ship: {self._ship_label(e)}")
+        lines.append(rollup)
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of the whole decision log for machine
+        consumers, mirroring `OutcomesSummary.to_dict()`.
+
+        Returns EXACTLY the keys `product`, `total`, `exit_code`, `entries` (a
+        JSON list of each entry's `to_dict()` in stored order), each REUSING the
+        frozen properties so the payload can never disagree with `render()` /
+        the returned exit code. Every value is JSON-native, so `json.dumps(...)`
+        never raises and the dict round-trips through
+        `json.loads(json.dumps(...))`. Pure: touches no filesystem."""
+        return {
+            "product": self.product,
+            "total": self.total,
+            "exit_code": self.exit_code,
+            "entries": [e.to_dict() for e in self.entries],
+        }
+
+
+def summarize_directions(*, product: str, entries) -> DirectionsDigest:
+    """Pure keyword-only constructor for a `DirectionsDigest`.
+
+    A thin, total wrapper that packs the product name + an iterable of
+    `DirectionsEntry` into the frozen digest, materializing `entries` as a
+    `tuple` (so the frozen dataclass stays immutable and a caller's list can
+    never be mutated out from under it). Keyword-only so the two fields can
+    never be transposed; it never raises and adds no I/O. Kept separate from
+    `directions_cli` so the decision core stays a pure function the tester can
+    drive without any filesystem (mirrors `summarize_outcomes`)."""
+    return DirectionsDigest(product=product, entries=tuple(entries))
+
+
+def gather_directions(cfg: ProductConfig,
+                      limit: int | None = None) -> DirectionsDigest:
+    """Gather one product's per-iteration DECISION log into a `DirectionsDigest`.
+
+    Reads a product's COMMITTED state and returns a digest with `product ==
+    cfg.name`. Lists `cfg.state`'s dir names (guarded -- a missing / unreadable
+    state dir yields an empty digest, never raising), derives ascending
+    iteration numbers via `iteration_numbers`, and keeps ONLY iterations that
+    are SCOUTED (their `iter-NN/` dir contains `pm_scout_a.md` OR
+    `pm_scout_b.md`). For each kept iteration it builds a `DirectionsEntry`:
+    `lenses` is the ordered concatenation of the parsed lens of `pm_scout_a.md`
+    then `pm_scout_b.md` (omitting a None/absent one); `candidates` is the
+    ordered concatenation of `parse_scout_candidates` over the two scout files;
+    `winner` is `parse_triage_winner` over `pm.md`; `action`/`sha` are
+    `parse_ship_action`/`parse_ship_sha` over `final.md`.
+
+    Every artifact is read through the guarded `_read_sentinel` seam (absent
+    file / OSError -> treated as empty, never raising), and every parser is
+    invoked BY ITS BARE MODULE NAME so a `monkeypatch.setattr(foundry,
+    "<parser>", ...)` in a test takes effect. Entries are returned NEWEST-FIRST
+    (descending iteration number); a POSITIVE `limit` keeps only the most-recent
+    N (still newest-first), a `None` / non-positive `limit` returns all. Writes
+    NOTHING to disk (read-only) and creates no directories."""
+    state = cfg.state
+    try:
+        names = [p.name for p in state.iterdir()] if state.exists() else []
+    except OSError:
+        # A read error on the state dir must degrade to "no iterations", never
+        # crash the read-only probe (same contract as the artifact reads).
+        names = []
+    numbers = iteration_numbers(names)
+
+    entries: list[DirectionsEntry] = []
+    for n in numbers:
+        it_dir = state / f"iter-{n:02d}"
+        scout_a = it_dir / "pm_scout_a.md"
+        scout_b = it_dir / "pm_scout_b.md"
+        # SCOUTED gate: at least one scout artifact must EXIST (content may be
+        # empty -- an empty scout file still marks the iteration as scouted).
+        if not (scout_a.exists() or scout_b.exists()):
+            continue
+        lenses: list[str] = []
+        for scout in (scout_a, scout_b):
+            # `_read_sentinel(path, parse_scout_lens)` guards the read AND
+            # resolves `parse_scout_lens` in module globals at call time, so a
+            # monkeypatch bites; absent file / unparsed lens -> None -> omitted.
+            lens = _read_sentinel(scout, parse_scout_lens)
+            if lens is not None:
+                lenses.append(lens)
+        candidates: tuple[str, ...] = (
+            *(_read_sentinel(scout_a, parse_scout_candidates) or ()),
+            *(_read_sentinel(scout_b, parse_scout_candidates) or ()),
+        )
+        winner = _read_sentinel(it_dir / "pm.md", parse_triage_winner)
+        final_path = it_dir / "final.md"
+        action = _read_sentinel(final_path, parse_ship_action)
+        sha = _read_sentinel(final_path, parse_ship_sha)
+        entries.append(DirectionsEntry(
+            iteration=n,
+            lenses=tuple(lenses),
+            candidates=candidates,
+            winner=winner,
+            action=action,
+            sha=sha,
+        ))
+
+    # NEWEST-FIRST: `numbers` is ascending, so reverse the built entries.
+    entries.reverse()
+    if isinstance(limit, int) and limit > 0:
+        # entries are now descending, so the most-recent N are the FIRST N.
+        entries = entries[:limit]
+    return summarize_directions(product=cfg.name, entries=entries)
+
+
+def directions_cli(cfg: ProductConfig, limit: int | None = None,
+                   as_json: bool = False) -> int:
+    """On-demand CLI: print a per-iteration DECISION log + a 0/2 exit code.
+
+    Gathers via the `gather_directions(cfg, limit)` seam (which reads each
+    scouted iteration's scout / pm / final artifacts through the module-level
+    parsers by BARE name so a `monkeypatch.setattr(foundry, ...)` bites), then
+    prints the pure `DirectionsDigest` core -- with `as_json=True` a single
+    `json.dumps(digest.to_dict(), indent=2)` document, else `digest.render()`.
+    RETURNS `digest.exit_code` (`0` with scouted iterations, `2` without).
+    Writes NOTHING to disk (read-only) and creates no directories -- a thin
+    printer over the pure core that adds no decision logic of its own."""
+    digest = gather_directions(cfg, limit)
+    print(json.dumps(digest.to_dict(), indent=2) if as_json else digest.render())
+    return digest.exit_code
+
+
+# --------------------------------------------------------------------------- #
 # Company-wide ship LEDGER roll-up (`company-history`) -- roadmap iter 31.
 #
 # The TREND-axis complement to iter-30's `company-status`: `company-status`
@@ -11296,6 +11644,22 @@ def main(argv: list[str] | None = None) -> int:
     outc.add_argument("--json", action="store_true",
                       help="emit the ledger as one JSON document (machine-readable) "
                            "instead of the human report; same 0/2 exit code, honours --limit")
+    # `directions` prints a read-only, offline per-iteration DECISION log for
+    # one product: the scout lenses + candidate one-liners considered, the PM
+    # lead's picked winner, and the ship action/sha, ONE block per SCOUTED
+    # iteration, parsed from each iter's `pm_scout_a.md` / `pm_scout_b.md` /
+    # `pm.md` / `final.md`, NEWEST-FIRST. `--limit N` shows only the most-recent
+    # N scouted iterations. On-demand only -- the pipeline/dispatcher NEVER call
+    # it; it writes nothing (discovery bite 4a). Exit 0 (has scouted iterations)
+    # / 2 (none yet).
+    drc = sub.add_parser("directions")
+    drc.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    drc.add_argument("--limit", type=int, default=None,
+                     help="show only the most-recent N scouted iterations (default: all)")
+    drc.add_argument("--json", action="store_true",
+                     help="emit the decision log as one JSON document (machine-readable) "
+                          "instead of the human report; same 0/2 exit code, honours --limit")
     # `timing` prints a read-only, offline per-iteration suite-wall-time DIGEST
     # (min/max/avg/last/slow-count) for one product, parsed from each iter's
     # `postrelease.md` `suite_seconds` body line, ascending. `--limit N` shows
@@ -11712,6 +12076,8 @@ def main(argv: list[str] | None = None) -> int:
         return novelty_check_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "outcomes":
         return outcomes_cli(cfg, limit=args.limit, as_json=args.json)
+    if args.cmd == "directions":
+        return directions_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "timing":
         return timing_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "weak-tests":
