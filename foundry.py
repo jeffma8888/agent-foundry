@@ -4677,7 +4677,8 @@ def run_scout_phase(cfg: ProductConfig, iteration: int, plan: ScoutPhasePlan,
 
 
 def scout_phase_outcome(cfg: ProductConfig, iteration: int,
-                        role_file: str) -> dict | None:
+                        role_file: str,
+                        lenses: Iterable[str] | None = None) -> dict | None:
     """Compose the config gate + scout phase into run_iteration's status idiom.
 
     The last untested piece of dual-PM-scout WIRING logic, extracted as a dormant
@@ -4688,6 +4689,18 @@ def scout_phase_outcome(cfg: ProductConfig, iteration: int,
     ``decide_scout_phase``'s own ``bool(...)``), builds the plan, runs the iter-83
     executor ``run_scout_phase``, and maps its outcome onto ``run_iteration``'s
     idiom.
+
+    ``lenses`` is an ADDITIVE optional lens override forwarded verbatim to
+    ``decide_scout_phase`` (mirroring that helper and ``scout_plan_cli``). Default
+    ``None`` reads the module-level ``PM_SCOUT_LENSES`` at call time -- the pre-
+    rotation default path, byte-for-byte. An explicit non-``None`` iterable of K
+    lens strings runs exactly K scouts named by position (``pm_scout_a``,
+    ``pm_scout_b``, ...) paired in input order, for THIS call only, mutating no
+    module global. The live ``run_iteration`` call site passes
+    ``list(select_scout_lenses(iteration))`` so each iteration rotates a
+    deterministic 2-of-6 window (discovery bite 2). The disabled path
+    (``cfg.dual_pm_scouts`` falsy) short-circuits to ``None`` before ``lenses``
+    is consulted, so it is byte-identical regardless of any ``lenses`` argument.
 
     Return contract: ``None`` means "proceed to the PM lead" and is returned in
     exactly two cases -- the feature is DISABLED (``cfg.dual_pm_scouts`` falsy, so
@@ -4705,14 +4718,14 @@ def scout_phase_outcome(cfg: ProductConfig, iteration: int,
     stage, and ``run_scout_phase`` never reverts either. Performs no direct I/O of
     its own -- every external effect flows through ``run_scout_phase`` ->
     ``run_stage``; ``decide_scout_phase`` and ``run_scout_phase`` are called by BARE
-    module name so a test's ``monkeypatch.setattr`` bites at call time. ZERO call
-    site -- no orchestrator runs it yet, so the running loop's disabled path is
-    byte-identical and resume semantics are preserved (bite 3b-ii wires it,
-    operator-gated).
+    module name so a test's ``monkeypatch.setattr`` bites at call time. Its single
+    call site is ``run_iteration`` (bite 3b-ii wiring); the ``lenses`` override
+    added here is additive, so the disabled path stays byte-identical and resume
+    semantics are preserved.
     """
     if not cfg.dual_pm_scouts:
         return None
-    plan = decide_scout_phase(cfg.dual_pm_scouts)
+    plan = decide_scout_phase(cfg.dual_pm_scouts, lenses)
     result = run_scout_phase(cfg, iteration, plan, role_file)
     if not result.ok:
         return {"status": "infra-fail", "stage": result.failed_stage,
@@ -10745,8 +10758,13 @@ def run_iteration(cfg: ProductConfig, iteration: int | None = None) -> dict:
     # means "proceed to the PM lead" (disabled OR every scout wrote its slate); a
     # dict is the PM-stage infra-fail idiom for a failed scout (NO revert: nothing
     # is built yet, exactly like the pm stage below). The role-card literal lives
-    # HERE at the single call site, per the iters 81-84 dormancy design.
-    scout_status = scout_phase_outcome(cfg, iteration, "pm_scout.md")
+    # HERE at the single call site, per the iters 81-84 dormancy design. The
+    # per-iteration lens ROTATION (discovery bite 2) is supplied HERE too:
+    # select_scout_lenses(iteration) rotates a deterministic 2-of-6 window over
+    # PM_SCOUT_LENS_POOL so consecutive iterations never scout the same lens pair
+    # (an explicit override wins over the PM_SCOUT_LENSES default inside the helper).
+    scout_status = scout_phase_outcome(cfg, iteration, "pm_scout.md",
+                                       list(select_scout_lenses(iteration)))
     if scout_status is not None:
         return scout_status
 
