@@ -296,8 +296,14 @@ def test_b07_writes_nothing(tmp_path, monkeypatch):
 #               selector or the pool; the ONLY in-module caller is scout_plan_cli
 # ==========================================================================
 def test_b08_orchestrators_do_not_reference_new_symbols():
+    # run_iteration is INTENTIONALLY absent from this tuple as of iter-113:
+    # discovery bite 2 wired the live per-iteration rotation, so run_iteration
+    # now legitimately references select_scout_lenses at its scout call site
+    # (that reference is exactly what test_b08_only_scout_plan_cli_calls_selector
+    # now asserts). run_continuous STAYS guarded: it references run_iteration by
+    # name, not the selector, and _co_names_deep does not resolve called globals.
     new = {NEW_SELECTOR, NEW_POOL}
-    for fn in (foundry.build_prompt, foundry.run_stage, foundry.run_iteration,
+    for fn in (foundry.build_prompt, foundry.run_stage,
                foundry.run_continuous, foundry.run_execution_plan,
                foundry.scout_phase_outcome, foundry.run_scout_phase):
         refs = _co_names_deep(fn) & new
@@ -306,11 +312,14 @@ def test_b08_orchestrators_do_not_reference_new_symbols():
 
 
 def test_b08_only_scout_plan_cli_calls_selector():
+    # As of iter-113 the live scout call site in run_iteration also references
+    # the selector (bite 2 rotation wiring), so the in-module callers are
+    # exactly run_iteration + scout_plan_cli -- and nothing else.
     callers = sorted(
         name for name, fn in _module_functions(foundry).items()
         if NEW_SELECTOR in _co_names_deep(fn))
-    assert callers == ["scout_plan_cli"], (
-        "the ONLY in-module caller of %s must be scout_plan_cli, got %r"
+    assert callers == ["run_iteration", "scout_plan_cli"], (
+        "in-module callers of %s must be run_iteration + scout_plan_cli, got %r"
         % (NEW_SELECTOR, callers))
 
 
