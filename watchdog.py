@@ -41,12 +41,21 @@ Install (an operator step; not shipped as a registered schedule):
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import datetime as dt
 import os
 import pathlib
 import subprocess
 import sys
+
+# STRANGLER step 4 (docs/STRANGLER_PLAN.md): the resurrect-if-down policy now
+# lives in the published library, not inline here. This module keeps what is
+# genuinely foundry-specific -- the process-scan / STOP-file / detached-relaunch
+# seams and the DISPATCH_LOG line -- and delegates the DECISION and the tick
+# ORCHESTRATION. Chosen as the first strangler slice because watchdog.py has
+# ZERO non-test importers, so it is off the live dispatch/resume path entirely.
+from resilient_agent_loop.watchdog import Decision
+from resilient_agent_loop.watchdog import decide as _lib_decide
+from resilient_agent_loop.watchdog import supervise as _lib_supervise
 
 FOUNDRY = pathlib.Path(__file__).resolve().parent
 DISPATCH_LOG = FOUNDRY / "DISPATCH_LOG.md"
@@ -60,40 +69,33 @@ def now() -> str:
 # --------------------------------------------------------------------------- #
 # The pure decision core -- single-brain + STOP-respect, no I/O.
 # --------------------------------------------------------------------------- #
-@dataclasses.dataclass(frozen=True)
-class WatchdogDecision:
-    """The outcome of one watchdog check.
-
-    Frozen so a decision can't be mutated after the fact. `.reason` is always a
-    non-empty, human-readable string so `DISPATCH_LOG.md` records WHY the
-    watchdog acted (or declined to), regardless of the verdict.
-    """
-    relaunch: bool
-    reason: str
+#: Historical name for the decision value object, kept as an ALIAS of the
+#: library type so existing callers/tests that reference
+#: ``watchdog.WatchdogDecision`` keep working while there is exactly ONE
+#: definition of the type. Fields are unchanged: ``relaunch`` (bool) and
+#: ``reason`` (non-empty str).
+WatchdogDecision = Decision
 
 
-def decide(*, is_running: bool, stopped: bool) -> WatchdogDecision:
+def decide(*, is_running: bool, stopped: bool) -> Decision:
     """Decide whether to resurrect the dispatcher -- PURE, no I/O.
 
-    The whole safety of the watchdog lives here, pinned by a truth table:
-    relaunch IFF the dispatcher is down AND no STOP is present. Liveness is
-    checked first so it DOMINATES a stray STOP file (never a second brain even
-    if a STOP is also present); a deliberate STOP then blocks resurrection of a
-    down company. Keyword-only args make the two booleans impossible to swap at
-    a call site.
+    DELEGATES to the library's ``decide``, which is now the single source of
+    truth for the policy. The truth table is unchanged and still the whole
+    safety story: relaunch IFF the dispatcher is down AND no STOP is present,
+    with liveness checked FIRST so it DOMINATES a stray STOP file (never a
+    second brain even if a STOP is also present); a deliberate STOP then blocks
+    resurrection of a down company. Keyword-only args make the two booleans
+    impossible to swap at a call site.
+
+    Kept as a thin named wrapper rather than a bare re-export so this module's
+    documented public surface is stable and a caller can monkeypatch
+    ``watchdog.decide`` in isolation. The only observable change from the former
+    inline implementation is the ``reason`` WORDING (the library emits short
+    machine-friendly codes such as ``already_running`` instead of prose); the
+    boolean verdict, field names, and immutability are identical.
     """
-    if is_running:
-        # single-brain: a live dispatcher is the invariant we protect above all.
-        return WatchdogDecision(
-            False, "dispatcher already alive; single-brain rule holds -- no relaunch")
-    if stopped:
-        # STOP-respect: down, but the operator asked for down. Leave it down.
-        return WatchdogDecision(
-            False, "dispatcher down but a global STOP is present; "
-                   "honoring the deliberate stop -- no relaunch")
-    # the resurrection case: down and nobody asked for down.
-    return WatchdogDecision(
-        True, "dispatcher down and no STOP present; resurrecting the single brain")
+    return _lib_decide(is_running=is_running, stopped=stopped)
 
 
 # --------------------------------------------------------------------------- #
@@ -179,23 +181,45 @@ def wlog(msg: str, log_path: pathlib.Path | str = DISPATCH_LOG) -> None:
 # Orchestration -- one check, seams called by BARE name so they monkeypatch.
 # --------------------------------------------------------------------------- #
 def run_watchdog(config_path: pathlib.Path | str,
-                 foundry_dir: pathlib.Path | str = FOUNDRY) -> WatchdogDecision:
+                 foundry_dir: pathlib.Path | str = FOUNDRY) -> Decision:
     """Run ONE watchdog check and act on it; return the decision.
 
-    Probes liveness and STOP through the module-level seams (called by bare name
-    so `monkeypatch.setattr(watchdog, "<seam>", ...)` takes effect), asks the
-    pure `decide` for a verdict, relaunches only when the verdict says so, and
-    records the outcome to `DISPATCH_LOG.md`. Forwards `config_path` to the
-    relaunch so the resurrected dispatcher runs the same company.
+    DELEGATES the tick orchestration (probe both signals -> decide -> relaunch
+    only on a resurrect verdict -> log best-effort last) to the library's
+    ``supervise``. This module supplies the four foundry-specific seams and
+    keeps its own ``DISPATCH_LOG.md`` line format, so behavior is unchanged:
+    both signals are probed every tick (no short-circuit), the relaunch fires at
+    most once and only in the down-and-free case, and `config_path` is forwarded
+    to the relaunch so the resurrected dispatcher runs the same company.
+
+    Every seam is invoked through a closure that resolves the module-level name
+    at CALL time, which is what keeps `monkeypatch.setattr(watchdog, "<seam>",
+    ...)` effective -- the library never captures a reference of its own. The
+    probed booleans are captured on the way through so the log line can still
+    report `running=`/`stopped=` alongside the verdict.
     """
-    running = dispatcher_running()
-    stopped = stop_present(foundry_dir=foundry_dir)
-    decision = decide(is_running=running, stopped=stopped)
-    if decision.relaunch:
+    probed: dict[str, bool] = {}
+
+    def _probe_running() -> bool:
+        probed["running"] = dispatcher_running()
+        return probed["running"]
+
+    def _probe_stopped() -> bool:
+        probed["stopped"] = stop_present(foundry_dir=foundry_dir)
+        return probed["stopped"]
+
+    def _do_relaunch() -> None:
         relaunch_dispatcher(config_path, foundry_dir=foundry_dir)
-    wlog(f"running={running} stopped={stopped} relaunch={decision.relaunch} "
-         f"-- {decision.reason}")
-    return decision
+
+    def _report(result) -> None:
+        wlog(f"running={probed.get('running')} stopped={probed.get('stopped')} "
+             f"relaunch={result.decision.relaunch} -- {result.decision.reason}")
+
+    result = _lib_supervise(is_running=_probe_running,
+                            is_stopped=_probe_stopped,
+                            relaunch=_do_relaunch,
+                            log=_report)
+    return result.decision
 
 
 def main(argv: list[str] | None = None) -> int:

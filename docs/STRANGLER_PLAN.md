@@ -89,11 +89,37 @@ Traps:
 3. Per-attempt timeout maps to `timeout` + `call_with_timeout`; they are
    both-or-neither.
 
-## Step 4 - `watchdog.py` delegates to `decide`/`supervise`
+## Step 4 - `watchdog.py` delegates to `decide`/`supervise` -- DONE 2026-08-04
 
 Replace the inline decide/relaunch with the library's. The invariant to preserve:
 relaunch only when down AND not deliberately stopped, and never start a second
 brain.
+
+**SHIPPED (operator, out of band).** Taken BEFORE steps 2/3 on purpose: `watchdog.py`
+has ZERO non-test importers, so it is off the live dispatch/resume path and could be
+strangled while the dispatcher kept running -- whereas steps 2/3 edit the live control
+path and want a quiescent window. What landed:
+- `WatchdogDecision` is now an ALIAS of the library `Decision` (one definition of the
+  type), `decide` delegates to `resilient_agent_loop.watchdog.decide`, and
+  `run_watchdog` delegates the whole tick to `supervise`.
+- The foundry keeps what is genuinely local: the `_pgrep`/`stop_present`/detached
+  `relaunch_dispatcher`/`wlog` seams and the `DISPATCH_LOG.md` line format. Each seam
+  is passed as a CLOSURE resolving the module-level name at call time, so
+  `monkeypatch.setattr(watchdog, "<seam>", ...)` still bites -- the library never
+  captures a reference of its own.
+- `import dataclasses` dropped (nothing local needs it now).
+- ONE observable change, deliberate: the `reason` WORDING is now the library's short
+  machine-friendly code (e.g. `already_running`) instead of foundry prose. The boolean
+  verdict, field names, immutability, probe order, at-most-one relaunch, config
+  forwarding and best-effort logging are all identical. Mapping the codes back to prose
+  was rejected -- it would regrow exactly the duplication this epic removes.
+- Proof: the original `tests/test_iter06_behavior.py` (19 tests) passes UNCHANGED =
+  behavior preservation. New `tests/test_strangler_step4_watchdog.py` (12 tests) is the
+  RATCHET: it fails if the type stops being the library's, if `decide` diverges from the
+  library on any of the 4 truth-table inputs, if a local dataclass / `if is_running:` /
+  `if stopped:` branch reappears, if `run_watchdog` stops calling `supervise` or starts
+  returning a `SuperviseResult`, or if a seam stops being monkeypatchable. Full suite
+  2864 passed; `import foundry, dispatcher, watchdog` OK.
 
 ## Step 5 - delete the now-dead inline copies
 
