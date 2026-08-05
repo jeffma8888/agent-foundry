@@ -59,7 +59,15 @@ AGENT_BIN = os.environ.get("FOUNDRY_AGENT_BIN", "")
 AGENT_RUN_ARGS = json.loads(
     os.environ.get("FOUNDRY_AGENT_ARGS", '["run", "--task", "{prompt}"]'))
 
-STAGE_TIMEOUT = 1800            # 30 min hard cap per agent-run attempt
+STAGE_TIMEOUT = 1800            # 30 min hard cap per agent-run attempt (run_stage-side)
+# Median-attempt WARN threshold for `foundry stage-times`, deliberately BELOW
+# the real ~600s agent-CLI kill so a stage whose MEDIAN attempt duration creeps
+# toward that cap surfaces DAYS before it hard-fails and strands a shift
+# (OPERATOR-SET 2026-08-04: the 600s cap is the #1 cause of lost shifts and
+# "THE FOUNDRY IS BLIND TO IT"). NOT the 1800s STAGE_TIMEOUT. Read at CALL time
+# (a module global, not a default-arg value) so a `monkeypatch.setattr(foundry,
+# "STAGE_SOFT_BUDGET", X)` in a test -- or a `--budget N` override -- bites.
+STAGE_SOFT_BUDGET = 420        # seconds; stage-times median WARN threshold
 MAX_ATTEMPTS = 4               # attempts per stage
 BACKOFFS = [600, 1200, 2400]    # 10 -> 20 -> 40 min between attempts
 COOLDOWNS = [1800, 3600, 7200, 14400]  # infra cooldown 30m -> 1h -> 2h -> 4h
@@ -8642,6 +8650,323 @@ def timing_cli(cfg: ProductConfig, limit: int | None = None,
 
 
 # --------------------------------------------------------------------------- #
+# Per-(team,stage) attempt-DURATION observability (`stage-times`) -- OPERATOR
+# reliability fix #2 of 3 (OPERATOR-SET 2026-08-04: the ~600s per-stage agent-CLI
+# cap is the #1 cause of lost shifts and "THE FOUNDRY IS BLIND TO IT").
+#
+# `run_stage` already logs, to the shared `dispatcher.out`, every attempt's START
+# (`iter NN . **STAGE** attempt A started`) and its terminal line (`STAGE produced
+# `FILE`` on success, or `STAGE no output file (attempt A/M); ...` on a
+# no-output/timeout). This lens turns that EXISTING telemetry into an on-demand
+# answer to "which stage is about to time out?" -- it pairs each start with its
+# next terminal into a DURATION, groups by (team,stage), and WARNs when a group's
+# MEDIAN attempt duration creeps over `STAGE_SOFT_BUDGET` (a stall PREDICTION days
+# before a hard fail). Purely additive + OFF the control path: it only READS the
+# log and prints; the pipeline / dispatcher NEVER call it and it writes NOTHING
+# (same on-demand-CLI, writes-nothing class as `doctor`/`timing`/`novelty-check`).
+# DISTINCT from `timing`, which reports the fresh-clone SUITE wall-time from
+# `postrelease.md`, not per-STAGE attempt durations.
+# --------------------------------------------------------------------------- #
+
+# `dispatcher.out` line prefix as emitted by `log()`:
+#   `- `MM-DD HH:MM:SS` [TEAM] iter NN . <rest>`
+# The `.` separator above is a real U+00B7 MIDDLE DOT in the source; the regex
+# consumes it so `rest` starts cleanly with the stage-specific payload. Anchoring
+# each stage regex to the START of `rest` (not a free `search`) is deliberate: a
+# `no output file` line carries a repr of the agent's tail output which could
+# itself contain text shaped like a START line -- an anchored `.match` on the
+# real leading stage token can never be fooled by that trailing repr.
+_STAGE_TS_RE = re.compile(
+    r"`(?P<ts>\d\d-\d\d \d\d:\d\d:\d\d)`\s+"
+    r"\[(?P<team>[^\]]+)\]\s+"
+    r"iter\s+(?P<iter>\d+)\s+\u00b7\s+"
+    r"(?P<rest>.+)$"
+)
+_STAGE_START_RE = re.compile(
+    r"^\*\*(?P<stage>[^*]+)\*\*\s+attempt\s+(?P<attempt>\d+)\s+started")
+_STAGE_PRODUCED_RE = re.compile(r"^(?P<stage>\S+)\s+produced(?:\s|$)")
+_STAGE_NOOUTPUT_RE = re.compile(r"^(?P<stage>\S+)\s+no output file(?:\s|$)")
+
+_TS_FMT = "%m-%d %H:%M:%S"
+_ONE_DAY_S = 86400
+
+
+@dataclasses.dataclass(frozen=True)
+class StageAttempt:
+    """One COMPLETED stage attempt parsed from `dispatcher.out` (a stage-times row).
+
+    Frozen (value equality, no post-hoc mutation). Fields, in declaration order:
+      * `team` -- the product name from the `[TEAM]` bracket of the log line.
+      * `iteration` -- the iteration number (int, from `iter NN`).
+      * `stage` -- the stage name (`pm`/`engineer`/`reviewer`/`tester`/...).
+      * `attempt` -- the 1-based attempt number (int, from the START line).
+      * `duration_s` -- whole seconds between the START and its paired terminal
+        line (ALWAYS >= 0; a run that crossed midnight adds `_ONE_DAY_S` once).
+      * `produced` -- True for a `produced` terminal, False for `no output file`
+        (the observable no-output / timeout-or-fail signal in `dispatcher.out`).
+    """
+    team: str
+    iteration: int
+    stage: str
+    attempt: int
+    duration_s: int
+    produced: bool
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of one attempt (all values JSON-native,
+        so `json.dumps(...)` never raises and the dict round-trips)."""
+        return {
+            "team": self.team,
+            "iteration": self.iteration,
+            "stage": self.stage,
+            "attempt": self.attempt,
+            "duration_s": self.duration_s,
+            "produced": self.produced,
+        }
+
+
+def parse_stage_attempts(text: str) -> list["StageAttempt"]:
+    """Parse a `dispatcher.out` body into completed `StageAttempt`s (pure, total).
+
+    Walks the lines IN ORDER, keeping a per-`(team,iteration,stage)` PENDING start
+    (its timestamp + attempt number). When a terminal line (`produced` OR `no
+    output file`) for the same key is seen, it pops the pending start and emits ONE
+    `StageAttempt` whose `duration_s` = whole seconds between the two timestamps
+    (non-negative; `+_ONE_DAY_S` once if the terminal parses earlier than the start,
+    i.e. a midnight/boundary crossing) and whose `produced` reflects the terminal
+    kind. So a retried stage (`start->no-output->start->produced`) yields TWO
+    attempts, in terminal order; a start with NO following terminal (an in-flight
+    final stage) yields none; a terminal with no preceding start is ignored.
+
+    NEVER raises for ANY input: empty / whitespace-only / unrelated lines /
+    malformed-or-truncated lines / a non-integer iter-or-attempt / a missing or
+    impossible timestamp all yield either an empty list or the well-formed subset.
+    Each line's parse is fully guarded, so one bad line can never sink the rest."""
+    attempts: list[StageAttempt] = []
+    pending: dict[tuple[str, int, str], tuple[dt.datetime, int]] = {}
+    for raw in (text or "").splitlines():
+        try:
+            m = _STAGE_TS_RE.search(raw)
+            if not m:
+                continue
+            team = m.group("team")
+            iteration = int(m.group("iter"))
+            start_dt_ts = dt.datetime.strptime(m.group("ts"), _TS_FMT)
+            rest = m.group("rest")
+
+            ms = _STAGE_START_RE.match(rest)
+            if ms:
+                stage = ms.group("stage").strip()
+                pending[(team, iteration, stage)] = (
+                    start_dt_ts, int(ms.group("attempt")))
+                continue
+
+            mt = _STAGE_PRODUCED_RE.match(rest)
+            produced = True
+            if mt is None:
+                mt = _STAGE_NOOUTPUT_RE.match(rest)
+                produced = False
+            if mt is None:
+                continue
+            stage = mt.group("stage").strip()
+            start = pending.pop((team, iteration, stage), None)
+            if start is None:
+                continue                       # terminal with no preceding start
+            begin_dt, attempt = start
+            dur = int((start_dt_ts - begin_dt).total_seconds())
+            if dur < 0:
+                dur += _ONE_DAY_S              # crossed midnight -> add one day
+            if dur < 0:
+                dur = 0                        # never negative (paranoia clamp)
+            attempts.append(StageAttempt(
+                team=team, iteration=iteration, stage=stage,
+                attempt=attempt, duration_s=dur, produced=produced))
+        except Exception:
+            # Robustness contract: a single malformed line is skipped, never fatal.
+            continue
+    return attempts
+
+
+def _median(values: "list[int]") -> float:
+    """Statistical median of a NON-EMPTY int list (mean of the two middle values
+    for an even count -- matches `statistics.median`; hand-rolled to add no
+    import). Odd -> the middle element (an int); even -> a float."""
+    ordered = sorted(values)
+    n = len(ordered)
+    mid = n // 2
+    if n % 2 == 1:
+        return ordered[mid]
+    return (ordered[mid - 1] + ordered[mid]) / 2
+
+
+@dataclasses.dataclass(frozen=True)
+class StageTimesGroup:
+    """One `(team,stage)` duration group (a `stage-times` report row).
+
+    Frozen. `median_s` is an int for an odd count else a float (both JSON-native);
+    `over_budget` is `median_s > effective_budget` (the WARN condition); `timeouts`
+    counts the group's no-output attempts (the observable timeout-or-fail signal)."""
+    team: str
+    stage: str
+    count: int
+    median_s: float
+    max_s: int
+    timeouts: int
+    over_budget: bool
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of one group (all values JSON-native)."""
+        return {
+            "team": self.team,
+            "stage": self.stage,
+            "count": self.count,
+            "median_s": self.median_s,
+            "max_s": self.max_s,
+            "timeouts": self.timeouts,
+            "over_budget": self.over_budget,
+        }
+
+
+@dataclasses.dataclass(frozen=True)
+class StageTimesSummary:
+    """A per-`(team,stage)` attempt-duration digest (the `stage-times` core).
+
+    Frozen (value equality, no post-hoc mutation). `groups` is stored as a `tuple`
+    ordered deterministically by `(team,stage)` ascending; `budget` is the EFFECTIVE
+    soft budget used (the passed `--budget`, else `STAGE_SOFT_BUDGET` read at call
+    time). `exit_code` is the ONLY gating axis: `2` iff nothing was parsed, `1` iff
+    at least one group is over budget (so a wrapper can gate on the WARN), else `0`.
+    """
+    groups: tuple["StageTimesGroup", ...]
+    budget: int
+
+    @property
+    def total(self) -> int:
+        """Total attempts across all groups (0 iff nothing was parsed)."""
+        return sum(g.count for g in self.groups)
+
+    @property
+    def over_budget_count(self) -> int:
+        """How many `(team,stage)` groups are over the soft budget (the WARNs)."""
+        return sum(1 for g in self.groups if g.over_budget)
+
+    @property
+    def exit_code(self) -> int:
+        """`2` nothing-to-report / `1` >=1 group over budget / `0` clean-with-data.
+
+        The over-budget case gates (`1`) so a cron/CI wrapper can act on the stall
+        PREDICTION; an empty log is `2` (like `timing`/`directions`)."""
+        if self.total == 0:
+            return 2
+        return 1 if self.over_budget_count > 0 else 0
+
+    def render(self) -> str:
+        """A deterministic human report (the CLI's black-box contract).
+
+        Carries, as substrings: a header line with `foundry stage-times` and the
+        effective soft budget; one line per `(team,stage)` group naming team,
+        stage, count, median_s, max_s, timeouts; and, for EVERY over-budget group,
+        a line containing `WARN` that names that team+stage and the effective
+        budget. With NOTHING parsed the report carries the literal `no stage
+        timings` (and `exit_code` is 2)."""
+        header = f"foundry stage-times (soft budget {self.budget}s)"
+        if not self.groups:
+            return "\n".join([header, "  no stage timings"])
+        lines = [header]
+        for g in self.groups:
+            lines.append(
+                f"  [{g.team}] {g.stage}  count {g.count}  "
+                f"median {g.median_s}s  max {g.max_s}s  timeouts {g.timeouts}")
+        for g in self.groups:
+            if g.over_budget:
+                lines.append(
+                    f"  WARN [{g.team}] {g.stage} median {g.median_s}s "
+                    f"exceeds soft budget {self.budget}s")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of the whole digest for machine
+        consumers, mirroring the other frozen cores.
+
+        Returns `budget` (the effective soft budget used), the derived
+        `total`/`over_budget_count`/`exit_code` (REUSING the frozen properties so
+        the payload can never disagree with `render()`/the exit code), and `groups`
+        as a JSON array of each group's `to_dict()` in stored order. Every value is
+        JSON-native, so `json.dumps(...)` never raises and the dict round-trips
+        through `json.loads(json.dumps(...))`. Pure: touches no filesystem."""
+        return {
+            "budget": self.budget,
+            "total": self.total,
+            "over_budget_count": self.over_budget_count,
+            "exit_code": self.exit_code,
+            "groups": [g.to_dict() for g in self.groups],
+        }
+
+
+def summarize_stage_times(attempts, *, budget: int | None = None) -> "StageTimesSummary":
+    """Pure summariser: group `StageAttempt`s by `(team,stage)` into a digest.
+
+    For each group computes `count`, `median_s` (see `_median`), `max_s`, `timeouts`
+    (no-output attempts), and `over_budget` (`median_s > effective_budget`). The
+    `effective_budget` is the passed `budget` when not None, else the MODULE-LEVEL
+    `STAGE_SOFT_BUDGET` READ AT CALL TIME -- so a `monkeypatch.setattr(foundry,
+    "STAGE_SOFT_BUDGET", X)` (or a `--budget` override) changes the over-budget
+    verdict. Groups are ordered deterministically by `(team,stage)` ascending.
+    Total (never raises): an empty `attempts` yields an empty digest (exit 2)."""
+    effective = STAGE_SOFT_BUDGET if budget is None else budget
+    by_key: dict[tuple[str, str], list["StageAttempt"]] = {}
+    for a in attempts:
+        by_key.setdefault((a.team, a.stage), []).append(a)
+    groups: list[StageTimesGroup] = []
+    for team, stage in sorted(by_key):
+        items = by_key[(team, stage)]
+        durations = [a.duration_s for a in items]
+        median_s = _median(durations)
+        groups.append(StageTimesGroup(
+            team=team, stage=stage, count=len(items),
+            median_s=median_s, max_s=max(durations),
+            timeouts=sum(1 for a in items if not a.produced),
+            over_budget=median_s > effective))
+    return StageTimesSummary(groups=tuple(groups), budget=effective)
+
+
+def gather_stage_times(log_path, *, budget: int | None = None,
+                       team: str | None = None) -> "StageTimesSummary":
+    """Read a `dispatcher.out` path and summarise its stage attempt durations.
+
+    Reads the file at `log_path`, runs `parse_stage_attempts` on its text (called
+    by BARE name so a `monkeypatch.setattr(foundry, ...)` bites), optionally keeps
+    ONLY attempts whose `team` equals the `team` filter, then returns
+    `summarize_stage_times(...)`. A missing / unreadable / undecodable `log_path`
+    degrades to an EMPTY summary (exit_code 2) and NEVER raises -- the same
+    no-news-is-good-news contract as the other read-only lenses."""
+    try:
+        text = pathlib.Path(log_path).expanduser().read_text()
+    except Exception:
+        # Missing / permission / decode error -> nothing to report, never crash.
+        text = ""
+    attempts = parse_stage_attempts(text)
+    if team is not None:
+        attempts = [a for a in attempts if a.team == team]
+    return summarize_stage_times(attempts, budget=budget)
+
+
+def stage_times_cli(log_path, *, budget: int | None = None,
+                    team: str | None = None, as_json: bool = False) -> int:
+    """On-demand CLI: print a per-(team,stage) attempt-duration digest + exit code.
+
+    Gathers via the `gather_stage_times(...)` seam (called by BARE name so a
+    `monkeypatch.setattr(foundry, ...)` bites), then prints the pure
+    `StageTimesSummary` -- with `as_json=True` a single `json.dumps(to_dict(),
+    indent=2)` document, else `render()`. RETURNS `summary.exit_code` (0 healthy /
+    1 >=1 over budget / 2 nothing to report). Writes NOTHING to disk (read-only) --
+    a thin printer over the pure core that adds no decision logic of its own."""
+    summary = gather_stage_times(log_path, budget=budget, team=team)
+    print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
+    return summary.exit_code
+
+
+# --------------------------------------------------------------------------- #
 # Company-wide suite-wall-time roll-up (`company-timing`) -- roadmap item 7,
 # bite 2 (COMPLETES the feature; bite 1 shipped the `gather_timing` seam + the
 # `TimingSummary.measured_seconds` accessor in iter 39).
@@ -11762,6 +12087,25 @@ def main(argv: list[str] | None = None) -> int:
     tmg.add_argument("--json", action="store_true",
                      help="emit the digest as one JSON document (machine-readable) "
                           "instead of the human report; same 0/2 exit code, honours --limit")
+    # `stage-times` prints a read-only, offline per-(team,stage) attempt-DURATION
+    # digest parsed from the shared `dispatcher.out` -- count / median / max /
+    # timeouts(no-output attempts) -- and WARNs on any (team,stage) whose MEDIAN
+    # attempt duration exceeds STAGE_SOFT_BUDGET (default 420s; --budget overrides),
+    # a stall PREDICTION days before a hard fail at the ~600s agent-CLI cap
+    # (operator reliability fix #2). Needs NO product `--config` -- `dispatcher.out`
+    # is a foundry-root artifact -- so it is dispatched BEFORE `load_config`.
+    # On-demand only: the pipeline/dispatcher NEVER call it; it writes NOTHING.
+    # Exit 0 healthy / 1 >=1 over budget / 2 nothing to report.
+    stm = sub.add_parser("stage-times")
+    stm.add_argument("--log", default=str(FOUNDRY / "dispatcher.out"),
+                     help="path to the dispatcher.out log (default: the "                          "foundry checkout dispatcher.out)")
+    stm.add_argument("--team", default=None,
+                     help="only report attempts for this team (default: all teams)")
+    stm.add_argument("--budget", type=int, default=None,
+                     help="override STAGE_SOFT_BUDGET (seconds) for this invocation")
+    stm.add_argument("--json", action="store_true",
+                     help="emit the digest as one JSON document (machine-readable) "
+                          "instead of the human report; same 0/1/2 exit code")
     # `weak-tests` scans a product's test files for assertion-free `test*`
     # functions (a test with no assertion passes without validating anything --
     # a false green). DORMANT / on-demand only -- the pipeline/gate/dispatcher
@@ -12145,6 +12489,11 @@ def main(argv: list[str] | None = None) -> int:
         return company_test_quality_cli(args.config, as_json=args.json)
     if args.cmd == "company-lint-config":
         return company_config_lint_cli(args.config, as_json=args.json)
+    if args.cmd == "stage-times":
+        # Dispatched BEFORE load_config: needs no product --config;
+        # `dispatcher.out` is a foundry-root artifact (read-only, writes nothing).
+        return stage_times_cli(args.log, budget=args.budget, team=args.team,
+                               as_json=args.json)
 
     cfg = load_config(args.config)
     if args.cmd == "doctor":
