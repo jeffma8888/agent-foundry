@@ -41,6 +41,7 @@ import pathlib
 import re
 import shlex
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -4361,6 +4362,80 @@ def select_scout_lenses(iteration: int) -> tuple[str, str]:
     pool = PM_SCOUT_LENS_POOL
     i = iteration % len(pool)
     return (pool[i], pool[(i + 1) % len(pool)])
+
+
+# Generic glob for an agent's per-process IPC unix socket. A per-process agent
+# runtime writes a "<name>-<pid>.sock" file into a runtime directory and rotates
+# it on every restart. Kept deliberately vendor-neutral (no concrete agent name)
+# so this PUBLIC source carries no tool-specific literal -- the concrete socket
+# prefix and runtime dir stay CONFIGURATION, mirroring the FOUNDRY_AGENT_BIN
+# injection convention. The "*-*.sock" shape REQUIRES a "-" separator, so a bare
+# "foo.sock" (no separator) is never a candidate. Referenced by its bare module
+# name inside resolve_agent_endpoint so a test's monkeypatch of it takes effect.
+_AGENT_SOCK_GLOB = "*-*.sock"
+
+
+def resolve_agent_endpoint(sock_dir: str | os.PathLike | None = None) -> str | None:
+    """Return the path of the NEWEST *live* agent IPC unix socket, or ``None``.
+
+    WHY this exists: the desktop agent app rotates its per-process IPC unix
+    socket (``_AGENT_SOCK_GLOB``, a ``<name>-<pid>.sock`` file under a runtime
+    dir) on every restart, so an endpoint captured at dispatcher launch goes
+    dead after a restart and every stage child then instant-fails against it. A
+    later, separately-specced bite uses this resolver to hand each stage child a
+    freshly resolved LIVE endpoint, falling back to the inherited environment
+    untouched when this returns ``None`` -- so it can never make a working setup
+    worse. DORMANT this iteration: it has ZERO call site in the running pipeline
+    (a new pure function with no caller changes no resume semantics).
+
+    Liveness is proven ONLY by an actual ``connect()`` probe, never by parsing a
+    pid out of the filename and calling ``os.kill(pid, 0)``: pid REUSE makes that
+    answer wrong -- a stale socket whose pid was reused by an unrelated live
+    process would report "exists" and be wrongly selected. Candidates are the
+    ``_AGENT_SOCK_GLOB`` matches inside ``sock_dir`` (default: the
+    ``FOUNDRY_AGENT_SOCK_DIR`` env var, mirroring the tool-agnostic
+    ``FOUNDRY_AGENT_BIN`` injection; empty/unset -> ``None``). They are ordered
+    by ``st_mtime`` newest-first and the FIRST whose ``AF_UNIX`` ``connect()``
+    succeeds is returned, so a live socket wins over a newer-but-dead one and
+    over filename order.
+
+    Total and side-effect free from the caller's view: a missing/empty dir, a
+    malformed filename, a failing ``stat``, a bad glob, or a probe error is
+    swallowed per-candidate; the function returns a ``str`` on success or exactly
+    ``None``, and NEVER raises. Each probe socket is closed in a ``finally`` so
+    repeated calls leak no descriptors.
+    """
+    if sock_dir is None:
+        sock_dir = os.environ.get("FOUNDRY_AGENT_SOCK_DIR", "")
+    if not sock_dir:
+        return None
+    try:
+        candidates = list(pathlib.Path(sock_dir).glob(_AGENT_SOCK_GLOB))
+    except (OSError, ValueError):
+        # A nonexistent dir globs to empty (no error); a genuinely bad path or
+        # glob is swallowed so the caller can fall back to its inherited env.
+        return None
+
+    def _mtime(p: pathlib.Path) -> float:
+        # A candidate whose stat() fails sorts last (oldest) instead of crashing.
+        try:
+            return p.stat().st_mtime
+        except OSError:
+            return float("-inf")
+
+    for path in sorted(candidates, key=_mtime, reverse=True):
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            probe.settimeout(0.5)
+            probe.connect(str(path))
+        except OSError:
+            # Not listening (connection refused), gone (missing), a non-socket
+            # file, or a timeout -> not live; try the next-newest candidate.
+            continue
+        finally:
+            probe.close()
+        return str(path)
+    return None
 
 
 @dataclasses.dataclass(frozen=True)
