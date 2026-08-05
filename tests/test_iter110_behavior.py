@@ -5,8 +5,8 @@ The resolver globs agent unix-socket files inside `sock_dir` (default = the
 platform's agent-socket dir, overridable for tests), orders candidates
 newest-mtime-first, and returns the FIRST path that answers a real
 `socket.connect()` probe, else `None`. It has ZERO call site in the running
-pipeline this iteration (additive-dormant foundation); a later, separately-specced
-bite wires it into `run_stage`.
+pipeline through iter 110 (additive-dormant foundation); iter 114 then wired it
+into `run_stage` (Behavior 9 below now asserts run_stage is the SOLE caller).
 
 Vendor-neutral socket names: the repo's leak-guard forbids the vendor token in
 tracked files (a hard public-safety constraint -- the same reason the shipped
@@ -339,24 +339,32 @@ def test_b08_default_arg_returns_str_or_none_without_raising():
 
 
 # ==========================================================================
-# Behavior 9 -- DORMANT: no orchestrator and no dispatcher/watchdog function
+# Behavior 9 -- CALL-SITE CONTRACT: after iter 114 `run_stage` is the SOLE
+#   in-module caller; no other orchestrator and no dispatcher/watchdog function
 #   references the resolver; imports still succeed.
 # ==========================================================================
 def test_b09_orchestrators_do_not_reference_resolver():
-    for fn in (foundry.build_prompt, foundry.run_stage, foundry.run_iteration,
+    # iter-114 contract change (intended, NOT a regression): the resolver was
+    # WIRED into `run_stage`, so `run_stage` is now the SINGLE permitted caller.
+    # Every OTHER orchestrator must still NOT reference it.
+    for fn in (foundry.build_prompt, foundry.run_iteration,
                foundry.run_continuous, foundry.run_execution_plan,
                foundry.scout_phase_outcome, foundry.run_scout_phase):
         assert NEW_SYMBOL not in _co_names_deep(fn), (
-            "orchestrator foundry.%s references %s (NOT dormant)"
+            "orchestrator foundry.%s references %s (only run_stage may)"
             % (fn.__name__, NEW_SYMBOL))
+    # run_stage IS now the caller (Behavior: run_stage resolves the endpoint).
+    assert NEW_SYMBOL in _co_names_deep(foundry.run_stage), (
+        "run_stage must reference %s after the iter-114 wiring" % NEW_SYMBOL)
 
 
 def test_b09_no_foundry_function_calls_resolver():
+    # iter-114 contract change: exactly ONE in-module caller now -- run_stage.
     callers = sorted(
         name for name, fn in _module_functions(foundry).items()
         if NEW_SYMBOL in _co_names_deep(fn))
-    assert callers == [], (
-        "%s must have ZERO in-module callers (dormant), got %r"
+    assert callers == ["run_stage"], (
+        "%s must have exactly one in-module caller (run_stage), got %r"
         % (NEW_SYMBOL, callers))
 
 
