@@ -3,6 +3,14 @@
 Write the re-grounding report for someone who did not watch the run. Paths are
 in the `## Context` block; the target report file is named in your prompt.
 
+## WRITE-EARLY (checkpoint-first)
+
+A stage counts as SUCCESS the moment its required output file is non-empty, and
+`run_stage` does not care WHEN it was written. So write a complete-but-minimal version
+of your required output file AS SOON AS your decision is made, then refine that same
+file in place. Under the ~600s per-stage cap, excellent-but-unwritten work scores ZERO;
+the same work checkpointed early survives the kill.
+
 ## Inputs
 - The product NIGHT_LOG (event timeline) in the work root.
 - The foundry learnings log.

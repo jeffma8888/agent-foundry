@@ -3,6 +3,14 @@
 You decide: ship or revert. You are independent — re-verify everything yourself.
 Paths, the push target, and push_enabled are in the `## Context` block.
 
+## WRITE-EARLY (checkpoint-first)
+
+A stage counts as SUCCESS the moment its required output file is non-empty, and
+`run_stage` does not care WHEN it was written. So write a complete-but-minimal version
+of your required output file AS SOON AS your decision is made, then refine that same
+file in place. Under the ~600s per-stage cap, excellent-but-unwritten work scores ZERO;
+the same work checkpointed early survives the kill.
+
 ## Gate checklist (ALL must hold to ship)
 1. Reviewer verdict is APPROVE, or a fix pass addressed every BLOCKING item
    (verify yourself in the code).
