@@ -8017,6 +8017,84 @@ def directions_cli(cfg: ProductConfig, limit: int | None = None,
 
 
 # --------------------------------------------------------------------------- #
+# Live tracked DECISION LOG (`DIRECTIONS.md`) -- discovery bite 4b (roadmap iter
+# 116). Bite 4a shipped the read-only `directions` CLI over EPHEMERAL, gitignored
+# `state/iter-NN/` artifacts (`products/*/state/` is in .gitignore). Bite 4b makes
+# the decision history a COMMITTED file: on every SCOUTED iteration `run_iteration`
+# regenerates `<repo>/DIRECTIONS.md` from that same bite-4a core immediately before
+# the final gate, so the ship commit carries a persistent, GitHub-browsable log of
+# what the loop considered and picked -- directly serving the VISION's "turn intent
+# into shipped increments without babysitting". Regenerating the WHOLE file from the
+# committed state (rather than a fragile stateful append) is idempotent + revert-safe:
+# a no-ship discards the uncommitted write and the next scouted iteration rebuilds it
+# from the source of truth. The refresh is OFF the gate/revert path and swallow-safe,
+# so it can never change an iteration's outcome or crash the pipeline.
+# --------------------------------------------------------------------------- #
+def render_directions_doc(digest: "DirectionsDigest") -> str:
+    """Render the committed-FILE view of a `DirectionsDigest` (pure, total).
+
+    Wraps the digest's CLI-identical `render()` body under a Markdown title so the
+    browsable `DIRECTIONS.md` reads as a document, not raw CLI output, while keeping
+    the exact same decision core the `foundry directions` CLI prints (single source
+    of truth). The title `# Foundry directions` appears FIRST, then a blank line,
+    then the verbatim `digest.render()` text, then a trailing newline. Deterministic
+    (two calls on an equal `DirectionsDigest` return byte-identical strings) and
+    never raises for ANY digest -- an EMPTY one still yields the header plus
+    `render()`'s `no scouted iterations yet` sentinel."""
+    return f"# Foundry directions\n\n{digest.render()}\n"
+
+
+def iteration_is_scouted(cfg: ProductConfig, n: int) -> bool:
+    """True iff iteration `n`'s state dir carries at least one scout artifact.
+
+    Mirrors `gather_directions`' SCOUTED gate EXACTLY: an iteration counts as
+    scouted when `<cfg.state>/iter-0n/pm_scout_a.md` OR `pm_scout_b.md` EXISTS
+    (content may be empty). Uses the same 2-digit zero-padded dir name so this
+    predicate and the digest gathering can never disagree on which iterations are
+    scouted. Guarded -- a missing / unreadable state dir (or `iter-0n/`) returns
+    `False`, never raising -- so the `run_iteration` call site can never crash the
+    pipeline on a filesystem quirk (the whole point of gating the refresh on it)."""
+    try:
+        it_dir = cfg.state / f"iter-{n:02d}"
+        return (it_dir / "pm_scout_a.md").exists() or \
+               (it_dir / "pm_scout_b.md").exists()
+    except OSError:
+        return False
+
+
+def refresh_directions_file(cfg: ProductConfig) -> bool:
+    """Regenerate the tracked `<cfg.repo>/DIRECTIONS.md` decision log (bite 4b).
+
+    Composes the shipped bite-4a core -- `gather_directions(cfg)` for the whole
+    committed decision history, then `render_directions_doc(...)` for the file body
+    -- and writes it to `DIRECTIONS.md` at the PRODUCT REPO ROOT (so the ship
+    commit's `git add -A` carries it). BOTH seams are invoked BY BARE MODULE NAME
+    so a `monkeypatch.setattr(foundry, "gather_directions"/"render_directions_doc",
+    ...)` reshapes the written bytes.
+
+    SWALLOW-SAFE and OFF the gate/revert path: any exception (a raising seam, an
+    unwritable path) is caught, logged best-effort as a WARNING, and returns `False`
+    WITHOUT propagating -- so a refresh failure can never crash or alter an in-flight
+    iteration. A raise BEFORE the write leaves any pre-existing `DIRECTIONS.md`
+    untouched (and writes no file when none existed). Returns `True` ONLY when the
+    file was written. Regenerating the whole file each call makes it idempotent (two
+    consecutive calls over unchanged state leave the file byte-identical) and
+    revert-safe."""
+    try:
+        doc = render_directions_doc(gather_directions(cfg))
+        (pathlib.Path(cfg.repo) / "DIRECTIONS.md").write_text(doc)
+        return True
+    except Exception as exc:  # noqa: BLE001 -- off the gate path; must NEVER raise
+        # Best-effort WARNING; the log call is itself wrapped so a logging failure
+        # (e.g. a not-yet-created work_root in a test) can't defeat swallow-safety.
+        try:
+            log(cfg, f"WARNING refresh_directions_file skipped: {exc!r}")
+        except Exception:
+            pass
+        return False
+
+
+# --------------------------------------------------------------------------- #
 # Company-wide ship LEDGER roll-up (`company-history`) -- roadmap iter 31.
 #
 # The TREND-axis complement to iter-30's `company-status`: `company-status`
@@ -11183,6 +11261,17 @@ def run_iteration(cfg: ProductConfig, iteration: int | None = None) -> dict:
             revert_repo(cfg, "fix/retest failed")
             return {"status": "infra-fail", "stage": "fix-tests",
                     "iteration": iteration}
+
+    # Discovery bite 4b: on a SCOUTED iteration, regenerate the tracked
+    # DIRECTIONS.md decision log immediately BEFORE the final gate so the ship
+    # commit's `git add -A` carries the refreshed, browsable history. Both
+    # helpers are called by BARE module name so a monkeypatch bites; the refresh
+    # is swallow-safe (returns bool, never raises) and OFF the gate/revert path,
+    # so it can never change the iteration's outcome. A scout-less iteration
+    # (iteration_is_scouted -> False) leaves the file untouched, keeping the
+    # disabled path byte-identical to before this bite.
+    if iteration_is_scouted(cfg, iteration):
+        refresh_directions_file(cfg)
 
     ok, final = run_stage(cfg, iteration, "final", "final.md", "final.md")
     if not ok:

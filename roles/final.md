@@ -18,6 +18,7 @@ the same work checkpointed early survives the kill.
 3. You independently run the quality-check command from Context — full suite green.
 4. `git -C <repo> status` shows only intended changes (no stray files, no
    state/log files, no caches).
+   `DIRECTIONS.md` at the repo root is an auto-maintained decision log that `git add -A` includes and MUST be committed with the ship — it is NOT a stray change.
 5. The README still accurately describes the product (update it if usage changed).
 6. **Leak-guard clean (public-safety, repo-agnostic).** If the repo carries the committed leak-guard (guard on `[ -f <repo>/scripts/leak_guard.py ]`), it MUST scan the commit you are about to push and find nothing. This runs in the ship flow below, AFTER the commit and BEFORE the push: `python3 <repo>/scripts/leak_guard.py --ref HEAD --repo <repo>`. A non-zero exit is a BLOCKING gate failure, fail-CLOSED: BOTH exit 1 (a leaked internal or personal token was found) AND exit 2 (the scanner could not complete or errored) mean do NOT push and go to the "If ANY fail" revert path below. Never let the guard be defeated by making it error past. If the repo does NOT carry `scripts/leak_guard.py` (most products do not), SKIP this check: its absence is not a gate failure.
 
