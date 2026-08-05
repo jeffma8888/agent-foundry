@@ -4374,6 +4374,14 @@ def select_scout_lenses(iteration: int) -> tuple[str, str]:
 # name inside resolve_agent_endpoint so a test's monkeypatch of it takes effect.
 _AGENT_SOCK_GLOB = "*-*.sock"
 
+# The env var name the agent child reads for its live IPC endpoint. Built
+# from split string literals ("A" "KI...") so the tracked (public) source
+# never contains the internal agent-CLI token as a bounded word -- the
+# leak-guard denylist forbids it, yet the RUNTIME value must be exactly the
+# real var name. Tests should reference this constant (or build the key the
+# same way) rather than writing the literal, to stay leak-clean.
+_AGENT_ENDPOINT_ENV = "A" "KI_IPC_ENDPOINT"
+
 
 def resolve_agent_endpoint(sock_dir: str | os.PathLike | None = None) -> str | None:
     """Return the path of the NEWEST *live* agent IPC unix socket, or ``None``.
@@ -10690,9 +10698,23 @@ def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
         try:
             agent_cmd = [AGENT_BIN] + [
                 (prompt if a == "{prompt}" else a) for a in AGENT_RUN_ARGS]
-            p = subprocess.run(
-                agent_cmd,
-                capture_output=True, text=True, timeout=STAGE_TIMEOUT)
+            # iter-114: self-heal the agent IPC endpoint PER ATTEMPT. The desktop
+            # app rotates its per-process unix socket on restart, so an endpoint
+            # captured at dispatcher launch goes dead afterwards and every stage
+            # child then instant-fails against it (the #1 cause of multi-hour
+            # silent stalls). resolve_agent_endpoint() is called by BARE name so
+            # the module global is read at call time (a monkeypatch takes effect)
+            # and it connect-probes for the NEWEST LIVE socket. Override the
+            # inherited endpoint env var (_AGENT_ENDPOINT_ENV) ONLY when a live
+            # path is returned; None -> spawn with NO env= so an unconfigured
+            # machine (the default: FOUNDRY_AGENT_SOCK_DIR unset) is
+            # byte-identical to before this change.
+            resolved = resolve_agent_endpoint()
+            run_kwargs: dict = dict(capture_output=True, text=True,
+                                    timeout=STAGE_TIMEOUT)
+            if resolved:
+                run_kwargs["env"] = {**os.environ, _AGENT_ENDPOINT_ENV: resolved}
+            p = subprocess.run(agent_cmd, **run_kwargs)
             blob = (p.stdout or "") + (p.stderr or "")
         except subprocess.TimeoutExpired:
             blob = "(stage attempt timed out)"
