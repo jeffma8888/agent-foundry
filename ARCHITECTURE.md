@@ -116,7 +116,18 @@ Nothing is remembered in-context across stages. Durable memory is:
   lessons) so a fresh agent reads high-signal history without slurping the whole log.
   That same bounded digest (newest `PROMPT_LEARNINGS_RECENT` lessons) is ALSO inlined
   into EVERY stage prompt by `build_prompt`, so each fresh agent receives it inline —
-  not just on demand via the CLI.
+  not just on demand via the CLI. Because the prompt path pays that cost on every
+  stage of every iteration, `build_prompt` — and ONLY `build_prompt` — also bounds the
+  digest by CHARACTERS: each lesson line is capped at `PROMPT_LEARNINGS_LESSON_CHARS`
+  and the tail admitted newest-first within `PROMPT_LEARNINGS_BUDGET_CHARS`, and the
+  pinned head is bounded the same way — each head BULLET BLOCK capped at
+  `PROMPT_LEARNINGS_HEAD_BULLET_CHARS` and blocks admitted top-down (so the
+  highest-precedence leading rules survive) within `PROMPT_LEARNINGS_HEAD_BUDGET_CHARS`.
+  The head was originally exempt from that bound as "curated and small"; it grew to 63%
+  of the digest, so the exemption is closed. Any elision emits ONE loud
+  `> [head bounded: ...]` notice line, never a silent cut. The `foundry learnings`
+  CLI/`--json` view and the `AGENTS.md` renderer pass NONE of these caps, so operator-
+  facing renderings still show the head and the lessons in FULL.
 - `products/<name>/NIGHT_LOG.md` — the event timeline; `DISPATCH_LOG.md` — shifts.
   The dispatcher also surfaces prd progress ("N/M stories pass") into `DISPATCH_LOG.md`
   per shift for any product that has a `prd.json` (item 1); a no-op until one exists.
