@@ -9,7 +9,7 @@
   "test_cmd": "uv run pytest",
   "roles_dir": "{FOUNDRY}/roles",
   "work_root": "{FOUNDRY}/products/repolens",
-  "quality_bar": "Offline-first: NO network access at runtime or in tests. Runtime deps: pydantic v2 only; dev dep: pytest only. Byte-exact golden-output test philosophy. Deterministic output. Python >=3.12, uv-managed.",
+  "quality_bar": "Offline-first: NO network access at runtime or in tests. Runtime deps: pydantic v2 only; dev deps: pytest and pytest-xdist only (the suite runs with -n auto via pyproject addopts). Byte-exact golden-output test philosophy. Deterministic output. Python >=3.12, uv-managed.",
   "push_enabled": true,
   "dual_pm_scouts": true
 }
