@@ -73,6 +73,21 @@ BACKOFFS = [600, 1200, 2400]    # 10 -> 20 -> 40 min between attempts
 COOLDOWNS = [1800, 3600, 7200, 14400]  # infra cooldown 30m -> 1h -> 2h -> 4h
 REPORT_EVERY = 5               # periodic status report cadence (iterations)
 
+# Attempt-aware retry (iter 119). `run_stage` builds the stage prompt ONCE and
+# re-substitutes that BYTE-IDENTICAL string on every attempt of its
+# `range(1, MAX_ATTEMPTS + 1)` loop, paying BACKOFFS between them -- so nothing
+# ever told attempt 4 that attempts 1-3 had died. Measured 2026-08-05 across the
+# live teams: 33 of 48 zero-output attempts ran out of time (>= 540s, against
+# the agent CLI's own ~600s hard kill) and 8 stage-runs produced nothing at all
+# across 4 attempts, each burning ~4 x 600s of agent time plus 4,200s of
+# backoff. The loop's weakness is therefore NOT a missing retry but an unchanged
+# prompt, so attempts 2+ get `retry_directive()` appended. Bounded by CHARACTERS
+# for the same reason the learnings digest is: the prompt path pays this cost on
+# every retried stage, and `stage` / `out_file` are caller-supplied.
+RETRY_DIRECTIVE_MARKER = "## RETRY -- PREVIOUS ATTEMPT PRODUCED NO OUTPUT FILE"
+RETRY_DIRECTIVE_MAX_CHARS = 1600        # total char cap on the appended block
+RETRY_DIRECTIVE_ELLIPSIS = "..."        # ASCII marker ending a truncated block
+
 ANTI_DELEGATION = (
     "HARD RULES: Do ALL of this work YOURSELF in this single run. Do NOT spawn "
     "nested agent runs, background jobs, schedulers, or teammates, and do NOT "
@@ -11564,6 +11579,67 @@ def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
     )
 
 
+def retry_directive(attempt: int, stage: str,
+                    out_file: pathlib.Path | str) -> str:
+    """Escalation text appended to a stage prompt on RETRY attempts only.
+
+    Returns the empty string for ``attempt < 2``, so attempt 1 stays
+    byte-identical to the pre-iter-119 prompt: this directive can only ever fire
+    where the loss already happened, which keeps the change invisible on every
+    happy path and trivial to revert.
+
+    For attempts 2+ the block opens with a blank-line separator and
+    ``RETRY_DIRECTIVE_MARKER``, states which attempt of ``MAX_ATTEMPTS`` this
+    is, and steers the retry at the three things that actually rescue a stage
+    which ran out of budget: write the required file FIRST as
+    complete-but-minimal, cut scope, and reuse whatever earlier attempts already
+    left in the tree. It deliberately does NOT read the previous attempt's log:
+    the dominant failure class leaves only a ~48-byte timeout line, so there is
+    nothing there worth the I/O.
+
+    ``MAX_ATTEMPTS`` is read from the module global at CALL time (never captured
+    as a default-arg value) so an operator edit -- or a test's
+    ``monkeypatch.setattr(foundry, "MAX_ATTEMPTS", N)`` -- is reflected here.
+
+    Pure and TOTAL: no filesystem, subprocess or network access (``out_file`` is
+    formatted, never stat-ed, so a path that does not exist reads exactly like
+    one that does), it raises for no input, and identical arguments always give
+    an identical string.
+
+    Bounded by CHARACTERS rather than by field count, because the unit of prompt
+    cost is characters and both ``stage`` and ``out_file`` come from the caller:
+    the whole block is tail-truncated to ``RETRY_DIRECTIVE_MAX_CHARS`` ending in
+    ``RETRY_DIRECTIVE_ELLIPSIS``. The FIXED guidance is emitted BEFORE those two
+    caller-supplied values, so a pathological stage name or path can only ever
+    cost the block its own tail -- never the marker, the attempt count, or the
+    guidance itself.
+    """
+    if attempt < 2:
+        return ""
+    block = (
+        f"\n\n{RETRY_DIRECTIVE_MARKER}\n"
+        f"This is attempt {attempt} of {MAX_ATTEMPTS}. Every earlier attempt of "
+        f"this stage ended WITHOUT writing its required output file, so the plan "
+        f"those attempts followed does not fit the per-attempt budget. Do not "
+        f"repeat it unchanged.\n"
+        f"- WRITE THE FILE FIRST: emit a complete-but-MINIMAL version of your "
+        f"required output file as your very first action, then refine it in "
+        f"place. The stage counts as success the moment that file is non-empty, "
+        f"no matter when it was written -- unwritten work scores zero.\n"
+        f"- CUT SCOPE: choose the smallest increment that still satisfies the "
+        f"stage, and record inside the file what you deferred and why.\n"
+        f"- REUSE WHAT IS ALREADY THERE: an earlier attempt may have already "
+        f"left edits, files or notes behind; check the state dir and git status "
+        f"before redoing that work.\n"
+        f"Stage: {stage}\n"
+        f"Required output file: {out_file}\n"
+    )
+    if len(block) <= RETRY_DIRECTIVE_MAX_CHARS:
+        return block
+    cut = RETRY_DIRECTIVE_MAX_CHARS - len(RETRY_DIRECTIVE_ELLIPSIS)
+    return block[:cut] + RETRY_DIRECTIVE_ELLIPSIS
+
+
 def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
               out_name: str, extra: str = "") -> tuple[bool, pathlib.Path]:
     it_dir = cfg.state / f"iter-{iteration:02d}"
@@ -11578,7 +11654,8 @@ def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
         log(cfg, f"iter {iteration:02d} · **{stage}** attempt {attempt} started")
         try:
             agent_cmd = [AGENT_BIN] + [
-                (prompt if a == "{prompt}" else a) for a in AGENT_RUN_ARGS]
+                (prompt + retry_directive(attempt, stage, out_file)
+                 if a == "{prompt}" else a) for a in AGENT_RUN_ARGS]
             # iter-114: self-heal the agent IPC endpoint PER ATTEMPT. The desktop
             # app rotates its per-process unix socket on restart, so an endpoint
             # captured at dispatcher launch goes dead afterwards and every stage

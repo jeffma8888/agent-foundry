@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-119
+    lenses: narrative-and-docs, new-capability
+    - Candidate C1 -- Define all six scout lenses in the scout card, and retire the dead two-lens mapping (with a pool-vs-card oracle)
+    - Candidate C2 -- Stop the decision log silently dropping candidate slates (heading contract + a precise candidate-heading predicate)
+    - Candidate C3 -- Split the README front door from its 37KB command reference (with a verb-coverage + size oracle)
+    - Candidate B1 -- Attempt-aware retry: escalate the stage prompt after a zero-output attempt
+    - Candidate B2 -- Per-product FAST build-stage test command (with its motivating evidence honestly expired)
+    - Candidate B3 -- `foundry init`: scaffold a new product from a repo path in one command
+    winner: B1
+    ship: unknown
   iter-118
     lenses: performance-and-throughput, narrative-and-docs
     winner: C2
@@ -132,4 +142,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-15 scouted iterations
+16 scouted iterations
