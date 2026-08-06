@@ -817,7 +817,15 @@ def test_ac_real_log_cli_view_still_shows_the_full_head(tmp_path):
     cfg = _cfg(tmp_path, text)
     rc, out = _cap(lambda: foundry.learnings_cli(cfg, recent=foundry.PROMPT_LEARNINGS_RECENT))
     assert rc == 0
-    assert "head bounded" not in out, "the head bound leaked into the CLI view"
+    # Line-anchored ON PURPOSE. A bare `"head bounded" not in out` substring test
+    # self-poisons: it greps the very log it reads for its own marker string, so it
+    # fails the moment any LESSON BULLET quotes the marker in prose (a role did
+    # exactly that in iter 120). That is log CONTENT, not a leak. A real notice is
+    # always its OWN line starting `> [head bounded` -- the same predicate this
+    # module's `_notice_of` already uses. Proven two-sided: it still FIRES on a
+    # genuinely head-bounded digest, and does NOT fire on prose that mentions it.
+    leaked = [ln for ln in out.split("\n") if ln.startswith("> [head bounded")]
+    assert not leaked, f"the head bound leaked into the CLI view: {leaked}"
     unbounded_head = "\n".join(_expected_head_lines(text))
     assert unbounded_head in out, "the CLI view no longer shows the full verbatim head"
 
