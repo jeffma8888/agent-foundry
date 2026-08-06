@@ -16,10 +16,20 @@ ledger row and its verbatim archive bullet must land in the SAME commit**, the r
 of at most 120 chars, and no archived bullet may ever be re-worded, re-wrapped or re-ordered. When
 the index approaches the budget, archive more; do not raise the constant without a measurement.
 
-IN FLIGHT: iteration 122 = this split itself (index + `PLATFORM_ROADMAP_ARCHIVE.md` +
-`ROADMAP_SIZE_WARN_CHARS` + the two pure verdict functions + their suite tests). It gets its Done
-ledger row and archive bullet from the NEXT iteration's PM, which is why the ledger stops at 119.
-NEXT UP after this: the iteration-121 RETRY (its 51,824-byte
+WHO WRITES THE RECORD (changed iter 124, was the cause of two permanently lost iterations): each
+iteration's PM writes its OWN record -- the one-line `- iter N ` Done-ledger row in THIS file AND the
+verbatim `- **iter N ` bullet in `PLATFORM_ROADMAP_ARCHIVE.md` -- in the very commit that ships that
+iteration. It is NOT deferred to a later iteration's PM. That deferral is exactly what silently lost
+iterations 64 and 122: the record was owed by a successor, and a reverted successor drops it forever
+(iteration 123 ended PENDING and took 122's record with it). A THIRD suite brake now enforces this
+from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose commit subject carries a
+`(foundry iter N)` tag must have a ledger row here OR a bullet in the archive, with NO grace window --
+because under this contract a shipped iteration is already recorded, so an exemption could only hide
+the failure it is meant to catch.
+
+STATUS (iter 124): the ledger and the archive are current through iteration 124 -- iterations 122 and
+124 record themselves, and iteration 64's detail was recovered into the archive from its commit.
+NEXT UP: the iteration-121 RETRY (its 51,824-byte
 `products/_platform/state/iter-121/REVERTED_IMPLEMENTATION.patch` is preserved and its FINAL lesson
 authorises the retry, plus the dispatcher restart that lesson demands), then scout A's per-product
 `fast_test_cmd` for the build stages, which is what unblocks re-adopting a slow repo like repolens.
@@ -151,6 +161,8 @@ here has no bullet in the archive.
 - iter 117 -- reliability observability (operator fix #2 of 3) -- NEW read-only `foundry stage-times` per-stage attem...
 - iter 118 -- HARDENING of item 2, the SECOND and last half of the digest char budget -- close the `## Patterns` HEAD...
 - iter 119 -- reliability: ATTEMPT-AWARE RETRY -- the retry loop stops re-sending a byte-identical prompt (attacks th...
+- iter 122 -- roadmap index/archive split + `ROADMAP_SIZE_WARN_CHARS` + 2 pure suite-enforced brakes.
+- iter 124 -- third roadmap brake from GIT ship-truth; recovered the lost 64/122 records; PM self-records.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03

@@ -1636,6 +1636,195 @@ def roadmap_archive_gaps(index_text: str, archive_text: str) -> list[int]:
 
 
 # --------------------------------------------------------------------------- #
+# The THIRD roadmap brake (added iter 124): walk from GIT SHIP-TRUTH back to the
+# record -- the one direction the iter-122 pair structurally cannot see.
+#
+# `roadmap_size_verdict` measures the index against a budget and
+# `roadmap_archive_gaps` walks LEDGER -> ARCHIVE, so BOTH start from what the
+# roadmap already claims. Nothing asked the opposite question -- "everything git
+# says SHIPPED, is it recorded ANYWHERE?" -- and that is precisely the direction
+# that loses history. Measured at iter 124: `git log` carried 99 `(foundry iter
+# N)` ship tags while the ledger held 98 rows, and iterations 64 and 122 existed
+# in NO roadmap file at all -- while BOTH existing brakes read GREEN (index
+# 47,915 chars, no warn; archive-gap list EMPTY, because every number the ledger
+# names does have a bullet). A gate can only ever look where the ledger points.
+#
+# The root cause was the PROCESS, not the code: the old contract deferred each
+# iteration's record to the PM of the iteration AFTER it, so a reverted successor
+# dropped the record forever (iter 123 ended PENDING and took 122's with it).
+# This iteration flips that contract -- each PM writes its OWN row and bullet in
+# the commit that ships it -- which is what makes a STRICT check with NO grace
+# window correct: under the new contract every ALREADY-shipped iteration is
+# recorded the moment it ships, so exempting the newest iterations would only
+# hide the exact case that just failed (122).
+#
+# A record in EITHER file counts, because the contract's goal is that history is
+# not LOST, not that it sits in one particular file. That is also what lets a
+# very old loss be repaired without weakening iter 122's oracles: its ledger
+# guard forbids a NEW ledger row for an iteration <= 119, so iteration 64's
+# recovered detail lives in the ARCHIVE only and the pinned frozen-bullet hash
+# (which selects only frozen numbers) is untouched.
+#
+# `iteration_from_subject` / `shipped_iterations` / `roadmap_ledger_gaps` are
+# PURE and TOTAL (text in, numbers out; no filesystem, subprocess, network or
+# clock; never raise). `git_ship_subjects` is the ONE new I/O seam and returns
+# `()` on every failure mode. All four are DORMANT: no call site in
+# `run_iteration` / `run_continuous` / `run_stage` / `build_prompt` /
+# `postrelease_step` / `lint_config`, no CLI verb, no config field and no new
+# artifact -- so no control flow, prompt, sentinel or resume semantic changes and
+# a running loop needs no restart. The PEDAL is deliberately a SUITE TEST, which
+# every stage and the post-release fresh clone already run, so a violation turns
+# the suite RED (an outcome someone must fix) instead of waiting for a human to
+# run a read-only report.
+# --------------------------------------------------------------------------- #
+
+# The ship tag the gate's commit-message contract puts at the END of every shipped
+# subject (`... (foundry iter 122)`). Anchored with `$` against the RIGHT-STRIPPED
+# subject so a tag quoted mid-sentence can never count as a ship claim, and kept
+# as ONE module-level pattern so no future consumer can drift from this parser.
+_SHIP_TAG_RE = re.compile(r"\(foundry iter (\d+)\)$")
+
+
+def _iter_number(digits: str) -> int | None:
+    """Parse one captured digit run into an iteration number, or `None`.
+
+    Shared by the subject parser and the roadmap-row scanners so all three agree
+    on what counts as a number, and the single reason those functions can promise
+    TOTALITY: `int()` RAISES `ValueError` on a digit run longer than
+    `sys.get_int_max_str_digits()`, so a pathological line must degrade to
+    "no number here" rather than crashing a brake that guards a ship.
+    """
+    if not digits:
+        return None
+    try:
+        return int(digits)
+    except ValueError:  # digit run past the interpreter's int-parsing limit
+        return None
+
+
+def iteration_from_subject(subject: str) -> int | None:
+    """Iteration number from a commit subject's TRAILING ship tag, else `None`.
+
+    Commit subjects are read as ship-truth because they are the only ship record
+    that survives a fresh clone: `products/*/state/` is gitignored, so no
+    `final.md` (and therefore no `ACTION:` sentinel) exists in a clean-room
+    checkout. The tag is matched against `subject.rstrip()` and anchored at the
+    END, so trailing whitespace or a stray newline still counts while a tag
+    quoted mid-sentence ("x (foundry iter 7) and more") is NOT a ship claim.
+
+    Zero padding is accepted and normalised (`007` -> `7`): the number is the
+    identity, not its spelling. Pure and total -- no I/O, and any `str` input
+    (including `""`, a malformed tag, or an absurd digit run) yields a number or
+    `None`, never an exception.
+    """
+    m = _SHIP_TAG_RE.search(subject.rstrip())
+    return _iter_number(m.group(1)) if m else None
+
+
+def shipped_iterations(subjects: Iterable[str]) -> tuple[int, ...]:
+    """Every iteration number a sequence of commit subjects claims as SHIPPED.
+
+    ASCENDING and DE-DUPLICATED, so the result is a stable set-like view of
+    ship-truth: `git log` order is newest-first and the same iteration can
+    legitimately appear twice (a revert-and-reship, a rebase), but "which
+    iterations shipped" has no duplicates and no meaningful order beyond the
+    number. Untagged subjects are IGNORED rather than reported -- an ordinary
+    `fix(tests): ...` commit is not a defect.
+
+    Returned as an immutable `tuple` so a caller cannot mutate ship-truth in
+    place while comparing it against a roadmap. Pure and total: it skips any
+    non-string item instead of raising, and returns `()` for an empty or absent
+    iterable.
+    """
+    found: set[int] = set()
+    for subject in subjects or ():
+        if not isinstance(subject, str):
+            continue
+        number = iteration_from_subject(subject)
+        if number is not None:
+            found.add(number)
+    return tuple(sorted(found))
+
+
+def roadmap_ledger_gaps(index_text: str, archive_text: str,
+                        shipped: Iterable[int]) -> list[int]:
+    """Shipped iterations recorded in NEITHER roadmap file (the lost-record brake).
+
+    The third brake, and the only one that starts from EXTERNAL truth. It walks
+    from what git says shipped BACK to whether a durable record exists, which is
+    the direction that actually loses history: both iter-122 brakes start from
+    the ledger, so they can only look where the ledger already points -- and they
+    were GREEN while iterations 64 and 122 existed in no roadmap file at all.
+
+    A record in EITHER file counts: a `- iter N ` ledger row in `index_text` OR a
+    `- **iter N ` history bullet in `archive_text`. The contract's goal is that
+    history is not LOST, not that it lives in one particular file -- and
+    accepting either is exactly what lets an OLD loss be repaired in the archive
+    without touching iter 122's frozen ledger oracle.
+
+    REUSES `_ROADMAP_LEDGER_ROW_RE` / `_ROADMAP_HISTORY_BULLET_RE` so this brake
+    and `roadmap_archive_gaps` can never disagree about what a record looks like.
+    Zero-padded records normalise, so `- **iter 01 ` records iteration 1.
+
+    Deliberately ONE-DIRECTIONAL: a number recorded in a roadmap file but absent
+    from `shipped` is NEVER reported. A hand-written note, or an iteration whose
+    commit was rewritten, are both legitimate states; flagging them would make
+    the brake fire on a correct tree.
+
+    NO GRACE WINDOW, on purpose: under the flipped contract every iteration's
+    record lands in its own ship commit, so at any moment every ALREADY-shipped
+    iteration is recorded. Exempting the newest iterations would have hidden
+    iteration 122 -- the very case that failed.
+
+    Pure and total: no filesystem, subprocess, network or clock, and empty or
+    malformed input yields `[]` rather than an exception. `[]` means no shipped
+    iteration is unrecorded.
+    """
+    def recorded(text: str, pattern: re.Pattern[str]) -> set[int]:
+        found: set[int] = set()
+        for line in (text or "").splitlines():
+            m = pattern.match(line)
+            if m:
+                number = _iter_number(m.group(1))
+                if number is not None:
+                    found.add(number)
+        return found
+
+    have = (recorded(index_text, _ROADMAP_LEDGER_ROW_RE)
+            | recorded(archive_text, _ROADMAP_HISTORY_BULLET_RE))
+    want = {n for n in (shipped or ())
+            if isinstance(n, int) and not isinstance(n, bool)}
+    return sorted(want - have)
+
+
+def git_ship_subjects(repo_dir) -> tuple[str, ...]:
+    """Commit subjects of `repo_dir` in git order -- the ONE new I/O seam.
+
+    Isolated as a module-level function and called by its BARE name so a test can
+    `monkeypatch.setattr(foundry, "git_ship_subjects", ...)` and script ship-truth
+    entirely offline; that keeps every consumer of this family verifiable with
+    zero real subprocess work.
+
+    Reads ONLY `git log --format=%s` -- subjects, never bodies or diffs -- and
+    returns `()` (never raises, never propagates) when git exits non-zero, when
+    `repo_dir` is not a repository, when the `git` binary is absent
+    (`FileNotFoundError` IS an `OSError`), or on timeout. An unavailable git is
+    MISSING INFRASTRUCTURE, not a lost record, so a caller must be able to tell
+    "nothing to check" from "a record is gone": an empty tuple means the former,
+    and the live brake SKIPS on it rather than failing a ship.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo_dir), "log", "--format=%s"],
+            capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return ()
+    if proc.returncode != 0:
+        return ()
+    return tuple(line for line in (proc.stdout or "").splitlines() if line.strip())
+
+
+# --------------------------------------------------------------------------- #
 # Product-config linter (`foundry lint-config`) -- the CONFIG-validation
 # complement to `doctor`'s ENV validation (item 9) and `lint-spec`'s SPEC
 # validation (item 5).

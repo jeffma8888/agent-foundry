@@ -56,7 +56,15 @@ the same work checkpointed early survives the kill.
    real user value AND is behavior-testable in under ~30 minutes of focused work.
    (Hard bar: an iteration's spec + diff + test output should fit comfortably in
    one context window — if it wouldn't, split the feature.)
-3. Update the roadmap: mark shipped items, re-order if learnings changed priorities.
+3. Update the roadmap: mark shipped items, re-order if learnings changed priorities,
+   and RECORD YOUR OWN ITERATION in the commit that ships it -- never defer that record
+   to a later iteration's PM. Where the product splits its roadmap into a terse index
+   plus an archive (this repo: a one-line `- iter N ` row of <= 120 chars in the Done
+   ledger of `PLATFORM_ROADMAP.md` PLUS the verbatim `- **iter N ` detail bullet
+   appended to `PLATFORM_ROADMAP_ARCHIVE.md`), BOTH land in that same commit. A suite
+   brake (`roadmap_ledger_gaps`) fails the ship when an iteration git reports as shipped
+   has a record in NEITHER file -- deferring the record to a successor is what
+   permanently lost iterations 64 and 122.
 4. Write the spec to your required output file, containing:
    - `## Feature` — one line
    - `## Why` — grounded in the vision/user
