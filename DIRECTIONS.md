@@ -1,6 +1,26 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-124
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate C1 -- Parallelise the suite: `-n auto` via pytest-xdist in the quality bar
+    - Candidate C2 -- Per-product `fast_test_cmd` for the build stages
+    - Candidate C3 -- Bounded in-prompt code map (cut agent time-to-context)
+    - Candidate B1 -- Close the roadmap contract's missing third leg: a shipped iteration with no Done-ledger row
+    - Candidate B2 -- The decision log records `ship: unknown` for iterations that provably PUSHED
+    - Candidate B3 -- The scout card defines 2 of 6 rotated lenses, and two tracked docs state the wrong mapping
+    winner: B1
+    ship: unknown
+  iter-123
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- Collapse the 9 near-identical `summarize_company_*` roll-ups behind one parameterized helper
+    - Candidate A2 -- Replace the 9 hand-copied `company-*` argparse blocks in `main()` with one declarative table
+    - Candidate A3 -- Put a consumer registry on the CLI surface so the 39 verbs stop multiplying
+    - Candidate B1 -- Failure-cause-aware retry delay (dormant classifier + policy + waste digest)
+    - Candidate B2 -- Per-product `fast_test_cmd` for the build stages (dormant config field)
+    - Candidate B3 -- Make the loop consume its own stage-times WARN (advisory flag, proven lifecycle)
+    winner: B1
+    ship: unknown
   iter-122
     lenses: integration-and-adoption (iteration 122), simplification-and-deletion (iteration 122)
     - Candidate A1 -- per-product FAST stage test command (`fast_test_cmd`) in the stage prompt
@@ -10,7 +30,7 @@ foundry directions -- _platform
     - Candidate B2 -- Collapse the 9 near-identical `summarize_company_*` roll-ups into one parameterized helper (bite 1 of the company-* de-duplication)
     - Candidate B3 -- Put a lid on the CLI surface: every registered verb must have a named consumer, or be an explicitly allow-listed human-operator tool
     winner: B1
-    ship: unknown
+    ship: PUSHED efddc28
   iter-121
     lenses: hardening/DX, integration-and-adoption
     - CANDIDATE A -- teach `run_stage` that a self-declared provisional artifact from a CRASHED attempt is not a finished stage
@@ -169,4 +189,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-19 scouted iterations
+21 scouted iterations
