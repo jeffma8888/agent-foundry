@@ -1,6 +1,33 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-122
+    lenses: integration-and-adoption (iteration 122), simplification-and-deletion (iteration 122)
+    - Candidate A1 -- per-product FAST stage test command (`fast_test_cmd`) in the stage prompt
+    - Candidate A2 -- make the foundry CLI actually invocable from inside a stage
+    - Candidate A3 -- repair the adoption on-ramp (`USAGE.md` Recipe A), optionally behind a print-only `foundry onboard`
+    - Candidate B1 -- Split PLATFORM_ROADMAP.md into a terse INDEX + PLATFORM_ROADMAP_ARCHIVE.md, with a char budget the SUITE enforces
+    - Candidate B2 -- Collapse the 9 near-identical `summarize_company_*` roll-ups into one parameterized helper (bite 1 of the company-* de-duplication)
+    - Candidate B3 -- Put a lid on the CLI surface: every registered verb must have a named consumer, or be an explicitly allow-listed human-operator tool
+    winner: B1
+    ship: unknown
+  iter-121
+    lenses: hardening/DX, integration-and-adoption
+    - CANDIDATE A -- teach `run_stage` that a self-declared provisional artifact from a CRASHED attempt is not a finished stage
+    - CANDIDATE B -- retry iteration 120 (the dispatcher stale-import adoption advisory), re-derived rather than re-applied
+    - CANDIDATE C -- bound the 2.66 MB `LEARNINGS.md` by rotation into `LEARNINGS_ARCHIVE.md`
+    - CANDIDATE A -- `stage_test_cmd`: let a product declare a stage-budget-safe check for the CAPPED agent stages
+    - CANDIDATE B -- make the foundry's own CLI invocable from inside a stage
+    - CANDIDATE C -- close the ACTIVATION gap on the shipped IPC endpoint self-heal (doc + `doctor` check)
+    winner: unknown
+    ship: REVERTED
+  iter-120
+    lenses: new-capability, hardening/DX
+    - Candidate C1 -- The loop cannot adopt its own shipped code: surface stale-import drift
+    - Candidate C2 -- Never-silent unattended runs: a `notify_cmd` outbound hook
+    - Candidate C3 -- `foundry goal`: an operator-intent channel with its own budget
+    winner: C1
+    ship: REVERTED
   iter-119
     lenses: narrative-and-docs, new-capability
     - Candidate C1 -- Define all six scout lenses in the scout card, and retire the dead two-lens mapping (with a pool-vs-card oracle)
@@ -10,7 +37,7 @@ foundry directions -- _platform
     - Candidate B2 -- Per-product FAST build-stage test command (with its motivating evidence honestly expired)
     - Candidate B3 -- `foundry init`: scaffold a new product from a repo path in one command
     winner: B1
-    ship: unknown
+    ship: PUSHED 1fedfb5
   iter-118
     lenses: performance-and-throughput, narrative-and-docs
     winner: C2
@@ -142,4 +169,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-16 scouted iterations
+19 scouted iterations
