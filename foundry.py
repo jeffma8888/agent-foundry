@@ -1523,6 +1523,119 @@ def lint_spec_cli(path: str, as_json: bool = False) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# Roadmap-size lint -- the ROADMAP-hygiene complement to `lint-spec`'s SPEC-size
+# lint, and the BRAKE that keeps a compacted roadmap compacted.
+#
+# WHY this exists at all: the roadmap file is read AND rewritten every iteration
+# (each scout reads it, the PM lead reads it and then updates it), so its size is
+# multiplied by every stage of every shift. A roadmap that accretes one fat
+# per-iteration history bullet per shift therefore grows without limit until the
+# stages that must read it die on the agent CLI's own hard per-stage cap -- which
+# is exactly how a sibling product lost all four of its PM attempts once its
+# roadmap reached ~200K chars, and how this product lost three of four shifts at
+# ~312K. Compacting the file once fixes nothing durably: the same accretion
+# starts again the next iteration and nothing goes red until shifts are already
+# being lost. So the compaction ships WITH a budget the QUALITY SUITE enforces.
+#
+# The pedal is deliberately a TEST, not a CLI verb: a read-only report nobody
+# consults cannot change a decision, whereas a red suite blocks the ship of the
+# very iteration that let the file regrow. `roadmap_size_verdict` answers "is the
+# index still inside its budget?" and `roadmap_archive_gaps` answers the other
+# half -- "did compaction LOSE history?" -- by checking every iteration in the
+# index's one-line Done ledger still has its verbatim bullet in the archive, so
+# the two together forbid both regrowth and silent truncation.
+#
+# Both are PURE and TOTAL: text in, verdict out; no filesystem, subprocess,
+# network or clock, and they never raise on empty/malformed input. DORMANT by
+# construction -- nothing in `run_iteration` / `run_stage` / `build_prompt` /
+# `postrelease_step` / `lint_config` calls them, there is no CLI verb and no new
+# artifact, so no control flow, prompt, sentinel or resume semantic changes and a
+# running loop needs no restart. The budget lives at module level so it is read
+# AT CALL TIME (a `monkeypatch.setattr(foundry, ...)` bites) and an operator can
+# retune it without touching either function.
+# --------------------------------------------------------------------------- #
+ROADMAP_SIZE_WARN_CHARS = 60000  # index over this smells un-compacted
+
+# One-line DONE-ledger row in the roadmap INDEX (`- iter 7 shipped X`) vs. the
+# fat verbatim history bullet in the ARCHIVE (`- **iter 7 = ...`). Anchored at
+# line start so prose mentioning an iteration mid-sentence never matches, and
+# both require the trailing space after the digits so `- iter 7x` cannot count.
+_ROADMAP_LEDGER_ROW_RE = re.compile(r"^- iter (\d+) ")
+_ROADMAP_HISTORY_BULLET_RE = re.compile(r"^- \*\*iter (\d+) ")
+
+
+@dataclasses.dataclass(frozen=True)
+class RoadmapSize:
+    """A size verdict for one roadmap INDEX file (measurements only).
+
+    Frozen, matching the other verdict cores (`SpecLint`, `ConfigLint`), so a
+    computed verdict cannot be mutated after the fact and two verdicts over the
+    same text compare ``==``. All four fields are STORED rather than derived
+    properties because ``budget`` is a snapshot of the module global as it stood
+    AT CALL TIME -- keeping it in the verdict is what lets a caller (or a test)
+    see WHICH budget a given verdict was judged against, instead of re-reading a
+    global that may since have changed.
+    """
+    char_count: int
+    line_count: int
+    budget: int
+    over_budget: bool
+
+
+def roadmap_size_verdict(text: str) -> RoadmapSize:
+    """Measure a roadmap index against `ROADMAP_SIZE_WARN_CHARS` (pure, total).
+
+    Reads the budget from the module global AT CALL TIME (not captured at import
+    or as a default argument) so patching `ROADMAP_SIZE_WARN_CHARS` changes a
+    subsequent call's verdict. Touches no filesystem/subprocess/network/clock and
+    never raises for any ``text`` (including ``""``, which is 0 chars / 0 lines
+    and never over budget).
+
+    ``over_budget`` is STRICTLY greater-than, so a text of exactly ``budget``
+    chars still passes: the budget is the largest acceptable size, and a
+    boundary-inclusive test would fail an index that is precisely at the limit.
+    """
+    budget = ROADMAP_SIZE_WARN_CHARS
+    char_count = len(text)
+    return RoadmapSize(
+        char_count=char_count,
+        line_count=len(text.splitlines()),
+        budget=budget,
+        over_budget=char_count > budget,
+    )
+
+
+def roadmap_archive_gaps(index_text: str, archive_text: str) -> list[int]:
+    """Iterations listed in the index ledger but MISSING from the archive.
+
+    The lost-history half of the roadmap brake. Compaction is only safe if every
+    iteration the index still claims as shipped kept its verbatim detail
+    somewhere, so this returns the ledger iteration numbers (ascending,
+    de-duplicated) that have NO ``- **iter N `` bullet in the archive. ``[]``
+    means no history was lost.
+
+    Deliberately ONE-DIRECTIONAL: numbers present only in the ARCHIVE are never
+    reported. An archive is append-only history and may legitimately hold detail
+    for an iteration the index has since dropped from its ledger; flagging that
+    would make the check fire on a correct state.
+
+    Pure (no filesystem/subprocess/network) and total: unmatched, malformed or
+    empty input yields ``[]`` rather than an exception.
+    """
+    def numbers(text: str, pattern: re.Pattern[str]) -> set[int]:
+        found: set[int] = set()
+        for line in text.splitlines():
+            m = pattern.match(line)
+            if m:
+                found.add(int(m.group(1)))
+        return found
+
+    ledger = numbers(index_text, _ROADMAP_LEDGER_ROW_RE)
+    archived = numbers(archive_text, _ROADMAP_HISTORY_BULLET_RE)
+    return sorted(ledger - archived)
+
+
+# --------------------------------------------------------------------------- #
 # Product-config linter (`foundry lint-config`) -- the CONFIG-validation
 # complement to `doctor`'s ENV validation (item 9) and `lint-spec`'s SPEC
 # validation (item 5).
