@@ -2995,13 +2995,15 @@ def run_execution_plan(cfg: ProductConfig, iteration: int,
         because at the pm stage nothing has been built yet).
       * `review` gate whose report contains `CHANGES_REQUIRED` -> a fix-review
         pass; if it fails, revert + infra-fail (stage `fix-review`).
-      * `test` gate whose report contains `RESULT: FAIL` -> if the report is an
-        UNFINISHED checkpoint (`read_test_disposition`), up to two more TESTER
-        rounds from `UNFINISHED_TEST_RETRY_STAGES`, stopping as soon as one is no
-        longer UNFINISHED; otherwise (a genuinely RED suite) a fix-tests pass
-        and, on its success, a tester-rerun. A failing stage reverts +
-        infra-fails, keyed on `fix-tests` for the RED path and on the retry label
-        for the UNFINISHED one.
+      * `test` gate whose ANCHORED disposition (`read_test_disposition`) earns a
+        repair round (`needs_test_repair` -- an earned PASS and `NONE` do not;
+        this gate no longer substring-scans the report) -> if the disposition is
+        an UNFINISHED checkpoint, up to two more TESTER rounds from
+        `UNFINISHED_TEST_RETRY_STAGES`, stopping as soon as one is no longer
+        UNFINISHED; otherwise (a genuinely RED suite) a fix-tests pass and, on
+        its success, a tester-rerun. A failing stage reverts + infra-fails, keyed
+        on `fix-tests` for the RED path and on the retry label for the
+        UNFINISHED one.
       * `release` gate -> TERMINAL: if the report has `ACTION: PUSHED` AND the
         branch head moved off `base`, ship (postrelease + shipped dict); else
         revert + no-ship. No plan step after a release gate is ever run.
@@ -3010,7 +3012,8 @@ def run_execution_plan(cfg: ProductConfig, iteration: int,
     `base` is a PARAMETER, not re-read here, so the eventual wiring (bite 3b-ii)
     can pass the head `run_iteration` already captured for its log line without a
     second `head_of_branch` call. Every external effect (`run_stage`,
-    `revert_repo`, `head_of_branch`, `postrelease_step`, `contains`, `log`) is
+    `revert_repo`, `head_of_branch`, `postrelease_step`, `contains`,
+    `read_test_disposition`, `log`) is
     called by its BARE module name so a test's `monkeypatch.setattr` bites, and
     module globals are read inside the call. If the plan has NO release gate and
     every stage passes, the loop completes and returns no-ship WITHOUT reverting
@@ -3037,38 +3040,44 @@ def run_execution_plan(cfg: ProductConfig, iteration: int,
                 revert_repo(cfg, "fix-review failed")
                 return {"status": "infra-fail", "stage": "fix-review",
                         "iteration": iteration}
-        elif step.gate == "test" and contains(report, "RESULT: FAIL"):
-            # iter-126: mirrors `run_iteration` VERBATIM -- see the comment
-            # there for the measurement. An UNFINISHED checkpoint buys further
-            # TESTER rounds; a RED suite keeps today's `else` path unchanged.
-            if read_test_disposition(report) == "UNFINISHED":
-                log(cfg, f"iter {iteration:02d} - tester report is an unfinished "
-                    "checkpoint, not a red suite -> tester retry")
-                for label, out_name in UNFINISHED_TEST_RETRY_STAGES:
-                    ok, retry_report = run_stage(cfg, iteration, label,
-                                                 "tester.md", out_name,
-                                                 UNFINISHED_TEST_RETRY_PROMPT)
+        elif step.gate == "test":
+            # iter-127: route on the ANCHORED disposition from
+            # `read_test_disposition` rather than a substring scan of the
+            # report, so only an EARNED tester PASS skips the repair round
+            # (6 of the old trigger's 19 fleet fires were false alarms on an
+            # already-green round). Mirrors `run_iteration` VERBATIM -- see
+            # the comment there for the measurement. The two bodies below are
+            # iter-126's, re-indented and otherwise unchanged.
+            disposition = read_test_disposition(report)
+            if needs_test_repair(disposition):
+                if disposition == "UNFINISHED":
+                    log(cfg, f"iter {iteration:02d} - tester report is an unfinished "
+                        "checkpoint, not a red suite -> tester retry")
+                    for label, out_name in UNFINISHED_TEST_RETRY_STAGES:
+                        ok, retry_report = run_stage(cfg, iteration, label,
+                                                     "tester.md", out_name,
+                                                     UNFINISHED_TEST_RETRY_PROMPT)
+                        if not ok:
+                            revert_repo(cfg, f"{label} failed")
+                            return {"status": "infra-fail", "stage": label,
+                                    "iteration": iteration}
+                        if read_test_disposition(retry_report) != "UNFINISHED":
+                            break
+                else:
+                    log(cfg, f"iter {iteration:02d} - tests failed -> fix pass + retest")
+                    ok, _ = run_stage(cfg, iteration, "fix-tests", "fix.md",
+                                      "fix_tests.md",
+                                      f"Gate file to address: {report} (failing tests).")
+                    if ok:
+                        ok, _ = run_stage(
+                            cfg, iteration, "tester-rerun", "tester.md", "tester2.md",
+                            "This is a RE-RUN after an engineering fix. Re-verify all "
+                            "behaviors; update your earlier tests only if they misread "
+                            "the spec.")
                     if not ok:
-                        revert_repo(cfg, f"{label} failed")
-                        return {"status": "infra-fail", "stage": label,
+                        revert_repo(cfg, "fix/retest failed")
+                        return {"status": "infra-fail", "stage": "fix-tests",
                                 "iteration": iteration}
-                    if read_test_disposition(retry_report) != "UNFINISHED":
-                        break
-            else:
-                log(cfg, f"iter {iteration:02d} - tests failed -> fix pass + retest")
-                ok, _ = run_stage(cfg, iteration, "fix-tests", "fix.md",
-                                  "fix_tests.md",
-                                  f"Gate file to address: {report} (failing tests).")
-                if ok:
-                    ok, _ = run_stage(
-                        cfg, iteration, "tester-rerun", "tester.md", "tester2.md",
-                        "This is a RE-RUN after an engineering fix. Re-verify all "
-                        "behaviors; update your earlier tests only if they misread "
-                        "the spec.")
-                if not ok:
-                    revert_repo(cfg, "fix/retest failed")
-                    return {"status": "infra-fail", "stage": "fix-tests",
-                            "iteration": iteration}
         elif step.gate == "release":
             new_head = head_of_branch(cfg)
             if contains(report, "ACTION: PUSHED") and new_head != base:
@@ -7999,6 +8008,46 @@ def read_test_disposition(path: pathlib.Path) -> str:
     return classify_test_report(text)
 
 
+# --------------------------------------------------------------------------- #
+# Test-gate routing (iter-127): the ANCHORED trigger
+# --------------------------------------------------------------------------- #
+# WHICH dispositions from `classify_test_report` earn the iteration's one repair
+# round. Module level and read by BARE name inside `needs_test_repair`, so a
+# routing test can shrink or redirect the repair set with a single
+# `monkeypatch.setattr(foundry, "TEST_GATE_REPAIR_DISPOSITIONS", ...)` and never
+# touch a call site.
+TEST_GATE_REPAIR_DISPOSITIONS: tuple[str, ...] = ("UNFINISHED", "RED")
+
+
+def needs_test_repair(disposition: str) -> bool:
+    """Does this tester disposition earn a repair round? (pure, total)
+
+    WHY this exists: until this iteration the test gate fired on the mere
+    PRESENCE of the fail sentinel ANYWHERE in the tester report -- prose, a
+    quoted example or a table cell all counted. Measured over all 198
+    `products/*/state/iter-*/tester*.md` artifacts in the fleet, 6 of the 19
+    fires (32%) were reports whose LAST non-empty line was an EARNED PASS and
+    that merely MENTIONED the token while explaining themselves. Each false
+    alarm burned a `fix-tests` + `tester-rerun` pair on an already-green round:
+    two extra stage rounds under the ~600 s per-stage cap, this product's #1
+    loss source, and the rerun then OVERWRITES the report the release gate
+    reads. It also taxed every tester with policing its own prose.
+
+    Routing on the ANCHORED disposition inverts the rule: only an EARNED PASS
+    (the sentinel as the last non-empty line) skips the repair round, and every
+    other class is routed BY NAME. `"NONE"` is deliberately OUT of the repair
+    set -- every pre-127 routing driver writes an unscripted report as the empty
+    string, which classifies `NONE`, so admitting it would turn a large body of
+    existing tests red for no measured benefit (zero of the 198 artifacts
+    classify `NONE`).
+
+    Total by construction: one membership test against a tuple of strings, so it
+    never raises for ANY `str` -- empty, unicode, or 100k chars. Named WITHOUT a
+    `test_` prefix on purpose, or pytest would try to collect it as a test.
+    """
+    return disposition in TEST_GATE_REPAIR_DISPOSITIONS
+
+
 @dataclasses.dataclass(frozen=True)
 class IterationOutcome:
     """One iteration's INTERNAL gate outcome (the `outcomes` ledger row).
@@ -12106,6 +12155,10 @@ def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
 def run_iteration(cfg: ProductConfig, iteration: int | None = None) -> dict:
     """Run one PM->...->final pipeline. Returns a result dict.
 
+    The test gate routes on the ANCHORED disposition from `read_test_disposition`
+    (via `needs_test_repair`), so only an EARNED tester PASS skips the repair
+    round; it no longer substring-scans the report for a bare fail sentinel.
+
     result['status'] in {'shipped', 'no-ship', 'infra-fail', 'stopped'}
     """
     if iteration is None:
@@ -12188,44 +12241,52 @@ def run_iteration(cfg: ProductConfig, iteration: int | None = None) -> dict:
         revert_repo(cfg, "tester stage failed")
         return {"status": "infra-fail", "stage": "tester", "iteration": iteration}
 
-    if contains(test_report, "RESULT: FAIL"):
-        # iter-126: the outer `contains(...)` trigger above is UNCHANGED on
-        # purpose. INSIDE it, tell an UNFINISHED checkpoint (a tester round the
-        # agent CLI killed at its 600 s cap, self-declaring the mandated
-        # UNFINISHED_TEST_MARKER) apart from a genuinely RED suite. Measured over
-        # 194 fleet tester artifacts, 10 of the 12 `RESULT: FAIL` verdicts are
-        # such checkpoints, and the only differentiator between the iterations
-        # that recovered and the ones that reverted is whether a tester round
-        # SURVIVED -- not the code and not the suite. So spend the repair round
-        # on up to two more TESTER rounds (a `fix-tests` pass has nothing to fix
-        # there) and leave the RED path in the `else` byte-identical.
-        if read_test_disposition(test_report) == "UNFINISHED":
-            log(cfg, f"iter {iteration:02d} · tester report is an unfinished "
-                "checkpoint, not a red suite -> tester retry")
-            for label, out_name in UNFINISHED_TEST_RETRY_STAGES:
-                ok, retry_report = run_stage(cfg, iteration, label, "tester.md",
-                                             out_name,
-                                             UNFINISHED_TEST_RETRY_PROMPT)
+    # iter-127: the gate routes on the ANCHORED disposition, not on the mere
+    # PRESENCE of the fail sentinel anywhere in the report. Measured over all
+    # 198 fleet `tester*.md` artifacts, 6 of the 19 fires of the old substring
+    # trigger were reports whose LAST non-empty line was an EARNED PASS and
+    # that merely MENTIONED the token in prose, so an already-green round
+    # burned a `fix-tests` + `tester-rerun` pair -- two rounds under the 600 s
+    # cap, and the rerun overwrites the report the release gate then reads.
+    # Only an earned PASS skips the round now; `NONE` stays OUT of the repair
+    # set (see `needs_test_repair` for why, and for the measurement).
+    disposition = read_test_disposition(test_report)
+    if needs_test_repair(disposition):
+            # iter-126, unchanged below: an UNFINISHED checkpoint (a tester
+            # round the agent CLI killed at its 600 s cap, self-declaring the
+            # mandated UNFINISHED_TEST_MARKER) buys up to two more TESTER
+            # rounds, because a `fix-tests` pass has nothing to fix there; the
+            # only differentiator between the iterations that recovered and the
+            # ones that reverted was whether a tester round SURVIVED -- not the
+            # code and not the suite. A genuinely RED suite keeps the `else`
+            # path unchanged.
+            if disposition == "UNFINISHED":
+                log(cfg, f"iter {iteration:02d} · tester report is an unfinished "
+                    "checkpoint, not a red suite -> tester retry")
+                for label, out_name in UNFINISHED_TEST_RETRY_STAGES:
+                    ok, retry_report = run_stage(cfg, iteration, label, "tester.md",
+                                                 out_name,
+                                                 UNFINISHED_TEST_RETRY_PROMPT)
+                    if not ok:
+                        revert_repo(cfg, f"{label} failed")
+                        return {"status": "infra-fail", "stage": label,
+                                "iteration": iteration}
+                    if read_test_disposition(retry_report) != "UNFINISHED":
+                        break
+            else:
+                log(cfg, f"iter {iteration:02d} · tests failed -> fix pass + retest")
+                ok, _ = run_stage(cfg, iteration, "fix-tests", "fix.md", "fix_tests.md",
+                                  f"Gate file to address: {test_report} (failing tests).")
+                if ok:
+                    ok, test_report = run_stage(
+                        cfg, iteration, "tester-rerun", "tester.md", "tester2.md",
+                        "This is a RE-RUN after an engineering fix. Re-verify all "
+                        "behaviors; update your earlier tests only if they misread "
+                        "the spec.")
                 if not ok:
-                    revert_repo(cfg, f"{label} failed")
-                    return {"status": "infra-fail", "stage": label,
+                    revert_repo(cfg, "fix/retest failed")
+                    return {"status": "infra-fail", "stage": "fix-tests",
                             "iteration": iteration}
-                if read_test_disposition(retry_report) != "UNFINISHED":
-                    break
-        else:
-            log(cfg, f"iter {iteration:02d} · tests failed -> fix pass + retest")
-            ok, _ = run_stage(cfg, iteration, "fix-tests", "fix.md", "fix_tests.md",
-                              f"Gate file to address: {test_report} (failing tests).")
-            if ok:
-                ok, test_report = run_stage(
-                    cfg, iteration, "tester-rerun", "tester.md", "tester2.md",
-                    "This is a RE-RUN after an engineering fix. Re-verify all "
-                    "behaviors; update your earlier tests only if they misread "
-                    "the spec.")
-            if not ok:
-                revert_repo(cfg, "fix/retest failed")
-                return {"status": "infra-fail", "stage": "fix-tests",
-                        "iteration": iteration}
 
     # Discovery bite 4b: on a SCOUTED iteration, regenerate the tracked
     # DIRECTIONS.md decision log immediately BEFORE the final gate so the ship

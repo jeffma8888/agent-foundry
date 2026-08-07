@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-127
+    lenses: hardening/DX — iteration 127 (CHECKPOINT, refining in place), integration-and-adoption -- iteration 127
+    - Candidate A — route the test-gate trigger through ONE anchored seam
+    - Candidate B — make every command a role card mandates actually runnable in a stage
+    - Candidate C — repair a missing iteration test file at the earliest repairable stage
+    - Candidate B1 -- surface the config keys `load_config` silently swallows
+    - Candidate B2 -- refresh the product repo's AGENTS.md on ship (roadmap item 3, bite 2 of 2)
+    - Candidate B3 -- `foundry init-product`: the missing onramp for a new repo
+    winner: B1
+    ship: unknown
   iter-126
     lenses: new-capability -- iteration 126, hardening/DX -- iteration 126
     - Candidate A -- a first-class operator directive inbox (`DIRECTIVES.md`), race-free, injected into the PM lead prompt
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- one anchored test-gate predicate instead of two unanchored copies
     - Candidate B3 -- make the checkpoint contract real in the cards: the TEST FILE is the artifact, and never emit a sentinel you have not earned
     winner: B1
-    ship: unknown
+    ship: PUSHED 2ee80ca
   iter-125
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- The scout role card defines 2 of the 6 rotated lenses, and three tracked docs still assert the retired fixed a/b lens mapping
@@ -209,4 +219,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-23 scouted iterations
+24 scouted iterations
