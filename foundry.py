@@ -89,6 +89,43 @@ RETRY_DIRECTIVE_MARKER = "## RETRY -- PREVIOUS ATTEMPT PRODUCED NO OUTPUT FILE"
 RETRY_DIRECTIVE_MAX_CHARS = 1600        # total char cap on the appended block
 RETRY_DIRECTIVE_ELLIPSIS = "..."        # ASCII marker ending a truncated block
 
+# Failure-kind-aware retry pricing (iter 129). `run_stage` used to price its
+# retry delay from the ATTEMPT INDEX alone (`BACKOFFS[min(attempt - 1, ...)]`)
+# and never looked at WHY the attempt produced no output file -- even though the
+# failure text is already in hand one line above, in `blob`. That over-prices
+# the two failure kinds where waiting provably cannot help: an attempt killed by
+# the agent CLI's own ~600s cap, and an attempt that instant-fails against a
+# dead IPC endpoint (the CLI prints its help text). Measured 2026-08-07 by
+# clustering all 57 `tail:` fields in the live `dispatcher.out`: cap timeout x35,
+# service-busy x10, stream stall x9, CLI help text x1. Over 92.71h the company
+# slept 49,800s in backoffs and 33,600s of that followed a no-wait-helps kind;
+# re-pricing only those reclaims ~30,240s (8.4h, ~9% of uptime).
+#
+# Kept as SEPARATE constants rather than an edit to `BACKOFFS` on purpose: the
+# genuine rate-limit ladder must stay byte-identical (a busy backend is the one
+# failure where a long sleep is the correct response), and `BACKOFFS` is pinned
+# by tests/test_iter119_behavior.py.
+RETRY_DELAY_FLOOR = 60          # seconds; a retry never fires faster than this
+TIMEOUT_BACKOFFS = [60, 120, 240]       # fast ladder: 1 -> 2 -> 4 min
+FAST_RETRY_KINDS = ("timeout", "cli-error")   # kinds that draw from the fast ladder
+ATTEMPT_FAILURE_DEFAULT = "other"
+# Marker table for `classify_attempt_failure`, same shape and convention as
+# EVENT_KIND_RULES: lowercase substrings, FIRST rule wins, so ORDER IS
+# LOAD-BEARING and is deliberately CONSERVATIVE-FIRST. The two LONG-ladder kinds
+# (`service`, `stalled`) precede the two FAST ones, so a blob carrying markers
+# for both -- in either textual order -- always lands on the long ladder.
+# Mis-pricing a struggling backend as a cap timeout is the only error here that
+# could hammer a service, so every ambiguity must resolve away from the fast
+# ladder. `service is busy` is the marker present in all 10 measured service
+# failures; `too many tokens` / `throttl` are defensive additions for other
+# known rate-limit wording.
+ATTEMPT_FAILURE_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("service", ("service is busy", "too many tokens", "throttl")),
+    ("stalled", ("connection stalled",)),
+    ("cli-error", ("native shortcut did not match",)),
+    ("timeout", ("timed out",)),
+)
+
 ANTI_DELEGATION = (
     "HARD RULES: Do ALL of this work YOURSELF in this single run. Do NOT spawn "
     "nested agent runs, background jobs, schedulers, or teammates, and do NOT "
@@ -12183,6 +12220,60 @@ def retry_directive(attempt: int, stage: str,
     return block[:cut] + RETRY_DIRECTIVE_ELLIPSIS
 
 
+def classify_attempt_failure(blob: str) -> str:
+    """Return a stable ``kind`` for WHY a stage attempt produced no output file.
+
+    Why this exists: the retry delay must depend on the failure, not just on the
+    attempt number. Sleeping 10-40 minutes is the right answer to a rate-limited
+    backend and the WRONG answer to an attempt the agent CLI killed at its own
+    hard cap (the work simply did not fit the budget -- the next attempt has the
+    same budget whether it starts in 1 minute or in 40) or to an instant-fail
+    against a dead IPC endpoint (nothing heals while we sleep).
+
+    Pure, TOTAL and case-insensitive: lowercases ``blob`` once (``None`` and the
+    empty string are treated as no evidence), then returns the kind of the FIRST
+    ``ATTEMPT_FAILURE_MARKERS`` entry any of whose substrings occur in it, else
+    ``ATTEMPT_FAILURE_DEFAULT``. It performs NO I/O and raises for no input, so
+    it is safe on the retry path where the only thing worse than a bad delay is
+    an exception that abandons the stage.
+
+    Both module globals are looked up HERE, by bare name, at CALL time -- never
+    captured as def-time defaults -- so a
+    ``monkeypatch.setattr(foundry, "ATTEMPT_FAILURE_MARKERS", ...)`` bites.
+    """
+    low = (blob or "").lower()
+    for kind, needles in ATTEMPT_FAILURE_MARKERS:
+        if any(needle.lower() in low for needle in needles):
+            return kind
+    return ATTEMPT_FAILURE_DEFAULT
+
+
+def retry_delay(kind: str, attempt: int) -> int:
+    """Seconds to sleep before retrying a stage, given its failure ``kind``.
+
+    ``kind`` in ``FAST_RETRY_KINDS`` draws from ``TIMEOUT_BACKOFFS``; EVERYTHING
+    else -- including an unknown kind string -- draws from ``BACKOFFS``, so the
+    existing rate-limit ladder stays the DEFAULT and a classifier that stops
+    recognising a marker degrades to today's behaviour rather than to a hot loop.
+
+    ``attempt`` is 1-based and selects ladder index ``attempt - 1``, clamped to
+    the LAST entry for any attempt beyond the ladder (the same clamp the call
+    site performed inline before this function existed). It is also clamped
+    BELOW at 1, so a bogus 0/negative attempt cannot index backwards into the
+    longest delay -- surprising for a "retry sooner" caller. The result is never
+    below ``RETRY_DELAY_FLOOR``, and an EMPTY ladder returns that floor instead
+    of raising ``IndexError``: this runs on the failure path, where a total
+    function matters more than a precise one.
+
+    Pure: all four constants are read from module globals at CALL time.
+    """
+    ladder = TIMEOUT_BACKOFFS if kind in FAST_RETRY_KINDS else BACKOFFS
+    if not ladder:
+        return RETRY_DELAY_FLOOR
+    idx = min(max(int(attempt), 1) - 1, len(ladder) - 1)
+    return int(max(ladder[idx], RETRY_DELAY_FLOOR))
+
+
 def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
               out_name: str, extra: str = "") -> tuple[bool, pathlib.Path]:
     it_dir = cfg.state / f"iter-{iteration:02d}"
@@ -12227,8 +12318,17 @@ def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
         log(cfg, f"iter {iteration:02d} · {stage} no output file "
             f"(attempt {attempt}/{MAX_ATTEMPTS}); tail: {blob[-160:]!r}")
         if attempt < MAX_ATTEMPTS:
-            delay = BACKOFFS[min(attempt - 1, len(BACKOFFS) - 1)]
-            log(cfg, f"iter {iteration:02d} · {stage} backing off {delay // 60} min")
+            # iter-129: price the wait by WHY the attempt failed, not by its
+            # index. Both seams are called by BARE name so a monkeypatch bites.
+            # The line keeps its `backing off` token (the event-kind rules
+            # stamp it "backoff" -- and iter-26's guard forbids naming that
+            # classifier HERE, even in a comment) and now also names the kind,
+            # so the decision is observable in dispatcher.out / events.jsonl
+            # instead of being invisible.
+            kind = classify_attempt_failure(blob)
+            delay = retry_delay(kind, attempt)
+            log(cfg, f"iter {iteration:02d} · {stage} backing off "
+                f"{delay // 60} min (failure kind: {kind})")
             if sleep_interruptible(cfg, delay):
                 return False, out_file
     return False, out_file
