@@ -1,10 +1,20 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-130
+    lenses: performance-and-throughput (iteration 130), narrative-and-docs
+    - Candidate A -- give `stalled` its own retry ladder (fast first retry, long thereafter)
+    - Candidate B -- first-write telemetry: probe whether the deliverable exists mid-attempt
+    - Candidate C -- fix the mandatory-tooling tax every PM stage pays (verified live this run)
+    - Candidate B1 -- The scout role card defines 2 of the 6 live lenses; half of all iterations run BOTH scouts on an undefined lens
+    - Candidate B2 -- The decision log silently drops what it cannot parse: 8 of 54 scout slates render as ZERO candidates
+    - Candidate B3 -- "Shipped" is not "live": 8 shipped iterations are inert in the running brain and no artifact says so
+    winner: B3
+    ship: unknown
   iter-129
     lenses: simplification-and-deletion, performance-and-throughput
     winner: B1
-    ship: unknown
+    ship: PUSHED c9eb30d
   iter-128
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- fail-closed unknown-key guard at config LOAD time
@@ -233,4 +243,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-26 scouted iterations
+27 scouted iterations

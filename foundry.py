@@ -622,10 +622,24 @@ def doctor_ok(checks: list[Check]) -> bool:
 
 
 def run_doctor_cli(cfg: ProductConfig) -> int:
-    """CLI entry: print one line per check + a summary; exit 0 iff all pass."""
+    """CLI entry: print one line per check, the live-lag line, and a summary.
+
+    Exit code is 0 iff all four checks pass -- UNCHANGED by the live-lag line
+    (iter 130). A stale brain is not an environment fault: it is a restart the
+    operator owes, so it WARNs where it will be seen (this is the surface run
+    before every launch) without ever blocking a run. `run_doctor` itself stays a
+    4-`Check` function, since its shape is pinned by the iter-01 tests.
+    """
     checks = run_doctor(cfg)
     for c in checks:
         print(f"[{'PASS' if c.ok else 'FAIL'}] {c.name}: {c.detail}")
+    # Double-guarded on top of `live_lag_line`'s own never-raise contract, for the
+    # same reason `run_doctor` double-guards its probes: a diagnostic must never be
+    # able to crash the preflight it decorates.
+    try:
+        print(live_lag_line(cfg))
+    except Exception as exc:  # pragma: no cover - contract-impossible belt
+        print(f"{LIVE_LAG_PREFIX} UNKNOWN -- live-lag line errored: {exc!r}")
     ok = doctor_ok(checks)
     passed = sum(1 for c in checks if c.ok)
     print(f"doctor: {passed}/{len(checks)} checks ok — "
@@ -9686,6 +9700,242 @@ def stage_times_cli(log_path, *, budget: int | None = None,
 
 
 # --------------------------------------------------------------------------- #
+# "SHIPPED" IS NOT "LIVE": the live-lag report (`foundry live-lag`) -- iter 130.
+#
+# `dispatcher.py` does a plain `import foundry` ONCE at launch and then calls
+# `foundry.run_iteration` in-process for the rest of the process's life -- there
+# is no `importlib.reload` and no self-restart anywhere in it. So every
+# module-level constant and every function body is pinned in memory at launch,
+# and an iteration committed AFTER that instant is INERT: git, the roadmap index,
+# the archive and the decision log all report it as SHIPPED, while the running
+# brain cannot possibly be executing it. Nothing in the tree said so, which is
+# how eight consecutive iterations of verified, pushed work came to be doing
+# nothing with no signal to the operator.
+#
+# This block REPORTS the lag and nothing more. Acting on it (restarting the
+# brain) stays a HUMAN decision: an automatic reload or self-restart would swap
+# the semantics of a loop that is mid-shift, which the quality bar forbids. The
+# report is therefore purely additive and OFF the control path -- `run_iteration`,
+# `run_continuous`, `run_stage`, `build_prompt` and `postrelease_step` never
+# mention any name below. The PEDAL is the single extra `doctor` line: a
+# read-only CLI nobody consults cannot change a decision, and `doctor` is the
+# surface the operator already runs before a launch.
+#
+# Ground truth for the launch instant is the LAST `dispatcher up` banner in the
+# dispatcher log, which was validated against the live dispatcher process's real
+# start time to the second -- so this needs no pid discovery and no `ps` parsing.
+# Same on-demand, writes-NOTHING class as `doctor` / `timing` / `stage-times`.
+# --------------------------------------------------------------------------- #
+
+# `dlog`'s startup banner, as emitted by `dispatcher.py`:
+#   `- `MM-DD HH:MM:SS` dispatcher up; N team(s): a, b; concurrency=1`
+# Anchored at the START of the stripped line with an OPTIONAL bullet marker, so a
+# banner-shaped fragment quoted INSIDE another line's payload (a `no output file`
+# line carries a repr of the agent's tail output) can never be mistaken for a
+# real launch -- the same anti-spoof reasoning as `_STAGE_START_RE`'s anchoring.
+# The stamp SHAPE is part of the match: a line this parser cannot date is not a
+# banner it will report, because guessing a launch instant is worse than not
+# knowing one (see `inert_iterations`).
+_BRAIN_UP_RE = re.compile(
+    r"^(?:[-*]\s+)?`(?P<ts>\d\d-\d\d \d\d:\d\d:\d\d)`\s+dispatcher up\b")
+
+# Rendered tokens, module-level so a test can patch them and so the CLI can read
+# its exit code back off the SAME line the operator sees (one source of truth).
+LIVE_LAG_PREFIX = "live-lag:"
+LIVE_LAG_WARN = "WARN"
+
+
+def parse_brain_launch(log_text: str, year: int | None = None) -> float | None:
+    """Epoch of the LAST `dispatcher up` banner in a dispatcher log, else `None`.
+
+    The LAST banner is selected by POSITION IN THE TEXT, never by stamp ordering:
+    the log is append-only, so the final banner is the launch of the process that
+    is running NOW, and a clock change or an out-of-order stamp must not promote
+    an older launch over it.
+
+    `year` is an EXPLICIT caller argument because the banner stamp carries
+    `MM-DD HH:MM:SS` and NO year -- the parser refuses to invent one. A missing or
+    unusable `year` therefore yields `None` (unknown), never a guessed date.
+
+    Pure and total: no I/O and no clock of its own, and ANY `str` input yields a
+    float or `None` -- never an exception. Absent banner, empty string, arbitrary
+    junk, interleaved unrelated stage lines, and a shape-valid but impossible
+    stamp (`13-45 99:99:99`) all degrade to `None`. Returned as a local-time epoch
+    so it is directly comparable with a git `%ct` commit epoch.
+    """
+    last: "re.Match[str] | None" = None
+    for raw in (log_text or "").splitlines():
+        m = _BRAIN_UP_RE.match(raw.strip())
+        if m:
+            last = m                      # LAST by position, not by stamp order
+    if last is None:
+        return None
+    try:
+        date_part, time_part = last.group("ts").split(" ", 1)
+        month, day = (int(x) for x in date_part.split("-", 1))
+        hour, minute, second = (int(x) for x in time_part.split(":", 2))
+        # Field-wise construction (not `strptime`) so a real `02-29` banner dates
+        # correctly in a leap year instead of failing against strptime's 1900.
+        return dt.datetime(int(year), month, day,
+                           hour, minute, second).timestamp()
+    except Exception:
+        # Out-of-range fields, a non-int `year`, or anything else: UNKNOWN.
+        return None
+
+
+def inert_iterations(launch_epoch: float | None,
+                     commits: "Iterable[tuple[int, float]]") -> tuple[int, ...]:
+    """Iterations committed AFTER the brain launched -- i.e. shipped but NOT live.
+
+    STRICTLY greater: a commit landing at the very instant of launch is treated as
+    LIVE, because the import that pinned the code happened at that instant and a
+    tie is not evidence of lag. `launch_epoch is None` (an unknown launch instant)
+    returns `()` for ANY commits -- an unknown must report NOTHING rather than
+    guess, so this check can never fire falsely and can never nag the operator
+    into a needless restart.
+
+    ASCENDING and DE-DUPLICATED, returned as an immutable tuple: the same
+    iteration can legitimately appear in several commits (a revert-and-reship, a
+    rebase) but "which iterations are inert" is a set, and a caller must not be
+    able to mutate the verdict in place.
+
+    Pure and total: no I/O, no clock. A malformed pair (wrong arity, a non-int
+    iteration, a non-numeric epoch) is SKIPPED rather than raised, matching
+    `shipped_iterations`, so one bad row can never sink a whole report.
+    """
+    if launch_epoch is None:
+        return ()
+    found: set[int] = set()
+    for pair in commits or ():
+        try:
+            iteration, commit_epoch = pair
+            if isinstance(iteration, bool) or not isinstance(iteration, int):
+                continue                  # `True` is an int in Python; not a ship
+            if float(commit_epoch) > float(launch_epoch):
+                found.add(iteration)
+        except Exception:
+            continue
+    return tuple(sorted(found))
+
+
+def git_ship_commits(repo_dir: "str | pathlib.Path") -> tuple[tuple[int, float], ...]:
+    """`(iteration, commit_epoch)` for every ship-tagged commit -- the ONE new seam.
+
+    Isolated as a module-level function and called by its BARE name so a test can
+    `monkeypatch.setattr(foundry, "git_ship_commits", ...)` and script ship-truth
+    entirely offline; the whole report is then verifiable with zero real
+    subprocess work. Reads ONLY `git log --format=<epoch>TAB<subject>` -- never a
+    body, never a diff -- and reuses the shipped pure `iteration_from_subject`, so
+    what counts as a ship tag cannot drift from the iter-124 ledger brake.
+
+    Returns `()` on EVERY failure mode -- a path that is not a repository, a
+    non-zero git exit, an absent `git` binary, a timeout, unparsable output -- and
+    NEVER raises and never prints a traceback. `()` means "no ship-truth
+    available", so a consumer degrades to reporting nothing rather than to a false
+    alarm. Malformed lines inside otherwise good output are skipped individually:
+    a line with no tab, a non-integer epoch field, or a blank line drops out while
+    the well-formed lines still land. The epoch is a float for direct comparison
+    with `parse_brain_launch`.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(repo_dir), "log", "--format=%ct%x09%s"],
+            capture_output=True, text=True, timeout=120)
+        if proc.returncode != 0:
+            return ()
+        out = proc.stdout or ""
+    except Exception:
+        # Deliberately broader than the iter-124 seam's tuple of exception types:
+        # this seam's contract is total, and a monkeypatched or exotic failure
+        # must still degrade to "no ship-truth" instead of killing `doctor`.
+        return ()
+    pairs: list[tuple[int, float]] = []
+    for raw in out.splitlines():
+        epoch_text, tab, subject = raw.partition("\t")
+        if not tab:
+            continue
+        try:
+            epoch = float(int(epoch_text.strip()))
+        except ValueError:
+            continue
+        iteration = iteration_from_subject(subject)
+        if iteration is not None:
+            pairs.append((iteration, epoch))
+    return tuple(pairs)
+
+
+def live_lag_line(cfg: "ProductConfig",
+                  log_path: "str | pathlib.Path | None" = None) -> str:
+    """ONE human line: is every shipped iteration actually live in the brain?
+
+    The single source of truth for both `foundry live-lag` and the new `doctor`
+    line, so the verb and the preflight can never disagree. Composes
+    `parse_brain_launch`, `git_ship_commits` and `inert_iterations` by their BARE
+    module names (reading the module globals INSIDE the body) so a
+    `monkeypatch.setattr(foundry, ...)` on any of them bites here.
+
+    Three OUTCOMES, deliberately distinct because they demand different actions:
+      * UNKNOWN -- no datable banner (or an unreadable log). Says so, and never
+        claims the brain is up to date; carries no WARN, because "I cannot tell"
+        is not evidence of a problem.
+      * OK -- a known launch instant with nothing committed after it.
+      * WARN -- N iterations shipped after launch, listed by number, with the
+        restart the operator owes. This is the only branch carrying
+        `LIVE_LAG_WARN`, which is what `live_lag_cli` reads its exit code from.
+
+    ALWAYS returns a non-empty `str`, never `None`, and NEVER raises -- even when
+    a composed seam raises, a log is missing, or `cfg` has no usable `repo`. A
+    diagnostic that can crash the preflight it decorates is worse than no
+    diagnostic, so every failure degrades to an UNKNOWN line.
+    """
+    try:
+        log = (pathlib.Path(log_path) if log_path
+               else (FOUNDRY / "dispatcher.out"))
+        try:
+            text = log.expanduser().read_text()
+        except Exception:
+            text = ""            # missing / unreadable log -> UNKNOWN, not WARN
+        launch = parse_brain_launch(text, year=dt.datetime.now().year)
+        if launch is None:
+            return (f"{LIVE_LAG_PREFIX} UNKNOWN -- brain launch instant unknown "
+                    f"(no datable `dispatcher up` banner in {log.name}); "
+                    f"cannot compare shipped against live")
+        stamp = dt.datetime.fromtimestamp(launch).strftime(_TS_FMT)
+        inert = inert_iterations(launch, git_ship_commits(getattr(cfg, "repo", "")))
+        if not inert:
+            return (f"{LIVE_LAG_PREFIX} OK -- brain launched {stamp}; up to date, "
+                    f"every shipped iteration is live (0 committed since launch)")
+        listed = ", ".join(str(n) for n in inert)
+        return (f"{LIVE_LAG_PREFIX} {LIVE_LAG_WARN} -- {len(inert)} iteration(s) "
+                f"shipped but NOT LIVE in the running brain (committed after "
+                f"launch {stamp}): {listed} -- restart the dispatcher to activate")
+    except Exception as exc:
+        return (f"{LIVE_LAG_PREFIX} UNKNOWN -- live-lag report unavailable "
+                f"({exc!r})")
+
+
+def live_lag_cli(cfg: "ProductConfig",
+                 log_path: "str | pathlib.Path | None" = None) -> int:
+    """On-demand CLI: print the live-lag line, exit 0 (nothing to do) / 2 (lag).
+
+    The exit code is read back off the printed line via the `LIVE_LAG_WARN` token
+    (read as a module global at call time), so the operator-visible text and the
+    scriptable code can never disagree. 2 follows the shipped `timing` /
+    `directions` convention -- "there is something to report", NOT a failure -- so
+    this verb never gates a build; UNKNOWN exits 0 for the same reason
+    `inert_iterations` reports nothing on an unknown launch instant.
+
+    Writes NOTHING to disk. `live_lag_line` is called with `cfg` ALONE unless a
+    `--log` override was supplied, so the default call shape stays the one-arg
+    shape a test's monkeypatched stand-in is most likely to accept.
+    """
+    line = (live_lag_line(cfg) if log_path is None
+            else live_lag_line(cfg, log_path=log_path))
+    print(line)
+    return 2 if LIVE_LAG_WARN in line else 0
+
+
+# --------------------------------------------------------------------------- #
 # Company-wide suite-wall-time roll-up (`company-timing`) -- roadmap item 7,
 # bite 2 (COMPLETES the feature; bite 1 shipped the `gather_timing` seam + the
 # `TimingSummary.measured_seconds` accessor in iter 39).
@@ -12998,6 +13248,20 @@ def main(argv: list[str] | None = None) -> int:
     # NEVER call it; it writes nothing. `--files` scans EXACTLY those paths
     # instead of walking `cfg.repo`. Exit 0 clean / 1 weak-or-unparseable / 2
     # nothing to scan.
+    # `live-lag` names the iterations git reports as SHIPPED that the CURRENTLY
+    # RUNNING brain cannot be executing, because they were committed after the
+    # last `dispatcher up` banner (the dispatcher imports `foundry` once at launch
+    # and never reloads). Read-only and on-demand -- the pipeline/dispatcher NEVER
+    # call it and it writes NOTHING. Exit 0 (nothing inert, or launch instant
+    # unknown) / 2 (>=1 inert -> a restart is owed), the shipped
+    # `timing`/`directions` "there is something to report" convention, so it can
+    # never gate a build.
+    llg = sub.add_parser("live-lag")
+    llg.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    llg.add_argument("--log", default=None,
+                     help="path to the dispatcher log holding the `dispatcher up` "
+                          "banner (default: the foundry checkout dispatcher.out)")
     wkt = sub.add_parser("weak-tests")
     wkt.add_argument("--config", required=True,
                      help="path to product JSON config")
@@ -13404,6 +13668,8 @@ def main(argv: list[str] | None = None) -> int:
         return directions_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "timing":
         return timing_cli(cfg, limit=args.limit, as_json=args.json)
+    if args.cmd == "live-lag":
+        return live_lag_cli(cfg, log_path=args.log)
     if args.cmd == "weak-tests":
         return weak_tests_cli(cfg, files=args.files, as_json=args.json)
     if args.cmd == "constant-asserts":

@@ -127,7 +127,7 @@ briefs in [docs/research/](docs/research/README.md).
 ## Quickstart
 
 ```bash
-# 0. Preflight the box before committing a shift (AC power, agent CLI, uv, remote):
+# 0. Preflight the box before committing a shift (AC power, agent CLI, uv, remote), PLUS the #43 live-lag line -- WARNing when shipped iterations are not yet live in the running brain (the lag never changes doctor's own exit code):
 uv run python foundry.py doctor --config products/repolens/config.json
 
 # 1. Run one product team on an existing repo, a single iteration:
@@ -245,6 +245,9 @@ uv run python foundry.py directions --config products/repolens/config.json  # [-
 
 # 42. Per-(team,stage) attempt-DURATION digest parsed from the shared `dispatcher.out`: pair each `**STAGE** attempt A started` line with its next `produced`/`no output file` terminal into a duration, group by (team,stage), report count/median/max/timeouts(no-output attempts), and WARN on any group whose MEDIAN attempt duration exceeds STAGE_SOFT_BUDGET (default 420s; --budget overrides) -- a stall PREDICTION days before a stage hard-fails at the ~600s agent-CLI cap (operator reliability fix #2). Needs NO --config (`dispatcher.out` is a foundry-root artifact), dispatched before load_config; the pipeline never calls it and it writes nothing (exit 0 healthy / 1 >=1 group over budget / 2 nothing to report); read-only:
 uv run python foundry.py stage-times  # [--log PATH] [--team NAME] [--budget N seconds] [--json for one machine-readable digest; same 0/1/2 exit code]
+
+# 43. "SHIPPED" IS NOT "LIVE": name the iterations git reports as SHIPPED that the CURRENTLY RUNNING brain cannot be executing -- `dispatcher.py` does a plain `import foundry` ONCE at launch and then calls `run_iteration` in-process for the rest of its life, with no `importlib.reload` and no self-restart, so every module-level constant and function body is pinned in memory at launch and an iteration committed AFTER that instant is INERT while git, the roadmap index, the archive and #41 `directions` all still report it as shipped. Ground truth for the launch instant is the LAST `dispatcher up` banner in `dispatcher.out`, taken by POSITION in the append-only log (validated against the live dispatcher process's real start time to the second, so no pid discovery or `ps` parsing is needed); a commit at the exact launch instant counts as LIVE, and an unreadable log or undatable banner reports UNKNOWN rather than guessing, so the check can never fire falsely. It REPORTS only -- restarting the brain stays a HUMAN decision, because an auto-reload would swap the semantics of a loop that is mid-shift. The PEDAL is the extra #0 `doctor` line (the surface an operator already runs before a launch), not the verb; the pipeline/dispatcher never call it and it writes NOTHING (exit 0 nothing-inert-or-unknown / 2 >=1 inert, so a restart is owed -- the `timing`/`directions` "there is something to report" convention, never a build gate); read-only:
+uv run python foundry.py live-lag --config products/_platform/config.json  # [--log PATH to the dispatcher log carrying the `dispatcher up` banner; default the foundry checkout's own dispatcher.out]
 ```
 
 Stop any time: `touch STOP` (whole company) or `touch products/<name>/STOP`
