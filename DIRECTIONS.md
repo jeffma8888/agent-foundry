@@ -1,6 +1,26 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-126
+    lenses: new-capability -- iteration 126, hardening/DX -- iteration 126
+    - Candidate A -- a first-class operator directive inbox (`DIRECTIVES.md`), race-free, injected into the PM lead prompt
+    - Candidate B -- reverted-but-verified work becomes a platform artifact (`RETRY_AVAILABLE` advisory flag)
+    - Candidate C -- `foundry adopt`: one-command product onboarding
+    - Candidate B1 -- teach the test gate the difference between RED and UNFINISHED, and spend the repair round on the tester
+    - Candidate B2 -- one anchored test-gate predicate instead of two unanchored copies
+    - Candidate B3 -- make the checkpoint contract real in the cards: the TEST FILE is the artifact, and never emit a sentinel you have not earned
+    winner: B1
+    ship: unknown
+  iter-125
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- The scout role card defines 2 of the 6 rotated lenses, and three tracked docs still assert the retired fixed a/b lens mapping
+    - Candidate A2 -- The decision log records `ship: unknown` for iterations that git PROVES shipped
+    - Candidate A3 -- 7 of the 18 pinned-head directives will be delivered cut mid-sentence the moment the dispatcher restarts
+    - Candidate B1 -- Retry iteration 121: its preserved patch still applies cleanly to HEAD, and only the missing test file blocked it
+    - Candidate B2 -- A per-product FAST test command for the build stages, so the full suite stops being every stage's tax
+    - Candidate B3 -- Make every stage budget-aware: give the prompt its wall-clock deadline plus this stage's own measured attempt history
+    winner: B1
+    ship: REVERTED
   iter-124
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate C1 -- Parallelise the suite: `-n auto` via pytest-xdist in the quality bar
@@ -10,7 +30,7 @@ foundry directions -- _platform
     - Candidate B2 -- The decision log records `ship: unknown` for iterations that provably PUSHED
     - Candidate B3 -- The scout card defines 2 of 6 rotated lenses, and two tracked docs state the wrong mapping
     winner: B1
-    ship: unknown
+    ship: PUSHED 0b26349
   iter-123
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- Collapse the 9 near-identical `summarize_company_*` roll-ups behind one parameterized helper
@@ -189,4 +209,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-21 scouted iterations
+23 scouted iterations
