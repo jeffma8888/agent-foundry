@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-131
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- Teach the decision log the candidate-heading shapes scouts actually write (32 of 135 slates currently render as zero candidates)
+    - Candidate A2 -- Define the 4 undefined scout lenses, and retire the fixed a/b mapping three tracked docs still assert as fact
+    - Candidate A3 -- Pin the README verb catalog with a suite test, so a missing verb fails at the tester instead of at the gate
+    - Candidate B1 -- Recover a killed stage's real transcript from the agent CLI's own artifact store, since streaming its stdout provably cannot work
+    - Candidate B2 -- Let the loop say "this box needs a human": name an auth failure kind and stop the product instead of burning the shift
+    - Candidate B3 -- `foundry new-product`: make the VISION's "point it at any git repo" an actual command
+    winner: A1
+    ship: unknown
   iter-130
     lenses: performance-and-throughput (iteration 130), narrative-and-docs
     - Candidate A -- give `stalled` its own retry ladder (fast first retry, long thereafter)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- The decision log silently drops what it cannot parse: 8 of 54 scout slates render as ZERO candidates
     - Candidate B3 -- "Shipped" is not "live": 8 shipped iterations are inert in the running brain and no artifact says so
     winner: B3
-    ship: unknown
+    ship: PUSHED a734465
   iter-129
     lenses: simplification-and-deletion, performance-and-throughput
     winner: B1
@@ -243,4 +253,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-27 scouted iterations
+28 scouted iterations
