@@ -38,3 +38,24 @@ Write 2-3 candidate features. For EACH candidate include:
 Diverse, concrete, small candidates beat one big ambitious idea. You are graded
 on the quality and diversity of the slate. Remember: a scout decides nothing --
 the PM lead selects the winner.
+
+### Candidate heading contract
+
+Give EACH candidate its own `##` heading, because the committed `DIRECTIONS.md`
+decision log is built by scanning your file for those headings -- a candidate
+written under any other shape is silently dropped from the record of what the
+loop considered. Both of these shapes are accepted, in any case, with any
+separator (`--`, an en/em dash, a colon, or just a space):
+
+```
+## Candidate A -- short title
+## Candidate B1 -- short title
+## A1 -- short title
+## B2: short title
+## C1 (primary) -- short title
+```
+
+Two shapes that are NOT accepted, so do not use them for a candidate: a deeper
+sub-heading (three or more `#`), and an id whose digit run is longer than two
+(`A2026`). Keep supporting prose under non-candidate `##` headings -- `## Ranking`,
+`## Diversity note` -- those are correctly ignored.

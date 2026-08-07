@@ -8457,20 +8457,47 @@ def parse_scout_lens(text: str) -> str | None:
     return None
 
 
+# An ID-FIRST candidate heading: `## A1 -- title`, `## C1 (primary): title`,
+# `## H3`. Exactly two `#` (a `###` sub-heading or a `#` title never qualifies);
+# a 1-2 letter id, an OPTIONAL single space, then a 1-2 digit run ending on a
+# word boundary -- the bound is what rejects `## A 2026 retrospective` and
+# `## A2026 notes`. Anything (or nothing) may follow, so the rule is agnostic to
+# the separator scouts choose: `--`, an en/em dash, a colon, or a bare space.
+_CANDIDATE_ID_HEADING_RE = re.compile(r"^##[ \t]+[A-Za-z]{1,2} ?\d{1,2}\b")
+
+
 def parse_scout_candidates(text: str) -> tuple[str, ...]:
     """Extract a scout file's CANDIDATE one-liners in file order (pure, total).
 
-    For EACH line whose stripped form starts with ``## Candidate``
-    (case-insensitive) returns the stripped line with its leading ``#``
-    characters and the following whitespace removed -- e.g. `## Candidate C1 --
-    foundry directions: ...` -> ``Candidate C1 -- foundry directions: ...``.
-    Non-candidate ``##`` headings (`## Note to the PM lead`, `## Diversity
-    note`) are skipped. Returns an EMPTY tuple -- never raising for ANY string
-    -- when the text is empty or carries no such heading."""
+    A line qualifies under EITHER of two independent rules (a UNION, so nothing
+    that parsed before can be lost):
+
+    1. its stripped form starts with ``## Candidate`` (case-insensitive) --
+       including the digit-less `## Candidate A -- ...` shape; or
+    2. it is an ID-FIRST heading matching :data:`_CANDIDATE_ID_HEADING_RE`:
+       ``##`` + whitespace + a 1-2 letter id + 1-2 digits on a word boundary,
+       e.g. `## A1 -- x`, `## B2: x`, `## C1 (primary) -- x`, `## H3`.
+
+    Rule 2 exists because scouts write the id-first shape in about a quarter of
+    real slates, and dropping those made the committed ``DIRECTIONS.md`` decision
+    log read as if the loop had considered ONE option -- silently defeating the
+    repetition brake the log feeds. Only DOUBLE-hash headings qualify under either
+    rule: a deeper ``### A1 -- x`` and a top-level ``# A1 -- x`` are both skipped,
+    preserving today's depth semantics.
+
+    Returns the matching lines with their leading ``#`` characters and the
+    following whitespace removed -- e.g. `## Candidate C1 -- foundry directions:
+    ...` -> ``Candidate C1 -- foundry directions: ...``. Non-candidate ``##``
+    headings (`## Note to the PM lead`, `## Diversity note`, `## Ranking`) are
+    skipped. Returns an EMPTY tuple -- never raising for ANY string -- when the
+    text is empty or carries no such heading."""
     out: list[str] = []
     for raw in (text or "").splitlines():
         line = raw.strip()
-        if line.lower().startswith("## candidate"):
+        # Rule 1 first and unchanged, so the pre-existing shape can never be
+        # lost to the wider rule; `or` short-circuits, so each line yields at
+        # most one entry even when both rules would accept it.
+        if line.lower().startswith("## candidate") or _CANDIDATE_ID_HEADING_RE.match(line):
             # Drop the leading `#` run, then the whitespace that followed it, so
             # only the human title text remains.
             out.append(line.lstrip("#").lstrip())
