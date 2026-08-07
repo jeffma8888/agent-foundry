@@ -54,9 +54,12 @@ def test_config_derived_paths(tmp_path):
     assert cfg.state.is_dir()
 
 
-def test_unknown_keys_ignored(tmp_path):
-    cfg = foundry.load_config(str(_write_cfg(tmp_path, bogus_key="x")))
-    assert cfg.name == "demo"
+def test_unknown_keys_rejected(tmp_path):
+    # iter 128 INVERTED this contract: an unknown key used to be dropped into the
+    # field default, so `"push_enable": false` silently pushed. It now fails closed.
+    with pytest.raises(foundry.ConfigKeyError) as exc:
+        foundry.load_config(str(_write_cfg(tmp_path, bogus_key="x")))
+    assert "bogus_key" in str(exc.value)
 
 
 def test_build_prompt_contains_context_and_guardrails(tmp_path):

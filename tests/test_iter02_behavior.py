@@ -133,10 +133,13 @@ def test_b1_config_honours_overrides(tmp_path):
     assert cfg.smoke_cmd == "make demo"
 
 
-def test_b1_unknown_keys_still_ignored(tmp_path):
-    cfg = foundry.load_config(str(_write_cfg(tmp_path, bogus_iter02_key="x")))
-    assert cfg.name == "demo"
-    assert cfg.postrelease_enabled is True  # defaults still applied
+def test_b1_unknown_keys_now_rejected(tmp_path):
+    # Contract INVERTED by iter 128: this used to assert that an unknown key was
+    # silently dropped while the new fields still defaulted. Silently dropping it is
+    # the defect (a mistyped `push_enabled` pushed anyway), so the loader now raises.
+    with pytest.raises(foundry.ConfigKeyError) as exc:
+        foundry.load_config(str(_write_cfg(tmp_path, bogus_iter02_key="x")))
+    assert "bogus_iter02_key" in str(exc.value)
 
 
 def test_b1_shipped_platform_config_loads_with_defaults():
