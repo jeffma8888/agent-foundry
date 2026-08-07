@@ -27,13 +27,16 @@ reusable, repo-agnostic org.
 | 3 | Reviewer | `reviewer.md` | `reviewer.md` (`VERDICT:` line) | no |
 | 3b| Fix (if CHANGES_REQUIRED) | `fix.md` | `fix_review.md` | no |
 | 4 | Isolated Tester | `tester.md` | `tester.md` (`RESULT:` line) | no |
-| 4b| Fix + re-test (if FAIL) | `fix.md` + `tester.md` | `fix_tests.md`, `tester2.md` | no |
+| 4b| Fix + re-test (if RED: `RESULT: FAIL`, no checkpoint marker) | `fix.md` + `tester.md` | `fix_tests.md`, `tester2.md` | no |
+| 4c| Tester retry x2 max (if UNFINISHED: report carries `PROGRESS: CHECKPOINT`) | `tester.md` | `tester2.md`, `tester3.md` | no |
 | 5 | Final Reviewer (gate) | `final.md` | `final.md` (`ACTION:` line) | **YES — only role** |
 | 6 | Post-release verify (deterministic; **not** an agent) | — (`postrelease_step`) | `state/iter-NN/postrelease.md` (`POSTRELEASE:` line) | no — read-only clone/verify |
 | — | Reporter (every 5 iters) | `reporter.md` | `reporter_done_NN.md` + STATUS_REPORT | no |
 
-The loop reads the `VERDICT:` / `RESULT:` / `ACTION:` sentinel lines to branch;
-it never parses free-form prose for control flow.
+The loop reads the `VERDICT:` / `RESULT:` / `ACTION:` sentinel lines to branch,
+plus the one mandated marker line `PROGRESS: CHECKPOINT` that distinguishes a
+tester round cut short from a genuinely red suite (stage 4b vs 4c); it never
+parses free-form prose for control flow.
 
 Stage 6 runs **only after `ACTION: PUSHED`** (the ship branch); it is SKIPPED on a
 no-ship iteration. It is a deterministic inline step, not an agent-CLI run

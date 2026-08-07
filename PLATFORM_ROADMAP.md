@@ -27,12 +27,18 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 124): the ledger and the archive are current through iteration 124 -- iterations 122 and
+STATUS (iter 126): the ledger and the archive are current through iteration 126 -- iterations 122 and
 124 record themselves, and iteration 64's detail was recovered into the archive from its commit.
+Iteration 126's two records were written BY THE RELEASE GATE, not by its PM: that stage was killed at
+the 600 s cap after checkpointing its spec but before appending them, and this contract puts the record
+in the SHIP COMMIT, which is the gate's own commit to make. A PM must still never plan on that.
 NEXT UP: the iteration-121 RETRY (its 51,824-byte
 `products/_platform/state/iter-121/REVERTED_IMPLEMENTATION.patch` is preserved and its FINAL lesson
 authorises the retry, plus the dispatcher restart that lesson demands), then scout A's per-product
-`fast_test_cmd` for the build stages, which is what unblocks re-adopting a slow repo like repolens.
+`fast_test_cmd` for the build stages. DE-LISTED by iteration 126's spec on a measurement both its scouts
+took independently: no product in the fleet has a slow suite (`_platform` 35.41 s, repolens 30.75 s) and
+no product is retired for slowness, so the premise that it unblocks a slow repo is stale -- iteration 119
+had already found the "repolens is retired with a 498 s suite" claim false.
 
 | # | Increment | Why | Done when |
 |---|---|---|---|
@@ -163,6 +169,7 @@ here has no bullet in the archive.
 - iter 119 -- reliability: ATTEMPT-AWARE RETRY -- the retry loop stops re-sending a byte-identical prompt (attacks th...
 - iter 122 -- roadmap index/archive split + `ROADMAP_SIZE_WARN_CHARS` + 2 pure suite-enforced brakes.
 - iter 124 -- third roadmap brake from GIT ship-truth; recovered the lost 64/122 records; PM self-records.
+- iter 126 -- test gate tells an UNFINISHED tester checkpoint from a RED suite; spends the repair round on the tester.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03

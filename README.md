@@ -26,11 +26,14 @@ DevRel, TPM, ...) that activate only when a written trigger fires.
    │ the foundry│                    │
    └────────────┘         per iteration, one small feature:
                           [2 PM Scouts →] PM → Engineer → Reviewer → [Fix]
-                              → Isolated Tester → [Fix → Tester]
+                              → Isolated Tester → [Fix → Tester | Tester x2]
                               → Final Reviewer (ships or reverts)
                           (scouts = opt-in dual-lens candidate generation,
                            `dual_pm_scouts` in config; the PM lead triages
                            their combined slate and picks ONE feature)
+                          (a tester report that self-declares an unfinished
+                           CHECKPOINT buys up to 2 more TESTER rounds instead
+                           of a fix pass -- ARCHITECTURE.md stages 4b/4c)
 ```
 
 Each stage is a **fresh** agent-CLI run (clean context, no memory bloat).

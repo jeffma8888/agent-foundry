@@ -2995,9 +2995,13 @@ def run_execution_plan(cfg: ProductConfig, iteration: int,
         because at the pm stage nothing has been built yet).
       * `review` gate whose report contains `CHANGES_REQUIRED` -> a fix-review
         pass; if it fails, revert + infra-fail (stage `fix-review`).
-      * `test` gate whose report contains `RESULT: FAIL` -> a fix-tests pass and,
-        on its success, a tester-rerun; if either fails, revert + infra-fail
-        (stage `fix-tests`).
+      * `test` gate whose report contains `RESULT: FAIL` -> if the report is an
+        UNFINISHED checkpoint (`read_test_disposition`), up to two more TESTER
+        rounds from `UNFINISHED_TEST_RETRY_STAGES`, stopping as soon as one is no
+        longer UNFINISHED; otherwise (a genuinely RED suite) a fix-tests pass
+        and, on its success, a tester-rerun. A failing stage reverts +
+        infra-fails, keyed on `fix-tests` for the RED path and on the retry label
+        for the UNFINISHED one.
       * `release` gate -> TERMINAL: if the report has `ACTION: PUSHED` AND the
         branch head moved off `base`, ship (postrelease + shipped dict); else
         revert + no-ship. No plan step after a release gate is ever run.
@@ -3034,20 +3038,37 @@ def run_execution_plan(cfg: ProductConfig, iteration: int,
                 return {"status": "infra-fail", "stage": "fix-review",
                         "iteration": iteration}
         elif step.gate == "test" and contains(report, "RESULT: FAIL"):
-            log(cfg, f"iter {iteration:02d} - tests failed -> fix pass + retest")
-            ok, _ = run_stage(cfg, iteration, "fix-tests", "fix.md",
-                              "fix_tests.md",
-                              f"Gate file to address: {report} (failing tests).")
-            if ok:
-                ok, _ = run_stage(
-                    cfg, iteration, "tester-rerun", "tester.md", "tester2.md",
-                    "This is a RE-RUN after an engineering fix. Re-verify all "
-                    "behaviors; update your earlier tests only if they misread "
-                    "the spec.")
-            if not ok:
-                revert_repo(cfg, "fix/retest failed")
-                return {"status": "infra-fail", "stage": "fix-tests",
-                        "iteration": iteration}
+            # iter-126: mirrors `run_iteration` VERBATIM -- see the comment
+            # there for the measurement. An UNFINISHED checkpoint buys further
+            # TESTER rounds; a RED suite keeps today's `else` path unchanged.
+            if read_test_disposition(report) == "UNFINISHED":
+                log(cfg, f"iter {iteration:02d} - tester report is an unfinished "
+                    "checkpoint, not a red suite -> tester retry")
+                for label, out_name in UNFINISHED_TEST_RETRY_STAGES:
+                    ok, retry_report = run_stage(cfg, iteration, label,
+                                                 "tester.md", out_name,
+                                                 UNFINISHED_TEST_RETRY_PROMPT)
+                    if not ok:
+                        revert_repo(cfg, f"{label} failed")
+                        return {"status": "infra-fail", "stage": label,
+                                "iteration": iteration}
+                    if read_test_disposition(retry_report) != "UNFINISHED":
+                        break
+            else:
+                log(cfg, f"iter {iteration:02d} - tests failed -> fix pass + retest")
+                ok, _ = run_stage(cfg, iteration, "fix-tests", "fix.md",
+                                  "fix_tests.md",
+                                  f"Gate file to address: {report} (failing tests).")
+                if ok:
+                    ok, _ = run_stage(
+                        cfg, iteration, "tester-rerun", "tester.md", "tester2.md",
+                        "This is a RE-RUN after an engineering fix. Re-verify all "
+                        "behaviors; update your earlier tests only if they misread "
+                        "the spec.")
+                if not ok:
+                    revert_repo(cfg, "fix/retest failed")
+                    return {"status": "infra-fail", "stage": "fix-tests",
+                            "iteration": iteration}
         elif step.gate == "release":
             new_head = head_of_branch(cfg)
             if contains(report, "ACTION: PUSHED") and new_head != base:
@@ -7892,6 +7913,92 @@ def parse_tester_result(text: str) -> str | None:
     return token if token in ("PASS", "FAIL") else None
 
 
+# --------------------------------------------------------------------------- #
+# Test-report disposition (iter-126): UNFINISHED checkpoint vs genuinely RED
+# --------------------------------------------------------------------------- #
+# All three live at MODULE level and are read by BARE name inside the functions
+# and the wiring, so a test's `monkeypatch.setattr` bites and a routing test can
+# shrink the retry budget without ever spawning a real stage.
+UNFINISHED_TEST_MARKER = "PROGRESS: CHECKPOINT"
+
+UNFINISHED_TEST_RETRY_STAGES: tuple[tuple[str, str], ...] = (
+    ("tester-retry", "tester2.md"),
+    ("tester-retry2", "tester3.md"),
+)
+
+# One string, shared by both mirrored call sites, so the two can never drift into
+# telling the retry round different stories. It is TRUTHFUL where the `fix-tests`
+# rerun prompt is not: nothing has been fixed, so "re-verify after an engineering
+# fix" would send the round hunting a regression that does not exist.
+UNFINISHED_TEST_RETRY_PROMPT = (
+    "The previous tester report is an UNFINISHED CHECKPOINT, not a red suite: "
+    "that round was cut short by the per-stage time cap. NO failing test has "
+    "been identified and NOTHING has been changed in the tree since, so do not "
+    "hunt for a regression. Start by CREATING this iteration's behavior-test "
+    "file with one real assertion, then refine it in place and earn your own "
+    "verdict."
+)
+
+
+def classify_test_report(text: str) -> str:
+    """Classify a tester report body: PASS / UNFINISHED / RED / NONE (pure, total).
+
+    WHY this exists: `RESULT: FAIL` is a false alarm most of the time it fires.
+    Measured over 194 tester artifacts in the fleet, 10 of the 12 FAIL verdicts
+    are 386-981 byte CHECKPOINTS written by a round the agent CLI killed at its
+    600 s cap -- not reports of a red suite. Those iterations then burn their one
+    repair round on a `fix-tests` pass hunting failures that do not exist (iter
+    125's own `fix_tests.md`: "ZERO failing tests exist"), and the ones that
+    recovered did so only because a SECOND tester round happened to survive.
+    Naming the UNFINISHED case lets the caller buy that round directly.
+
+    Decision order, first match wins:
+      1. `"PASS"`       -- `parse_tester_result` reads an earned PASS sentinel.
+         An earned PASS OUTRANKS a checkpoint claim, so a body that both passed
+         and mentions the marker is PASS.
+      2. `"UNFINISHED"` -- the body contains `UNFINISHED_TEST_MARKER`, the line
+         `roles/tester.md` mandates for a round that was cut short.
+      3. `"RED"`        -- an anchored `RESULT: FAIL` with no marker: a genuine
+         red suite, routed exactly as it is today.
+      4. `"NONE"`       -- no recognizable verdict and no marker (empty text, an
+         unknown token, or a `RESULT:` line that is not the last non-empty one).
+
+    Reuses the anchored `parse_tester_result` (which had no control-path caller
+    until now) rather than a second substring scan, so "the sentinel must be the
+    LAST non-empty line" keeps holding for the new decision too. Total by
+    construction: the only work is that call plus one substring test on
+    `text or ""`, so no string input raises -- NUL bytes, odd escapes and 100k
+    bodies included.
+    """
+    verdict = parse_tester_result(text)
+    if verdict == "PASS":
+        return "PASS"
+    if UNFINISHED_TEST_MARKER in (text or ""):
+        return "UNFINISHED"
+    if verdict == "FAIL":
+        return "RED"
+    return "NONE"
+
+
+def read_test_disposition(path: pathlib.Path) -> str:
+    """Read a tester report FILE and classify it -- the single I/O seam.
+
+    Split from `classify_test_report` so the classifier stays pure and the
+    pipeline has exactly ONE place that touches the filesystem for this decision.
+    An unreadable or missing path returns `"RED"`, deliberately DEGRADING to the
+    behavior that shipped before this iteration (a `RESULT: FAIL` trigger whose
+    file cannot be re-read still routes to the `fix-tests` pass), so a filesystem
+    hiccup can never invent a code path; this mirrors `contains()`'s `OSError`
+    tolerance. `classify_test_report` is called by BARE name so a monkeypatch on
+    it takes effect here too.
+    """
+    try:
+        text = path.read_text()
+    except OSError:
+        return "RED"
+    return classify_test_report(text)
+
+
 @dataclasses.dataclass(frozen=True)
 class IterationOutcome:
     """One iteration's INTERNAL gate outcome (the `outcomes` ledger row).
@@ -12082,19 +12189,43 @@ def run_iteration(cfg: ProductConfig, iteration: int | None = None) -> dict:
         return {"status": "infra-fail", "stage": "tester", "iteration": iteration}
 
     if contains(test_report, "RESULT: FAIL"):
-        log(cfg, f"iter {iteration:02d} · tests failed -> fix pass + retest")
-        ok, _ = run_stage(cfg, iteration, "fix-tests", "fix.md", "fix_tests.md",
-                          f"Gate file to address: {test_report} (failing tests).")
-        if ok:
-            ok, test_report = run_stage(
-                cfg, iteration, "tester-rerun", "tester.md", "tester2.md",
-                "This is a RE-RUN after an engineering fix. Re-verify all "
-                "behaviors; update your earlier tests only if they misread "
-                "the spec.")
-        if not ok:
-            revert_repo(cfg, "fix/retest failed")
-            return {"status": "infra-fail", "stage": "fix-tests",
-                    "iteration": iteration}
+        # iter-126: the outer `contains(...)` trigger above is UNCHANGED on
+        # purpose. INSIDE it, tell an UNFINISHED checkpoint (a tester round the
+        # agent CLI killed at its 600 s cap, self-declaring the mandated
+        # UNFINISHED_TEST_MARKER) apart from a genuinely RED suite. Measured over
+        # 194 fleet tester artifacts, 10 of the 12 `RESULT: FAIL` verdicts are
+        # such checkpoints, and the only differentiator between the iterations
+        # that recovered and the ones that reverted is whether a tester round
+        # SURVIVED -- not the code and not the suite. So spend the repair round
+        # on up to two more TESTER rounds (a `fix-tests` pass has nothing to fix
+        # there) and leave the RED path in the `else` byte-identical.
+        if read_test_disposition(test_report) == "UNFINISHED":
+            log(cfg, f"iter {iteration:02d} · tester report is an unfinished "
+                "checkpoint, not a red suite -> tester retry")
+            for label, out_name in UNFINISHED_TEST_RETRY_STAGES:
+                ok, retry_report = run_stage(cfg, iteration, label, "tester.md",
+                                             out_name,
+                                             UNFINISHED_TEST_RETRY_PROMPT)
+                if not ok:
+                    revert_repo(cfg, f"{label} failed")
+                    return {"status": "infra-fail", "stage": label,
+                            "iteration": iteration}
+                if read_test_disposition(retry_report) != "UNFINISHED":
+                    break
+        else:
+            log(cfg, f"iter {iteration:02d} · tests failed -> fix pass + retest")
+            ok, _ = run_stage(cfg, iteration, "fix-tests", "fix.md", "fix_tests.md",
+                              f"Gate file to address: {test_report} (failing tests).")
+            if ok:
+                ok, test_report = run_stage(
+                    cfg, iteration, "tester-rerun", "tester.md", "tester2.md",
+                    "This is a RE-RUN after an engineering fix. Re-verify all "
+                    "behaviors; update your earlier tests only if they misread "
+                    "the spec.")
+            if not ok:
+                revert_repo(cfg, "fix/retest failed")
+                return {"status": "infra-fail", "stage": "fix-tests",
+                        "iteration": iteration}
 
     # Discovery bite 4b: on a SCOUTED iteration, regenerate the tracked
     # DIRECTIONS.md decision log immediately BEFORE the final gate so the ship
