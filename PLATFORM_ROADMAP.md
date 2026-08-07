@@ -36,6 +36,10 @@ STATUS (iter 127): the ledger and the archive are current through iteration 127;
 wrote its own two records, per the contract above.
 STATUS (iter 128): current through iteration 128; its PM wrote its own two records in the ship
 commit, per the contract above.
+STATUS (iter 129): current through iteration 129; its PM wrote its own two records in
+the ship commit, per the contract above. Iteration 129 took a MEASURED-THROUGHPUT item off
+the scout slate rather than a NEXT UP item, so (a)-(d) below are all still open and (a) is
+still the top roadmap item.
 NEXT UP, in value order: (a) re-anchor `tests/test_control_path_freeze_scope.py`'s guard SELECTOR on
 guard BEHAVIOR (any test invoking a `git diff --quiet HEAD --` pathspec) instead of the exact name
 `GUARD_NAME`, which iteration 128's Scout B proved FAIL-OPEN two-sided: it sees only 12 of the 26
@@ -49,7 +53,7 @@ configs that "silently defeat the push guard" true (it takes an already-parsed `
 it structurally cannot see the class); (c) repair a missing `tests/test_iterNN*.py` at the earliest
 repairable stage (both iterations that lacked one, 121 and 125, REVERTED); (d) relax `roles/tester.md`'s
 prose discipline around the two gate tokens, which iteration 127 makes safe but which MUST NOT ship in
-the same iteration as 127 itself (a live loop holds the pre-127 `foundry.py` in memory). ALSO STILL OPEN: the iteration-121 RETRY (its 51,824-byte
+the same iteration as 127 itself (a live loop holds the pre-127 `foundry.py` in memory). (e) NEW, created by iteration 129: decide whether the `"stalled"` failure kind (`Connection stalled -- no data received`, 9 of the live window's 57 zero-output attempts, 9,600 s of sleep) belongs on the FAST retry ladder. Iteration 129 left it on the long `BACKOFFS` ladder on purpose because the operator evidence that stalls are a per-turn stall rather than a network fault is suggestive but unmeasured; naming it as its own kind is what makes the question decidable. ALSO STILL OPEN: the iteration-121 RETRY (its 51,824-byte
 `products/_platform/state/iter-121/REVERTED_IMPLEMENTATION.patch` is preserved and its FINAL lesson
 authorises the retry, plus the dispatcher restart that lesson demands), then scout A's per-product
 `fast_test_cmd` for the build stages. DE-LISTED by iteration 126's spec on a measurement both its scouts
@@ -194,6 +198,7 @@ here has no bullet in the archive.
 - iter 126 -- test gate tells an UNFINISHED tester checkpoint from a RED suite; spends the repair round on the tester.
 - iter 127 -- anchored test-gate trigger: only an earned tester PASS skips the repair round (kills 6/19 false fires).
 - iter 128 -- product config fails CLOSED on an unknown key, naming the key and its nearest field.
+- iter 129 -- retry delay reads the failure KIND: a cap-timeout waits 60s, not 10min (~8.4h/93h reclaimed).
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03

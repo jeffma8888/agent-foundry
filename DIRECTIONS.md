@@ -1,6 +1,10 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-129
+    lenses: simplification-and-deletion, performance-and-throughput
+    winner: B1
+    ship: unknown
   iter-128
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- fail-closed unknown-key guard at config LOAD time
@@ -10,7 +14,7 @@ foundry directions -- _platform
     - Candidate B2 -- delete the fail-silent winner heuristic in `parse_triage_winner`; read the PM's own PICK line
     - Candidate B3 -- collapse the 9-member `company_*_cli` clone family behind one parameterized fan-out
     winner: A1
-    ship: unknown
+    ship: PUSHED 54a8ecb
   iter-127
     lenses: hardening/DX — iteration 127 (CHECKPOINT, refining in place), integration-and-adoption -- iteration 127
     - Candidate A — route the test-gate trigger through ONE anchored seam
@@ -229,4 +233,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-25 scouted iterations
+26 scouted iterations
