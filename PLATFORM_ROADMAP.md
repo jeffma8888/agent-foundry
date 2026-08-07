@@ -32,7 +32,16 @@ STATUS (iter 126): the ledger and the archive are current through iteration 126 
 Iteration 126's two records were written BY THE RELEASE GATE, not by its PM: that stage was killed at
 the 600 s cap after checkpointing its spec but before appending them, and this contract puts the record
 in the SHIP COMMIT, which is the gate's own commit to make. A PM must still never plan on that.
-NEXT UP: the iteration-121 RETRY (its 51,824-byte
+STATUS (iter 127): the ledger and the archive are current through iteration 127; iteration 127's PM
+wrote its own two records, per the contract above.
+NEXT UP, in value order: (a) Scout B's `unknown_config_keys` -- `load_config` (foundry.py:220) filters
+the adopter's JSON to known dataclass fields, so a misspelled key is a DEFAULT, and `push_enabled`
+defaults TRUE, i.e. `"push_enable": false` silently PUSHES; ship the pure predicate WITH a pedal (a
+consumer that changes a decision), not as another read-only CLI; (b) Scout A's candidate C -- repair a
+missing `tests/test_iterNN*.py` at the earliest repairable stage (both iterations that lacked one, 121
+and 125, REVERTED); (c) relax `roles/tester.md`'s prose discipline around the two gate tokens, which
+iteration 127 makes safe but which MUST NOT ship in the same iteration as 127 itself (a live loop holds
+the pre-127 `foundry.py` in memory). ALSO STILL OPEN: the iteration-121 RETRY (its 51,824-byte
 `products/_platform/state/iter-121/REVERTED_IMPLEMENTATION.patch` is preserved and its FINAL lesson
 authorises the retry, plus the dispatcher restart that lesson demands), then scout A's per-product
 `fast_test_cmd` for the build stages. DE-LISTED by iteration 126's spec on a measurement both its scouts
@@ -170,6 +179,7 @@ here has no bullet in the archive.
 - iter 122 -- roadmap index/archive split + `ROADMAP_SIZE_WARN_CHARS` + 2 pure suite-enforced brakes.
 - iter 124 -- third roadmap brake from GIT ship-truth; recovered the lost 64/122 records; PM self-records.
 - iter 126 -- test gate tells an UNFINISHED tester checkpoint from a RED suite; spends the repair round on the tester.
+- iter 127 -- anchored test-gate trigger: only an earned tester PASS skips the repair round (kills 6/19 false fires).
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03
