@@ -170,22 +170,29 @@ def test_b05_load_config_false_stays_false(tmp_path):
 
 
 # ==========================================================================
-# Behavior 6 -- regression: the known-field filter is intact
+# Behavior 6 -- an unknown key is REJECTED (contract inverted by iter 128; this
+# section used to assert the known-field filter silently dropped it)
 # ==========================================================================
-def test_b06_unknown_key_filtered_no_error(tmp_path):
-    cfg = foundry.load_config(str(_write_cfg(tmp_path, bogus_unknown_key=1)))
-    assert not hasattr(cfg, "bogus_unknown_key"), "unknown key leaked onto the config"
-    # known fields still set correctly
+def test_b06_unknown_key_rejected_with_an_error(tmp_path):
+    with pytest.raises(foundry.ConfigKeyError) as exc:
+        foundry.load_config(str(_write_cfg(tmp_path, bogus_unknown_key=1)))
+    assert "bogus_unknown_key" in str(exc.value)
+
+
+def test_b06_unknown_key_rejected_even_beside_a_real_optin(tmp_path):
+    # the opt-in being valid does not rescue the config: one bad key rejects the file
+    with pytest.raises(foundry.ConfigKeyError) as exc:
+        foundry.load_config(
+            str(_write_cfg(tmp_path, dual_pm_scouts=True, bogus_unknown_key="junk")))
+    assert "bogus_unknown_key" in str(exc.value)
+
+
+def test_b06_the_optin_alone_still_loads(tmp_path):
+    # the half of the retired assertion that survives: a config of only KNOWN keys
+    # still resolves its fields exactly as before.
+    cfg = foundry.load_config(str(_write_cfg(tmp_path, dual_pm_scouts=True)))
     assert cfg.name == "demo"
-    assert cfg.dual_pm_scouts is False
-
-
-def test_b06_unknown_key_with_optin_together(tmp_path):
-    # an unknown key coexisting with a real opt-in still filters + opts in
-    cfg = foundry.load_config(
-        str(_write_cfg(tmp_path, dual_pm_scouts=True, bogus_unknown_key="junk")))
     assert cfg.dual_pm_scouts is True
-    assert not hasattr(cfg, "bogus_unknown_key")
 
 
 # ==========================================================================

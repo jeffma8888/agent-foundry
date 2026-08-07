@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-128
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- fail-closed unknown-key guard at config LOAD time
+    - Candidate A2 -- deliver roadmap item 3's payoff: refresh AGENTS.md at ship time, leak-safely
+    - Candidate A3 -- `foundry adopt`: one-command onboarding for a new repo
+    - Candidate B1 -- collapse 26 duplicated every-suite freeze guards into ONE, and stop the meta-test that polices them from failing open
+    - Candidate B2 -- delete the fail-silent winner heuristic in `parse_triage_winner`; read the PM's own PICK line
+    - Candidate B3 -- collapse the 9-member `company_*_cli` clone family behind one parameterized fan-out
+    winner: A1
+    ship: unknown
   iter-127
     lenses: hardening/DX — iteration 127 (CHECKPOINT, refining in place), integration-and-adoption -- iteration 127
     - Candidate A — route the test-gate trigger through ONE anchored seam
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- refresh the product repo's AGENTS.md on ship (roadmap item 3, bite 2 of 2)
     - Candidate B3 -- `foundry init-product`: the missing onramp for a new repo
     winner: B1
-    ship: unknown
+    ship: PUSHED a476d7e
   iter-126
     lenses: new-capability -- iteration 126, hardening/DX -- iteration 126
     - Candidate A -- a first-class operator directive inbox (`DIRECTIVES.md`), race-free, injected into the PM lead prompt
@@ -219,4 +229,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-24 scouted iterations
+25 scouted iterations

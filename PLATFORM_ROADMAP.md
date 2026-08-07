@@ -34,20 +34,33 @@ the 600 s cap after checkpointing its spec but before appending them, and this c
 in the SHIP COMMIT, which is the gate's own commit to make. A PM must still never plan on that.
 STATUS (iter 127): the ledger and the archive are current through iteration 127; iteration 127's PM
 wrote its own two records, per the contract above.
-NEXT UP, in value order: (a) Scout B's `unknown_config_keys` -- `load_config` (foundry.py:220) filters
-the adopter's JSON to known dataclass fields, so a misspelled key is a DEFAULT, and `push_enabled`
-defaults TRUE, i.e. `"push_enable": false` silently PUSHES; ship the pure predicate WITH a pedal (a
-consumer that changes a decision), not as another read-only CLI; (b) Scout A's candidate C -- repair a
-missing `tests/test_iterNN*.py` at the earliest repairable stage (both iterations that lacked one, 121
-and 125, REVERTED); (c) relax `roles/tester.md`'s prose discipline around the two gate tokens, which
-iteration 127 makes safe but which MUST NOT ship in the same iteration as 127 itself (a live loop holds
-the pre-127 `foundry.py` in memory). ALSO STILL OPEN: the iteration-121 RETRY (its 51,824-byte
+STATUS (iter 128): current through iteration 128; its PM wrote its own two records in the ship
+commit, per the contract above.
+NEXT UP, in value order: (a) re-anchor `tests/test_control_path_freeze_scope.py`'s guard SELECTOR on
+guard BEHAVIOR (any test invoking a `git diff --quiet HEAD --` pathspec) instead of the exact name
+`GUARD_NAME`, which iteration 128's Scout B proved FAIL-OPEN two-sided: it sees only 12 of the 26
+every-suite freeze guards (10 distinct names, 3 distinct pathspecs, 227 lines) and PASSES against a
+planted known-bad guard freezing `README.md`/`roles/`, the exact iter-85 regression. The 25-guard
+CONSOLIDATION is an optional, much larger second half and does NOT unblock strangler steps 2/3 (one
+guard still freezes `dispatcher.py` and the meta-test requires it to); (b) the SECOND consumer for
+iteration 128's unknown-key guard -- `lint_config_cli` already holds the config PATH, so it can re-read
+the raw dict and emit a `ConfigFinding`, finally making `lint_config`'s own docstring claim about
+configs that "silently defeat the push guard" true (it takes an already-parsed `ProductConfig` today, so
+it structurally cannot see the class); (c) repair a missing `tests/test_iterNN*.py` at the earliest
+repairable stage (both iterations that lacked one, 121 and 125, REVERTED); (d) relax `roles/tester.md`'s
+prose discipline around the two gate tokens, which iteration 127 makes safe but which MUST NOT ship in
+the same iteration as 127 itself (a live loop holds the pre-127 `foundry.py` in memory). ALSO STILL OPEN: the iteration-121 RETRY (its 51,824-byte
 `products/_platform/state/iter-121/REVERTED_IMPLEMENTATION.patch` is preserved and its FINAL lesson
 authorises the retry, plus the dispatcher restart that lesson demands), then scout A's per-product
 `fast_test_cmd` for the build stages. DE-LISTED by iteration 126's spec on a measurement both its scouts
 took independently: no product in the fleet has a slow suite (`_platform` 35.41 s, repolens 30.75 s) and
 no product is retired for slowness, so the premise that it unblocks a slow repo is stale -- iteration 119
 had already found the "repolens is retired with a 498 s suite" claim false.
+DEADLINE (measured iteration 128 by its Scout B; a scheduling item, never a competitive candidate):
+this index is ~51 KB against `ROADMAP_SIZE_WARN_CHARS = 60000`, and `tests/test_iter122_behavior.py`
+asserts that budget against the LIVE file -- so whoever crosses it turns the suite RED and gets
+REVERTED for a docs-only reason. Post-split growth is ~932 chars per shipped iteration, i.e. roughly
+9-10 more iterations (~iter 137) of headroom. Compact the index BEFORE then.
 
 | # | Increment | Why | Done when |
 |---|---|---|---|
@@ -180,6 +193,7 @@ here has no bullet in the archive.
 - iter 124 -- third roadmap brake from GIT ship-truth; recovered the lost 64/122 records; PM self-records.
 - iter 126 -- test gate tells an UNFINISHED tester checkpoint from a RED suite; spends the repair round on the tester.
 - iter 127 -- anchored test-gate trigger: only an earned tester PASS skips the repair round (kills 6/19 false fires).
+- iter 128 -- product config fails CLOSED on an unknown key, naming the key and its nearest field.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03

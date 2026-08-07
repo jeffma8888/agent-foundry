@@ -35,6 +35,7 @@ import argparse
 import ast
 import dataclasses
 import datetime as dt
+import difflib
 import json
 import os
 import pathlib
@@ -214,8 +215,92 @@ class ProductConfig:
         return pathlib.Path(self.work_root) / "STOP"
 
 
+class ConfigKeyError(ValueError):
+    """A product config carries a key that is not a `ProductConfig` field.
+
+    WHY an exception rather than a warning: the config JSON is the adopter's whole
+    integration surface, and `load_config` used to DROP an unrecognised key into the
+    field's default -- so `"push_enable": false` silently PUSHED and
+    `"test_command": ...` silently ran a different quality gate than the adopter
+    believed. A dropped key is indistinguishable from an honoured one at every later
+    read, which makes it exactly the class of mistake a loader must refuse.
+
+    WHY `ValueError`: `dispatcher.py` already wraps its `load_config` call in
+    `except Exception`, logs the repr and skips that ONE team for ONE round. Deriving
+    from `ValueError` therefore reuses an existing, already-exercised failure path
+    (dropping a required field has always raised `TypeError` here) instead of
+    inventing a new hazard class, and needs no dispatcher change.
+    """
+
+
+# Keys starting with this prefix are adopter COMMENTS, never fields. Grounded, not
+# guessed: this repo's own `foundry.config.json` / `foundry.config.example.json`
+# document a `_comment` / `_note` convention, so an adopter will copy that habit
+# into a product config. A guard that rejected them would punish the very
+# convention the repo teaches.
+CONFIG_COMMENT_PREFIX = "_"
+
+# `difflib` cutoff for the "did you mean" hint. Measured against the 19 field names:
+# 0.7 resolves `push_enable -> push_enabled` and `test_command -> test_cmd` while
+# correctly refusing to guess for a bare `push`. That refusal is why the suggestion
+# is a MESSAGE feature and never the trigger -- a warn-only-on-near-miss design
+# would let `"push": false` through, the likeliest typo of all.
+CONFIG_SUGGEST_CUTOFF = 0.7
+
+
+def config_field_names() -> tuple[str, ...]:
+    """`ProductConfig` field names in declaration order, reflected at CALL time.
+
+    Reflection rather than a hardcoded list is what stops the guard drifting out of
+    sync with the schema the next time a field is added to `ProductConfig`.
+    """
+    return tuple(f.name for f in dataclasses.fields(ProductConfig))
+
+
+def unknown_config_keys(raw: Mapping[str, object]) -> tuple[str, ...]:
+    """Keys of a RAW product-config dict that no `ProductConfig` field can accept.
+
+    Sorted ascending so the operator message is deterministic. `_`-prefixed comment
+    keys are exempt (see `CONFIG_COMMENT_PREFIX`). Pure: no I/O, no mutation.
+    """
+    known = set(config_field_names())
+    return tuple(sorted(
+        str(k) for k in raw
+        if not str(k).startswith(CONFIG_COMMENT_PREFIX) and k not in known))
+
+
+def suggest_config_key(key: str) -> str | None:
+    """Nearest `ProductConfig` field name for a mistyped key, or None if not close.
+
+    Returning None instead of a best-effort guess keeps the message honest: it must
+    never assert a suggestion it does not have.
+    """
+    matches = difflib.get_close_matches(
+        key, config_field_names(), n=1, cutoff=CONFIG_SUGGEST_CUTOFF)
+    return matches[0] if matches else None
+
+
+def describe_config_key(key: str) -> str:
+    """Render ONE offending key for the operator message, with a hint when there is one."""
+    suggestion = suggest_config_key(key)
+    if suggestion is None:
+        return repr(key)
+    return f"{key!r} (did you mean {suggestion!r}?)"
+
+
 def load_config(path: str) -> ProductConfig:
     data = json.loads(pathlib.Path(path).expanduser().read_text())
+    # Fail CLOSED on a key this schema cannot accept, BEFORE the mkdir calls below,
+    # so a rejected config leaves no directories behind. The message names the FILE
+    # because the dispatcher logs only the exception repr -- the operator otherwise
+    # sees the mistake without seeing which config they mistyped.
+    unknown = unknown_config_keys(data)
+    if unknown:
+        raise ConfigKeyError(
+            f"unknown key(s) in product config {path}: "
+            + ", ".join(describe_config_key(k) for k in unknown)
+            + "; known fields: " + ", ".join(config_field_names())
+            + f"; prefix a key with {CONFIG_COMMENT_PREFIX!r} to keep it a comment")
     known = {f.name for f in dataclasses.fields(ProductConfig)}
     cfg = ProductConfig(**{k: v for k, v in data.items() if k in known})
     cfg.resolve()
