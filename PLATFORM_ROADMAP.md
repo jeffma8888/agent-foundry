@@ -38,6 +38,10 @@ STATUS (iters 130-135): current through iteration 135; each PM wrote its own two
 commit (iteration 133's archive bullet was appended by a later stage of the same commit). Items (a),
 (f), (b) and (e) shipped in iterations 132, 133, 134 and 135 respectively, each off a scout slate;
 STILL OPEN: (c), (d), (g)'s `parse_triage_winner` half, (h), and (i) below.
+STATUS (iter 136): current through 136, whose PM wrote both records in the ship commit. 136 was NOT a
+roadmap item -- off scout B's docs lens: retire 4 COMPLETED operator directives (6,468 chars, 42.3% of the
+prompt-inlined `## Patterns` head), re-status `docs/DISCOVERY_LOOP_PLAN.md`, add a `doctor` WARN on an
+over-budget head. STILL OPEN: (c), (d), (g)'s `parse_triage_winner` half, (h), (i), (j)-(l) below.
 NEXT UP, in value order: (a) SHIPPED iter 132 -- the freeze-guard SELECTOR now reads guard BEHAVIOR
 (an in-function `git diff --quiet HEAD --` pathspec, element-form), so the meta-test polices all 26
 every-suite guards instead of the 12 sharing one literal name. Only the OPTIONAL 25-guard
@@ -56,6 +60,16 @@ authorises the retry, plus the dispatcher restart that lesson demands), then sco
 took independently: no product in the fleet has a slow suite (`_platform` 35.41 s, repolens 30.75 s) and
 no product is retired for slowness, so the premise that it unblocks a slow repo is stale -- iteration 119
 had already found the "repolens is retired with a 498 s suite" claim false.
+THREE NEW items measured by iteration 136's scouts; FULL evidence in `products/_platform/state/iter-136/`
+(`pm_scout_a.md`, `pm_scout_b.md`) -- read those before designing, do NOT re-measure. (j) ACTIVATE-ON-LAG,
+biggest number on either slate: the live brain holds an Aug-5 `foundry.py`, so 14 shipped iterations (incl.
+the 129/135 retry re-pricings) have NEVER executed = 2.43 h/day of fleet sleep (quote that RUN RATE, not a
+total). Two bites; bite 2 edits a running loop's control flow, so it needs its own iteration. (k) the suite
+is 46.58 s serial vs 17.02 s under `-n auto` (2.74x, zero verdict changes) BUT that mutates the declared
+quality-check command the final gate and fresh clone consume, and 26 freeze guards would `git diff` from
+many workers on ONE tree -- only for an iteration that can re-verify the fresh clone. (l) `ARCHITECTURE.md`
+:90 + `CONTINUOUS.md`:39 still price the ladder "10->20->40 min", falsified by 129/135; derive the figures
+from the module constants in a test, asserting PRESENCE of each figure, never an exact sentence.
 DEADLINE (measured iteration 128 by its Scout B; a scheduling item, never a competitive candidate):
 `tests/test_iter122_behavior.py` asserts `ROADMAP_SIZE_WARN_CHARS = 60000` against the LIVE file, so
 whoever crosses it turns the suite RED and gets REVERTED for a docs-only reason. **RE-MEASURED iter 134, post-edit: this index is 56777 chars, leaving 3223. Iteration 134 is net
@@ -63,6 +77,10 @@ whoever crosses it turns the suite RED and gets REVERTED for a docs-only reason.
 partly paid for its own two records plus the new item (i). (The iter-128 note said "~51 KB": that was
 BYTES from `wc -c`, and the guard counts CHARACTERS -- measure with `len(text)`.)** Compacting the index is
 now the cheapest it will ever be; whoever picks it next should archive whole done rows wholesale.
+**RE-MEASURED iter 136, post-edit: 58493 chars, leaving 1507. Iteration 136 is net +1677 (its two
+records plus three new measured items (j)-(l)). Removing an OLD `- iter N ` ledger row is SAFE compaction --
+`roadmap_ledger_gaps` accepts a row HERE *or* a bullet in the archive, and every row here has one -- so the
+cheapest paydown is deleting the oldest rows wholesale, NOT re-wording anything in the archive.**
 
 | # | Increment | Why | Done when |
 |---|---|---|---|
@@ -203,6 +221,7 @@ here has no bullet in the archive.
 - iter 133 -- all 6 scout lenses DEFINED in the card, 3 docs de-hardcoded, suite brake on pool/card drift.
 - iter 134 -- lint-config emits a finding + exit 1 for a typo'd config key; missing/corrupt file still exits 2.
 - iter 135 -- per-kind retry ladder map: a "stalled" attempt waits 60/300/1200s, not 600/1200/2400 (-2.77h sleep).
+- iter 136 -- retired 4 SPENT operator directives from the prompt head (-6,468 chars); doctor WARNs an over-budget head.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03

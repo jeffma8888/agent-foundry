@@ -1,10 +1,17 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-136
+    lenses: performance-and-throughput (iteration 136), narrative-and-docs
+    - Candidate B1 -- Retire the spent operator directives; both artifacts still say the discovery loop was never built
+    - Candidate B2 -- The invariants doc still prices a retry ladder the code stopped using two iterations ago
+    - Candidate B3 -- The PM role card mandates a command that cannot run
+    winner: B1
+    ship: unknown
   iter-135
     lenses: simplification-and-deletion (iteration 135), performance-and-throughput
     winner: B2
-    ship: unknown
+    ship: PUSHED 9dc9849
   iter-134
     lenses: integration-and-adoption (iteration 134), simplification-and-deletion (iteration 134)
     - Candidate A1 -- `lint-config` reports a typo'd config key as a FINDING (exit 1), not as "cannot read config" (exit 2)
@@ -275,4 +282,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-32 scouted iterations
+33 scouted iterations

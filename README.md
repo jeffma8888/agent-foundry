@@ -127,7 +127,7 @@ briefs in [docs/research/](docs/research/README.md).
 ## Quickstart
 
 ```bash
-# 0. Preflight the box before committing a shift (AC power, agent CLI, uv, remote), PLUS the #43 live-lag line -- WARNing when shipped iterations are not yet live in the running brain (the lag never changes doctor's own exit code):
+# 0. Preflight the box before committing a shift (AC power, agent CLI, uv, remote), PLUS TWO drift lines: the #43 live-lag line -- WARNing when shipped iterations are not yet live in the running brain -- and the steering-head line -- WARNing when the pinned `## Patterns` head of the learnings log no longer fits the per-bullet/total prompt bounds, so part of the steering channel every stage prompt carries is being truncated or dropped (an edit the operator owes: retire the spent directives). Neither drift line ever changes doctor's own exit code, and `run_doctor` itself is still exactly four Checks:
 uv run python foundry.py doctor --config products/repolens/config.json
 
 # 1. Run one product team on an existing repo, a single iteration:
