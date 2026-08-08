@@ -1,13 +1,17 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-133
+    lenses: hardening/DX, integration-and-adoption
+    winner: A2
+    ship: unknown
   iter-132
     lenses: new-capability (iteration 132), hardening/DX
     - Candidate A1 -- Finish the decision log's WINNER half: a strict-fallback, cross-validated triage-winner rule
     - Candidate A2 -- `foundry new-product`: turn the VISION's "point it at any git repo" into an actual command
     - Candidate A3 -- Record the REJECTED alternative and the reason it lost -- the half of bite 4 that never shipped
     winner: A1
-    ship: unknown
+    ship: PUSHED 65c428e
   iter-131
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- Teach the decision log the candidate-heading shapes scouts actually write (32 of 135 slates currently render as zero candidates)
@@ -260,4 +264,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-29 scouted iterations
+30 scouted iterations

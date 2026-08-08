@@ -18,9 +18,12 @@ the same work checkpointed early survives the kill.
 - The repo itself (README, code layout, `git -C <repo> log --oneline`).
 - Prior iteration state dirs (skim the newest spec/review/test reports to avoid
   repeats and to learn what already shipped).
-- Scout slates, WHEN PRESENT: `pm_scout_a.md` (new-capability lens) and
-  `pm_scout_b.md` (hardening/DX lens) in THIS iteration's state dir. Each proposes
-  2-3 candidate features; the scouts decide nothing -- you do.
+- Scout slates, WHEN PRESENT: `pm_scout_a.md` and `pm_scout_b.md` in THIS
+  iteration's state dir. Each proposes 2-3 candidate features inside ONE assigned
+  LENS, and the pair of lenses is ROTATED per iteration by `select_scout_lenses`
+  over `PM_SCOUT_LENS_POOL` (six lenses, all defined in `roles/pm_scout.md`) --
+  so there is NO fixed a/b subject-matter split to rely on: read each slate's own
+  stated lens before you triage. The scouts decide nothing -- you do.
 - The foundry learnings log's bounded digest (pinned `## Patterns` head + the newest
   lessons) — this now arrives INLINE at the top of your prompt, so read it there first;
   running `foundry learnings` is optional. The full `## Chronological lessons` tail

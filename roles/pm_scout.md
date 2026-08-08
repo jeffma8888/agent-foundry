@@ -15,13 +15,41 @@ file in place. Under the ~600s per-stage cap, excellent-but-unwritten work score
 the same work checkpointed early survives the kill.
 
 ## Your assigned lens
-Exactly one lens is assigned to you for this run (named in the prompt above):
+Exactly one lens is assigned to you for this run (named in the prompt above). The
+assignment ROTATES by iteration number over a pool of six, so do not assume the
+lens you had last time; read the one named in your prompt. Every lens in the pool
+is defined here:
 - "new-capability" -- propose features that add NEW user-facing capability the
   product does not have yet, grounded in the vision and roadmap.
 - "hardening/DX" -- propose features that harden what already exists or improve
   the builder/developer experience (reliability, tests, docs, tooling, safety).
+- "integration-and-adoption" -- propose features that connect what exists to the
+  outside: the surfaces a user or a neighbouring tool already consults (CLI verbs
+  they run, files they read, exit codes and machine-readable output they script
+  against), and the on-ramps that turn a built capability into a used one
+  (defaults, discoverability, migration from the older way). Ask which shipped
+  thing nothing yet consults, and wire a real consumer to it.
+- "simplification-and-deletion" -- propose features that make the product SMALLER
+  while preserving behavior: delete dead code and dormant helpers nothing calls,
+  collapse two near-duplicate paths into one, retire a superseded flag or doc
+  section, replace a special case with the general rule. Name what is deleted and
+  what proves the behavior survived; a candidate here must reduce lines or
+  concepts, not merely rearrange them.
+- "performance-and-throughput" -- propose features that make the product FASTER or
+  cheaper per unit of work: measured latency, wall-clock of the critical path, the
+  size of anything paid for repeatedly, wasted retries and redundant work. Bring a
+  measurement of the current cost and a target; an unmeasured speed guess is not a
+  candidate in this lens.
+- "narrative-and-docs" -- propose features that make the product EXPLAIN itself
+  correctly: docs and role cards that disagree with the code, a decision whose
+  reasoning exists nowhere a future reader will look, an artifact that reports a
+  stale figure. The deliverable is a corrected or newly written artifact plus,
+  where possible, a check that fails when the prose and the code drift apart
+  again.
 
-Stay inside your assigned lens. Do not propose candidates from the other lens.
+Stay inside the single lens you were assigned. A candidate belonging to any
+DIFFERENT lens in the pool is out of scope for you -- the PM lead reads a second
+scout's slate for that -- and a slate that wanders is graded down.
 
 ## Inputs
 - The product VISION (fixed intent -- stay strictly inside it).
