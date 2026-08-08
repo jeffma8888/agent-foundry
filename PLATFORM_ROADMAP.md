@@ -38,17 +38,14 @@ STATUS (iter 128): current through iteration 128; its PM wrote its own two recor
 commit, per the contract above.
 STATUS (iter 129): current through iteration 129; its PM wrote its own two records in
 the ship commit, per the contract above.
-STATUS (iter 131): current through iteration 131; its PM wrote its own two records in the ship commit.
-Iteration 130's records were written by its own PM as well. Iteration 129 took a MEASURED-THROUGHPUT item off
-the scout slate rather than a NEXT UP item, so (a)-(d) below are all still open and (a) is
-still the top roadmap item.
-NEXT UP, in value order: (a) re-anchor `tests/test_control_path_freeze_scope.py`'s guard SELECTOR on
-guard BEHAVIOR (any test invoking a `git diff --quiet HEAD --` pathspec) instead of the exact name
-`GUARD_NAME`, which iteration 128's Scout B proved FAIL-OPEN two-sided: it sees only 12 of the 26
-every-suite freeze guards (10 distinct names, 3 distinct pathspecs, 227 lines) and PASSES against a
-planted known-bad guard freezing `README.md`/`roles/`, the exact iter-85 regression. The 25-guard
-CONSOLIDATION is an optional, much larger second half and does NOT unblock strangler steps 2/3 (one
-guard still freezes `dispatcher.py` and the meta-test requires it to); (b) the SECOND consumer for
+STATUS (iter 132): current through iteration 132; its PM wrote its own two records in the ship commit.
+Iterations 130 and 131 did the same. Iteration 132 took NEXT UP item (a) -- the top roadmap item -- off scout
+B's slate, so (a) is now SHIPPED and (b) is the top open item; (c) and (d) remain open.
+NEXT UP, in value order: (a) SHIPPED iter 132 -- the freeze-guard SELECTOR now reads guard BEHAVIOR
+(an in-function `git diff --quiet HEAD --` pathspec, element-form), so the meta-test polices all 26
+every-suite guards instead of the 12 sharing one literal name. Only the OPTIONAL 25-guard
+CONSOLIDATION remains, and it does NOT unblock strangler steps 2/3 (one guard still freezes
+`dispatcher.py` and the meta-test requires it to); (b) the SECOND consumer for
 iteration 128's unknown-key guard -- `lint_config_cli` already holds the config PATH, so it can re-read
 the raw dict and emit a `ConfigFinding`, finally making `lint_config`'s own docstring claim about
 configs that "silently defeat the push guard" true (it takes an already-parsed `ProductConfig` today, so
@@ -64,10 +61,11 @@ no product is retired for slowness, so the premise that it unblocks a slow repo 
 had already found the "repolens is retired with a 498 s suite" claim false.
 DEADLINE (measured iteration 128 by its Scout B; a scheduling item, never a competitive candidate):
 `tests/test_iter122_behavior.py` asserts `ROADMAP_SIZE_WARN_CHARS = 60000` against the LIVE file, so
-whoever crosses it turns the suite RED and gets REVERTED for a docs-only reason. **RE-MEASURED iter 131, post-edit:
-this index is 56,300 chars, leaving 3,700 -- about 4 more iterations at the observed ~932 chars/ship, so
-the budget is crossed around iter 135, not the ~iter 137 estimated at iter 128. (The iter-128 note said
-"~51 KB": that was BYTES from `wc -c`, and the guard counts CHARACTERS -- measure with `len(text)`.)** Compacting the index is
+whoever crosses it turns the suite RED and gets REVERTED for a docs-only reason. **RE-MEASURED iter 132,
+post-edit: this index is 56,155 chars, leaving 3,845 -- iteration 132 gave 145 chars BACK NET by retiring item
+(a)'s paragraph, so at the observed ~932 chars/ship the budget is crossed around iter 136. (The iter-128
+note said "~51 KB": that was BYTES from `wc -c`, and the guard counts CHARACTERS -- measure with
+`len(text)`.)** Compacting the index is
 now the cheapest it will ever be; whoever picks it next should archive whole done rows wholesale.
 
 | # | Increment | Why | Done when |
@@ -205,6 +203,7 @@ here has no bullet in the archive.
 - iter 129 -- retry delay reads the failure KIND: a cap-timeout waits 60s, not 10min (~8.4h/93h reclaimed).
 - iter 130 -- read-only live-lag report + doctor WARN: names shipped iterations the running brain cannot execute.
 - iter 131 -- decision log reads the id-first candidate headings scouts write; heals 5 of 27 committed blocks.
+- iter 132 -- freeze-guard meta-test selects by BEHAVIOR, not one name: 12 -> 26 guards policed, 4 pathspec sets.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03
