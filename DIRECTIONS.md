@@ -1,6 +1,13 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-132
+    lenses: new-capability (iteration 132), hardening/DX
+    - Candidate A1 -- Finish the decision log's WINNER half: a strict-fallback, cross-validated triage-winner rule
+    - Candidate A2 -- `foundry new-product`: turn the VISION's "point it at any git repo" into an actual command
+    - Candidate A3 -- Record the REJECTED alternative and the reason it lost -- the half of bite 4 that never shipped
+    winner: A1
+    ship: unknown
   iter-131
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- Teach the decision log the candidate-heading shapes scouts actually write (32 of 135 slates currently render as zero candidates)
@@ -10,7 +17,7 @@ foundry directions -- _platform
     - Candidate B2 -- Let the loop say "this box needs a human": name an auth failure kind and stop the product instead of burning the shift
     - Candidate B3 -- `foundry new-product`: make the VISION's "point it at any git repo" an actual command
     winner: A1
-    ship: unknown
+    ship: PUSHED 1f9353a
   iter-130
     lenses: performance-and-throughput (iteration 130), narrative-and-docs
     - Candidate A -- give `stalled` its own retry ladder (fast first retry, long thereafter)
@@ -253,4 +260,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-28 scouted iterations
+29 scouted iterations
