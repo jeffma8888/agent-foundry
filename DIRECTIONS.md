@@ -1,13 +1,17 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-137
+    lenses: narrative-and-docs, new-capability
+    winner: B2
+    ship: unknown
   iter-136
     lenses: performance-and-throughput (iteration 136), narrative-and-docs
     - Candidate B1 -- Retire the spent operator directives; both artifacts still say the discovery loop was never built
     - Candidate B2 -- The invariants doc still prices a retry ladder the code stopped using two iterations ago
     - Candidate B3 -- The PM role card mandates a command that cannot run
     winner: B1
-    ship: unknown
+    ship: PUSHED 1c4568a
   iter-135
     lenses: simplification-and-deletion (iteration 135), performance-and-throughput
     winner: B2
@@ -282,4 +286,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-33 scouted iterations
+34 scouted iterations

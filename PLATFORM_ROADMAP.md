@@ -42,6 +42,13 @@ STATUS (iter 136): current through 136, whose PM wrote both records in the ship 
 roadmap item -- off scout B's docs lens: retire 4 COMPLETED operator directives (6,468 chars, 42.3% of the
 prompt-inlined `## Patterns` head), re-status `docs/DISCOVERY_LOOP_PLAN.md`, add a `doctor` WARN on an
 over-budget head. STILL OPEN: (c), (d), (g)'s `parse_triage_winner` half, (h), (i), (j)-(l) below.
+STATUS (iter 137): current through 137, whose PM wrote both records in the ship commit. 137 was NOT a
+roadmap item -- off scout B's new-capability lens: a `foundry new-product` scaffolder, because the
+documented `cp` on-ramp in `USAGE.md` step 3 EXITS 1 (`cp` cannot create the parent dir). STILL OPEN:
+(c), (d), (g)'s `parse_triage_winner` half, (h), (i), (j)-(l), plus NEW (m): the prompt-inlined
+`quality_bar` in `products/_platform/config.json` names two invariants with 0 hits in `ARCHITECTURE.md`
+(`revert-on-doubt`, `single-brain dispatch`) and omits `Resilience`; iteration 137's PM re-verified that
+`VISION.md`'s five names ARE all real §3 headings, so the fix is config-VALUE-only plus a resolver test.
 NEXT UP, in value order: (a) SHIPPED iter 132 -- the freeze-guard SELECTOR now reads guard BEHAVIOR
 (an in-function `git diff --quiet HEAD --` pathspec, element-form), so the meta-test polices all 26
 every-suite guards instead of the 12 sharing one literal name. Only the OPTIONAL 25-guard
@@ -222,6 +229,7 @@ here has no bullet in the archive.
 - iter 134 -- lint-config emits a finding + exit 1 for a typo'd config key; missing/corrupt file still exits 2.
 - iter 135 -- per-kind retry ladder map: a "stalled" attempt waits 60/300/1200s, not 600/1200/2400 (-2.77h sleep).
 - iter 136 -- retired 4 SPENT operator directives from the prompt head (-6,468 chars); doctor WARNs an over-budget head.
+- iter 137 -- NEW `foundry new-product` scaffolder + immediate lint; fixes the `USAGE.md` cp on-ramp that exits 1.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03

@@ -18,11 +18,16 @@ cat > VISION.md <<'V'
 V
 git add -A && git commit -m "chore: seed vision" && git push -u origin main
 
-# 3. Wire it into the foundry.
+# 3. Wire it into the foundry — scaffold the product config, then read its lint.
 cd ~/projects/agent-foundry
-cp products/repolens/config.json products/mytool/config.json
-#   edit: name, repo, allowed_push_repo, vision, roadmap, quality_ref,
-#         quality_bar, test_cmd  (see products/repolens/config.json as a model)
+uv run python foundry.py new-product --name mytool --repo ~/projects/mytool
+#   writes products/mytool/config.json with every key spelled correctly, then lints
+#   it and prints what is still missing (a fresh scaffold WARNs "vision path is
+#   unset") plus a paste-ready dispatcher roster snippet.
+#   Exit 0 clean / 1 an argument needs fixing / 2 refused (bad --name, or the file
+#   already exists — re-run with --force to replace it).
+#   Then edit: vision, and optionally roadmap, quality_ref, quality_bar.
+#   The scaffold sets push_enabled false; flip it when you want the gate to push.
 
 # 4. Run it.
 uv run python foundry.py run --config products/mytool/config.json
@@ -74,6 +79,7 @@ Once this repo exists you can just say things like:
 | Stop everything | `touch ~/projects/agent-foundry/STOP` |
 | Retire one team | `touch ~/projects/agent-foundry/products/<name>/STOP` |
 | One iteration only | `foundry.py once --config <cfg>` |
+| Scaffold a new product config | `foundry.py new-product --name X --repo ~/projects/X` |
 | Dry-run (no push) | set `"push_enabled": false` in the product config |
 | See a team's status | `cat products/<name>/STATUS_REPORT.md` |
 | See what shipped | `git -C <product repo> log --oneline` |
