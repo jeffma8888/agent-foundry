@@ -3,6 +3,47 @@
 Audience: the `_platform` PM. This document is an OPERATOR DIRECTIVE. It outranks
 the roadmap's ordering for the next few iterations. Ship the bites below in order.
 
+## STATUS -- every bite below has SHIPPED (verified 2026-08-08, iteration 136)
+
+READ THIS FIRST. Sections 2-8 are preserved verbatim as the historical record of
+what was asked for and why, but their PRESENT-TENSE claims are now FALSE and this
+document no longer directs any work. Concretely: section 2's "the dual-PM-scout
+machinery is complete and DORMANT" and "`scout_phase_outcome` has ZERO callers in
+`run_iteration`" were true on 2026-08-03 and are wrong today, and section 8's
+embargo has had its release condition met since roughly iteration 113.
+
+Each line below names the SYMBOL first and the line number second: the symbol is
+the authoritative anchor (`rg -n "<symbol>" foundry.py`), the line number is a
+convenience that drifts with every edit to `foundry.py`.
+
+- Bite 1 (wire the scout pre-phase) -- **SHIPPED**. `run_iteration` calls
+  `scout_phase_outcome(cfg, iteration, "pm_scout.md", ...)` immediately before the
+  `pm` stage: `foundry.py:13086`. Every iteration's `pm_scout_a.md` /
+  `pm_scout_b.md` state files are the running proof.
+- Bite 2 (widen and ROTATE the lens pool) -- **SHIPPED**. The six-lens pool is
+  `PM_SCOUT_LENS_POOL` (`foundry.py:5239`); the deterministic, iteration-seeded
+  2-of-6 rotation is `select_scout_lenses(iteration)` (`foundry.py:5249`), supplied
+  at the single call site `foundry.py:13087`. Iteration 133 additionally put a
+  suite brake on pool/card drift.
+- Bite 3 (`novelty-check`, the repetition brake) -- **SHIPPED**, including the
+  WIRING that made it a brake rather than a read-only verb. CLI:
+  `novelty_check_cli` (`foundry.py:8344`). Wiring: `pm_novelty_block`
+  (`foundry.py:8384`) is inlined into the PM stage prompt by `build_prompt`
+  (`foundry.py:12829`) and consumed by the card at `roles/pm.md:91`. Note for the
+  record: this document's own evidence line "`rg novelty roles/` finds NOTHING"
+  was a CASE-SENSITIVITY false negative -- the card says `NOVELTY CHECK`.
+- Bite 4 (`DIRECTIONS.md`, the human-readable digest) -- **SHIPPED**.
+  `refresh_directions_file(cfg)` (`foundry.py:9232`) regenerates the tracked
+  `DIRECTIONS.md` from `gather_directions` + `render_directions_doc`, called from
+  `run_iteration` on a scouted iteration only (`foundry.py:13178`).
+- Bite 5 (the strangler epic) -- still OPEN and still the highest-VALUE item; it
+  was never gated on bites 1-4. It lives on `PLATFORM_ROADMAP.md`; follow
+  `docs/STRANGLER_PLAN.md`.
+- Section 8's embargo ("do not ship another `--json` flag or another `company-*`
+  clone until bites 1-4 are done") -- **SATISFIED**. Its release condition was met
+  when bites 1-4 landed; it constrains nothing now. The roadmap's ordering is
+  authoritative again, and a PM should not cite this document as outranking it.
+
 ## 1. Why this exists (the observed failure)
 
 Iterations 90-101 shipped TWELVE consecutive `<command> --json` increments

@@ -646,24 +646,32 @@ def doctor_ok(checks: list[Check]) -> bool:
 
 
 def run_doctor_cli(cfg: ProductConfig) -> int:
-    """CLI entry: print one line per check, the live-lag line, and a summary.
+    """CLI entry: print one line per check, two drift lines, and a summary.
 
-    Exit code is 0 iff all four checks pass -- UNCHANGED by the live-lag line
-    (iter 130). A stale brain is not an environment fault: it is a restart the
-    operator owes, so it WARNs where it will be seen (this is the surface run
-    before every launch) without ever blocking a run. `run_doctor` itself stays a
-    4-`Check` function, since its shape is pinned by the iter-01 tests.
+    Exit code is 0 iff all four checks pass -- UNCHANGED by either drift line (the
+    live-lag line, iter 130; the steering-head line, iter 136). Neither is an
+    environment fault: a stale brain is a restart the operator owes and an
+    over-budget steering head is an edit the operator owes, so both WARN where
+    they will be seen (this is the surface run before every launch) without ever
+    blocking a run. `run_doctor` itself stays a 4-`Check` function, since its
+    shape is pinned by the iter-01 tests, which is exactly why these two
+    diagnostics live HERE and not as fifth and sixth checks.
     """
     checks = run_doctor(cfg)
     for c in checks:
         print(f"[{'PASS' if c.ok else 'FAIL'}] {c.name}: {c.detail}")
-    # Double-guarded on top of `live_lag_line`'s own never-raise contract, for the
-    # same reason `run_doctor` double-guards its probes: a diagnostic must never be
-    # able to crash the preflight it decorates.
+    # Both prints are double-guarded on top of each line helper's own never-raise
+    # contract, for the same reason `run_doctor` double-guards its probes: a
+    # diagnostic must never be able to crash the preflight it decorates.
     try:
         print(live_lag_line(cfg))
     except Exception as exc:  # pragma: no cover - contract-impossible belt
         print(f"{LIVE_LAG_PREFIX} UNKNOWN -- live-lag line errored: {exc!r}")
+    try:
+        print(learnings_head_line(cfg))
+    except Exception as exc:  # pragma: no cover - contract-impossible belt
+        print(f"{LEARNINGS_HEAD_PREFIX} UNKNOWN -- steering-head line errored: "
+              f"{exc!r}")
     ok = doctor_ok(checks)
     passed = sum(1 for c in checks if c.ok)
     print(f"doctor: {passed}/{len(checks)} checks ok — "
@@ -1255,6 +1263,183 @@ def learnings_digest(
     parts = [*head, *notice, "",
              f"## Recent lessons (last {len(window)} of {total})", *window]
     return "\n".join(parts)
+
+
+# --------------------------------------------------------------------------- #
+# Steering-head drift audit -- `doctor`'s learnings-head line (iter 136).
+#
+# The pinned `## Patterns` head is the ONE steering channel every stage prompt
+# carries: `build_prompt` inlines the digest, head included, so a line written
+# there is mailed to every role of every stage until someone edits it. It is also
+# the only region of that file with an UNBOUNDED HUMAN WRITER, which is why it
+# rots in a way nothing catches. Measured on this product's own log at iteration
+# 136: 19 bullets / 15,277 chars, of which 6,468 (42.3%) were operator directives
+# whose work had ALREADY SHIPPED -- every role in every stage was being told to go
+# build four things that already existed -- and 7 of the 19 bullets were being
+# clipped MID-INSTRUCTION by the prompt bounds because dead text sat ahead of
+# them in the top-down admission order.
+#
+# A human grep is not a check (iteration 135's gate proved that: its drift grep
+# missed the load-bearing word and returned a false negative). This is the
+# mechanical version -- one PURE audit of the head under the SAME bounds
+# `build_prompt` applies, surfaced as ONE non-blocking line on a surface the
+# operator already runs. Strictly a reporter: off every control path, writes
+# nothing, and CANNOT change doctor's exit code -- the same contract iteration
+# 130's live-lag line established. It reports the SIZE problem it can measure;
+# WHICH bullets are spent stays a human judgement, which is why the line names
+# the remedy instead of pretending to make it.
+# --------------------------------------------------------------------------- #
+LEARNINGS_HEAD_PREFIX = "learnings-head:"   # stable grep anchor for the one line
+LEARNINGS_HEAD_WARN = "WARN"                # ONLY the elided branch carries it
+
+
+@dataclasses.dataclass(frozen=True)
+class LearningsHeadAudit:
+    """What the prompt bounds actually do to the pinned `## Patterns` head.
+
+    Frozen for the same reason as `LearningsView` / `TimingSummary`: a computed
+    verdict must not be mutable after the fact, and value-equality comes free.
+
+    * `bullets` -- bullet BLOCKS in the head as written (a `- ` bullet at column 0
+      plus its indented/blank continuation lines counts once, per `_bound_head`).
+    * `raw_chars` -- length of the VERBATIM head text (`"\n".join(head_lines)`),
+      i.e. what a human sees in the file, NOT the bounded projection.
+    * `truncated` / `dropped` -- the two elisions `_bound_head` performs under the
+      given caps: blocks cut to the per-bullet cap, and blocks the whole-head
+      budget refused (dropped from the BOTTOM).
+    * `over_budget` -- True iff the bounds elide ANYTHING (`truncated or dropped`).
+      Deliberately defined as "something does not arrive whole", not "the total
+      exceeds the budget", so it is exactly the condition under which
+      `learnings_digest` emits its own `> [head bounded: ...]` notice. That
+      equality is what keeps this audit from becoming a second, divergent
+      implementation of the bound, and it is asserted as a behavior.
+    """
+    bullets: int
+    raw_chars: int
+    truncated: int
+    dropped: int
+    over_budget: bool
+
+
+def learnings_head_audit(
+    text: str,
+    bullet_cap: int | None = PROMPT_LEARNINGS_HEAD_BULLET_CHARS,
+    head_budget: int | None = PROMPT_LEARNINGS_HEAD_BUDGET_CHARS,
+) -> LearningsHeadAudit:
+    """Size the pinned `## Patterns` head under the prompt bounds. Pure.
+
+    No filesystem, subprocess, network or clock -- text in, frozen result out --
+    so the whole audit is offline-testable with synthetic logs and never touches
+    the real learnings file. `learnings_head_line` is the one seam that reads disk.
+
+    The BOUNDING MATH IS NOT REIMPLEMENTED: this delegates to `_bound_head`, the
+    same helper `learnings_digest` uses, so the numbers reported can never
+    disagree with the numbers the prompt path actually pays. Only the head-REGION
+    extraction is repeated here (12 lines), because the prompt path is read-only
+    in this iteration -- lifting that scan out of `learnings_digest` would edit a
+    function in the hot path of every stage prompt for a reporting feature. The
+    duplication is deliberate and it is FENCED BY AN ORACLE rather than by good
+    intentions: a behavior asserts that for the same text and caps this function's
+    `bullets` / `truncated` / `dropped` equal the three numbers `learnings_digest`
+    renders in its own `> [head bounded: ...]` notice, and that an
+    `over_budget is False` head produces no notice at all. If either scan drifts,
+    that test goes red.
+
+    Head region, identical to `learnings_digest`: from the `## Patterns` heading up
+    to (exclusive) the first later `## ` heading OR the first lesson line (a line
+    left-stripping to `- [`), whichever comes first. That second terminator is what
+    lets an ARCHIVE section sit below the live head without being audited as part
+    of it.
+
+    `bullet_cap=None` / `head_budget=None` mean UNBOUNDED -- the call shape the
+    `foundry learnings` CLI and the AGENTS.md renderer use -- and then `truncated`,
+    `dropped` and `over_budget` are all falsy by construction while `bullets` and
+    `raw_chars` still describe the real head. The defaults are the two prompt
+    constants for ad-hoc use; `learnings_head_line` re-reads those globals INSIDE
+    its body and passes them explicitly, so the reported bounds track the live
+    constants rather than the values captured when this `def` executed.
+
+    A log with NO `## Patterns` section reports an all-zero, not-over-budget audit:
+    there is no head text to size. (`learnings_digest` substitutes a two-line
+    placeholder head so its OUTPUT SHAPE stays stable; that placeholder is a
+    renderer artifact, never file content, so counting its characters here would
+    report a head the operator cannot edit.) Empty text is the same case. Never
+    raises.
+    """
+    lines = text.splitlines()
+    head_start = next(
+        (i for i, ln in enumerate(lines)
+         if ln.lstrip().startswith("## Patterns")),
+        None,
+    )
+    if head_start is None:
+        return LearningsHeadAudit(bullets=0, raw_chars=0, truncated=0,
+                                  dropped=0, over_budget=False)
+    head = [lines[head_start]]
+    for ln in lines[head_start + 1:]:
+        if ln.lstrip().startswith("## ") or ln.lstrip().startswith("- ["):
+            break
+        head.append(ln)
+    _segments, bullets, truncated, dropped = _bound_head(
+        head, bullet_cap, head_budget)
+    return LearningsHeadAudit(
+        bullets=bullets,
+        raw_chars=len("\n".join(head)),
+        truncated=truncated,
+        dropped=dropped,
+        over_budget=bool(truncated or dropped),
+    )
+
+
+def learnings_head_line(cfg: "ProductConfig") -> str:
+    """ONE human line: does the steering head reach every stage prompt whole?
+
+    The single source of truth for the `doctor` line, shaped exactly like
+    `live_lag_line` because it answers the same class of question (a drift the
+    operator owes an edit for, not an environment fault). `learnings_head_audit`
+    is called by its BARE module name and the two prompt-bound constants are read
+    as module globals INSIDE the body, so a `monkeypatch.setattr(foundry, ...)` on
+    any of the three bites here.
+
+    Three OUTCOMES, deliberately distinct because they demand different actions:
+      * UNKNOWN -- no readable learnings log. Says so, claims nothing about the
+        head, and carries NO `LEARNINGS_HEAD_WARN`, because "I cannot tell" is not
+        evidence of a problem. This is also the branch every unexpected failure
+        degrades to.
+      * OK -- the head arrives whole in every stage prompt.
+      * WARN -- the bounds elide part of the head in EVERY stage prompt, with the
+        counts and the remedy. The only branch carrying the WARN token.
+
+    ALWAYS returns a non-empty single-line `str` (no embedded newline), never
+    `None`, and NEVER raises: a diagnostic that can crash the preflight it
+    decorates is worse than no diagnostic.
+    """
+    try:
+        bullet_cap = PROMPT_LEARNINGS_HEAD_BULLET_CHARS
+        budget = PROMPT_LEARNINGS_HEAD_BUDGET_CHARS
+        path = pathlib.Path(str(getattr(cfg, "learnings", "") or ".")).expanduser()
+        try:
+            text = path.read_text()
+        except Exception:
+            # Missing / unreadable / a directory -> UNKNOWN, never WARN.
+            return (f"{LEARNINGS_HEAD_PREFIX} UNKNOWN -- no readable learnings "
+                    f"log at {path.name}; cannot size the pinned `## Patterns` "
+                    f"head that every stage prompt carries")
+        audit = learnings_head_audit(text, bullet_cap, budget)
+        if not audit.over_budget:
+            return (f"{LEARNINGS_HEAD_PREFIX} OK -- pinned `## Patterns` head is "
+                    f"{audit.raw_chars} chars in {audit.bullets} bullet(s) and "
+                    f"arrives whole in every stage prompt (bounds: {bullet_cap} "
+                    f"chars/bullet, {budget} total)")
+        return (f"{LEARNINGS_HEAD_PREFIX} {LEARNINGS_HEAD_WARN} -- pinned "
+                f"`## Patterns` head is {audit.raw_chars} chars in "
+                f"{audit.bullets} bullet(s) and does NOT arrive whole: "
+                f"{audit.truncated} bullet(s) truncated, {audit.dropped} dropped "
+                f"in EVERY stage prompt (bounds: {bullet_cap} chars/bullet, "
+                f"{budget} total) -- retire the spent directives")
+    except Exception as exc:
+        return (f"{LEARNINGS_HEAD_PREFIX} UNKNOWN -- steering-head audit "
+                f"unavailable ({exc!r})")
 
 
 @dataclasses.dataclass(frozen=True)
