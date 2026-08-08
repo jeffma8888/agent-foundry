@@ -15,6 +15,9 @@ Spec: products/_platform/state/iter-129/pm.md, Expected Behaviors 1-15.
   retry_delay(kind, attempt) -> int
   8.  FAST_RETRY_KINDS draw from TIMEOUT_BACKOFFS; every other kind, including an
       unknown one, draws from BACKOFFS (so "service" stays 600/1200/2400).
+      NARROWED iter 135: "stalled" left this parametrize because iter 135 reversed
+      iter 129's deferral and gave it its own KIND_RETRY_LADDERS ladder, measured
+      basis being that 9 of 9 stalled stage-runs are test-RUNNING stages.
   9.  attempt 1/2/3 -> ladder index 0/1/2; beyond the ladder clamps to the LAST
       entry (the same clamp the old inline call site performed).
   10. never below RETRY_DELAY_FLOOR, and an EMPTY ladder returns that floor
@@ -24,6 +27,9 @@ Spec: products/_platform/state/iter-129/pm.md, Expected Behaviors 1-15.
   run_stage wiring, driven offline
   12. a cap-timeout blob with no output file sleeps 60/120/240 (was 600/1200/2400).
   13. a `service is busy` blob still sleeps 600/1200/2400, byte-identical to before.
+      NARROWED iter 135: STALLED_BLOB left this parametrize for the same reason as
+      behavior 8 -- a stall now sleeps 60/300/1200 end-to-end. Its CLASSIFICATION
+      is unchanged, so STALLED_BLOB still drives behaviors 4, 6, 7 and 14.
   14. the backoff log line still carries `backing off` (so the event-kind rules
       still stamp it "backoff") and now also NAMES the classified kind.
   15. unchanged: attempt count == MAX_ATTEMPTS; STOP short-circuits; a truthy
@@ -288,11 +294,19 @@ def test_b8_cli_error_is_the_other_fast_kind():
     assert set(foundry.FAST_RETRY_KINDS) == {"timeout", "cli-error"}
 
 
-@pytest.mark.parametrize("kind", ["stalled", "other", "brand-new-kind-nobody-ships"])
+@pytest.mark.parametrize("kind", ["other", "brand-new-kind-nobody-ships"])
 def test_b8_every_other_kind_including_an_unknown_one_keeps_the_long_ladder(kind):
     """The DEFAULT is today's behaviour, so a classifier that stops recognising a
     marker degrades to a long sleep, never to a hot loop against a sick backend.
-    `stalled` staying here is the spec's explicit out-of-scope decision."""
+
+    NARROWED by iter 135, which REVERSED iter 129's explicit out-of-scope
+    deferral of `stalled`: 9 of 9 measured stalled stage-runs are test-RUNNING
+    stages, so a stall is a transient LOCAL condition and now draws its own
+    KIND_RETRY_LADDERS ladder (60/300/1200). The parametrize therefore no longer
+    names `stalled`; what MUST survive is that an unknown kind and the explicit
+    fallback kind both still keep the long ladder, which is this test's real
+    subject. `stalled`'s new pricing is pinned by tests/test_iter135_behavior.py,
+    and the empty-map case there proves this ladder is one dict entry away."""
     assert [foundry.retry_delay(kind, n) for n in (1, 2, 3)] == [600, 1200, 2400]
 
 
@@ -399,9 +413,16 @@ def test_b12_no_wait_helps_kinds_use_the_fast_ladder_end_to_end(
 # ==========================================================================
 # Behavior 13 -- a genuine service failure is byte-identical to before
 # ==========================================================================
-@pytest.mark.parametrize("blob", [SERVICE_BLOB, STALLED_BLOB, UNMATCHED_BLOB, ""])
+@pytest.mark.parametrize("blob", [SERVICE_BLOB, UNMATCHED_BLOB, ""])
 def test_b13_wait_helps_kinds_keep_todays_backoff_end_to_end(
         monkeypatch, tmp_path, blob):
+    """NARROWED by iter 135 for the same measured reason as behavior 8 above:
+    STALLED_BLOB is no longer a wait-helps blob, because a stall is now priced at
+    60/300/1200 end-to-end (pinned in tests/test_iter135_behavior.py). SERVICE,
+    the unmatched blob and the empty blob all still sleep 600/1200/2400 -- a busy
+    backend is the one failure where a long sleep is correct, so this test's
+    subject is intact. STALLED_BLOB itself is UNCHANGED and still exercised by
+    behaviors 4, 6, 7 and 14, whose CLASSIFICATION is untouched."""
     d = _drive(monkeypatch, tmp_path, blob)
     assert d.sleeps == [600, 1200, 2400], (
         "a long-ladder kind must sleep exactly as it did before iter 129, got %r"
