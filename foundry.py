@@ -4941,12 +4941,17 @@ PM_SCOUT_LENSES: tuple[str, ...] = ("new-capability", "hardening/DX")
 # loop needs is a WIDER pool ROTATED deterministically by iteration number --
 # reproducible (never random.*, per the offline-test quality bar) yet varied,
 # and it finally puts `simplification-and-deletion` on the table after 100+
-# additive iterations. This is the pure, testable CORE only: `select_scout_lenses`
-# has ZERO orchestrator/dispatcher call site (its sole in-module caller is
-# `scout_plan_cli`), so the running loop is byte-identical -- `scout_phase_outcome`
-# still reads `PM_SCOUT_LENSES` above. WIRING the rotation into the live scout
-# pre-phase is the pre-declared next bite. Like `PM_SCOUT_LENSES`, the pool is a
-# module-level + patchable constant read at CALL time (Behavior 6).
+# additive iterations. NO LONGER DORMANT, and the comment that said so was stale:
+# iteration 113 WIRED the rotation into the live scout pre-phase, where
+# `run_iteration` passes `list(select_scout_lenses(iteration))` into the scout
+# plan -- so this pool now decides which lens each live scout stage is assigned.
+# (`scout_phase_outcome` still falls back to `PM_SCOUT_LENSES` above when no
+# explicit lens list is supplied, which is the byte-identical single-product
+# default.) Because the assignment reaches a scout as a bare NAME, every entry
+# here MUST also be DEFINED in the scout role card or that scout is briefed with
+# no instruction at all; `scout_lens_audit` below is the pure verdict the suite
+# uses to hold the pool and that card in agreement. Like `PM_SCOUT_LENSES`, the
+# pool is a module-level + patchable constant read at CALL time (Behavior 6).
 PM_SCOUT_LENS_POOL: tuple[str, ...] = (
     "new-capability",
     "hardening/DX",
@@ -4977,6 +4982,116 @@ def select_scout_lenses(iteration: int) -> tuple[str, str]:
     pool = PM_SCOUT_LENS_POOL
     i = iteration % len(pool)
     return (pool[i], pool[(i + 1) % len(pool)])
+
+
+# --------------------------------------------------------------------------- #
+# Scout-lens DOCUMENTATION audit (iteration 133)
+# --------------------------------------------------------------------------- #
+# The rotation above hands each live scout stage a bare lens NAME, so a pool
+# entry the scout role card never DEFINES briefs that scout with nothing -- the
+# exact drift measured this iteration: the pool held 6 lenses while the card
+# defined 2, so 4 of 6 reached the scout undefined. These two constants are the
+# card's grammar: definitions live under the `## `-heading whose title is
+# SECTION_TITLE, one per bullet of the form `- "NAME"` + SEPARATOR + prose. Both
+# are module-level + patchable and are read INSIDE the function (never captured
+# as a default arg), so a test can monkeypatch either and change a later call.
+LENS_DOC_SECTION_TITLE: str = "Your assigned lens"
+LENS_DOC_SEPARATOR: str = " -- "
+
+
+@dataclasses.dataclass(frozen=True)
+class LensDocAudit:
+    """The verdict of auditing a scout-lens pool against the scout role card.
+
+    Frozen because an audit is a RECORD of one comparison: freezing forbids
+    editing the verdict after the fact and gives value-equality for free, so two
+    `scout_lens_audit` calls on the same inputs compare ``==`` (which is what
+    makes the purity claim testable). Fields: `defined` are the lens names the
+    card documents, in CARD order; `undocumented` are pool entries the card never
+    defines, in POOL order -- these are the ones that would brief a scout with a
+    bare name; `orphaned` are card definitions with no pool entry, in CARD order
+    -- dead prose that misleads a reader about what can be assigned. `ok` is a
+    STORED field (not a property) so that assigning to it raises
+    `dataclasses.FrozenInstanceError` like every other field.
+    """
+
+    defined: tuple[str, ...]
+    undocumented: tuple[str, ...]
+    orphaned: tuple[str, ...]
+    ok: bool
+
+
+def scout_lens_audit(pool: Sequence[str], card_text: str) -> LensDocAudit:
+    """Audit a scout-lens pool against the TEXT of the scout role card.
+
+    WHY this exists rather than a CLI verb: an on-demand report nobody consults
+    cannot stop drift, so the consumer is a SUITE assertion -- it fails the ship
+    when the live pool and the live card disagree, which is what makes adding a
+    seventh lens without documenting it impossible. The drift is otherwise
+    unbounded and silent: the pool is code, the definitions are prose, and
+    nothing linked them.
+
+    Takes the card as a STRING, never a path, so it is PURE and TOTAL: no
+    filesystem, subprocess, network or clock access, no mutation of its
+    arguments, never raises for any input, and two calls with equal arguments
+    return equal results. Reading the card off disk is deliberately the CALLER's
+    job -- that is what lets a test drive every branch from in-memory text.
+
+    Parsing rule, deliberately narrow so unrelated prose cannot silently
+    "document" a lens: scanning starts after the `## ` heading whose title
+    equals `LENS_DOC_SECTION_TITLE` (case-insensitively) and STOPS at the next
+    `## ` heading, so an identically shaped bullet in a later section is ignored;
+    within that section a line contributes a name only if it begins `- "`, closes
+    the quote with a NON-EMPTY name, and continues with `LENS_DOC_SEPARATOR`
+    immediately after the closing quote. A quoted name without that separator
+    (`- "hardening/DX" is one`) is prose, not a definition. Repeated names are
+    reported ONCE, at their first position, in both `defined` and `orphaned`,
+    because an audit of a NAME SET has nothing to say about how often the card
+    repeats itself; the same de-duplication is applied to `pool`.
+
+    DORMANT: this function has ZERO call site in the running pipeline -- no
+    orchestrator, dispatcher, stage, CLI verb or config field references it -- so
+    resume semantics for an in-flight loop are byte-identical.
+    """
+    section_title = LENS_DOC_SECTION_TITLE.strip().lower()
+    separator = LENS_DOC_SEPARATOR
+
+    defined: list[str] = []
+    in_section = False
+    for raw_line in card_text.splitlines():
+        line = raw_line.strip()
+        if line.startswith("## "):
+            if in_section:
+                break  # the lens section ended at the next same-level heading
+            in_section = line[3:].strip().lower() == section_title
+            continue
+        if not in_section or not line.startswith('- "'):
+            continue
+        rest = line[3:]
+        close = rest.find('"')
+        if close <= 0:
+            continue  # unterminated quote, or an empty name: not a definition
+        name = rest[:close]
+        if not rest[close + 1:].startswith(separator):
+            continue  # quoted prose, not a `- "NAME" -- prose` definition
+        if name not in defined:
+            defined.append(name)
+
+    pool_names: list[str] = []
+    for name in pool:
+        if name not in pool_names:
+            pool_names.append(name)
+
+    defined_names = set(defined)
+    pool_set = set(pool_names)
+    undocumented = tuple(name for name in pool_names if name not in defined_names)
+    orphaned = tuple(name for name in defined if name not in pool_set)
+    return LensDocAudit(
+        defined=tuple(defined),
+        undocumented=undocumented,
+        orphaned=orphaned,
+        ok=not undocumented and not orphaned,
+    )
 
 
 # Generic glob for an agent's per-process IPC unix socket. A per-process agent

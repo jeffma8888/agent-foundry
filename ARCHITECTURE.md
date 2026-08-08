@@ -21,7 +21,7 @@ reusable, repo-agnostic org.
 
 | # | Stage | Role file | Output file (success = it exists) | Can touch git? |
 |---|---|---|---|---|
-| 0 | Dual PM scouts (OPT-IN: `dual_pm_scouts` in config) | `pm_scout.md` x2 | `pm_scout_a.md` (new-capability lens), `pm_scout_b.md` (hardening/DX lens) | no |
+| 0 | Dual PM scouts (OPT-IN: `dual_pm_scouts` in config) | `pm_scout.md` x2 | `pm_scout_a.md`, `pm_scout_b.md` -- one assigned lens each, ROTATED per iteration by `select_scout_lenses` over the six-entry `PM_SCOUT_LENS_POOL` | no |
 | 1 | PM / TPM (triages the scout slates when present) | `pm.md` | `pm.md` (the spec) | no |
 | 2 | Engineer | `engineer.md` | `engineer.md` | no |
 | 3 | Reviewer | `reviewer.md` | `reviewer.md` (`VERDICT:` line) | no |

@@ -11,12 +11,14 @@ Add an OPTIONAL two-scout pre-stage to `foundry.run_iteration`, gated by a confi
 so existing single-PM products are unaffected:
 
 1. New role file `roles/pm_scout.md` (adapted from the two-scout prototype, made
-   product-agnostic): a scout PROPOSES 2-3 candidate features in an assigned LENS
-   ("new-capability" or "hardening/DX"); it decides nothing.
+   product-agnostic): a scout PROPOSES 2-3 candidate features in an assigned LENS;
+   it decides nothing. (Shipped with two fixed lenses; since iteration 113 the lens
+   pair is ROTATED per iteration by `select_scout_lenses` over `PM_SCOUT_LENS_POOL`,
+   whose six entries are each defined in `roles/pm_scout.md`.)
 2. New config field on `ProductConfig`, e.g. `dual_pm_scouts: bool = False`
    (backward-compatible default off). When true, `run_iteration` runs `pm_scout_a`
-   (new-capability lens) then `pm_scout_b` (hardening/DX lens) SEQUENTIALLY (concurrency 1
-   preserved), writing `pm_scout_a.md` / `pm_scout_b.md` into the iteration state dir.
+   then `pm_scout_b` SEQUENTIALLY (concurrency 1 preserved), each on its own rotated
+   lens, writing `pm_scout_a.md` / `pm_scout_b.md` into the iteration state dir.
 3. The existing `pm` (PM lead) stage then reads both scout files as inputs and TRIAGES:
    picks exactly one feature, justifying it against the strongest alternative. Update
    `roles/pm.md` to consume the scout files when present.
