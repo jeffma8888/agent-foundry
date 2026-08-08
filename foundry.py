@@ -2511,6 +2511,241 @@ def lint_config_cli(config_path: str, as_json: bool = False) -> int:
     return lint.exit_code
 
 
+# --------------------------------------------------------------------------- #
+# `foundry new-product` -- scaffold a product config, then lint what was written
+#
+# WHY a verb instead of the documented copy-paste: `README.md` and `VISION.md`
+# both open with "point it at any git repo", and the entire implementation of that
+# promise was one `USAGE.md` line -- `cp products/<model>/config.json
+# products/<new>/config.json` -- which EXITS 1, because `cp` does not create the
+# parent directory. The hand-edit it then asked for is the other half of the cost:
+# since iteration 128 the loader FAILS CLOSED on an unrecognised key, so a
+# one-character typo (`test_command`, `push_enable`) now aborts a shift instead of
+# being silently dropped. Emitting the config from a template and linting it on the
+# spot inverts both failure modes at once: the key names are right by construction,
+# and whatever is still missing is reported in the operator's own terminal.
+#
+# Placement: an ON-DEMAND verb, off every control path. The pipeline, the gate and
+# the dispatcher never call it. It CREATES a product config and deliberately does
+# NOT edit the dispatcher roster -- a roster change only takes effect on dispatcher
+# restart, so a CLI that quietly rewrote it would manufacture exactly the
+# "I changed the roster and nothing happened" surprise the operator lore warns
+# about. The verb PRINTS a paste-ready snippet and leaves the roster to the human.
+# --------------------------------------------------------------------------- #
+# The scaffold's own inline-help key. `_`-prefixed keys are exempt from the
+# unknown-key guard (see `CONFIG_COMMENT_PREFIX`), which is precisely what lets a
+# generated template carry its own instructions and still load.
+NEW_PRODUCT_COMMENT_KEY = CONFIG_COMMENT_PREFIX + "comment"
+NEW_PRODUCT_COMMENT = (
+    "Scaffolded by 'foundry new-product'. Next: set vision (and optionally roadmap, "
+    "quality_ref, quality_bar), then set push_enabled true when you want the final "
+    "gate to push. Keys starting with '_' are comments; any OTHER unrecognised key "
+    "aborts the run (the loader fails closed).")
+
+# The lint fields this verb takes as ARGUMENTS -- and therefore the only fields
+# whose errors set its exit code.
+#
+# WHY the exit code is scoped rather than simply `ConfigLint.exit_code`: this verb
+# answers ONE question -- "are the arguments you just gave me good?" -- and every
+# member of this tuple maps 1:1 to a flag (`--name`, `--repo`,
+# `--allowed-push-repo`, `--test-cmd`), so a non-zero exit is always actionable by
+# re-running with different flags. The other lint axes are reported IN FULL (the
+# whole `render()` is printed, nothing is hidden) but cannot set the code, because
+# they are properties of the CHECKOUT or of edits the operator has not made yet: a
+# fresh scaffold intentionally leaves `vision` unset (a WARN by design, since the
+# operator writes VISION.md), and `roles_dir` describes the foundry checkout, which
+# is `doctor`'s axis, not this verb's. `foundry lint-config --config <path>` remains
+# the whole-config verdict and is named in the printed next steps.
+NEW_PRODUCT_ARG_FIELDS: tuple[str, ...] = (
+    "name", "repo", "allowed_push_repo", "test_cmd")
+
+# Roster priority suggested in the printed snippet: HIGHER (later each round) than
+# every team in this repo's own roster today, so a pasted snippet cannot silently
+# jump the queue ahead of an established team.
+NEW_PRODUCT_SUGGESTED_PRIORITY = 50
+
+
+def product_name_error(name: str) -> str | None:
+    """Why `name` is unsafe as a product directory name, or None when it is fine.
+
+    Pure (no filesystem, no clock) and total: never raises for any string. This is
+    the REFUSAL gate, checked before anything is created, because the name becomes
+    a path component (`<foundry>/products/<name>/config.json`) -- so `"a/b"` would
+    scatter files into a nested tree and `".."` would write OUTSIDE `products/`
+    entirely. A scaffolder that escapes its own root is the one bug in a scaffolder
+    that cannot be undone by editing the file it produced.
+
+    The message always names the FLAG (`--name`), not the field, because the only
+    reader is an operator who just typed it on a command line.
+    """
+    if not name.strip():
+        return "--name is empty"
+    if "/" in name or "\\" in name or "\0" in name:
+        return ("--name must be a single directory name, with no path separator: "
+                f"{name!r}")
+    if name in (".", ".."):
+        return f"--name must not be a relative-path component: {name!r}"
+    if name != pathlib.PurePosixPath(name).name:
+        return f"--name is not a plain directory name: {name!r}"
+    return None
+
+
+def product_config_template(
+        name: str,
+        repo: str,
+        *,
+        allowed_push_repo: str | None = None,
+        branch: str = ProductConfig.branch,
+        test_cmd: str = ProductConfig.test_cmd,
+) -> dict[str, object]:
+    """A valid-by-construction RAW product config, as a plain JSON-ready dict.
+
+    PURE: no filesystem, no clock, no `FOUNDRY` read, nothing mutated -- so it is
+    trivially testable and the caller owns every side effect.
+
+    Emits the keys `USAGE.md` tells an operator to edit (not merely the three
+    required ones), so the scaffold is a working starting point rather than a
+    minimal stub, plus one `_`-prefixed comment carrying its own instructions.
+
+    Three choices worth their WHY:
+
+    * `work_root` is written EXPLICITLY as `{FOUNDRY}/products/<name>` even though
+      `ProductConfig.resolve()` would default it to the same place. Leaving it
+      empty makes the default fire at LOAD time against whatever `FOUNDRY` is bound
+      to -- which is how a test with its own tmp root still creates directories in
+      the real checkout. An explicit value keeps the resolved location a property of
+      the FILE, matching every live config in `products/`.
+    * `push_enabled` is FALSE. A freshly scaffolded product has an unreviewed
+      `allowed_push_repo` and no VISION yet; the safe default is review-only, and
+      opting in is a one-word edit the operator makes deliberately.
+    * `vision`/`roadmap`/`quality_ref`/`quality_bar` are left EMPTY rather than
+      guessed. `lint_config` WARNs on an unset vision ("no fixed product intent to
+      hold to") and stays silent on the rest, so the scaffold's own lint output
+      becomes the to-do list -- whereas a guessed `<repo>/VISION.md` that does not
+      exist yet would be an ERROR, i.e. a scaffolder that ships broken.
+
+    `allowed_push_repo` defaults to the repo path's last component (the git remote
+    name in the overwhelmingly common layout) and falls back to `name`, so the push
+    guard has a real value to compare even before the operator enables pushing.
+    """
+    tail = pathlib.PurePosixPath(repo.rstrip("/")).name if repo else ""
+    return {
+        NEW_PRODUCT_COMMENT_KEY: NEW_PRODUCT_COMMENT,
+        "name": name,
+        "repo": repo,
+        "allowed_push_repo": allowed_push_repo or tail or name,
+        "branch": branch,
+        "vision": "",
+        "roadmap": "",
+        "quality_ref": "",
+        "test_cmd": test_cmd,
+        "roles_dir": "{FOUNDRY}/roles",
+        "work_root": "{FOUNDRY}/products/" + name,
+        "quality_bar": "",
+        "push_enabled": False,
+    }
+
+
+def new_product_exit_code(lint: ConfigLint) -> int:
+    """`1` iff a lint ERROR names a field this verb accepts as an argument, else `0`.
+
+    Pure. Split out from the CLI so the scoping rule documented on
+    `NEW_PRODUCT_ARG_FIELDS` is one testable expression rather than a condition
+    buried in a print-heavy function.
+    """
+    return 1 if any(f.level == "error" and f.field in NEW_PRODUCT_ARG_FIELDS
+                    for f in lint.findings) else 0
+
+
+def new_product_next_steps(name: str, config_path: pathlib.Path) -> str:
+    """The paste-ready follow-up block printed after a successful scaffold.
+
+    Pure string building. Carries the ABSOLUTE written path in the roster snippet
+    (what a copy-paste needs to work from any directory) and names the portable
+    `{FOUNDRY}`-relative form beside it, since that is the form this repo's own
+    roster uses. Writing the roster is left to the human on purpose -- see the
+    section comment above.
+    """
+    portable = "{FOUNDRY}/products/" + name + "/config.json"
+    snippet = json.dumps({
+        "name": name,
+        "config": str(config_path),
+        "priority": NEW_PRODUCT_SUGGESTED_PRIORITY,
+        "enabled": True,
+    }, indent=2)
+    return "\n".join([
+        "Next steps:",
+        f"  1. Edit the config: {config_path}",
+        "     (set `vision` to your VISION.md; `roadmap`, `quality_ref` and "
+        "`quality_bar` are optional steering)",
+        "  2. Re-check it any time: uv run python foundry.py lint-config "
+        f"--config {config_path}",
+        f"  3. One iteration only:   uv run python foundry.py once --config {config_path}",
+        '  4. To run it continuously, paste this team into the "work_items" list of '
+        "foundry.config.json:",
+        "",
+        "\n".join("     " + line for line in snippet.splitlines()),
+        "",
+        f"     (the roster also accepts the portable form {portable!r})",
+    ])
+
+
+def new_product_cli(name: str, repo: str, *,
+                    allowed_push_repo: str | None = None,
+                    branch: str = ProductConfig.branch,
+                    test_cmd: str = ProductConfig.test_cmd,
+                    force: bool = False) -> int:
+    """On-demand CLI: WRITE `<foundry>/products/<name>/config.json`, then lint it.
+
+    The one MUTATING verb in a CLI of read-only reports, so its safety rules are
+    explicit and all three come before the write:
+
+    1. An unsafe `--name` is REFUSED by `product_name_error` before any path is
+       built, so nothing is created and nothing can land outside `products/`.
+    2. An existing `config.json` is never clobbered without `--force`; the refusal
+       names the path so the operator can look at it.
+    3. Every path derives from the module-global `FOUNDRY`, read INSIDE this
+       function, so a test that rebinds it keeps the whole verb inside its own root.
+
+    Exit codes follow the `lint_config_cli` convention -- `0` clean (or warnings
+    only), `1` lint errors, `2` cannot proceed -- with `2` reserved for the two
+    refusals above, the only paths that write NOTHING. The `1` axis is scoped to
+    `NEW_PRODUCT_ARG_FIELDS`; the reasoning is on that constant.
+
+    Every collaborator (`product_name_error`, `product_config_template`,
+    `load_config`, `lint_config`, `new_product_exit_code`, `new_product_next_steps`)
+    is called by BARE MODULE NAME so `monkeypatch.setattr(foundry, ...)` bites.
+    """
+    reason = product_name_error(name)
+    if reason:
+        print(f"new-product: refusing to scaffold -- {reason}")
+        return 2
+    target = FOUNDRY / "products" / name / "config.json"
+    if target.exists() and not force:
+        print(f"new-product: {target} already exists; refusing to overwrite it "
+              "(re-run with --force to replace it)")
+        return 2
+    template = product_config_template(
+        name, repo, allowed_push_repo=allowed_push_repo, branch=branch,
+        test_cmd=test_cmd)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(template, indent=2) + "\n")
+    print(f"new-product: wrote {target}")
+    try:
+        cfg = load_config(str(target))
+    except Exception as exc:
+        # Unreachable for the template above (it is valid by construction); kept so
+        # a future template edit that breaks the schema reports itself instead of
+        # raising a traceback out of a CLI that has already written a file.
+        print(f"new-product: wrote the config but could not load it back: "
+              f"{type(exc).__name__}: {exc}")
+        return 1
+    lint = lint_config(cfg)
+    print(lint.render())
+    print(new_product_next_steps(name, target))
+    return new_product_exit_code(lint)
+
+
 def gather_config_lint(cfg: ProductConfig) -> ConfigLint:
     """Gather one product's config-lint verdict into a `ConfigLint` -- the
     per-product gather the `company-lint-config` roll-up drives (the exact analog
@@ -13675,6 +13910,28 @@ def main(argv: list[str] | None = None) -> int:
     # is a foundry-root artifact -- so it is dispatched BEFORE `load_config`.
     # On-demand only: the pipeline/dispatcher NEVER call it; it writes NOTHING.
     # Exit 0 healthy / 1 >=1 over budget / 2 nothing to report.
+    # `new-product` SCAFFOLDS a product config (the only mutating verb) and then
+    # lints what it wrote. Registered beside `stage-times` because both are
+    # dispatched BEFORE `load_config`: this one CREATES the config, so there is
+    # none to load. Exit 0 clean / 1 argument-level lint errors / 2 refused.
+    npd = sub.add_parser("new-product")
+    npd.add_argument("--name", required=True,
+                     help="product (team) name; becomes the directory name under "
+                          "products/ so it must be a plain directory name")
+    npd.add_argument("--repo", required=True,
+                     help="path to the product git repo ({FOUNDRY} and ~ are "
+                          "expanded at load time)")
+    npd.add_argument("--allowed-push-repo", default=None,
+                     help="repo basename the final gate may push to (default: the "
+                          "last component of --repo)")
+    npd.add_argument("--branch", default=ProductConfig.branch,
+                     help=f"branch the gate pushes (default: {ProductConfig.branch!r})")
+    npd.add_argument("--test-cmd", default=ProductConfig.test_cmd,
+                     help="the product's quality-check command "
+                          f"(default: {ProductConfig.test_cmd!r})")
+    npd.add_argument("--force", action="store_true",
+                     help="overwrite an existing products/<name>/config.json "
+                          "(without this the verb refuses and exits 2)")
     stm = sub.add_parser("stage-times")
     stm.add_argument("--log", default=str(FOUNDRY / "dispatcher.out"),
                      help="path to the dispatcher.out log (default: the "                          "foundry checkout dispatcher.out)")
@@ -14082,6 +14339,13 @@ def main(argv: list[str] | None = None) -> int:
         return company_test_quality_cli(args.config, as_json=args.json)
     if args.cmd == "company-lint-config":
         return company_config_lint_cli(args.config, as_json=args.json)
+    if args.cmd == "new-product":
+        # Dispatched BEFORE load_config: this verb CREATES the product config, so
+        # there is nothing to load yet (the `stage-times` precedent below).
+        return new_product_cli(args.name, args.repo,
+                               allowed_push_repo=args.allowed_push_repo,
+                               branch=args.branch, test_cmd=args.test_cmd,
+                               force=args.force)
     if args.cmd == "stage-times":
         # Dispatched BEFORE load_config: needs no product --config;
         # `dispatcher.out` is a foundry-root artifact (read-only, writes nothing).
