@@ -1990,7 +1990,9 @@ class ConfigFinding:
     Frozen (value equality for free, matching the other verdict cores). `field`
     is the config field the problem concerns (`"name"`, `"repo"`,
     `"allowed_push_repo"`, `"test_cmd"`, `"roles_dir"`, `"vision"`, `"roadmap"`,
-    `"quality_ref"`); `level` is `"error"` (breaks or silently defeats a shift)
+    `"quality_ref"`) -- or, for an UNKNOWN-key finding from `config_key_findings`,
+    the offending KEY itself, which is what makes a typo machine-readable in
+    `--json` without parsing prose; `level` is `"error"` (breaks or silently defeats a shift)
     or `"warn"` (degraded but a shift can still run); `detail` is a human
     sentence naming the specific problem.
     """
@@ -2193,6 +2195,56 @@ def lint_config(cfg: ProductConfig) -> ConfigLint:
     return ConfigLint(config_path=resolved.name, findings=tuple(findings))
 
 
+def config_key_findings(raw: Mapping[str, object]) -> tuple[ConfigFinding, ...]:
+    """One error-level `ConfigFinding` per UNKNOWN key in a RAW product-config mapping.
+
+    Input: `raw` is the mapping `json.loads` produced from a product config FILE, i.e.
+    the config BEFORE `ProductConfig` parsing -- the only moment an unrecognised key
+    still exists, because `load_config` raises `ConfigKeyError` and no config object is
+    ever built. That is WHY this takes a raw mapping and not a `ProductConfig`, and it
+    is what lets `lint_config_cli` become the second consumer of the iteration-128
+    unknown-key guard (whose only other call site is the `load_config` raise).
+
+    Ordering: the keys come straight from `unknown_config_keys`, so they are ASCENDING
+    and the report is deterministic; `_`-prefixed comment keys are exempt there.
+
+    The offending KEY goes in the `field` slot -- the machine-readable surface a script
+    reads out of `--json` without regexing English out of an exception repr -- and
+    `describe_config_key`'s hint goes in `detail`, which stays honest: no `did you mean`
+    clause is asserted when `suggest_config_key` has no close match. Every finding is an
+    ERROR, never a warning, because a key this schema cannot accept means the value was
+    never honoured (`"push_enable": false` silently PUSHED before the guard existed).
+
+    Pure: no filesystem, no network, no clock, and `raw` is never mutated. Never raises
+    for any mapping.
+    """
+    return tuple(
+        ConfigFinding(
+            key, "error",
+            f"unknown config key {describe_config_key(key)}; not a ProductConfig "
+            f"field -- prefix it with {CONFIG_COMMENT_PREFIX!r} to keep it a comment")
+        for key in unknown_config_keys(raw))
+
+
+def _report_unreadable_config(config_path: str, exc: BaseException,
+                              as_json: bool) -> int:
+    """Print the historical `lint-config: cannot read config ...` diagnostic, return 2.
+
+    Extracted for ONE reason: the exit-2 message must exist in exactly one place. Python
+    cannot fall through from one `except` clause into another, and the new
+    `ConfigKeyError` branch has to be able to fall BACK to this byte-identical path when
+    an unknown-key report is unavailable. Carries no logic of its own.
+    """
+    message = (f"lint-config: cannot read config {config_path}: "
+               f"{type(exc).__name__}: {exc}")
+    if as_json:
+        print(json.dumps({"config_path": config_path,
+                          "error": message, "exit_code": 2}))
+    else:
+        print(message)
+    return 2
+
+
 def lint_config_cli(config_path: str, as_json: bool = False) -> int:
     """On-demand CLI: lint a PRODUCT config file for misconfigurations.
 
@@ -2207,18 +2259,41 @@ def lint_config_cli(config_path: str, as_json: bool = False) -> int:
     mkdir, shared by every --config command). A thin wrapper over the pure core:
     it adds no lint logic beyond load -> `lint_config` -> format, so the printed
     verdict always matches the `ConfigLint` fields.
+
+    ONE exception is not an unreadable file: a `ConfigKeyError` (an unknown or
+    typo'd KEY) is a CONFIG ERROR, so it is reported as `config_key_findings`
+    rendered through the SAME `ConfigLint` render/to_dict/exit-code path as any
+    other lint -- exit `1`, with the offending key in a finding's `field`. WHY it
+    matters: exit `2` also means "file missing or corrupt", so conflating the two
+    left a launch wrapper unable to tell a one-character fixable typo from a
+    broken file, and `--json` emitted a prose `error` blob with no `findings`.
+    LIMITATION, stated rather than hidden: `load_config` raises before a
+    `ProductConfig` exists, so unknown-key findings REPLACE the normal field lint
+    for that run. FAIL-SAFE: the new report is opt-in on its own success -- if the
+    raw re-read fails, or the `config_key_findings` seam returns nothing or raises,
+    the historical exit-2 diagnostic is printed unchanged, so this branch can never
+    make the old path worse. Every other exception keeps the exit-2 path exactly.
     """
     try:
         cfg = load_config(config_path)
-    except Exception as exc:
-        message = (f"lint-config: cannot read config {config_path}: "
-                   f"{type(exc).__name__}: {exc}")
+    except ConfigKeyError as exc:
+        key_findings: tuple[ConfigFinding, ...] = ()
+        try:
+            raw = json.loads(pathlib.Path(config_path).expanduser().read_text())
+            # bare module name so `monkeypatch.setattr(foundry, ...)` bites
+            key_findings = config_key_findings(raw)
+        except Exception:
+            key_findings = ()
+        if not key_findings:
+            return _report_unreadable_config(config_path, exc, as_json)
+        lint = ConfigLint(config_path=config_path, findings=key_findings)
         if as_json:
-            print(json.dumps({"config_path": config_path,
-                              "error": message, "exit_code": 2}))
+            print(json.dumps(lint.to_dict(), indent=2))
         else:
-            print(message)
-        return 2
+            print(lint.render())
+        return lint.exit_code
+    except Exception as exc:
+        return _report_unreadable_config(config_path, exc, as_json)
     lint = lint_config(cfg)
     if as_json:
         print(json.dumps(lint.to_dict(), indent=2))

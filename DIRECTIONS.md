@@ -1,10 +1,17 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-134
+    lenses: integration-and-adoption (iteration 134), simplification-and-deletion (iteration 134)
+    - Candidate A1 -- `lint-config` reports a typo'd config key as a FINDING (exit 1), not as "cannot read config" (exit 2)
+    - Candidate A2 -- name the runnable foundry CLI in every stage prompt, so 40 shipped verbs stop being unreachable
+    - Candidate A3 -- the committed decision log records WHICH candidate won (and refuses to invent one)
+    winner: A1
+    ship: unknown
   iter-133
     lenses: hardening/DX, integration-and-adoption
     winner: A2
-    ship: unknown
+    ship: PUSHED b6774f9
   iter-132
     lenses: new-capability (iteration 132), hardening/DX
     - Candidate A1 -- Finish the decision log's WINNER half: a strict-fallback, cross-validated triage-winner rule
@@ -264,4 +271,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-30 scouted iterations
+31 scouted iterations
