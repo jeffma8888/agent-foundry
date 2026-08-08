@@ -108,6 +108,30 @@ RETRY_DIRECTIVE_ELLIPSIS = "..."        # ASCII marker ending a truncated block
 RETRY_DELAY_FLOOR = 60          # seconds; a retry never fires faster than this
 TIMEOUT_BACKOFFS = [60, 120, 240]       # fast ladder: 1 -> 2 -> 4 min
 FAST_RETRY_KINDS = ("timeout", "cli-error")   # kinds that draw from the fast ladder
+
+# Per-kind retry ladders (iter 135). Consulted by `retry_delay` BEFORE the
+# fast/default choice above, so ONE kind can be re-priced without editing any of
+# the three ladders above (each of which is pinned by an existing test). Ships
+# with exactly one key.
+#
+# MEASURED BASIS (live dispatcher.out, 2026-08-08): 16 `stalled` attempts across
+# 9 stage-runs, and 9 of 9 of those stage-runs are test-RUNNING stages (tester,
+# tester-rerun, fix-tests) with ZERO in pm / pm_scout / engineer / reviewer /
+# final. A network fault would spread across stages roughly in proportion to
+# attempt share; this concentrates in the one stage that runs a long SILENT LOCAL
+# command, so a stall is a transient local condition and sleeping 10 min before
+# retrying it cannot help. That population paid 13,800s of in-process sleep --
+# fleet-wide, since dispatcher.py is a single-threaded round-robin and every
+# product waits behind it -- against 3,840s under this ladder, reclaiming 9,960s
+# (2.77h, a 72% cut).
+#
+# WHY ATTEMPTS 3-4 STAY SLOW instead of reusing TIMEOUT_BACKOFFS: 7 of the 9
+# stage-runs recovered before attempt 4, so only the FRONT of the ladder helps
+# them, while the 2 that exhausted all four attempts are the candidates for a
+# genuine network or system-sleep event -- the one scenario where retrying
+# cheaply is wrong. Holding attempt 3 at 20 min buys that mitigation for 0.68h of
+# the otherwise-available reclaim. Short at the front, long at the back.
+KIND_RETRY_LADDERS: dict[str, list[int]] = {"stalled": [60, 300, 1200]}
 ATTEMPT_FAILURE_DEFAULT = "other"
 # Marker table for `classify_attempt_failure`, same shape and convention as
 # EVENT_KIND_RULES: lowercase substrings, FIRST rule wins, so ORDER IS
@@ -12718,10 +12742,20 @@ def classify_attempt_failure(blob: str) -> str:
 def retry_delay(kind: str, attempt: int) -> int:
     """Seconds to sleep before retrying a stage, given its failure ``kind``.
 
-    ``kind`` in ``FAST_RETRY_KINDS`` draws from ``TIMEOUT_BACKOFFS``; EVERYTHING
-    else -- including an unknown kind string -- draws from ``BACKOFFS``, so the
-    existing rate-limit ladder stays the DEFAULT and a classifier that stops
-    recognising a marker degrades to today's behaviour rather than to a hot loop.
+    PRECEDENCE, highest first: (1) a ladder ``KIND_RETRY_LADDERS`` names for this
+    exact ``kind``, (2) ``TIMEOUT_BACKOFFS`` when ``kind`` is in
+    ``FAST_RETRY_KINDS``, (3) ``BACKOFFS``. The per-kind map wins over the fast
+    set so a single kind can be re-priced -- iter 135 gives ``stalled`` its own
+    60/300/1200 ladder -- while the three ladders keep their literal values, and
+    deleting that one map entry restores the previous pricing for that kind
+    exactly. An entry naming an EMPTY ladder is an explicit decision rather than
+    an absence, so it returns ``RETRY_DELAY_FLOOR`` instead of falling through.
+
+    Absent the map, ``kind`` in ``FAST_RETRY_KINDS`` draws from
+    ``TIMEOUT_BACKOFFS``; EVERYTHING else -- including an unknown kind string --
+    draws from ``BACKOFFS``, so the existing rate-limit ladder stays the DEFAULT
+    and a classifier that stops recognising a marker degrades to today's
+    behaviour rather than to a hot loop.
 
     ``attempt`` is 1-based and selects ladder index ``attempt - 1``, clamped to
     the LAST entry for any attempt beyond the ladder (the same clamp the call
@@ -12732,9 +12766,16 @@ def retry_delay(kind: str, attempt: int) -> int:
     of raising ``IndexError``: this runs on the failure path, where a total
     function matters more than a precise one.
 
-    Pure: all four constants are read from module globals at CALL time.
+    Pure: all five constants are read from module globals at CALL time.
     """
-    ladder = TIMEOUT_BACKOFFS if kind in FAST_RETRY_KINDS else BACKOFFS
+    # iter-135: a per-kind ladder OUTRANKS the fast/default choice below, so the
+    # branch goes first. An entry naming an EMPTY ladder is a decision, not an
+    # absence: it falls to the floor via the `not ladder` guard, never through to
+    # the default ladder.
+    if kind in KIND_RETRY_LADDERS:
+        ladder = KIND_RETRY_LADDERS[kind]
+    else:
+        ladder = TIMEOUT_BACKOFFS if kind in FAST_RETRY_KINDS else BACKOFFS
     if not ladder:
         return RETRY_DELAY_FLOOR
     idx = min(max(int(attempt), 1) - 1, len(ladder) - 1)
