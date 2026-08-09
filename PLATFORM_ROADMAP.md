@@ -49,6 +49,10 @@ documented `cp` on-ramp in `USAGE.md` step 3 EXITS 1 (`cp` cannot create the par
 `quality_bar` in `products/_platform/config.json` names two invariants with 0 hits in `ARCHITECTURE.md`
 (`revert-on-doubt`, `single-brain dispatch`) and omits `Resilience`; iteration 137's PM re-verified that
 `VISION.md`'s five names ARE all real §3 headings, so the fix is config-VALUE-only plus a resolver test.
+STATUS (iter 139): current through 139, whose PM wrote both records in the ship commit. 139 also did the
+FIRST half of (n): the COMPLETED item-11 detailed spec (4,234 chars) moved verbatim to the archive, taking
+the index from 395 chars of headroom to ~4,600. The `## Item 16` section (3,467 chars) is the next target --
+verify it shipped first (`scripts/leak_guard.py` is committed and `roles/final.md` gate step 6 runs it).
 STATUS (iter 138): current through 138. NEW (n): deleting old ledger rows CANNOT compact this index (FROZEN pins 98 rows exactly-once); move COMPLETED item-11/16 prose to the archive.
 NEXT UP, in value order: (a) SHIPPED iter 132 -- the freeze-guard SELECTOR now reads guard BEHAVIOR
 (an in-function `git diff --quiet HEAD --` pathspec, element-form), so the meta-test polices all 26
@@ -232,6 +236,7 @@ here has no bullet in the archive.
 - iter 136 -- retired 4 SPENT operator directives from the prompt head (-6,468 chars); doctor WARNs an over-budget head.
 - iter 137 -- NEW `foundry new-product` scaffolder + immediate lint; fixes the `USAGE.md` cp on-ramp that exits 1.
 - iter 138 -- steering head emits VERBATIM when it fits its budget; truncate only on real overflow.
+- iter 139 -- both GATE cards carry their verify-first EXCEPTION; pure card audit + live suite brake stops drift.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03
@@ -260,75 +265,11 @@ here has no bullet in the archive.
 - If an increment would touch a currently-running loop's resume behaviour,
   defer it or gate it behind a version flag.
 
-## Detailed spec — item 11: post-release verification gate + revertable-commit contract
+## Detailed spec -- item 11: ARCHIVED by iter 139 (item SHIPPED iters 02/03)
 
-Added 2026-07-30 from a sibling continuous factory (`~/projects/proactive-factory/`)
-that has shipped 15 iterations to a PUBLIC repo with this gate green on every ship —
-so the design below is live-validated, not theoretical. Direct this item's PM to it.
-
-### Why (on-mission for the foundry's continuous-deployment goal)
-The Final Reviewer proves the *working tree* is green. It does NOT prove the *pushed
-commit* is deployable. The gap is exactly the class of bugs that break real releases:
-a file created but never `git add`-ed, `uv.lock` drift, an import that only resolves
-because of leftover dev-tree state. A CD system's whole promise is "what landed on the
-branch actually works from a clean checkout." This stage closes that gap.
-
-### What the stage does (additive; slots in AFTER the `ACTION: PUSHED` branch)
-Only runs when the final gate actually pushed (`push_enabled` True and remote head moved):
-1. Clone `origin/<branch>` fresh, shallow, into the iteration state dir
-   (a clean room — NOT the dev working tree).
-2. Run, in the clone: `cfg.setup_cmd` (default `uv sync`) → `cfg.test_cmd` (full suite)
-   → `cfg.smoke_cmd` (optional per-product demo/smoke, e.g. `make demo`; skip if unset).
-3. Confirm the cloned HEAD sha == the sha the final gate reported.
-4. Delete the throwaway clone.
-5. Emit a new sentinel as the output file's final line:
-   `POSTRELEASE: HEALTHY` / `POSTRELEASE: BROKEN`.
-
-### Failure handling
-- BROKEN → write `products/<name>/HOTFIX_NEEDED.md` (with the sha + verbatim evidence).
-  The next iteration's PM MUST prioritize a hotfix over any new feature. HEALTHY on a
-  later iteration clears the flag. The gate does NOT auto-fix and NEVER force-pushes —
-  a bad public commit is fixed forward by the next iteration, not rewritten.
-- Infra tolerance: a network failure during `git clone`/`uv sync` is INFRA, not a broken
-  release. In that case emit `POSTRELEASE: HEALTHY` (verification skipped, note why) so a
-  transient network blip never raises a false hotfix.
-
-### Revertable-commit contract (the second half of this item)
-Make the final gate's commit message a documented contract, not a convention:
-`<type>: <summary> (foundry <product> iter NN)` where type ∈ feat/fix/chore/docs/test.
-Every release is then greppable and single-commit-revertable — which is what makes
-"fix forward, or revert one commit" a safe operation for a public repo.
-
-### Config additions (default-on, backward compatible)
-- `postrelease_enabled: bool = True`
-- `setup_cmd: str = "uv sync"`, `smoke_cmd: str | None = None` (per product)
-- All optional with safe defaults so existing product configs keep working.
-
-### Invariant compliance (read §3 + the self-mod guardrails above)
-- Purely ADDITIVE: runs only after a successful ship, so it does NOT change iteration
-  numbering, state layout, or the `VERDICT:`/`RESULT:`/`ACTION:` sentinels → resume-safe
-  for any loop already in flight.
-- Introduces ONE new sentinel (`POSTRELEASE:`). When you implement, record it in
-  ARCHITECTURE.md §2 (add the stage row) and §3 (extend the gate invariant) with a
-  migration note here, per the self-modification guardrails.
-
-### Reference implementation (copy/adapt, don't reinvent)
-- Role playbook: `~/projects/proactive-factory/roles/postrelease.md` (the exact clone /
-  setup / test / smoke / sha-match / delete / sentinel + infra-tolerance rules).
-- Orchestration wiring: `~/projects/proactive-factory/factory_pla.py`
-  → `run_pipeline_tail()` (the post-release branch after `ACTION: PUSHED`, plus the
-  `HOTFIX_NEEDED.md` create-on-BROKEN / clear-on-HEALTHY logic).
-
-### Done when
-- [ ] A `postrelease` role + stage exist; stage runs on every ship, skipped on no-ship.
-- [ ] Verifies on a FRESH clone (setup + full suite + optional smoke), matches the sha.
-- [ ] Emits `POSTRELEASE: HEALTHY|BROKEN`; BROKEN writes the per-product hotfix flag.
-- [ ] Network failure during clone/sync degrades to HEALTHY-skipped (no false hotfix).
-- [ ] Final-gate commit-message contract documented and enforced in `roles/final.md`.
-- [ ] ARCHITECTURE.md §2/§3 updated + migration note; `tests/` stay green; both modules
-      still import.
-
----
+The 4,234-char detailed spec moved VERBATIM to `PLATFORM_ROADMAP_ARCHIVE.md` under
+`## Moved from the index by iter 139`, per this file's own contract (archive more when the index
+approaches its budget). It was 395 chars from the hard 60,000 `ROADMAP_SIZE_WARN_CHARS` ship brake.
 
 ## Item 16 — committed, portable pre-push leak-guard (HIGH: repo is public + auto-pushing)
 
