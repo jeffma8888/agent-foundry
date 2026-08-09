@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-144
+    lenses: new-capability (iteration 144), hardening/DX
+    - Candidate A1 -- read-only `foundry prompt`: render the exact bytes a stage receives
+    - Candidate A2 -- read-only `foundry stops`: enumerate and validate the STOP control plane
+    - Candidate A3 -- preserve partial stage output: dormant streaming attempt-log core (bite 1 of 2)
+    - Candidate B1 -- the anti-stall test discipline moves from the rotating learnings head into the four cards that mandate a suite run
+    - Candidate B2 -- a missing `tests/test_iterNN*.py` becomes repairable instead of fatal (roadmap item (c), still open)
+    - Candidate B3 -- re-scope the 27 control-path freeze guards from a path byte-diff to a symbol invariant (roadmap item (o))
+    winner: A1
+    ship: unknown
   iter-143
     lenses: narrative-and-docs (iteration 143), new-capability
     - Candidate A -- ARCHITECTURE's Resilience invariant states a retry ladder the code stopped using two shipped iterations ago
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- give the fleet's shipped progress meter its first data: generate a `prd.json`
     - Candidate B3 -- a machine-readable per-attempt evidence envelope
     winner: B2
-    ship: unknown
+    ship: PUSHED ad632e0
   iter-142
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- optional fast in-stage test command; the gates keep the declared serial one
@@ -346,4 +356,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-40 scouted iterations
+41 scouted iterations
