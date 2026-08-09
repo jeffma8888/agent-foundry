@@ -598,7 +598,11 @@ def test_b10_oracle_holds_across_a_grid_of_budgets():
 # Behavior 11 -- build_prompt opts in, reading MODULE GLOBALS at call time
 # --------------------------------------------------------------------------
 def test_b11_build_prompt_bounds_the_head_by_default(tmp_path):
-    big = "- OPERATOR DIRECTIVE HEADSENT " + ("z" * 3000) + " TAILSENT"
+    # 12KB, not the original 3KB: iteration 138 made per-bullet truncation a LAST
+    # RESORT, so a head UNDER `PROMPT_LEARNINGS_HEAD_BUDGET_CHARS` (10,000) is now
+    # emitted verbatim. The bullet cap this test exercises is only live once the
+    # head overflows that total budget, so the fixture must overflow it.
+    big = "- OPERATOR DIRECTIVE HEADSENT " + ("z" * 12000) + " TAILSENT"
     text = _text([big, "- short rule"], [_lesson(1)])
     cfg = _cfg(tmp_path, text)
     prompt = _prompt(cfg)
@@ -612,12 +616,21 @@ def test_b11_build_prompt_reads_bullet_cap_as_module_global(tmp_path, monkeypatc
     text = _text(["- rule alpha is quite long here", "- rule beta"], [_lesson(1)])
     cfg = _cfg(tmp_path, text)
     assert "head bounded:" not in _prompt(cfg)  # no-op at the real constants
+    # Iteration 138 made per-bullet truncation a LAST RESORT: it runs only when the
+    # verbatim head exceeds its TOTAL budget, so the cap is unobservable on this
+    # 75-char head until the budget is tightened too. 60 is chosen so the head
+    # overflows it while BOTH capped blocks still fit -- the notice below therefore
+    # comes from TRUNCATION, not dropping (asserted two ways: `0 dropped`, and MARK,
+    # which only the per-bullet cap can emit).
+    monkeypatch.setattr(foundry, "PROMPT_LEARNINGS_HEAD_BUDGET_CHARS", 60)
     monkeypatch.setattr(foundry, "PROMPT_LEARNINGS_HEAD_BULLET_CHARS", 12)
     prompt = _prompt(cfg)
     assert "head bounded:" in prompt, (
         "monkeypatching PROMPT_LEARNINGS_HEAD_BULLET_CHARS did not change the prompt "
         "(constant captured at def-time instead of read at call-time)")
     assert MARK in prompt
+    assert "0 dropped" in prompt, (
+        "the notice must be produced by the per-bullet cap, not by budget dropping")
 
 
 def test_b11_build_prompt_reads_head_budget_as_module_global(tmp_path, monkeypatch):
@@ -780,7 +793,18 @@ def _require_real_learnings():
 
 def test_ac_real_learnings_log_head_is_bounded_on_the_prompt_path():
     """Measured against the REAL log, expressed only as inequalities/comparisons --
-    no hard-coded char count (the log grows every iteration)."""
+    no hard-coded char count (the log grows every iteration).
+
+    NARROWED at iteration 138, which made per-bullet truncation a LAST RESORT: a head
+    whose VERBATIM size fits `HB` is now emitted whole, so "every emitted block is
+    within `HC`" stopped being an unconditional guarantee and became what the OVERFLOW
+    path guarantees. Both sides of the budget are asserted, so the test keeps its value
+    whichever side the growing log is on -- and the old assertion predicted exactly
+    this in its own failure message ("if the head has been curated so that every block
+    is within the cap AND the total is within the budget, the bound is correctly a
+    no-op and this assertion needs revisiting"). The unconditional `len(core) <= HB`
+    invariant is unchanged and still asserted first.
+    """
     text = _require_real_learnings()
     HB = foundry.PROMPT_LEARNINGS_HEAD_BUDGET_CHARS
     HC = foundry.PROMPT_LEARNINGS_HEAD_BULLET_CHARS
@@ -794,20 +818,34 @@ def test_ac_real_learnings_log_head_is_bounded_on_the_prompt_path():
     head_unbounded = foundry.learnings_digest(
         text, recent=R, max_chars=MB, lesson_chars=LC)
 
-    core, _ = _notice_of(bounded)
+    core, notice = _notice_of(bounded)
+    # The UNCONDITIONAL invariant, unchanged by iteration 138: whatever the log holds,
+    # the emitted head fits the total budget.
     assert len(core) <= HB, (len(core), HB)
-    for b in _split_head(core)[1]:
-        assert len(b) <= HC, len(b)
 
-    # the precondition is DERIVED from the same data, so a future failure explains itself
     full_core, _ = _notice_of(head_unbounded)
-    oversized = [len(b) for b in _split_head(full_core)[1] if len(b) > HC]
-    assert len(bounded) < len(head_unbounded), (
-        "the prompt-path digest is not strictly shorter than the same call with the "
-        f"head params None (oversized head blocks today: {oversized}; head len "
-        f"{len(full_core)} vs budget {HB}) -- if the head has been curated so that "
-        "every block is within the cap AND the total is within the budget, the bound "
-        "is correctly a no-op and this assertion needs revisiting")
+    raw_head = "\n".join(_expected_head_lines(text))
+    if len(raw_head) <= HB:
+        # FITS WHOLE (the live case since iteration 138): a head within the total
+        # budget is emitted VERBATIM, so the guarantee to assert is the ABSENCE of
+        # every elision -- no notice, and byte-identical to the unbounded render.
+        assert notice is None, (
+            f"a head that fits the budget ({len(raw_head)} <= {HB}) was still elided: "
+            f"{notice!r}")
+        assert core == full_core, (
+            "the prompt-path head is not byte-identical to the unbounded head even "
+            f"though it fits the budget ({len(raw_head)} <= {HB})")
+        assert len(bounded) == len(head_unbounded), (len(bounded), len(head_unbounded))
+    else:
+        # OVERFLOW path (unchanged behaviour): every emitted block is within the
+        # per-bullet cap and the bounded digest is strictly shorter.
+        for b in _split_head(core)[1]:
+            assert len(b) <= HC, len(b)
+        oversized = [len(b) for b in _split_head(full_core)[1] if len(b) > HC]
+        assert len(bounded) < len(head_unbounded), (
+            "the prompt-path digest is not strictly shorter than the same call with "
+            f"the head params None (oversized head blocks today: {oversized}; head "
+            f"len {len(full_core)} vs budget {HB})")
     assert len(bounded) <= HB + MB + 300, len(bounded)
 
 

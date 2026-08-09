@@ -1074,8 +1074,24 @@ def _bound_head(head: list[str], bullet_cap: int | None,
     first bullet block (the heading and its intro prose); it is always emitted
     verbatim and is counted INSIDE ``budget``.
 
-    Truncation is applied FIRST and the budget SECOND -- the same order as
+    Truncation is a LAST RESORT. When ``budget`` is set and the VERBATIM head
+    already fits it, the head is emitted WHOLE and neither elision runs
+    (``truncated == dropped == 0``); only an OVERFLOWING head pays the bounds, and
+    then truncation is applied FIRST and the budget SECOND -- the same order as
     ``lesson_chars`` then ``max_chars`` -- so both invariants hold at once.
+
+    WHY that fast path exists (measured at iteration 138): the live head was 9,175
+    chars against a 10,000-char ``budget`` -- 825 to spare -- and the SEPARATE
+    800-char ``bullet_cap`` still cut 4 of its 16 bullets mid-sentence. The
+    cheapest possible head, one that already fits, was paying the most destructive
+    bound for no budget reason, losing 2,356 chars of the highest-precedence text
+    in every stage prompt. Truncate-then-budget is right for the lesson tail (MANY
+    SHORT lines, admitted newest-first) and wrong here (a FEW LONG curated blocks
+    whose whole point is to arrive intact): a directive that does not arrive whole
+    is not delivered. An ABSENT ``budget`` does NOT trigger the fast path -- no
+    declared total is not a statement that the head fits one -- so a caller that
+    sets only ``bullet_cap`` keeps its per-bullet bound exactly as before.
+
     Blocks are admitted TOP-DOWN and therefore dropped from the BOTTOM, because
     the head is written highest-precedence-first (operator directives lead), so a
     surviving prefix is the most valuable prefix. Newlines between emitted chunks
@@ -1100,6 +1116,14 @@ def _bound_head(head: list[str], bullet_cap: int | None,
         else:
             preamble.append(line)
     total = len(blocks)
+
+    # Fits-whole fast path: a head already within its total budget is emitted
+    # VERBATIM, making per-bullet truncation a last resort instead of the first
+    # bound applied. Returning `list(head)` (the raw lines) makes "verbatim" a
+    # property of the code rather than of a reconstruction: joining these segments
+    # with newlines IS `"\n".join(head)`.
+    if budget is not None and len("\n".join(head)) <= budget:
+        return list(head), total, 0, 0
 
     # Per-block truncation first: reuse the lesson helper so one multi-KB head
     # bullet can never dominate the prompt (exact-cap output ending in MARKER).

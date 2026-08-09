@@ -49,6 +49,7 @@ documented `cp` on-ramp in `USAGE.md` step 3 EXITS 1 (`cp` cannot create the par
 `quality_bar` in `products/_platform/config.json` names two invariants with 0 hits in `ARCHITECTURE.md`
 (`revert-on-doubt`, `single-brain dispatch`) and omits `Resilience`; iteration 137's PM re-verified that
 `VISION.md`'s five names ARE all real §3 headings, so the fix is config-VALUE-only plus a resolver test.
+STATUS (iter 138): current through 138. NEW (n): deleting old ledger rows CANNOT compact this index (FROZEN pins 98 rows exactly-once); move COMPLETED item-11/16 prose to the archive.
 NEXT UP, in value order: (a) SHIPPED iter 132 -- the freeze-guard SELECTOR now reads guard BEHAVIOR
 (an in-function `git diff --quiet HEAD --` pathspec, element-form), so the meta-test polices all 26
 every-suite guards instead of the 12 sharing one literal name. Only the OPTIONAL 25-guard
@@ -230,6 +231,7 @@ here has no bullet in the archive.
 - iter 135 -- per-kind retry ladder map: a "stalled" attempt waits 60/300/1200s, not 600/1200/2400 (-2.77h sleep).
 - iter 136 -- retired 4 SPENT operator directives from the prompt head (-6,468 chars); doctor WARNs an over-budget head.
 - iter 137 -- NEW `foundry new-product` scaffolder + immediate lint; fixes the `USAGE.md` cp on-ramp that exits 1.
+- iter 138 -- steering head emits VERBATIM when it fits its budget; truncate only on real overflow.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03

@@ -8,8 +8,11 @@ the tester log, NOT by a suite test: its subject is a gitignored file that is AB
 in the fresh clone the post-release gate uses.)
 
   learnings_head_audit(text, bullet_cap=800, head_budget=10000)  -- pure
-  1.  a 1200/300/300-char head reports bullets==3, raw_chars==len(verbatim head),
-      truncated==1, dropped==0, over_budget True.
+  1.  an OVER-BUDGET 9000/700/700-char head reports bullets==3,
+      raw_chars==len(verbatim head), truncated==1, dropped==0, over_budget True.
+      (Sizes raised at iteration 138: per-bullet truncation is now a LAST RESORT
+      that runs only when the verbatim head exceeds the TOTAL budget, so the
+      original 1200/300/300 head -- under the budget -- now arrives whole.)
   2.  a 3x200-char head reports the same bullets/raw_chars discipline with
       truncated==0, dropped==0, over_budget False.
   3.  head-region rule: the head ends at the FIRST later `## ` heading OR the first
@@ -131,7 +134,18 @@ def _head_text(text):
     return "\n".join(head)
 
 
-OVER = _log([_bullet("a", 1200), _bullet("b", 300, "y"), _bullet("c", 300, "z")])
+# RE-FIXTURED at iteration 138, which made per-bullet truncation a LAST RESORT: the
+# bounds now elide nothing unless the VERBATIM head exceeds the TOTAL budget. The
+# original 1200/300/300 head was over the per-bullet CAP but 8,158 chars UNDER
+# `BUDGET`, so it arrives WHOLE under the new order and can no longer exercise the
+# truncate-then-drop path at all. Sizes are raised so the head genuinely overflows
+# while the elision this fixture exists to measure is unchanged (bullets==3,
+# truncated==1, dropped==0). No assertion was weakened; the PREMISE was repaired,
+# and it is asserted below rather than assumed.
+OVER = _log([_bullet("a", 9000), _bullet("b", 700, "y"), _bullet("c", 700, "z")])
+assert len(_head_text(OVER)) > BUDGET, (
+    f"OVER must exceed the total head budget to exercise the bounds: "
+    f"{len(_head_text(OVER))} <= {BUDGET}")
 UNDER = _log([_bullet("a", 200), _bullet("b", 200, "y"), _bullet("c", 200, "z")])
 DROPPING = _log([_bullet(f"b{i}", 900) for i in range(20)])
 

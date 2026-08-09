@@ -1,10 +1,20 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-138
+    lenses: new-capability, hardening/DX
+    - Candidate A -- foundry trust: name the verdicts no transcript ever backed
+    - Candidate B -- foundry verify: is main deployable RIGHT NOW, without waiting for a ship
+    - Candidate C -- foundry sentinels: the pause control plane has no read-out
+    - Candidate B1 -- make the PM card's two MANDATED foundry commands actually runnable from a stage
+    - Candidate B2 -- doctor reports NOT READY on a healthy fleet (false alarm in the pre-flight verb)
+    - Candidate B3 -- the pinned prompt head is CORRUPTED in delivery, not merely over budget
+    winner: B3
+    ship: unknown
   iter-137
     lenses: narrative-and-docs, new-capability
     winner: B2
-    ship: unknown
+    ship: PUSHED f2e5239
   iter-136
     lenses: performance-and-throughput (iteration 136), narrative-and-docs
     - Candidate B1 -- Retire the spent operator directives; both artifacts still say the discovery loop was never built
@@ -286,4 +296,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-34 scouted iterations
+35 scouted iterations
