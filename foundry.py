@@ -4044,6 +4044,198 @@ def prd_status_cli(cfg: ProductConfig, as_json: bool = False) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# prd.json PRODUCER (`foundry prd-init`, item 1 bite 2c) -- the missing half of
+# the shipped story meter.
+#
+# Bites 1 and 2 shipped the whole REPORTING side (`prd_status` ->
+# `prd_status_cli` -> `dispatch_progress_line`, the last of which the dispatcher
+# shift loop ALREADY calls every shift) and then starved: `load_config` defaults
+# `cfg.prd` to `<repo>/prd.json`, no product config overrides it, and NO rostered
+# repo holds that file -- so the live hook has returned `None` every shift because
+# nothing in the tree could produce its input. This bite ships that producer.
+#
+# The PARSE QUALITY is the feature, so stories come ONLY from an EXPLICIT operator
+# source (repeatable `--story` values and/or a plain-text `--from-file`). It never
+# scrapes `PLATFORM_ROADMAP.md` or any other prose and it never infers `passes`: a
+# WRONG meter is worse than an absent one, because the dispatcher would then log a
+# false figure every shift, forever.
+#
+# `render_prd_doc` and `parse_story_lines` are PURE and total (no filesystem, no
+# clock, no subprocess, never raise); `prd_init_cli` is the ONLY writer and is
+# DORMANT / on-demand -- the pipeline, the gate and the dispatcher never call it.
+# `PrdStatus`, `prd_status`, `prd_status_cli` and `dispatch_progress_line` stay
+# BYTE-UNCHANGED: this adds a producer, it does not touch the frozen core.
+# --------------------------------------------------------------------------- #
+
+# The ONE leading list marker `parse_story_lines` strips per line: `- `, `* `, or
+# digits + `. `. ANCHORED at the start of the already-stripped line, so a
+# marker-looking substring INSIDE a title (`"fix a - b bug"`) survives whole --
+# the difference between tidying an operator's pasted bullet list and silently
+# truncating a story title. The trailing alternation accepts END-OF-STRING as well
+# as whitespace so a CONTENT-FREE bullet (a stray `"- "` line, stripped to `"-"`)
+# reduces to nothing and is skipped, rather than becoming a story titled `"-"`;
+# a markerless `"-ship X"` still matches neither branch and survives whole.
+_STORY_MARKER_RE = re.compile(r"^(?:[-*]|\d+\.)(?:[ \t]+|$)")
+
+
+def render_prd_doc(titles: Iterable[str]) -> dict:
+    """Render an all-pending `prd.json` document from story titles (pure, total).
+
+    Returns the `{"stories": [...]}` shape `prd_status` accepts, each story an
+    `{"id", "title", "passes"}` dict with a 1-based `S<n>` id assigned in INPUT
+    order and `passes` the Python `False` (JSON `false`) -- a freshly initialised
+    meter asserts NOTHING about what is done, because inferring completion is
+    exactly how a progress meter starts lying.
+
+    Titles are `.strip()`ed, and a title that is EMPTY after stripping is DROPPED
+    WITHOUT consuming an id, so the surviving stories always carry a gap-free
+    `S1..SN` run. That is what makes the round-trip contract hold: feeding the
+    result to `prd_status` reports `total == N`, `passed == 0` and
+    `pending == ("S1", ..., "SN")` in order. A non-`str` entry is stringified
+    rather than raising, which keeps the renderer total for any iterable.
+
+    An empty input returns `{"stories": []}` instead of refusing -- the renderer
+    always answers, and it is `prd_init_cli` that refuses to WRITE a 0-story
+    meter (see its refusal precedence for why such a file must never exist).
+    """
+    stories: list[dict] = []
+    for raw in titles:
+        title = raw.strip() if isinstance(raw, str) else str(raw).strip()
+        if not title:
+            continue
+        # The id derives from the SURVIVING count, so a dropped blank never
+        # burns an id and the run stays gap-free.
+        stories.append({"id": f"S{len(stories) + 1}", "title": title,
+                        "passes": False})
+    return {"stories": stories}
+
+
+def parse_story_lines(text: str) -> list[str]:
+    """Parse one story title per line out of a plain-text list (pure, total).
+
+    The `--from-file` format is deliberately the dumbest thing that works: one
+    story per line, in file order. A blank / whitespace-only line is skipped, and
+    a line whose first non-blank character is `#` is skipped as a COMMENT so an
+    operator can annotate the list. Exactly ONE leading list marker is stripped
+    per line, so a list pasted straight out of a markdown roadmap needs no hand
+    editing, while `_STORY_MARKER_RE`'s start anchor leaves an interior `-` whole.
+
+    A line that is ONLY a marker yields nothing: no title survives it, and
+    emitting `""` would manufacture a phantom entry that `render_prd_doc` drops
+    anyway -- so the count an operator sees here matches the ids they will get.
+    Never raises: this takes TEXT, so reading (and decoding) the file stays the
+    caller's problem and its errors stay reportable as a refusal.
+    """
+    titles: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        title = _STORY_MARKER_RE.sub("", stripped, count=1).strip()
+        if title:
+            titles.append(title)
+    return titles
+
+
+def prd_init_cli(cfg: ProductConfig, *,
+                 stories: Iterable[str] | None = None,
+                 from_file: str | None = None,
+                 out: str | None = None,
+                 force: bool = False) -> int:
+    """On-demand CLI: WRITE a fresh all-pending `prd.json` for one product.
+
+    The second MUTATING verb in a CLI of read-only reports (after
+    `new_product_cli`), so it borrows that verb's safety shape: every refusal is
+    decided BEFORE the write, and a refusal writes NOTHING.
+
+    Sources combine in a DEFINED order -- every `stories` value first in the order
+    given, then the `from_file` lines in file order -- so the ids an operator gets
+    are predictable from the command line they typed.
+
+    Refusal PRECEDENCE, and why it is this order:
+
+    1. An unreadable or missing `from_file`, naming the path, FIRST -- a file that
+       could not be read is indistinguishable from an empty one, so reporting "no
+       stories" for a typo'd path would hide the real fault.
+    2. An EMPTY story set, because a 0-story doc must never reach disk:
+       `PrdStatus.complete` is False at `total == 0`, so that meter would read
+       `0/0 stories pass` forever and mean neither started nor done.
+    3. An EXISTING target without `force`, naming the path, left byte-unchanged.
+
+    Exit codes follow the `new_product_cli` convention -- `0` wrote and the
+    self-check is clean, `1` wrote but the self-check failed, `2` refused and wrote
+    nothing (the three refusals above). The self-check re-reads the file from DISK
+    and runs the frozen `prd_status` on it, so a `0` means the meter its CONSUMER
+    will read back really does say `0/N`: the verb proves its output through the
+    same core `dispatch_progress_line` uses instead of trusting the renderer it
+    just called.
+
+    Creates EXACTLY ONE file -- the target -- and never a directory: a missing
+    parent is a refusal, not something to `mkdir`, so this verb can never scatter
+    paths through a tree it was pointed at by mistake. `render_prd_doc`,
+    `parse_story_lines` and `prd_status` are called by BARE MODULE NAME (module
+    globals read INSIDE the function) so `monkeypatch.setattr(foundry, ...)` bites.
+    """
+    collected: list[str] = list(stories or ())
+    if from_file:
+        try:
+            collected.extend(
+                parse_story_lines(pathlib.Path(from_file).read_text()))
+        except OSError as exc:
+            print(f"prd-init: refusing -- cannot read --from-file {from_file}: "
+                  f"{type(exc).__name__}: {exc}")
+            return 2
+    surviving = [t for t in collected if str(t).strip()]
+    if not surviving:
+        print("prd-init: refusing -- no stories given; pass --story (repeatable) "
+              "and/or --from-file. A 0-story prd.json would report "
+              "'0/0 stories pass' forever, so none is written.")
+        return 2
+    target = pathlib.Path(out or cfg.prd)
+    if target.exists() and not force:
+        print(f"prd-init: {target} already exists; refusing to overwrite it "
+              "(re-run with --force to replace it)")
+        return 2
+
+    doc = render_prd_doc(collected)
+    # The self-check's expected count comes from the SOURCE titles, NEVER from the
+    # doc the renderer just returned. An oracle read out of the artifact under test
+    # validates the renderer with its own claim: a renderer that silently dropped
+    # every story would report `total == 0 == expected`, self-check CLEAN, and write
+    # the `0/0 stories pass` meter this verb exists to keep off disk. Deriving it
+    # from the input catches that, and a renderer that DUPLICATED stories too.
+    # `render_prd_doc` applies the same strip-and-drop rule as `surviving`, so on
+    # the real path the two counts always agree.
+    expected = len(surviving)
+    try:
+        payload = json.dumps(doc, indent=2) + "\n"
+    except (TypeError, ValueError) as exc:
+        # Unreachable for the real `render_prd_doc` (its output is JSON-safe by
+        # construction); reachable only when a test or a future edit makes the
+        # renderer return something unserialisable. Counted on the SELF-CHECK axis
+        # because it is a PRODUCER defect, not an operator refusal.
+        print(f"prd-init: self-check failed -- the rendered doc is not "
+              f"JSON-serialisable: {type(exc).__name__}: {exc}")
+        return 1
+    try:
+        target.write_text(payload)
+    except OSError as exc:
+        print(f"prd-init: refusing -- cannot write {target}: "
+              f"{type(exc).__name__}: {exc}")
+        return 2
+    print(f"prd-init: wrote {target}")
+
+    status = prd_status(target.read_text())
+    if not status.valid or status.total != expected or status.passed != 0:
+        print(f"prd-init: self-check failed -- read back valid={status.valid} "
+              f"total={status.total} (expected {expected}) "
+              f"passed={status.passed} (expected 0)")
+        return 1
+    print(f"prd-init: {status.summary}")
+    return 0
+
+
+# --------------------------------------------------------------------------- #
 # Dispatcher progress reporting (item 1, bite 2a -- REPORTING ONLY).
 #
 # `dispatch_progress_line` is the shift-loop reporting hook: read `cfg.prd` ->
@@ -14342,6 +14534,31 @@ def main(argv: list[str] | None = None) -> int:
                      help="emit the story-pass status as one JSON document "
                           "(machine-readable) instead of the human report; "
                           "same 0/1/2 exit code")
+    # `prd-init` is the PRODUCER half: it WRITES a fresh all-pending prd.json for a
+    # product from an EXPLICIT story list (repeatable --story and/or a plain-text
+    # --from-file), then self-checks the file it wrote through the very same
+    # `prd_status` core `prd` above reports with. Needed because
+    # `dispatch_progress_line` has logged nothing for every rostered product --
+    # no repo holds a prd.json and nothing could produce one. It never scrapes
+    # prose and never infers `passes` (a wrong meter is worse than none).
+    # On-demand only -- the pipeline/gate/dispatcher NEVER call it. Exit 0 wrote +
+    # self-check clean / 1 wrote but self-check failed / 2 refused, wrote nothing.
+    pri = sub.add_parser("prd-init")
+    pri.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    pri.add_argument("--story", action="append", default=None,
+                     help="one story title (repeatable); these come first, in "
+                          "the order given")
+    pri.add_argument("--from-file", default=None,
+                     help="plain-text file of one story title per line (blank "
+                          "and '#' comment lines skipped, one leading '- ', "
+                          "'* ' or 'N. ' marker stripped); appended after "
+                          "every --story")
+    pri.add_argument("--out", default=None,
+                     help="write here instead of the config's prd path (cfg.prd)")
+    pri.add_argument("--force", action="store_true",
+                     help="overwrite an existing prd.json (without this the "
+                          "verb refuses and exits 2)")
     # `gate-scope` classifies a diff (via --files, or the run_cmd git-diff seam)
     # into test/doc/source and reports whether it is coverage-only ("light").
     # DORMANT / on-demand only -- the gate never consults it (item 4 bite 2 wires
@@ -14901,6 +15118,9 @@ def main(argv: list[str] | None = None) -> int:
         return agents_cli(cfg, recent=args.recent, print_only=args.print_only, as_json=args.json)
     if args.cmd == "prd":
         return prd_status_cli(cfg, as_json=args.json)
+    if args.cmd == "prd-init":
+        return prd_init_cli(cfg, stories=args.story, from_file=args.from_file,
+                            out=args.out, force=args.force)
     if args.cmd == "gate-scope":
         return gate_scope_cli(cfg, files=args.files, base=args.base, as_json=args.json)
     if args.cmd == "status":

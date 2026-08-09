@@ -33,7 +33,7 @@ by a later stage of the same commit -- a PM must never PLAN on either). 142 paid
 the SEVEN-paragraph STATUS stack (126, 130-135, 136, 137, 138, 140, 141) and the two stale `RE-MEASURED`
 blocks are archived under `## Compacted from the index by iter 142`, with every LIVE clause hoisted FIRST --
 item (m)'s only description and the new item (o) into the lettered list below, the ledger-row and growth
-findings into DEADLINE. STILL OPEN: (c), (d), (g)'s `parse_triage_winner` half, (i), (j)-(m), and NEW (o).
+findings into DEADLINE. STILL OPEN: (c), (d), (g)'s `parse_triage_winner` half, (i), (j)-(m), (o), and NEW (p).
 NEXT UP, in value order: (a) SHIPPED iter 132 -- the freeze-guard SELECTOR now reads guard BEHAVIOR
 (an in-function `git diff --quiet HEAD --` pathspec, element-form), so the meta-test polices all 26
 every-suite guards instead of the 12 sharing one literal name. Only the OPTIONAL 25-guard
@@ -74,6 +74,9 @@ bite 2 and (k). TEST-OWNED and the highest blast radius on this list (it re-scop
 over the running loop's control path), with `tests/test_control_path_freeze_scope.py` pinning a guard-count
 FLOOR of 26 plus `FORBIDDEN = ("README.md", "roles/")`, so it wants its OWN iteration and must NOT be bundled
 with a feature.
+(p) NEW (iter 143 scout A, candidate C): 45 CLI verbs, exactly one -- `new-product` (iter 137) -- absent from
+`README.md`'s `# N.` index. Replace iteration 117's hand-written per-verb assertion with ONE derived rule;
+it MUST anchor on the `# N.` entry shape, else common words (`run`, `once`) pass it. Evidence in 143's bullet.
 DEADLINE (re-measured iteration 142; a scheduling item, never a competitive candidate): the BINDING budget is
 **54,000 chars, NOT the 60,000 `ROADMAP_SIZE_WARN_CHARS`** -- `tests/test_iter140_behavior.py:565` and
 `tests/test_iter141_behavior.py:461` each assert `len(index) < 54000` against the LIVE file, so whoever crosses
@@ -89,7 +92,7 @@ line to be GONE from this file, so a move must DELETE, never copy.
 
 | # | Increment | Why | Done when |
 |---|---|---|---|
-| 1 | `prd.json`-style machine roadmap per product (id/title/criteria/passes) | Deterministic global stop + progress, vs parsing prose | dispatcher can report "N/M stories pass" via a jq-able file — **[iter 11, bite 1/3 = pure `prd_status(prd_text)` parser + frozen `PrdStatus` + on-demand `foundry prd --config <cfg>` CLI (dormant); iter 12, bite 2a/3 = wire `prd_status` into the dispatcher as a DIAGNOSTIC per-shift "N/M stories pass" log line via pure `dispatch_progress_line(cfg)` (dormant-until-data: no product has a `prd.json` yet); bite 2b (future) = automatic global stop when a prd is complete → touches loop-termination/resume semantics, own iter + migration note → COMPLETES item 1]** |
+| 1 | `prd.json`-style machine roadmap per product (id/title/criteria/passes) | Deterministic global stop + progress, vs parsing prose | dispatcher can report "N/M stories pass" via a jq-able file — **[iter 11, bite 1/3 = pure `prd_status(prd_text)` parser + frozen `PrdStatus` + on-demand `foundry prd --config <cfg>` CLI (dormant); iter 12, bite 2a/3 = wire `prd_status` into the dispatcher as a DIAGNOSTIC per-shift "N/M stories pass" log line via pure `dispatch_progress_line(cfg)` (dormant-until-data: no product has a `prd.json` yet); bite 2c = iter 143 ships the PRODUCER (`prd-init`), so the file is MAKEABLE; still unfed by design; bite 2b (future) = automatic global stop when a prd is complete → touches loop-termination/resume semantics, own iter + migration note → COMPLETES item 1]** |
 | 2 | Consolidate LEARNINGS into a pinned `## Patterns` head section | Iteration agents can't read an ever-growing log; promote general rules | reporter/roles maintain a bounded top section — **[shipping iter 07, bite 1/2 = `learnings_digest` helper + `foundry learnings` CLI + curated `## Patterns` head; iter 08, bite 2/2 = digest inlined into `build_prompt` so every stage prompt carries the bounded head + N recent lessons → COMPLETES item 2]** |
 | 3 | Emit an `AGENTS.md` into each product repo from its learnings | Fresh agents auto-read house rules; less re-learning | product repo has an up-to-date AGENTS.md — **[shipping iter 09, bite 1/2 = pure `render_agents_md` helper + on-demand `foundry agents` CLI; bite 2 (future) = auto-refresh AGENTS.md at ship time]** |
 | 4 | Risk-split the final gate (test-only diff = light gate) | Cut gate latency ~half for coverage-only iterations | gate detects "no src/ change" and runs the light path — **[iter 15, bite 1/2 = pure `classify_gate_scope` + frozen `GateScope` + patchable `GATE_TEST_DIR_NAMES`/`GATE_DOC_SUFFIXES` + on-demand `foundry gate-scope` CLI (DORMANT; the final gate does NOT consult it, §3 full-suite-rerun invariant untouched); bite 2 (future) = wire the light path into the final gate while preserving the §3 invariant → COMPLETES item 4]** |
@@ -233,6 +236,7 @@ here has no bullet in the archive.
 - iter 140 -- lint-config NAMES a dispatcher roster and exits 2, instead of advising the `_` prefix that empties it.
 - iter 141 -- RESTART_NEEDED.md flag + auto-clear, SHIPPED DORMANT: 26 freeze guards block the dispatcher call site.
 - iter 142 -- roles/pm.md gets a RUNNABLE lint-spec invocation; two-sided brake on bare `foundry <verb>` in any card.
+- iter 143 -- prd-init renders a schema-valid prd.json from EXPLICIT stories; producer for the live shift-loop meter.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03
