@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-142
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- optional fast in-stage test command; the gates keep the declared serial one
+    - Candidate A2 -- bounded open-items view of the roadmap, so the repeated read stops costing 53,415 chars
+    - Candidate A3 -- a timed-out attempt keeps its transcript
+    - Candidate B1 -- the card mandates a `foundry` command that does not exist
+    - Candidate B2 -- the Resilience bullet still prices one retry ladder, and never names the cap that actually kills stages
+    - Candidate B3 -- the prompt-inlined `quality_bar` names two invariants that exist in no document
+    winner: B1
+    ship: unknown
   iter-141
     lenses: simplification-and-deletion (iteration 141), performance-and-throughput (iteration 141)
     - Candidate A1 -- restore the 583 over-moved chars and pay for them by archiving a superseded section
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- concurrent scout stages behind a default-off flag (measured 476s = 14.1% of an iteration)
     - Candidate B3 -- windowed throughput report so a per-stage regression is visible while it happens
     winner: B1
-    ship: unknown
+    ship: PUSHED 7042af6
   iter-140
     lenses: integration-and-adoption (iteration 140), simplification-and-deletion (iteration 140)
     - Candidate A1 -- preflight, the launch gate, drops both drift lines doctor prints, incl. an 18-iteration-stale brain
@@ -326,4 +336,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-38 scouted iterations
+39 scouted iterations

@@ -26,8 +26,10 @@ the same work checkpointed early survives the kill.
   stated lens before you triage. The scouts decide nothing -- you do.
 - The foundry learnings log's bounded digest (pinned `## Patterns` head + the newest
   lessons) — this now arrives INLINE at the top of your prompt, so read it there first;
-  running `foundry learnings` is optional. The full `## Chronological lessons` tail
-  remains available via the CLI or the learnings PATH given in `## Context`.
+  running the CLI is optional. The full `## Chronological lessons` tail remains
+  available via the learnings PATH given in `## Context`, or from the checkout's
+  script: `python3 <checkout>/foundry.py learnings --config <this product's config>`
+  (there is no `foundry` command on PATH inside a stage).
 
 ## Duties
 0. **First, always: hotfix before feature.** Before picking anything, check for
@@ -80,8 +82,12 @@ the same work checkpointed early survives the kill.
    - `## Size self-check` — REQUIRED: confirm the feature fits <50% context
      (estimated diff, behavior count, that spec + diff + test output fit one
      window). An oversized iteration blows the stage timeout and strands a shift.
-     Sanity-check this spec objectively before handing it off:
-     `foundry lint-spec --file <path to this pm.md>` — keep it within the
+     Sanity-check this spec objectively before handing it off, from any directory:
+     `python3 <checkout>/foundry.py lint-spec --file <the pm.md you are writing>`
+     — `<checkout>` is the PARENT of the `roles/` directory named in your prompt's
+     `READ AND FOLLOW EXACTLY:` line, and `--file` takes YOUR SPEC in the state
+     dir, never this role card (both files are named `pm.md`). There is no
+     `foundry` command on PATH inside a stage. Keep the spec within the
      `SPEC_SIZE_WARN_CHARS` / `SPEC_MAX_BEHAVIORS` thresholds (verdict: OK).
 
 ## Rules
