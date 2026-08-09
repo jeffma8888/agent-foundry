@@ -54,6 +54,12 @@ FIRST half of (n): the COMPLETED item-11 detailed spec (4,234 chars) moved verba
 the index from 395 chars of headroom to ~4,600. The `## Item 16` section (3,467 chars) is the next target --
 verify it shipped first (`scripts/leak_guard.py` is committed and `roles/final.md` gate step 6 runs it).
 STATUS (iter 138): current through 138. NEW (n): deleting old ledger rows CANNOT compact this index (FROZEN pins 98 rows exactly-once); move COMPLETED item-11/16 prose to the archive.
+STATUS (iter 140): current through 140, whose PM wrote both records in the ship commit. 140 finished (n):
+the COMPLETED `## Item 16` section (3,467 chars) moved verbatim to the archive after VERIFYING it shipped,
+taking headroom from 3,730 chars to ~6,100 (growth re-measured from git: 835 chars/iteration). NEXT
+compaction targets, measured by 140's scout B and NOT taken: `## RESOLVED 2026-08-04` (1,703 chars) and the
+six superseded `STATUS (iter N)` paragraphs (2,545 chars). STILL OPEN: (c), (d), (g)'s
+`parse_triage_winner` half, (h), (i), (j)-(m).
 NEXT UP, in value order: (a) SHIPPED iter 132 -- the freeze-guard SELECTOR now reads guard BEHAVIOR
 (an in-function `git diff --quiet HEAD --` pathspec, element-form), so the meta-test polices all 26
 every-suite guards instead of the 12 sharing one literal name. Only the OPTIONAL 25-guard
@@ -237,6 +243,7 @@ here has no bullet in the archive.
 - iter 137 -- NEW `foundry new-product` scaffolder + immediate lint; fixes the `USAGE.md` cp on-ramp that exits 1.
 - iter 138 -- steering head emits VERBATIM when it fits its budget; truncate only on real overflow.
 - iter 139 -- both GATE cards carry their verify-first EXCEPTION; pure card audit + live suite brake stops drift.
+- iter 140 -- lint-config NAMES a dispatcher roster and exits 2, instead of advising the `_` prefix that empties it.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03
@@ -271,59 +278,10 @@ The 4,234-char detailed spec moved VERBATIM to `PLATFORM_ROADMAP_ARCHIVE.md` und
 `## Moved from the index by iter 139`, per this file's own contract (archive more when the index
 approaches its budget). It was 395 chars from the hard 60,000 `ROADMAP_SIZE_WARN_CHARS` ship brake.
 
-## Item 16 — committed, portable pre-push leak-guard (HIGH: repo is public + auto-pushing)
+## Item 16 -- ARCHIVED by iter 140 (SHIPPED: leak-guard committed, final gate step 6 runs it fail-closed)
 
-**Problem.** This repo is public and the dispatcher auto-pushes on every successful ship
-with NO human review in the loop. A drifted iteration can reintroduce sensitive strings
-(the internal agent-CLI tool name, the model-provider service name, internal skill and
-workflow names, internal credential-refresh command names, personal absolute home-directory
-paths, and personal usernames) directly into a public commit. A local `.git/hooks/pre-push`
-guard is installed today, but git hooks are NOT cloned — so a fresh checkout (including the
-post-release fresh-clone verify, a new operator, or CI) ships with ZERO protection.
-
-**What ships.**
-- `scripts/leak_guard.py` — a stdlib-only, offline, deterministic scanner. Given a commit
-  ref (or an explicit file list), it scans tracked blob content against a configurable
-  denylist of *token-aware* patterns (each pattern flanked so ordinary English words that
-  merely contain the fragment are never false-positives). Exits non-zero with a `file:line`
-  report on any hit. Its OWN path is excluded from the scan so it can never self-trip on the
-  denylist literals it necessarily contains.
-- `scripts/install_hooks.sh` — one command a fresh clone runs to copy/symlink the scanner
-  into `.git/hooks/pre-push` (documented in README setup).
-- Final-gate integration — the `final` role runs the scanner as a hard pre-commit/pre-push
-  check so the loop self-blocks a leaky ship even when the hook is not installed
-  (belt-and-suspenders). A blocked ship fails the gate and reverts, same as any other gate
-  failure.
-- The denylist lives in a small committed config (e.g. `scripts/leak_denylist.txt`) so it is
-  reviewable and extensible without editing code.
-
-**Design / invariant compliance (read §3 + the self-mod guardrails).**
-- Purely ADDITIVE and offline-deterministic (no network) — fits the test-speed + offline-CI
-  invariants; does not change iteration numbering, state layout, or the
-  `VERDICT:`/`RESULT:`/`ACTION:`/`POSTRELEASE:` sentinels → resume-safe for any loop in flight.
-- Token-aware matching is mandatory (word-boundary / non-letter flanks) to avoid blocking
-  legitimate prose the autonomous roles write every iteration.
-
-**Done when.**
-- [x] `scripts/leak_guard.py` exists, offline, stdlib-only, with unit tests covering: a clean
-      tree passes; each denylist category is caught; a benign word containing a fragment is
-      NOT flagged; the guard's own path is skipped. **(iters 49-50)**
-- [x] `scripts/install_hooks.sh` arms the pre-push hook in one command; README documents it. **(iter 51)**
-- [x] The `final` role invokes the scanner before pushing and treats a hit as a gate failure. **(iter 52)**
-- [x] `tests/` stay green; both modules still import; ARCHITECTURE.md notes the new gate step. **(iter 52)**
-
-
----
-
-# Org-design track (items 17-22) -- adopted 2026-08-01
-
-Blueprint: **`docs/ORG_DESIGN.md`** (rich bench -> cheap kickoff council staffs
-the minimum -> lean always-on core -> trigger/cadence-activated specialists ->
-bounded re-staffing). Evidence: `docs/research/`. Ship these smallest-safe-first
-and IN ORDER -- each item builds on the artifacts of the one before. Every item
-is ADDITIVE and must not change iteration numbering, state layout, or the
-`VERDICT:`/`RESULT:`/`ACTION:`/`POSTRELEASE:` sentinels (resume-safe for any
-loop in flight), per the self-modification guardrails.
+The 3,467-char section moved VERBATIM to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Moved from the index by
+iter 140`, per this file's own contract (archive more when the index approaches its budget).
 
 ## Item 17 -- role-card bench: format validator + card lint (SMALL)
 
