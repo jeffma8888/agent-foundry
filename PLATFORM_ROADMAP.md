@@ -32,8 +32,6 @@ STATUS (iter 126): the ledger and the archive are current through iteration 126 
 Iteration 126's two records were written BY THE RELEASE GATE, not by its PM: that stage was killed at
 the 600 s cap after checkpointing its spec but before appending them, and this contract puts the record
 in the SHIP COMMIT, which is the gate's own commit to make. A PM must still never plan on that.
-STATUS (iters 127-129): current; each iteration's PM wrote its own two records in the ship commit,
-per the contract above.
 STATUS (iters 130-135): current through iteration 135; each PM wrote its own two records in the ship
 commit (iteration 133's archive bullet was appended by a later stage of the same commit). Items (a),
 (f), (b) and (e) shipped in iterations 132, 133, 134 and 135 respectively, each off a scout slate;
@@ -49,16 +47,21 @@ documented `cp` on-ramp in `USAGE.md` step 3 EXITS 1 (`cp` cannot create the par
 `quality_bar` in `products/_platform/config.json` names two invariants with 0 hits in `ARCHITECTURE.md`
 (`revert-on-doubt`, `single-brain dispatch`) and omits `Resilience`; iteration 137's PM re-verified that
 `VISION.md`'s five names ARE all real §3 headings, so the fix is config-VALUE-only plus a resolver test.
-STATUS (iter 139): current through 139, whose PM wrote both records in the ship commit. 139 also did the
-FIRST half of (n): the COMPLETED item-11 detailed spec (4,234 chars) moved verbatim to the archive, taking
-the index from 395 chars of headroom to ~4,600. The `## Item 16` section (3,467 chars) is the next target --
-verify it shipped first (`scripts/leak_guard.py` is committed and `roles/final.md` gate step 6 runs it).
 STATUS (iter 138): current through 138. NEW (n): deleting old ledger rows CANNOT compact this index (FROZEN pins 98 rows exactly-once); move COMPLETED item-11/16 prose to the archive.
+STATUS (iter 141): current through 141, whose PM wrote both records in the ship commit. 141 REPAIRED
+140's over-move -- 583 chars of org-design ordering rule, `docs/ORG_DESIGN.md` pointer and resume-safety
+constraint restored above `## Item 17` -- and paid for it by archiving `## RESOLVED 2026-08-04` (1,703)
+plus the two administrative STATUS paragraphs (127-129, 139). Re-measured, so do NOT inherit: archived
+`## Item 16` is 2,884 chars (not 3,467), the FULL STATUS stack was EIGHT paragraphs / 3,290 chars (the
+index claimed six / 2,545), and SIX / 2,741 chars remain. NEXT PAYER, owed by 142: five of those six carry LIVE clauses (item (m)'s only
+description; the FROZEN-98 finding) -- hoist them into the open-items list FIRST, then archive. ALSO 141: the
+flag MECHANISM shipped DORMANT -- 26 every-suite guards assert
+`git diff --quiet HEAD -- dispatcher.py scripts/ .gitignore`, so the shift-loop call site could not land;
+re-scoping them to an AST/symbol invariant is the prerequisite for ANY dispatcher-side change and is the
+recommended 142 feature.
 STATUS (iter 140): current through 140, whose PM wrote both records in the ship commit. 140 finished (n):
 the COMPLETED `## Item 16` section (3,467 chars) moved verbatim to the archive after VERIFYING it shipped,
-taking headroom from 3,730 chars to ~6,100 (growth re-measured from git: 835 chars/iteration). NEXT
-compaction targets, measured by 140's scout B and NOT taken: `## RESOLVED 2026-08-04` (1,703 chars) and the
-six superseded `STATUS (iter N)` paragraphs (2,545 chars). STILL OPEN: (c), (d), (g)'s
+taking headroom from 3,730 chars to ~6,100 (growth re-measured from git: 835 chars/iteration). STILL OPEN: (c), (d), (g)'s
 `parse_triage_winner` half, (h), (i), (j)-(m).
 NEXT UP, in value order: (a) SHIPPED iter 132 -- the freeze-guard SELECTOR now reads guard BEHAVIOR
 (an in-function `git diff --quiet HEAD --` pathspec, element-form), so the meta-test polices all 26
@@ -244,6 +247,7 @@ here has no bullet in the archive.
 - iter 138 -- steering head emits VERBATIM when it fits its budget; truncate only on real overflow.
 - iter 139 -- both GATE cards carry their verify-first EXCEPTION; pure card audit + live suite brake stops drift.
 - iter 140 -- lint-config NAMES a dispatcher roster and exits 2, instead of advising the `_` prefix that empties it.
+- iter 141 -- RESTART_NEEDED.md flag + auto-clear, SHIPPED DORMANT: 26 freeze guards block the dispatcher call site.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03
@@ -280,8 +284,19 @@ approaches its budget). It was 395 chars from the hard 60,000 `ROADMAP_SIZE_WARN
 
 ## Item 16 -- ARCHIVED by iter 140 (SHIPPED: leak-guard committed, final gate step 6 runs it fail-closed)
 
-The 3,467-char section moved VERBATIM to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Moved from the index by
+The section (2,884 chars -- re-measured iter 141; the 3,467 three artifacts agreed on
+was 583 too high, exactly the block 141 restored above `## Item 17`) moved VERBATIM to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Moved from the index by
 iter 140`, per this file's own contract (archive more when the index approaches its budget).
+
+# Org-design track (items 17-22) -- adopted 2026-08-01
+
+Blueprint: **`docs/ORG_DESIGN.md`** (rich bench -> cheap kickoff council staffs
+the minimum -> lean always-on core -> trigger/cadence-activated specialists ->
+bounded re-staffing). Evidence: `docs/research/`. Ship these smallest-safe-first
+and IN ORDER -- each item builds on the artifacts of the one before. Every item
+is ADDITIVE and must not change iteration numbering, state layout, or the
+`VERDICT:`/`RESULT:`/`ACTION:`/`POSTRELEASE:` sentinels (resume-safe for any
+loop in flight), per the self-modification guardrails.
 
 ## Item 17 -- role-card bench: format validator + card lint (SMALL)
 
@@ -446,33 +461,6 @@ lead: `pm_scout_a` (new-capability lens) + `pm_scout_b` (hardening/DX lens) run
 sequentially, then the PM lead triages both slates and picks one feature. Backward-
 compatible; the disabled path must be byte-identical to today. Add tests.
 
-
----
-
-## RESOLVED 2026-08-04 -- dual-PM-scout bite 3b-ii WIRED (operator sign-off received)
-
-Jinchen signed off 2026-08-04; the operator applied the wiring during a global-STOP
-quiescent window (dispatcher wound down gracefully, relaunched after). What changed:
-- `run_iteration` now calls the iter-84 composition helper `scout_phase_outcome(cfg,
-  iteration, "pm_scout.md")` immediately before the PM stage (the single sanctioned
-  call site; a scout failure returns the PM-stage infra-fail dict, NO revert).
-- `roles/pm.md` gained the scout-slate input + duty 1b (triage the combined slate,
-  pick ONE, justify against the strongest alternative, diversity guard).
-- BOTH tracked products opted in: `"dual_pm_scouts": true` in
-  `products/_platform/config.json` and `products/repolens/config.json`.
-- Dormancy tests legitimately revised per their own docstrings (iter-80 const-scan
-  exemption for run_iteration's wiring literal; iter-81/82/83/84 role-file counts
-  0 -> exactly 1; iter-84 zero-call-site -> run_iteration-only call site).
-- Drive-by test-hygiene fix, same class as the iter-31 live-config snapshot:
-  `test_stopping_respects_global_and_local` read the LIVE repo-root STOP sentinel
-  (any operator quiesce window turned the machine's suite red and would have made
-  the final gate revert good work); now isolates `global_stop` via monkeypatch.
-- ARCHITECTURE.md section 2: stage-0 row + rationale (discovery degeneration,
-  iters 90-101). Migration-safe: default-off path byte-identical; no sentinel,
-  numbering, or state-layout change.
-
-Remaining operator-gated wiring bites (item 21 bite 2, item 20 bite 4b, item 22
-final) are UNCHANGED by this -- each still needs its own sign-off.
 
 ---
 

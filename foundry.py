@@ -10839,6 +10839,137 @@ def live_lag_cli(cfg: "ProductConfig",
 
 
 # --------------------------------------------------------------------------- #
+# Operator-visible RESTART flag (iter 141) -- the missing PEDAL for the iter-130
+# live-lag BRAKE.
+#
+# `live_lag_line` computes "is every shipped iteration actually live in the
+# running brain?" (iter 130) and `doctor` prints it (iter 136), but both are
+# verbs an operator must REMEMBER to run BEFORE a launch, so a brain that has
+# been up for days drifts silently. Measured 2026-08-09: 19 shipped iterations
+# were inert in the live dispatcher -- including three throughput fixes (119,
+# 129, 135) whose whole purpose was to stop paying 10/20/40-minute backoff
+# sleeps, so 17.5 h of retry sleep was paid at a ladder whose replacement had
+# already shipped, 220 min of it in the two days AFTER the fix landed. A
+# diagnostic that needs the operator to already SUSPECT the problem is exactly
+# the scattered babysitting the VISION exists to remove.
+#
+# So report the fact into a named, gitignored FLAG FILE the loop maintains for a
+# human, reusing the lifecycle `HOTFIX_NEEDED.md` (iter 03) and
+# `SPEED_STORY_NEEDED.md` (iter 14) already established: write on WARN,
+# auto-clear on OK/UNKNOWN, so the flag can never nag after the restart it asked
+# for. UNLIKE the hotfix flag this one is never read by a role card and never
+# gates a stage -- an automatic restart mid-shift is the single most dangerous
+# change available here, so ACTING on the flag stays a HUMAN decision.
+#
+# Additive + total: one module-level name, one pure path helper, two tiny I/O
+# seams and one reporter, composed by BARE module name (globals read at CALL
+# time) so a test scripts every branch offline via
+# `monkeypatch.setattr(foundry, "live_lag_line", ...)` with zero real git,
+# subprocess, or dispatcher-log access. Nothing in `run_iteration` /
+# `run_continuous` / `run_stage` / `build_prompt` / `postrelease_step` calls it,
+# and it writes nothing under `products/*/state/`, so resume is untouched.
+# --------------------------------------------------------------------------- #
+RESTART_FLAG_NAME = "RESTART_NEEDED.md"
+
+
+def restart_flag_path(cfg: ProductConfig) -> pathlib.Path:
+    """Per-product restart flag location: `<work_root>/RESTART_NEEDED.md`.
+
+    Pure -- no clock, no I/O, no `mkdir` -- so a caller (or a test) can ask WHERE
+    the flag lives without creating anything. `RESTART_FLAG_NAME` is read as a
+    module GLOBAL at call time rather than captured at def time, so patching the
+    name redirects the whole family. The `work_root` idiom is deliberately the
+    one `hotfix_flag_path` / `speed_story_flag_path` already use, so a test can
+    locate the flag from `cfg` alone -- but it is a DIFFERENT file with an
+    INDEPENDENT lifecycle (those two are release-time signals raised inside
+    `postrelease_step`; this is a shift-time LIVENESS signal), and the three must
+    never collide.
+    """
+    return pathlib.Path(cfg.work_root) / RESTART_FLAG_NAME
+
+
+def write_restart_flag(cfg: ProductConfig, line: str) -> None:
+    """Raise the restart flag, embedding the live-lag `line` VERBATIM.
+
+    Overwrites any existing flag (`write_text`, never append) so N consecutive
+    WARN shifts leave exactly ONE file carrying the REFRESHED line -- an
+    append-pile-up would make the newest count unreadable, which is the failure
+    mode the hotfix flag's "newest breakage wins" rule already rejected. The body
+    names the lift condition explicitly (it auto-clears itself once the brain is
+    restarted) because an operator flag with no stated exit is how a stale
+    sentinel gets ignored, and it says outright that acting on it is a HUMAN
+    decision so nobody wires an automatic restart to it later.
+    """
+    path = restart_flag_path(cfg)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "# RESTART NEEDED -- shipped iterations are NOT live in the running "
+        "brain\n\n"
+        f"- {line}\n\n"
+        "The dispatcher imports `foundry.py` ONCE at launch, so every "
+        "improvement shipped since then is DORMANT in the live process (it is on "
+        "disk and committed, but the running brain never re-read it). To "
+        "activate them, restart the dispatcher at a safe moment -- between "
+        "iterations, never mid-stage.\n\n"
+        "Lift condition: NOTHING to do by hand. This flag auto-clears on the "
+        "first liveness check after the brain is restarted, because that check "
+        "then reports OK and removes this file. Advisory only: it never gates a "
+        "stage, no role card reads it, and it never triggers an automatic "
+        "restart -- acting on it is a HUMAN decision.\n")
+
+
+def clear_restart_flag(cfg: ProductConfig) -> None:
+    """Remove the restart flag if present; silent no-op when it is absent.
+
+    `missing_ok=True` keeps the OK branch a total no-op, so the common healthy
+    shift neither raises nor needs a pre-existence check at the call site.
+    """
+    restart_flag_path(cfg).unlink(missing_ok=True)
+
+
+def dispatch_restart_line(cfg: ProductConfig) -> str | None:
+    """One-line "the brain is behind its own shipped code" report, plus the flag.
+
+    The shift-loop reporting hook (same shape and contract as
+    `dispatch_progress_line`): compose the frozen `live_lag_line` by BARE module
+    name, and MAINTAIN the operator flag as a side effect -- raise it on WARN,
+    clear it otherwise. Returns the WARN line verbatim (so a caller can log it)
+    or `None` when there is nothing to report.
+
+    TOTAL by construction, because it runs inside a loop that must never die:
+      * a raising `live_lag_line` returns `None` -- an unusable report is NOT
+        evidence of lag, so it must never raise a flag on a diagnostic failure;
+      * a failing WRITE still returns the line -- the report survives a
+        read-only/unwritable `work_root`, since losing the flag file is strictly
+        better than losing the log line too;
+      * a failing CLEAR is swallowed -- a stale flag is a nuisance, an exception
+        out of the shift loop is an outage.
+    Adds NO counting or wording logic of its own: `live_lag_line` stays the
+    single source of the sentence and of the `LIVE_LAG_WARN` token, so this verb,
+    `foundry live-lag` and `doctor` can never disagree.
+    """
+    try:
+        line = live_lag_line(cfg)
+    except Exception:
+        # A broken diagnostic is not a lag verdict -- degrade to "nothing to
+        # report" rather than raising a flag nobody can act on.
+        return None
+    if LIVE_LAG_WARN not in line:
+        try:
+            clear_restart_flag(cfg)
+        except Exception:
+            pass
+        return None
+    try:
+        write_restart_flag(cfg, line)
+    except Exception:
+        # Keep the line: the operator still sees it in the dispatcher log.
+        pass
+    return line
+
+
+
+# --------------------------------------------------------------------------- #
 # Company-wide suite-wall-time roll-up (`company-timing`) -- roadmap item 7,
 # bite 2 (COMPLETES the feature; bite 1 shipped the `gather_timing` seam + the
 # `TimingSummary.measured_seconds` accessor in iter 39).

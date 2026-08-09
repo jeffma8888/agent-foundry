@@ -313,12 +313,13 @@ Every release is then greppable and single-commit-revertable — which is what m
 
 ## Moved from the index by iter 140
 
-Iteration 140 moved the COMPLETED `## Item 16` section (3,467 chars) here VERBATIM from
+Iteration 140 moved the COMPLETED `## Item 16` section (2,884 chars -- re-measured by
+iteration 141; 3,467 was 583 too high) here VERBATIM from
 `PLATFORM_ROADMAP.md`, after verifying the item shipped (`scripts/leak_guard.py` is committed and
 `roles/final.md` gate step 6 invokes it fail-closed on exit 1 and exit 2). Nothing below is re-worded,
 re-wrapped or re-ordered. The move took the index from 56,270 chars to about 53,900, i.e. from 3,730 chars
 of headroom under the 60,000 `ROADMAP_SIZE_WARN_CHARS` ship brake to about 6,100. The next targets,
-measured but NOT taken by iteration 140: the `## RESOLVED 2026-08-04` section (1,703 chars) and the six
+measured but NOT taken by iteration 140: the `## RESOLVED 2026-08-04` section (1,703 chars, taken by iteration 141) and the eight
 superseded `STATUS (iter N)` paragraphs (2,545 chars).
 
 ## Item 16 — committed, portable pre-push leak-guard (HIGH: repo is public + auto-pushing)
@@ -365,16 +366,6 @@ post-release fresh-clone verify, a new operator, or CI) ships with ZERO protecti
 
 ---
 
-# Org-design track (items 17-22) -- adopted 2026-08-01
-
-Blueprint: **`docs/ORG_DESIGN.md`** (rich bench -> cheap kickoff council staffs
-the minimum -> lean always-on core -> trigger/cadence-activated specialists ->
-bounded re-staffing). Evidence: `docs/research/`. Ship these smallest-safe-first
-and IN ORDER -- each item builds on the artifacts of the one before. Every item
-is ADDITIVE and must not change iteration numbering, state layout, or the
-`VERDICT:`/`RESULT:`/`ACTION:`/`POSTRELEASE:` sentinels (resume-safe for any
-loop in flight), per the self-modification guardrails.
-
 
 - **iter 140 -- `foundry lint-config` now RECOGNISES a dispatcher roster and exits 2 instead of telling the
   operator to delete their own company (scout A's integration-and-adoption lens, candidate A2 in its small
@@ -402,3 +393,53 @@ loop in flight), per the self-modification guardrails.
   non-additive refactor of shipped code and wants a clean iteration; and scout B's B2 as a FEATURE (index
   compaction), because this file's own DEADLINE block calls compaction "a scheduling item, never a
   competitive candidate" -- so iteration 140 did it as PM maintenance in this same commit instead.
+
+---
+
+## Moved from the index by iter 141
+
+Iteration 141 paid for restoring the 583 chars iteration 140 over-took (the `# Org-design track` H1, its
+`docs/ORG_DESIGN.md` blueprint pointer, the smallest-safe-first ORDERING rule that items 19/20/22's `gated
+on` clauses depend on, and the additive/resume-safety constraint) by moving three superseded blocks here
+VERBATIM from `PLATFORM_ROADMAP.md`: the `## RESOLVED 2026-08-04` dual-PM-scout wiring narrative (1,703
+chars -- history, not guidance: both scouts demonstrably run every iteration), and the two purely
+administrative `STATUS` paragraphs `(iters 127-129)` (123) and `(iter 139)` (426), whose only remaining
+content was a pointer to work iteration 140 completed. Net index change -882 chars. The 583 chars ALSO left
+this file, repairing its heading structure: that stray H1 sat at the tail and syntactically owned the
+iter-140 ledger bullet below it.
+
+## RESOLVED 2026-08-04 -- dual-PM-scout bite 3b-ii WIRED (operator sign-off received)
+
+Jinchen signed off 2026-08-04; the operator applied the wiring during a global-STOP
+quiescent window (dispatcher wound down gracefully, relaunched after). What changed:
+- `run_iteration` now calls the iter-84 composition helper `scout_phase_outcome(cfg,
+  iteration, "pm_scout.md")` immediately before the PM stage (the single sanctioned
+  call site; a scout failure returns the PM-stage infra-fail dict, NO revert).
+- `roles/pm.md` gained the scout-slate input + duty 1b (triage the combined slate,
+  pick ONE, justify against the strongest alternative, diversity guard).
+- BOTH tracked products opted in: `"dual_pm_scouts": true` in
+  `products/_platform/config.json` and `products/repolens/config.json`.
+- Dormancy tests legitimately revised per their own docstrings (iter-80 const-scan
+  exemption for run_iteration's wiring literal; iter-81/82/83/84 role-file counts
+  0 -> exactly 1; iter-84 zero-call-site -> run_iteration-only call site).
+- Drive-by test-hygiene fix, same class as the iter-31 live-config snapshot:
+  `test_stopping_respects_global_and_local` read the LIVE repo-root STOP sentinel
+  (any operator quiesce window turned the machine's suite red and would have made
+  the final gate revert good work); now isolates `global_stop` via monkeypatch.
+- ARCHITECTURE.md section 2: stage-0 row + rationale (discovery degeneration,
+  iters 90-101). Migration-safe: default-off path byte-identical; no sentinel,
+  numbering, or state-layout change.
+
+Remaining operator-gated wiring bites (item 21 bite 2, item 20 bite 4b, item 22
+final) are UNCHANGED by this -- each still needs its own sign-off.
+
+---
+
+STATUS (iters 127-129): current; each iteration's PM wrote its own two records in the ship commit,
+per the contract above.
+STATUS (iter 139): current through 139, whose PM wrote both records in the ship commit. 139 also did the
+FIRST half of (n): the COMPLETED item-11 detailed spec (4,234 chars) moved verbatim to the archive, taking
+the index from 395 chars of headroom to ~4,600. The `## Item 16` section (3,467 chars) is the next target --
+verify it shipped first (`scripts/leak_guard.py` is committed and `roles/final.md` gate step 6 runs it).
+
+- **iter 141 -- the MECHANISM (SHIPPED DORMANT -- no call site, see the BLOCKER at the end of this bullet) for a `products/<name>/RESTART_NEEDED.md` operator flag carrying the live-lag line, so "shipped but not live" surfaces without anyone remembering to run `foundry doctor` (scout B's performance-and-throughput lens, candidate B1).** The measured problem, proven from the live brain's OWN output rather than from the checker that reports it: `foundry live-lag` named 19 shipped-but-inert iterations (118, 119, 122, 124, 126-140), and iteration 129 -- committed 08-07 07:27 -- makes every retry line print a `(failure kind: ...)` suffix, yet `dispatcher.out` contains ZERO such lines and the two most recent backoff events (08-08 23:24:52, 08-09 00:10:00) still print the pre-129 shape `backing off 10 min`. So the loop was executing 3-day-old code. Cost: 1,050 min = 17.5 h of retry sleep paid at a ladder whose replacement had already shipped, 220 min of it in the two days AFTER the fix landed (9 of those 13 events were `tester` stages, the exact cap-timeout/stall kinds whose shipped delay is `RETRY_DELAY_FLOOR = 60`s). The root cause is structural, not a one-off: `dispatcher.py` does a plain `import foundry` ONCE at launch, so on a long-running process EVERY foundry improvement is dormant -- iteration 130 shipped the detector for exactly this and gave it only one PEDAL, a `doctor` line the operator runs BEFORE a launch, which by construction cannot reach an operator who has already launched. Shape: `RESTART_FLAG_NAME` + a pure `cfg`-only path helper + one write seam + one clear seam + a `dispatch_restart_line(cfg)` reporter modelled exactly on iter-12's `dispatch_progress_line` (composes `live_lag_line` by BARE module name so a `monkeypatch.setattr` bites; returns the WARN line or `None`; never raises), INTENDED as ONE guarded call in the dispatcher shift loop but NOT LANDED (see BLOCKER below), with the flag gitignored in the SAME iteration via a NEW nested `products/.gitignore` (`*/RESTART_NEEDED.md`) because the ROOT `.gitignore` is frozen too. The flag AUTO-CLEARS on the OK/UNKNOWN branches so it can never nag after the restart it asked for. Deliberately NOT taken: any auto-`execv`/`importlib.reload` self-restart (acting on the flag stays a HUMAN decision -- swapping the semantics of a mid-shift loop is what the quality bar forbids, and a crash-loop stops the whole company), no role card reads the flag (unlike `HOTFIX_NEEDED.md` it must never gate or redirect a stage), and `live_lag_line` / `live-lag` / `doctor` semantics are untouched. Also NOT taken, with the reasons recorded so they are not re-litigated: scout A's A2 (collapse the seven byte-identical `summarize_company_*` constructors, 135 LOC, an AST census over all 222 module-level functions proved them identical and the 7 target dataclasses uniform, 0 `monkeypatch.setattr` sites, est. -116 LOC) -- it remains the recommended ON-RAMP to item (i) and strictly shrinks it, but it is this product's first non-additive refactor of shipped code and changes no decision; scout A's A3 (the STATUS stack) -- partially taken as PM maintenance, see `## Moved from the index by iter 141`; scout B's B2 (concurrent scout stages, a measured 476s = 14.1% of a 3,388s median iteration) -- two concurrent agent-CLI children draw on ONE token budget while 28% of produced attempts already finish at/over the 600s cap, so it is the only candidate that can make throughput WORSE; scout B's B3 (`stage-times --last N` windowing) -- cheapest and safest, and the instrument B2 needs before anyone wires concurrency on, so it is the standing next candidate for that lens. Four throughput stories were also KILLED WITH NUMBERS by scout B so no future scout re-proposes them for THIS product: the full suite averages 33.68s over iters 132-140 (the standing per-product FAST-test-command directive is worth ~2% here and stays correct only for a slow product like repolens at 498s), `LEARNINGS.md` is 2.88 MB but `read_text()` is 1.2 ms (the per-stage learnings cost is prompt SIZE, not I/O -- 16,223 of 18,243 prompt chars, with the pinned head at 92% of its 10,000-char budget and therefore one long bullet from silent truncation), dispatcher hand-off between teams is 1 second, and post-release clone+deps is ~3s of a 39s window. BLOCKER, measured in the engineer stage and re-verified independently by the reviewer: 26 permanent every-suite guards in `tests/test_iter50..84_behavior.py` each assert `git diff --quiet HEAD -- dispatcher.py scripts/ .gitignore`, so ANY edit to `dispatcher.py` or the root `.gitignore` turns 26 tests RED at this iteration's own pre-commit gate (probe: append one comment line to `dispatcher.py`, run `pytest -q tests -k byte_unchanged` -> 26 failed, 3 passed in 1.3s). `tests/test_control_path_freeze_scope.py` pins them in place (guard-count FLOOR of 26; every guard must keep naming `dispatcher.py`), so the correct fix is TEST-OWNED and cannot be made from the engineer chair. CONSEQUENCE for every future PM: no dispatcher-side pedal -- this one or any other -- is shippable until a dedicated iteration re-scopes those 26 byte-freezes to an AST/symbol invariant (dispatcher.py still imports foundry, still calls exactly load_config / run_iteration / dispatch_progress_line in the shift loop, still honors both STOP files). Do NOT spec another `dispatcher.py` edit before that unblocking iteration exists; it will fail the same way, and the one-line wiring that activates this flag is the first thing it should unblock.
