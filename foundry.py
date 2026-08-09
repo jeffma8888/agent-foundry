@@ -9060,6 +9060,173 @@ def write_early_card_audit(cards: Mapping[str, str]) -> WriteEarlyCardAudit:
     )
 
 
+# --------------------------------------------------------------------------- #
+# Role-card CLI-invocation audit (iteration 142)
+#
+# A role card is the EXECUTABLE contract for a stage, so a card that names a
+# command the stage CANNOT run is a defect in this product's own control
+# surface. The `foundry` command is not on PATH inside a product stage (no
+# console script is declared anywhere), so a bare `foundry <verb>` in a card can
+# only ever be discovered-and-worked-around, once per iteration, inside the
+# stage with the least budget left -- iteration 92's PM burned a turn on exactly
+# that, which is why the operator pinned it as a PAPER-CUT. The two pure
+# functions below let the SUITE turn the NEXT such card edit into a test failure
+# instead of a rediscovery.
+# --------------------------------------------------------------------------- #
+
+# The CLI is built in TWO shapes, and a matcher that knows only the first is
+# FAIL-OPEN: most verbs are an `add_parser` call on a quoted string literal, but
+# `run`, `once` and `doctor` come from a `for name in (...)` loop that feeds
+# `add_parser(name)`. A
+# verb set scraped from string literals alone therefore MISSES `doctor` -- which
+# is precisely the verb a reader reaches for as a positive control, so such a
+# brake could not catch even its own test case. Both shapes are pinned here.
+_CLI_ADD_PARSER_LITERAL_RE = re.compile(r"""add_parser\(\s*['"]([^'"]+)['"]""")
+_CLI_ADD_PARSER_LOOP_RE = re.compile(
+    r"^(?P<indent>[ \t]*)for\s+(?P<var>[A-Za-z_]\w*)\s+in\s+"
+    r"\((?P<items>[^()]*)\)\s*:\s*$"
+)
+_CLI_TUPLE_STRING_RE = re.compile(r"""['"]([^'"]+)['"]""")
+
+# A COMMAND POSITION is the word `foundry` followed by whitespace and a verb.
+# The lookbehind is what keeps PROSE quiet: it rejects `agent-foundry` and any
+# `<dir>/foundry` path form, while the runnable form this iteration prescribes
+# (`python3 <checkout>/foundry.py <verb>`) fails the whitespace requirement on
+# its own -- so the FIX can never itself be reported as a finding.
+_BARE_FOUNDRY_CLI_RE = re.compile(r"(?<![\w./-])foundry[ \t]+([A-Za-z][A-Za-z0-9-]*)")
+
+
+def _loop_binds_add_parser(body: list[str], indent: str, var: str) -> bool:
+    """True iff the block after a `for <var> in (...)` line calls `add_parser(<var>)`.
+
+    WHY scan the BLOCK instead of searching the whole file for
+    `add_parser(<var>)`: the loop variable is a common name (`name`), so a
+    file-wide search would credit any unrelated call and pull non-verb strings
+    into the verb set. The block ends at the first non-blank line that is not
+    indented deeper than the `for` itself, which is Python's own rule.
+    """
+    marker = re.compile(r"add_parser\(\s*" + re.escape(var) + r"\s*\)")
+    for line in body:
+        stripped = line.strip()
+        if stripped and not line.startswith(indent + " ") and not line.startswith(indent + "\t"):
+            return False
+        if marker.search(line):
+            return True
+    return False
+
+
+def _markdown_code_spans(line: str) -> list[str]:
+    """The text INSIDE each backticked code span on ONE markdown line.
+
+    Runs of backticks collapse to one first, so a double-backtick span reads
+    like a single-backtick one; then the odd-indexed pieces of the
+    backtick-split ARE the span contents. Everything outside every span is
+    dropped, which is the whole point: it is what separates a MENTION of a
+    command from an instruction to RUN one, and it is why an audit built on this
+    can stay silent on the cards' fourteen real prose mentions.
+    """
+    if "`" not in line:
+        return []
+    pieces = re.sub(r"`+", "`", line).split("`")
+    return [piece for index, piece in enumerate(pieces) if index % 2 == 1]
+
+
+def foundry_cli_verbs(source_text: str) -> tuple[str, ...]:
+    """Every subcommand verb the CLI in `source_text` actually accepts, sorted.
+
+    Takes the SOURCE TEXT of `foundry.py`, never a path, so it is PURE and
+    TOTAL: no filesystem, subprocess, network or clock access, no mutation of
+    its argument, and equal inputs give `==` results. Reading the file off disk
+    is deliberately the CALLER's job -- that is what lets a test drive both
+    construction shapes from in-memory strings while the live brake points the
+    same function at the real CLI.
+
+    Covers BOTH construction shapes (see `_CLI_ADD_PARSER_LOOP_RE` for why the
+    loop shape is load-bearing) and returns a SORTED tuple so the value is
+    stable and comparable. Honest when empty: `""`, a non-`str`, or text with no
+    `add_parser` call at all yields `()` rather than raising -- a caller that
+    mis-read the source should get an empty verb set it can ASSERT on, which is
+    what makes a non-vacuity floor ("at least N verbs") possible in the brake.
+
+    DORMANT: zero call site in the running pipeline -- no orchestrator,
+    dispatcher, stage, CLI verb or config field references it -- so resume
+    semantics for an in-flight loop are byte-identical.
+    """
+    if not isinstance(source_text, str) or not source_text:
+        return ()
+
+    verbs: set[str] = {
+        verb for verb in _CLI_ADD_PARSER_LITERAL_RE.findall(source_text) if verb
+    }
+
+    lines = source_text.splitlines()
+    for index, line in enumerate(lines):
+        match = _CLI_ADD_PARSER_LOOP_RE.match(line)
+        if match is None:
+            continue
+        names = [name for name in _CLI_TUPLE_STRING_RE.findall(match.group("items")) if name]
+        if not names:
+            continue
+        if _loop_binds_add_parser(lines[index + 1:], match.group("indent"), match.group("var")):
+            verbs.update(names)
+
+    return tuple(sorted(verbs))
+
+
+def bare_foundry_cli_findings(text: str, verbs: Iterable[str]) -> list[str]:
+    """Report every line of `text` that tells a reader to run a bare `foundry <verb>`.
+
+    Pure and total by the same contract as `foundry_cli_verbs`: card TEXT in, a
+    list of human-readable finding strings out, no I/O of any kind. One finding
+    per OFFENDING LINE (not per occurrence), each naming the 1-based line number
+    and the offending `foundry <verb>` text, so a failure message points a
+    maintainer straight at the line to fix.
+
+    A line offends only when BOTH conditions hold, and each half fixes a
+    different failure mode:
+      * the text sits inside a backticked code span -- prose such as "the
+        foundry learnings log" or the commit tag `(foundry iter NN)` is a
+        MENTION, not an instruction, and flagging it would make the audit noise
+        that a future maintainer would rightly delete;
+      * the word after `foundry` is a member of `verbs` -- so a made-up verb
+        (`foundry frobnicate`) stays silent, and the audit can never be stricter
+        than the CLI it is protecting.
+
+    Totality details: a non-`str` `text` or an empty one yields `[]`; a `verbs`
+    argument that is not iterable is treated as EMPTY (a caller that mis-derived
+    the verb set gets a vacuously green list it can catch with a floor, not a
+    traceback); non-`str` verbs are ignored.
+
+    DORMANT: zero call site in the running pipeline, exactly like
+    `foundry_cli_verbs` -- the live brake lives in the test suite.
+    """
+    if not isinstance(text, str) or not text:
+        return []
+    try:
+        known = {verb for verb in verbs if isinstance(verb, str) and verb}
+    except TypeError:
+        known = set()
+    if not known:
+        return []
+
+    findings: list[str] = []
+    for number, line in enumerate(text.splitlines(), start=1):
+        offenders: list[str] = []
+        for span in _markdown_code_spans(line):
+            for match in _BARE_FOUNDRY_CLI_RE.finditer(span):
+                offending = "foundry " + match.group(1)
+                if match.group(1) in known and offending not in offenders:
+                    offenders.append(offending)
+        if offenders:
+            named = ", ".join("`" + offender + "`" for offender in offenders)
+            findings.append(
+                "line " + str(number) + ": " + named + " is not runnable -- the "
+                "foundry command is not on PATH inside a stage; use "
+                "`python3 <checkout>/foundry.py <verb>`"
+            )
+    return findings
+
+
 @dataclasses.dataclass(frozen=True)
 class IterationOutcome:
     """One iteration's INTERNAL gate outcome (the `outcomes` ledger row).
