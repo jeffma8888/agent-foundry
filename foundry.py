@@ -8842,6 +8842,127 @@ def needs_test_repair(disposition: str) -> bool:
     return disposition in TEST_GATE_REPAIR_DISPOSITIONS
 
 
+# --------------------------------------------------------------------------- #
+# Role-card WRITE-EARLY drift audit (iteration 139)
+# --------------------------------------------------------------------------- #
+# WRITE-EARLY is the right default for six of the eight role cards and the WRONG
+# default for the two whose required output file ENDS IN A SENTINEL the loop
+# parses: there, a placeholder last line is not a draft, it is a VERDICT. That is
+# how four iterations of already-green work were thrown away (three in this
+# product, one in a sibling), each stage killed AFTER its own gates had passed
+# while holding a placeholder verdict. Those two cards therefore carry a
+# verify-first EXCEPTION paragraph, and this audit is what keeps it there: until
+# now the corrected rule lived ONLY in the prompt's operator steering head, a
+# bounded and periodically pruned channel, so it was one compaction from
+# vanishing. The consumer is deliberately a SUITE assertion rather than a CLI
+# verb -- a report nobody runs cannot stop drift, while a red suite blocks a ship.
+#
+# All four names below are module level and are read INSIDE the function body
+# (never captured as default args or at import time), so a test's
+# `monkeypatch.setattr(foundry, ...)` on any of them changes a later verdict.
+WRITE_EARLY_MARKER: str = "WRITE-EARLY (checkpoint-first)"
+WRITE_EARLY_MECHANISM: str = "write a complete-but-minimal version"
+WRITE_EARLY_EXCEPTION_ANCHOR: str = "EXCEPTION for this card"
+
+# The cards whose output file ends in a machine-parsed sentinel line:
+# `roles/final.md` (`parse_ship_action` accepts ONLY `PUSHED`/`REVERTED`, so an
+# `ACTION: PENDING` placeholder is unrecognised and the iteration REVERTS) and
+# `roles/tester.md` (an UNMARKED `RESULT: FAIL` classifies RED and spends the
+# iteration's single repair round on a fix pass with nothing to fix). Every other
+# card is exempt ON PURPOSE -- an engineer or reporter checkpoint costs nothing,
+# so demanding an exception paragraph from all eight would be noise that future
+# maintainers would rightly delete.
+SENTINEL_VERDICT_CARDS: tuple[str, ...] = ("final.md", "tester.md")
+
+
+@dataclasses.dataclass(frozen=True)
+class WriteEarlyCardAudit:
+    """The verdict of auditing role-card TEXT for its WRITE-EARLY contract.
+
+    Frozen because an audit is a RECORD of one comparison: freezing forbids
+    editing the verdict after the fact and gives value equality for free, so two
+    `write_early_card_audit` calls on equal inputs compare ``==`` -- which is
+    what makes the purity claim testable. Mirrors `LensDocAudit`, the same shape
+    iteration 133 used to hold a code constant and a role card in agreement.
+
+    Fields, each sorted by card NAME so the record is stable under dict ordering:
+      * `missing_marker` -- cards whose text lacks `WRITE_EARLY_MARKER`, i.e. the
+        stage is never told the rule at all.
+      * `missing_mechanism` -- cards carrying the heading but not the sentence
+        that says WHAT to do; a heading alone briefs nobody.
+      * `missing_exception` -- cards in `SENTINEL_VERDICT_CARDS` that lack
+        `WRITE_EARLY_EXCEPTION_ANCHOR`, i.e. a gate stage currently instructed to
+        checkpoint the very line the loop reads as its verdict. Non-sentinel
+        cards are NEVER reported here.
+      * `ok` -- a STORED field (not a property) so assigning to it raises
+        `dataclasses.FrozenInstanceError` like every other field. True iff all
+        three tuples are empty.
+    """
+
+    missing_marker: tuple[str, ...]
+    missing_mechanism: tuple[str, ...]
+    missing_exception: tuple[str, ...]
+    ok: bool
+
+
+def write_early_card_audit(cards: Mapping[str, str]) -> WriteEarlyCardAudit:
+    """Audit a NAME -> TEXT mapping of role cards for the WRITE-EARLY contract.
+
+    Takes card TEXT, never a path or a directory, so it is PURE and TOTAL: no
+    filesystem, subprocess, network or clock access, no mutation of its argument,
+    and equal inputs give ``==`` results. Reading `roles/*.md` off disk is
+    deliberately the CALLER's job -- that is what lets a test drive every branch
+    from in-memory strings, and what lets the live suite point the same function
+    at the real eight cards as its brake.
+
+    Rules, deliberately substring-based (the cards are prose, and a parser that
+    demanded a fixed layout would fail on a legitimate rewording):
+      * every entry must contain `WRITE_EARLY_MARKER` and `WRITE_EARLY_MECHANISM`;
+      * an entry whose NAME is in `SENTINEL_VERDICT_CARDS` must ALSO contain
+        `WRITE_EARLY_EXCEPTION_ANCHOR`; a non-sentinel card missing that anchor
+        is reported NOWHERE and cannot change `ok` on its own;
+      * a sentinel card simply ABSENT from the mapping is reported nowhere -- the
+        audit speaks only about entries it was handed, so "are all eight cards
+        present" stays the caller's assertion (the live brake makes it).
+
+    Totality details worth knowing: a value that is not a `str` is treated as
+    EMPTY text (so it is reported as missing everything applicable) instead of
+    raising, because a caller that mis-reads a card should get a red audit rather
+    than a traceback; and names are sorted via `str` so a mapping with exotic
+    keys still orders instead of raising.
+
+    DORMANT: this function has ZERO call site in the running pipeline -- no
+    orchestrator, dispatcher, stage, CLI verb or config field references it -- so
+    resume semantics for an in-flight loop are byte-identical.
+    """
+    marker = WRITE_EARLY_MARKER
+    mechanism = WRITE_EARLY_MECHANISM
+    exception_anchor = WRITE_EARLY_EXCEPTION_ANCHOR
+    sentinels = set(SENTINEL_VERDICT_CARDS)
+
+    missing_marker: list[str] = []
+    missing_mechanism: list[str] = []
+    missing_exception: list[str] = []
+    for key in sorted(cards, key=str):
+        name = key if isinstance(key, str) else str(key)
+        text = cards[key]
+        if not isinstance(text, str):
+            text = ""
+        if marker not in text:
+            missing_marker.append(name)
+        if mechanism not in text:
+            missing_mechanism.append(name)
+        if name in sentinels and exception_anchor not in text:
+            missing_exception.append(name)
+
+    return WriteEarlyCardAudit(
+        missing_marker=tuple(missing_marker),
+        missing_mechanism=tuple(missing_mechanism),
+        missing_exception=tuple(missing_exception),
+        ok=not missing_marker and not missing_mechanism and not missing_exception,
+    )
+
+
 @dataclasses.dataclass(frozen=True)
 class IterationOutcome:
     """One iteration's INTERNAL gate outcome (the `outcomes` ledger row).

@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-139
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- the two gate role cards still order the behavior that lost four iterations
+    - Candidate A2 -- parse_triage_winner reads the winner ids the PMs actually write
+    - Candidate A3 -- an attempt log that describes itself, so a 600s kill leaves evidence
+    - Candidate A1 -- every stage prompt carries the one foundry-CLI invocation that actually works
+    - Candidate B1 -- the operator's launcher gates on the composite preflight verdict
+    - Candidate C1 -- foundry agents renders an AGENTS.md that exists nowhere; give it a real reader
+    winner: A1
+    ship: unknown
   iter-138
     lenses: new-capability, hardening/DX
     - Candidate A -- foundry trust: name the verdicts no transcript ever backed
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- doctor reports NOT READY on a healthy fleet (false alarm in the pre-flight verb)
     - Candidate B3 -- the pinned prompt head is CORRUPTED in delivery, not merely over budget
     winner: B3
-    ship: unknown
+    ship: PUSHED ff0aa10
   iter-137
     lenses: narrative-and-docs, new-capability
     winner: B2
@@ -296,4 +306,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-35 scouted iterations
+36 scouted iterations
