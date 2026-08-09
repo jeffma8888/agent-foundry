@@ -74,7 +74,7 @@ bite 2 and (k). TEST-OWNED and the highest blast radius on this list (it re-scop
 over the running loop's control path), with `tests/test_control_path_freeze_scope.py` pinning a guard-count
 FLOOR of 26 plus `FORBIDDEN = ("README.md", "roles/")`, so it wants its OWN iteration and must NOT be bundled
 with a feature.
-(p) NEW (iter 143 scout A, candidate C): 45 CLI verbs, exactly one -- `new-product` (iter 137) -- absent from
+(p) NEW (iter 143 scout A, candidate C): 46 CLI verbs, exactly one -- `new-product` (iter 137) -- absent from
 `README.md`'s `# N.` index. Replace iteration 117's hand-written per-verb assertion with ONE derived rule;
 it MUST anchor on the `# N.` entry shape, else common words (`run`, `once`) pass it. Evidence in 143's bullet.
 DEADLINE (re-measured iteration 142; a scheduling item, never a competitive candidate): the BINDING budget is
@@ -237,6 +237,7 @@ here has no bullet in the archive.
 - iter 141 -- RESTART_NEEDED.md flag + auto-clear, SHIPPED DORMANT: 26 freeze guards block the dispatcher call site.
 - iter 142 -- roles/pm.md gets a RUNNABLE lint-spec invocation; two-sided brake on bare `foundry <verb>` in any card.
 - iter 143 -- prd-init renders a schema-valid prd.json from EXPLICIT stories; producer for the live shift-loop meter.
+- iter 144 -- NEW read-only `foundry prompt`: the EXACT bytes a stage receives, + a two-sided digest drift guard.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03

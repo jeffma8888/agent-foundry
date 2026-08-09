@@ -14246,6 +14246,280 @@ def run_continuous(cfg: ProductConfig) -> int:
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# `prompt` -- render the EXACT bytes ONE core stage receives (read-only, #45).
+#
+# The assembled stage prompt is the single largest input to every stage, and
+# nothing in this tree could show it. The nearest surface reports something
+# DIFFERENT: `learnings_cli` calls `learnings_digest(text, recent=recent)`
+# WITHOUT the five `PROMPT_LEARNINGS_*` budgets `build_prompt` applies, so it
+# prints a LONGER digest with the ` [...]` truncations invisible; and the
+# `retry_directive` block `run_stage` appends on attempt 2+ appears in no
+# artifact anywhere. An operator who cannot see what a stage read cannot tell a
+# DELIVERED steering rule from a silently dropped one -- a blind spot this
+# product has already paid for three times (the head budget, the doctor WARN,
+# verbatim-when-it-fits), each verifiable only by hand in a REPL.
+#
+# DELIBERATE DUPLICATION: `prompt_learnings_digest` recomputes the digest that
+# `build_prompt` computes inline, rather than refactoring `build_prompt` to share
+# one seam. `build_prompt` runs on EVERY stage of EVERY team, so a typo there
+# fails the whole fleet at once; the single-source wiring is the PRE-DECLARED
+# bite 2. What keeps the duplicate honest is that the drift is DECIDABLE: the
+# helper's output must appear VERBATIM inside `build_prompt`'s return (the
+# two-sided suite guard), so any divergence turns the suite RED and names it.
+#
+# OFF THE CONTROL PATH: nothing here is called by `run_stage`, `run_iteration`,
+# `run_continuous`, `build_prompt` or `dispatcher.py`. It never creates the
+# `iter-NN` state dir it renders for and writes no file, so asking for an
+# iteration that has not run yet cannot manufacture state.
+# --------------------------------------------------------------------------- #
+# The honesty note the human banner and the JSON envelope both carry: the digest
+# and the novelty block come from the tree as it is NOW, so `--iter N` supplies
+# iteration N's NUMBERING, never iteration N's history. Module-level so a test
+# can reference the value instead of hard-coding the phrase twice.
+PROMPT_RENDERED_AGAINST = "current tree"
+PROMPT_BANNER_HONESTY = "rendered against the CURRENT tree"
+
+
+def prompt_stage_options() -> tuple[str, ...]:
+    """The core pipeline stage labels this verb can render, in pipeline order.
+
+    DERIVED from `CORE_SEAT_STAGES.values()`, read as a module global at CALL
+    time (so `monkeypatch.setattr(foundry, "CORE_SEAT_STAGES", ...)` bites), so
+    no stage-label literal is introduced here at all: adding a core seat to that
+    one table extends this verb for free, and a rename can never leave the two
+    out of sync. Pure and total -- no I/O, raises for nothing.
+    """
+    return tuple(triple[0] for triple in CORE_SEAT_STAGES.values())
+
+
+def prompt_stage_args(stage: object) -> tuple[str, str] | None:
+    """The `(role_file, out_name)` pair `run_stage` would receive for `stage`.
+
+    Looks the label up in a table derived from `CORE_SEAT_STAGES` at CALL time,
+    so it tracks `prompt_stage_options()` exactly. TOTAL and case-SENSITIVE:
+    every unknown value -- `""`, `"  "`, `"PM"`, an extra bench stage, `None`,
+    an int, a list, a dict -- returns `None` rather than raising, which is what
+    lets the CLI answer an unknown `--stage` with its own exit-2 message naming
+    the legal labels instead of a traceback. The `isinstance` guard is
+    load-bearing, not defensive noise: a bare `dict.get(["pm"])` raises
+    `TypeError` on an UNHASHABLE argument, so without it the "raises for none of
+    them" contract would be false for exactly the inputs a CLI can receive.
+    """
+    if not isinstance(stage, str):
+        return None
+    table = {triple[0]: (triple[1], triple[2])
+             for triple in CORE_SEAT_STAGES.values()}
+    return table.get(stage)
+
+
+def prompt_learnings_digest(cfg: ProductConfig) -> str:
+    """The learnings digest `build_prompt` inlines -- under the PROMPT budgets.
+
+    Reads `cfg.learnings` DEFENSIVELY: missing, a directory, or unreadable all
+    yield exactly the digest of empty text (its stable `## Patterns` placeholder)
+    and raise nothing, so the verb works on a product that has recorded nothing.
+    Applies `learnings_digest` (bare name -> monkeypatchable) under all five
+    `PROMPT_LEARNINGS_*` module globals, each read at CALL time so patching any
+    ONE of them changes the returned string.
+
+    This is precisely what `foundry learnings` cannot report: it calls the same
+    core WITHOUT the budgets, so it prints a longer string and hides the
+    truncations the stage actually receives.
+    """
+    path = pathlib.Path(cfg.learnings)
+    try:
+        text = path.read_text()
+    except OSError:
+        # Missing file, a directory, or a permission error are indistinguishable
+        # for this purpose: none of them is a reason to crash a read-only report.
+        text = ""
+    return learnings_digest(
+        text,
+        recent=PROMPT_LEARNINGS_RECENT,
+        max_chars=PROMPT_LEARNINGS_BUDGET_CHARS,
+        lesson_chars=PROMPT_LEARNINGS_LESSON_CHARS,
+        head_bullet_chars=PROMPT_LEARNINGS_HEAD_BULLET_CHARS,
+        head_chars=PROMPT_LEARNINGS_HEAD_BUDGET_CHARS,
+    )
+
+
+def _prompt_paths(cfg: ProductConfig, iteration: int,
+                  out_name: str) -> tuple[pathlib.Path, pathlib.Path]:
+    """The `(it_dir, out_file)` pair `run_stage` would use, WITHOUT creating them.
+
+    One source of truth for the `iter-NN` path formula, shared by
+    `render_stage_prompt` (which formats it into the prompt) and `prompt_cli`
+    (which reports it), so the two can never disagree about which file the
+    rendered prompt names. Deliberately does NOT `mkdir`: that single omission
+    versus `run_stage` is the whole read-only guarantee of this verb.
+    """
+    it_dir = cfg.state / f"iter-{iteration:02d}"
+    return it_dir, it_dir / out_name
+
+
+def render_stage_prompt(cfg: ProductConfig, iteration: int, stage: str,
+                        attempt: int = 1) -> str | None:
+    """The EXACT text `run_stage` sends for `(iteration, stage, attempt)`.
+
+    Composed exactly as `run_stage` composes it: `build_prompt(...)` with an
+    EMPTY `extra` plus `retry_directive(attempt, stage, out_file)`, over the same
+    `it_dir`/`out_file`. Both seams are called by BARE module name, so a
+    `monkeypatch.setattr(foundry, "build_prompt", ...)` or `..., "retry_directive",
+    ...)` bites -- which is how the suite proves this function COMPOSES the two
+    rather than re-deriving their content.
+
+    Returns `None` for any stage `prompt_stage_args` rejects. An `attempt` below
+    1 is treated exactly as 1: `retry_directive` already returns "" for
+    `attempt < 2`, so the rendered text was always going to be identical, and
+    normalising HERE means a monkeypatched spy sees the effective value instead
+    of a nonsense one. WRITES NOTHING -- see `_prompt_paths`.
+    """
+    args = prompt_stage_args(stage)
+    if args is None:
+        return None
+    role_file, out_name = args
+    _it_dir, out_file = _prompt_paths(cfg, iteration, out_name)
+    effective = attempt if isinstance(attempt, int) and attempt >= 1 else 1
+    return (build_prompt(cfg, iteration, stage, role_file, out_file, _it_dir, "")
+            + retry_directive(effective, stage, out_file))
+
+
+@dataclasses.dataclass(frozen=True)
+class PromptMetrics:
+    """The decidable numbers about ONE rendered stage prompt.
+
+    Frozen for value equality and so a computed measurement cannot be mutated
+    after the fact (matching the other pure cores in this module). Fields:
+    `total_chars` the whole prompt; `digest_chars` the learnings digest inside
+    it; `digest_share_pct` the FLOOR of that share, because the digest dominating
+    the prompt is the finding that motivated the verb; `digest_embedded` whether
+    the separately-computed digest really appears in the prompt (the drift signal
+    for the duplication documented above); `digest_truncations` how many lessons
+    the stage silently receives CUT; `retry_chars` the size of the attempt-2+
+    escalation block that appears in no other artifact.
+    """
+    total_chars: int
+    digest_chars: int
+    digest_share_pct: int
+    digest_embedded: bool
+    digest_truncations: int
+    retry_chars: int
+
+
+def prompt_metrics(prompt: str, digest: str, retry: str) -> PromptMetrics:
+    """Measure a rendered prompt against its digest + retry block (pure, total).
+
+    No filesystem, subprocess, network or clock access, so identical arguments
+    always give an `==` result and the metrics are fully offline-testable.
+    `digest_share_pct` is integer FLOOR division and is 0 for an empty prompt
+    (never a `ZeroDivisionError`).
+
+    `digest_truncations` counts `LEARNINGS_TRUNCATION_MARKER` occurrences inside
+    the DIGEST, not inside the whole prompt: a marker that appears elsewhere in
+    the assembled text (a role card quoting one, say) is not a dropped lesson,
+    and counting it would inflate exactly the figure an operator would act on.
+    The marker is read from the module global at call time.
+    """
+    total = len(prompt)
+    digest_chars = len(digest)
+    share = (100 * digest_chars // total) if total else 0
+    return PromptMetrics(
+        total_chars=total,
+        digest_chars=digest_chars,
+        digest_share_pct=share,
+        digest_embedded=bool(digest) and digest in prompt,
+        digest_truncations=digest.count(LEARNINGS_TRUNCATION_MARKER),
+        retry_chars=len(retry),
+    )
+
+
+def prompt_default_iteration(cfg: ProductConfig) -> int:
+    """The iteration `prompt` renders when `--iter` is omitted: the HIGHEST run.
+
+    Reuses `iteration_numbers` (bare name -> monkeypatchable) over the directory
+    names under `cfg.state` and returns its maximum, so the no-flag invocation
+    shows the prompt the most recent shift used. A state dir that is missing,
+    unreadable, or holds no `iter-NN` directory yields 1 -- the iteration a fresh
+    product would run next -- rather than raising, so the verb answers on a
+    product that has never shipped.
+    """
+    try:
+        names = [entry.name for entry in cfg.state.iterdir() if entry.is_dir()]
+    except OSError:
+        return 1
+    numbers = iteration_numbers(names)
+    return numbers[-1] if numbers else 1
+
+
+def prompt_cli(cfg: ProductConfig, stage: str, iteration: int | None = None,
+               attempt: int = 1, as_json: bool = False) -> int:
+    r"""CLI entry: print the exact prompt for one core stage. READ-ONLY.
+
+    Human mode prints EXACTLY `banner + "\n\n" + rendered + "\n"`, so
+    `python3 foundry.py prompt --config C --stage S | tail -n +3` is the VERBATIM
+    prompt an operator can diff, grep or pipe. The banner is one line naming the
+    seat, the iteration, the attempt and the metrics, and it says out loud that
+    the digest and novelty block are `rendered against the CURRENT tree` --
+    without that note, believing `--iter N` reconstructs iteration N's history is
+    the most plausible way to misread this output.
+
+    `--json` emits ONLY the metrics envelope; the prompt TEXT is deliberately
+    absent, because it is multi-KB and would drown the numbers a dashboard wants.
+
+    Returns 2 -- printing neither banner nor prompt, and writing nothing -- for a
+    stage `prompt_stage_args` rejects, naming the offending value and every legal
+    label so the message is self-servicing; else 0.
+    """
+    args = prompt_stage_args(stage)
+    if args is None:
+        print(f"unknown --stage {stage!r}; expected one of: "
+              f"{', '.join(prompt_stage_options())}")
+        return 2
+    role_file, out_name = args
+    # An explicit --iter wins verbatim (including 0 or a future number); only an
+    # omitted flag consults the state dir.
+    number = iteration if isinstance(iteration, int) else prompt_default_iteration(cfg)
+    effective = attempt if isinstance(attempt, int) and attempt >= 1 else 1
+    _it_dir, out_file = _prompt_paths(cfg, number, out_name)
+    rendered = render_stage_prompt(cfg, number, stage, attempt=effective) or ""
+    # Recompute the two components SEPARATELY from the rendered text so the
+    # metrics can DISAGREE with it: that is the drift signal (`digest_embedded`),
+    # and slicing them back out of the prompt would make the check circular.
+    digest = prompt_learnings_digest(cfg)
+    retry = retry_directive(effective, stage, out_file)
+    metrics = prompt_metrics(rendered, digest, retry)
+    if as_json:
+        print(json.dumps({
+            "product": cfg.name,
+            "stage": stage,
+            "iteration": number,
+            "attempt": effective,
+            "role_file": str(pathlib.Path(cfg.roles_dir) / role_file),
+            "out_file": str(out_file),
+            "total_chars": metrics.total_chars,
+            "digest_chars": metrics.digest_chars,
+            "digest_share_pct": metrics.digest_share_pct,
+            "digest_embedded": metrics.digest_embedded,
+            "digest_truncations": metrics.digest_truncations,
+            "retry_chars": metrics.retry_chars,
+            "rendered_against": PROMPT_RENDERED_AGAINST,
+        }, indent=2))
+        return 0
+    banner = (
+        f"prompt stage={stage} iter={number:02d} attempt={effective} "
+        f"total_chars={metrics.total_chars} "
+        f"digest_chars={metrics.digest_chars} "
+        f"digest_share_pct={metrics.digest_share_pct} "
+        f"digest_truncations={metrics.digest_truncations} "
+        f"retry_chars={metrics.retry_chars} "
+        f"digest_embedded={metrics.digest_embedded} "
+        f"-- {PROMPT_BANNER_HONESTY}"
+    )
+    print(banner + "\n\n" + rendered)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="agent-foundry product team runner")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -14269,6 +14543,27 @@ def main(argv: list[str] | None = None) -> int:
                      help="print to stdout instead of writing <repo>/AGENTS.md")
     agt.add_argument("--json", action="store_true",
                      help="emit one machine-readable JSON view instead of writing/printing")
+    # `prompt` renders the EXACT prompt text `run_stage` would send for ONE core
+    # seat, plus the decidable numbers about it (#45). Read-only: it never
+    # creates the `iter-NN` state dir it renders for and writes nothing, so the
+    # `--stage` labels are validated inside `prompt_cli` (exit 2 naming them all)
+    # rather than by argparse `choices`, which would neither name the offending
+    # value in this CLI's own voice nor stay derived from `CORE_SEAT_STAGES`.
+    prm = sub.add_parser("prompt")
+    prm.add_argument("--config", required=True, help="path to product JSON config")
+    prm.add_argument("--stage", required=True,
+                     help="core pipeline stage to render; an unknown value exits "
+                          "2 listing every legal label")
+    prm.add_argument("--iter", dest="iter_num", type=int, default=None,
+                     help="iteration number to render for (default: the highest "
+                          "iter-NN under the product's state dir, else 1)")
+    prm.add_argument("--attempt", type=int, default=1,
+                     help="attempt number; 2+ appends the retry directive "
+                          "run_stage would add on a retry (default 1)")
+    prm.add_argument("--json", action="store_true",
+                     help="emit ONLY the metrics envelope as one JSON object "
+                          "(the prompt text is omitted) instead of the human "
+                          "banner + prompt")
     # `lint-spec` scores a PM spec file for completeness + size. It takes a spec
     # PATH (--file), NOT a product --config, so it is dispatched BEFORE
     # `load_config` below. On-demand only — the pipeline never calls it.
@@ -15116,6 +15411,9 @@ def main(argv: list[str] | None = None) -> int:
         return learnings_cli(cfg, recent=args.recent, as_json=args.json)
     if args.cmd == "agents":
         return agents_cli(cfg, recent=args.recent, print_only=args.print_only, as_json=args.json)
+    if args.cmd == "prompt":
+        return prompt_cli(cfg, args.stage, iteration=args.iter_num,
+                          attempt=args.attempt, as_json=args.json)
     if args.cmd == "prd":
         return prd_status_cli(cfg, as_json=args.json)
     if args.cmd == "prd-init":

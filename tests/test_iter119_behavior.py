@@ -690,9 +690,19 @@ def test_run_stage_is_the_sole_in_module_caller():
         if callable(obj) and hasattr(obj, "__code__"):
             if SYMBOL in _co_names_deep(obj):
                 callers.append(name)
-    assert sorted(callers) == ["run_stage"], (
-        "%s must have exactly one in-module caller (run_stage), got %r"
-        % (SYMBOL, sorted(callers)))
+    # iter-144: widened from ONE name to an explicit allowlist. The invariant
+    # protected here is that the retry text enters the PIPELINE at exactly one
+    # place -- `run_stage`. The two additions belong to the read-only `prompt`
+    # verb (#45), which exists to REPRODUCE what `run_stage` composes and is on
+    # no control path: `render_stage_prompt` builds the rendered text and
+    # `prompt_cli` measures the block for its banner. Both must call the seam by
+    # BARE module name (spec behaviors 5/6/8 turn on a monkeypatch biting).
+    # EQUALITY, not a subset: a new unlisted caller still fails here, and so
+    # does `run_stage` ever ceasing to call it.
+    assert sorted(callers) == ["prompt_cli", "render_stage_prompt",
+                               "run_stage"], (
+        "%s must be called only by run_stage and the read-only `prompt` "
+        "renderer, got %r" % (SYMBOL, sorted(callers)))
 
 
 # ==========================================================================
