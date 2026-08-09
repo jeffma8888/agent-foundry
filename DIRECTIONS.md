@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-141
+    lenses: simplification-and-deletion (iteration 141), performance-and-throughput (iteration 141)
+    - Candidate A1 -- restore the 583 over-moved chars and pay for them by archiving a superseded section
+    - Candidate A2 -- collapse seven byte-identical rollup constructors into one general rule
+    - Candidate A3 -- compact eight stacked STATUS paragraphs into one watermark line plus live clauses
+    - Candidate B1 -- restart-on-lag detector: 19 shipped iterations are NOT executing in the live brain
+    - Candidate B2 -- concurrent scout stages behind a default-off flag (measured 476s = 14.1% of an iteration)
+    - Candidate B3 -- windowed throughput report so a per-stage regression is visible while it happens
+    winner: B1
+    ship: unknown
   iter-140
     lenses: integration-and-adoption (iteration 140), simplification-and-deletion (iteration 140)
     - Candidate A1 -- preflight, the launch gate, drops both drift lines doctor prints, incl. an 18-iteration-stale brain
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- archive the completed roadmap prose; the index is 4.5 iterations from failing the suite
     - Candidate B3 -- one general last-line sentinel parser replaces five special cases (139 lines)
     winner: A2
-    ship: unknown
+    ship: PUSHED a621ade
   iter-139
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- the two gate role cards still order the behavior that lost four iterations
@@ -316,4 +326,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-37 scouted iterations
+38 scouted iterations

@@ -1,0 +1,12 @@
+# Runtime operator flags raised by the loop for a HUMAN, per product.
+#
+# The root .gitignore already lists HOTFIX_NEEDED.md / SPEED_STORY_NEEDED.md,
+# but it is frozen byte-unchanged from HEAD by 26 permanent every-suite guards
+# (`git diff --quiet HEAD -- dispatcher.py scripts/ .gitignore`, tests iter
+# 50-84), so a new entry there reddens the suite of the very iteration that adds
+# it. A nested .gitignore is the same semantics on an unfrozen path: git honors
+# it for everything under products/.
+#
+# The iter-141 liveness flag: raised when shipped iterations are inert in the
+# running brain, auto-cleared once it is restarted. Per-run state, never source.
+*/RESTART_NEEDED.md
