@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-143
+    lenses: narrative-and-docs (iteration 143), new-capability
+    - Candidate A -- ARCHITECTURE's Resilience invariant states a retry ladder the code stopped using two shipped iterations ago
+    - Candidate B -- four artifacts claim "five invariants" and name three different sets, including the one every platform prompt carries
+    - Candidate C -- the README command index, the record of every shipped CLI verb, silently skipped the verb iteration 137 shipped
+    - Candidate B1 -- stage-level resume of an abandoned iteration (report-only bite 1)
+    - Candidate B2 -- give the fleet's shipped progress meter its first data: generate a `prd.json`
+    - Candidate B3 -- a machine-readable per-attempt evidence envelope
+    winner: B2
+    ship: unknown
   iter-142
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- optional fast in-stage test command; the gates keep the declared serial one
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the Resilience bullet still prices one retry ladder, and never names the cap that actually kills stages
     - Candidate B3 -- the prompt-inlined `quality_bar` names two invariants that exist in no document
     winner: B1
-    ship: unknown
+    ship: PUSHED ad23b2c
   iter-141
     lenses: simplification-and-deletion (iteration 141), performance-and-throughput (iteration 141)
     - Candidate A1 -- restore the 583 over-moved chars and pay for them by archiving a superseded section
@@ -336,4 +346,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-39 scouted iterations
+40 scouted iterations
