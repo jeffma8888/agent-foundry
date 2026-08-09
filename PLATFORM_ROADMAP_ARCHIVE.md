@@ -310,3 +310,95 @@ Every release is then greppable and single-commit-revertable — which is what m
 ---
 
 - **iter 139 -- the two GATE role cards now carry the verify-first EXCEPTION their own stages need, and a new pure `write_early_card_audit` plus a LIVE suite assertion makes losing it impossible (scout A's hardening/DX lens, candidate A1, CORRECTED after measurement).** The defect: `roles/final.md` and `roles/tester.md` carried the unqualified iter-112 WRITE-EARLY block -- "write a complete-but-minimal version of your required output file AS SOON AS your decision is made" -- while the operator head inlined into every stage prompt told those two stages the OPPOSITE, and neither exception appeared in either card. For the gate stage the card was ordering an unconditional ship blocker: `parse_ship_action` (foundry.py:8106) recognises ONLY `ACTION: PUSHED <sha>` and `ACTION: REVERTED`, so a placeholder `ACTION: PENDING` is unrecognised and `run_iteration` reverts. Re-verified this iteration on disk, four losses, each with a 48-byte `final.attempt1.log` (i.e. killed AFTER its own gates went green): _platform iter-118 `ACTION: PENDING (checkpoint written before commit)`, iter-120 `ACTION: REVERTED`, iter-123 `ACTION: PENDING`, repolens iter-11 `ACTION: REVERTED`. TWO scout claims were checked rather than inherited. (1) Scout A's own strongest objection said the losses happened while the correct rule was already in the prompt head; FALSE for the exception -- the operator's FINAL-STAGE EXCEPTION is dated 2026-08-06 and cites those four as its proof, and the artifacts' mtimes are 2026-08-05 (118, 120) and 2026-08-06 (123, repolens 11), so the cards have never carried it and this is not a third copy of a failed rule. (2) The head's TESTER directive ("never a placeholder RESULT: FAIL, an unconditional ship blocker") is OVER-BROAD and was deliberately NOT copied: iteration 126 shipped the mechanism that makes a MARKED tester checkpoint safe -- `classify_test_report` (foundry.py:8746) returns UNFINISHED when the body carries `UNFINISHED_TEST_MARKER = "PROGRESS: CHECKPOINT"` (foundry.py:8725) and RED only otherwise, and `roles/tester.md` duty 3 already mandates that marker -- so copying the head verbatim would have contradicted a shipped design and told the tester to stop checkpointing. The two cards therefore received DIFFERENT exceptions by measurement: final.md must write the `ACTION:` line ONCE after the decision is real, never as a placeholder; tester.md may checkpoint but a cut-short report MUST carry `PROGRESS: CHECKPOINT` verbatim (an UNMARKED `RESULT: FAIL` is classified RED and burns the single repair round on a `fix-tests` pass with nothing to fix) and every checkpointed claim must be measured rather than predicted (the iter-138 lesson). Shape: prose additions inside each card's existing WRITE-EARLY section, keeping both anchors `WRITE-EARLY (checkpoint-first)` and `write a complete-but-minimal version` verbatim in all 8 top-level cards (`tests/test_iter112_behavior.py` pins them, including a marker-count-equals-card-count test, so rewording either turns the suite RED), plus four module-level constants (`WRITE_EARLY_MARKER`, `WRITE_EARLY_MECHANISM`, `WRITE_EARLY_EXCEPTION_ANCHOR` = `EXCEPTION for this card`, `SENTINEL_VERDICT_CARDS` = `("final.md", "tester.md")`), one frozen `WriteEarlyAudit` record (`missing_marker` / `missing_mechanism` / `missing_exception` / stored `ok`) and one pure total `write_early_card_audit(cards)` that reads those globals at call time -- the same DORMANT pure-function-plus-suite-assertion shape iteration 133 used for `scout_lens_audit`, with ZERO call site in the pipeline, so an in-flight loop's resume semantics are byte-identical. The CONSUMER is a live suite assertion over the 8 real cards read off disk, not a report: deleting a card or dropping either gate card's exception fails the ship. Scout B's A1 (inject a resolving `python3 <FOUNDRY>/foundry.py <verb>` line into every stage prompt, closing item (h)) was the strongest alternative and was rejected for this iteration because it saves a stage TURN where this prevents LOST ITERATIONS, and because it would edit the hot `build_prompt` path; it needs its own oracle (verify the command resolves from a NON-foundry cwd) and stays the next candidate for that lens. ALSO in this commit, the first half of roadmap item (n): the index was 395 chars from the hard 60,000 `ROADMAP_SIZE_WARN_CHARS` ship brake (measured 59,605 CHARS, not the 59,811 BYTES `wc -c` reports -- the brake counts `len(text)` and the index holds 206 bytes of multibyte punctuation), which would have made iteration 141's own Done-ledger row unshippable, so the COMPLETED item-11 detailed spec (4,234 chars, shipped iters 02/03) moved VERBATIM to this archive under `## Moved from the index by iter 139`, leaving a pointer and taking the index to 56,270 chars. `roadmap_archive_gaps` is one-directional (it only reads `- **iter N ` bullets and never reports archive-only numbers), so appending non-iteration prose here is safe; the `## Item 16` section (3,467 chars) is the next target once its ship status is confirmed.
+
+## Moved from the index by iter 140
+
+Iteration 140 moved the COMPLETED `## Item 16` section (3,467 chars) here VERBATIM from
+`PLATFORM_ROADMAP.md`, after verifying the item shipped (`scripts/leak_guard.py` is committed and
+`roles/final.md` gate step 6 invokes it fail-closed on exit 1 and exit 2). Nothing below is re-worded,
+re-wrapped or re-ordered. The move took the index from 56,270 chars to about 53,900, i.e. from 3,730 chars
+of headroom under the 60,000 `ROADMAP_SIZE_WARN_CHARS` ship brake to about 6,100. The next targets,
+measured but NOT taken by iteration 140: the `## RESOLVED 2026-08-04` section (1,703 chars) and the six
+superseded `STATUS (iter N)` paragraphs (2,545 chars).
+
+## Item 16 — committed, portable pre-push leak-guard (HIGH: repo is public + auto-pushing)
+
+**Problem.** This repo is public and the dispatcher auto-pushes on every successful ship
+with NO human review in the loop. A drifted iteration can reintroduce sensitive strings
+(the internal agent-CLI tool name, the model-provider service name, internal skill and
+workflow names, internal credential-refresh command names, personal absolute home-directory
+paths, and personal usernames) directly into a public commit. A local `.git/hooks/pre-push`
+guard is installed today, but git hooks are NOT cloned — so a fresh checkout (including the
+post-release fresh-clone verify, a new operator, or CI) ships with ZERO protection.
+
+**What ships.**
+- `scripts/leak_guard.py` — a stdlib-only, offline, deterministic scanner. Given a commit
+  ref (or an explicit file list), it scans tracked blob content against a configurable
+  denylist of *token-aware* patterns (each pattern flanked so ordinary English words that
+  merely contain the fragment are never false-positives). Exits non-zero with a `file:line`
+  report on any hit. Its OWN path is excluded from the scan so it can never self-trip on the
+  denylist literals it necessarily contains.
+- `scripts/install_hooks.sh` — one command a fresh clone runs to copy/symlink the scanner
+  into `.git/hooks/pre-push` (documented in README setup).
+- Final-gate integration — the `final` role runs the scanner as a hard pre-commit/pre-push
+  check so the loop self-blocks a leaky ship even when the hook is not installed
+  (belt-and-suspenders). A blocked ship fails the gate and reverts, same as any other gate
+  failure.
+- The denylist lives in a small committed config (e.g. `scripts/leak_denylist.txt`) so it is
+  reviewable and extensible without editing code.
+
+**Design / invariant compliance (read §3 + the self-mod guardrails).**
+- Purely ADDITIVE and offline-deterministic (no network) — fits the test-speed + offline-CI
+  invariants; does not change iteration numbering, state layout, or the
+  `VERDICT:`/`RESULT:`/`ACTION:`/`POSTRELEASE:` sentinels → resume-safe for any loop in flight.
+- Token-aware matching is mandatory (word-boundary / non-letter flanks) to avoid blocking
+  legitimate prose the autonomous roles write every iteration.
+
+**Done when.**
+- [x] `scripts/leak_guard.py` exists, offline, stdlib-only, with unit tests covering: a clean
+      tree passes; each denylist category is caught; a benign word containing a fragment is
+      NOT flagged; the guard's own path is skipped. **(iters 49-50)**
+- [x] `scripts/install_hooks.sh` arms the pre-push hook in one command; README documents it. **(iter 51)**
+- [x] The `final` role invokes the scanner before pushing and treats a hit as a gate failure. **(iter 52)**
+- [x] `tests/` stay green; both modules still import; ARCHITECTURE.md notes the new gate step. **(iter 52)**
+
+
+---
+
+# Org-design track (items 17-22) -- adopted 2026-08-01
+
+Blueprint: **`docs/ORG_DESIGN.md`** (rich bench -> cheap kickoff council staffs
+the minimum -> lean always-on core -> trigger/cadence-activated specialists ->
+bounded re-staffing). Evidence: `docs/research/`. Ship these smallest-safe-first
+and IN ORDER -- each item builds on the artifacts of the one before. Every item
+is ADDITIVE and must not change iteration numbering, state layout, or the
+`VERDICT:`/`RESULT:`/`ACTION:`/`POSTRELEASE:` sentinels (resume-safe for any
+loop in flight), per the self-modification guardrails.
+
+
+- **iter 140 -- `foundry lint-config` now RECOGNISES a dispatcher roster and exits 2 instead of telling the
+  operator to delete their own company (scout A's integration-and-adoption lens, candidate A2 in its small
+  variant).** Measured in the PM stage: `python3 foundry.py lint-config --config foundry.config.json` -- the
+  live roster that decides which teams get a shift -- exited 1 with `[error] work_items: unknown config key
+  'work_items'; not a ProductConfig field -- prefix it with '_' to keep it a comment`. Obeying that advice is
+  destructive: `dispatcher.py:89` reads `conf.get("work_items", [])`, so a `_work_items` roster yields zero
+  items and `dispatcher.py:91` prints "No enabled work items in config." and exits -- with the watchdog
+  relaunching it to the same exit all night. The roster is exactly the file the operator hand-edits, since
+  iteration 137's `new-product` PRINTS a paste-ready roster snippet and leaves the paste to the human. Shape:
+  one pure module-level `dispatch_roster_note(raw)` returning None for a product config and, for a mapping
+  whose top-level `work_items` is a list, an operator sentence naming the roster plus every product config it
+  lists; `lint_config_cli` consults it by BARE module name inside its existing `ConfigKeyError` handler,
+  BEFORE `config_key_findings`, and on a note prints it and returns 2 with a 4-key `--json` document
+  (`config_path`, `error`, `exit_code`, `kind`: `dispatch_roster`) whose first three keys stay in the order
+  the iteration-134 exit-2 document uses. Fail-safe in the iteration-134 style: if the seam returns None or
+  raises, the input keeps its previous behavior exactly, so the branch can never make the old path worse.
+  `_report_unreadable_config` was left untouched on purpose -- `tests/test_iter134_behavior.py` pins its
+  document to exactly `("config_path", "error", "exit_code")`, so a missing or corrupt file still reports
+  the historical 3-key shape. DELIBERATELY NOT taken, and left as named follow-ons: a 45th `lint-roster` verb
+  and scout A2's five roster CONTENT checks (duplicate names, unresolvable `config` paths, all-items-disabled,
+  an unrostered `products/*/config.json`) -- scout A's own census, 44 verbs with only 3 named by any automated
+  consumer, is the argument against adding a verb to fix an adoption gap. Also NOT taken: scout B's B1
+  (collapse the nine `company_*_cli` bodies, 547 lines, roadmap item (i)), because it is this product's first
+  non-additive refactor of shipped code and wants a clean iteration; and scout B's B2 as a FEATURE (index
+  compaction), because this file's own DEADLINE block calls compaction "a scheduling item, never a
+  competitive candidate" -- so iteration 140 did it as PM maintenance in this same commit instead.

@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-140
+    lenses: integration-and-adoption (iteration 140), simplification-and-deletion (iteration 140)
+    - Candidate A1 -- preflight, the launch gate, drops both drift lines doctor prints, incl. an 18-iteration-stale brain
+    - Candidate A2 -- the dispatcher roster is the one config nothing lints, and the only linter gives it destructive advice
+    - Candidate A3 -- iter-09's AGENTS.md renderer has produced zero artifacts in 131 iterations
+    - Candidate B1 -- collapse the nine company_*_cli bodies; the executable variation is 5 lines, not 37
+    - Candidate B2 -- archive the completed roadmap prose; the index is 4.5 iterations from failing the suite
+    - Candidate B3 -- one general last-line sentinel parser replaces five special cases (139 lines)
+    winner: A2
+    ship: unknown
   iter-139
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- the two gate role cards still order the behavior that lost four iterations
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B1 -- the operator's launcher gates on the composite preflight verdict
     - Candidate C1 -- foundry agents renders an AGENTS.md that exists nowhere; give it a real reader
     winner: A1
-    ship: unknown
+    ship: PUSHED 3e17d63
   iter-138
     lenses: new-capability, hardening/DX
     - Candidate A -- foundry trust: name the verdicts no transcript ever backed
@@ -306,4 +316,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-36 scouted iterations
+37 scouted iterations

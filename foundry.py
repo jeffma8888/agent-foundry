@@ -2459,6 +2459,81 @@ def config_key_findings(raw: Mapping[str, object]) -> tuple[ConfigFinding, ...]:
         for key in unknown_config_keys(raw))
 
 
+# The top-level key that makes a JSON file a DISPATCHER ROSTER rather than a product
+# config. Module-level and read as a global inside `dispatch_roster_note`, so a test can
+# `monkeypatch.setattr(foundry, "DISPATCH_ROSTER_KEY", ...)` and watch the verdict move.
+DISPATCH_ROSTER_KEY = "work_items"
+
+
+def dispatch_roster_note(raw: Mapping[str, object]) -> str | None:
+    """Return an operator note iff `raw` is a DISPATCHER ROSTER, else `None`.
+
+    WHY this exists: `lint-config` used to answer a roster with the generic unknown-key
+    finding for `work_items`, whose remedy line tells the operator to comment the key out
+    with the `_` prefix. Obeying it DELETES THE COMPANY -- `dispatcher.py` reads
+    `conf.get("work_items", [])`, so a commented roster yields zero items, the dispatcher
+    prints "No enabled work items in config." and exits, and the watchdog relaunches it to
+    the same exit forever. The roster is exactly the file an operator hand-edits (the
+    `new-product` verb prints a paste-ready snippet and leaves the paste to the human) and
+    `lint-config` is the only lint verb they would reach for, so a wrong answer here is
+    worse than no answer at all. This function is the recogniser; it never emits the
+    destructive advice, and it points at the product configs the roster itself names.
+
+    Recognition is deliberately ONE structural fact -- a top-level `DISPATCH_ROSTER_KEY`
+    whose value is a `list` -- because that is precisely what `dispatcher.py` requires to
+    run a shift. A `work_items` that is `None`/str/int/dict is NOT a roster the dispatcher
+    could ever use, so it keeps the historical unknown-key report rather than being
+    mislabelled.
+
+    Pure and total: no filesystem, no subprocess, no network, no clock; `raw` is never
+    mutated; and it never raises for ANY mapping input (hostile entries -- non-dict items,
+    a missing `config`, a non-str `config` -- are skipped, not fatal). Non-string `config`
+    values are simply omitted from the note: the note's job is to hand the operator paths
+    they can paste, and a number is not one.
+    """
+    if not isinstance(raw, Mapping):
+        return None
+    items = raw.get(DISPATCH_ROSTER_KEY)
+    if not isinstance(items, list):
+        return None
+    configs = [
+        value for value in (
+            item.get("config") if isinstance(item, Mapping) else None
+            for item in items)
+        if isinstance(value, str) and value.strip()]
+    lines = [
+        f"lint-config: {DISPATCH_ROSTER_KEY} is a list here, so this is a "
+        f"dispatcher roster, not a product config -- it holds no ProductConfig "
+        f"fields to lint.",
+        f"Leave the {DISPATCH_ROSTER_KEY!r} key exactly as it is: dispatcher.py reads "
+        f"it to find the teams, so renaming or commenting it out makes the dispatcher "
+        f"see zero work items and exit.",
+    ]
+    if configs:
+        lines.append("Lint the product configs this roster names instead:")
+        lines.extend(f"  foundry lint-config --config {value}" for value in configs)
+    else:
+        lines.append("This roster names no product config to lint.")
+    return "\n".join(lines)
+
+
+def _report_dispatch_roster(config_path: str, note: str, as_json: bool) -> int:
+    """Print the dispatcher-roster note (or its `--json` twin), return `2`.
+
+    Exit `2` -- "there is nothing here I can lint" -- rather than `1`, because `1` means
+    "this config has errors you should fix in it" and a roster has no error to fix: it is
+    the wrong FILE for this verb. The JSON document adds ONE key to the exit-2 shape,
+    `kind`, so a launch wrapper can tell a roster from a corrupt file without regexing
+    English; `_report_unreadable_config`'s 3-key document is left byte-identical.
+    """
+    if as_json:
+        print(json.dumps({"config_path": config_path, "error": note,
+                          "exit_code": 2, "kind": "dispatch_roster"}, indent=2))
+    else:
+        print(note)
+    return 2
+
+
 def _report_unreadable_config(config_path: str, exc: BaseException,
                               as_json: bool) -> int:
     """Print the historical `lint-config: cannot read config ...` diagnostic, return 2.
@@ -2506,17 +2581,39 @@ def lint_config_cli(config_path: str, as_json: bool = False) -> int:
     raw re-read fails, or the `config_key_findings` seam returns nothing or raises,
     the historical exit-2 diagnostic is printed unchanged, so this branch can never
     make the old path worse. Every other exception keeps the exit-2 path exactly.
+
+    A DISPATCHER ROSTER is checked FIRST inside that same branch: `work_items` is an
+    unknown ProductConfig key, so a roster used to be answered with advice that would
+    make the dispatcher read zero teams (see `dispatch_roster_note`). A recognised
+    roster now returns `2` -- wrong FILE for this verb, nothing to fix IN it -- with a
+    `kind` of `"dispatch_roster"` under `--json`. The recogniser is called by BARE
+    module name inside its OWN `try`, so if it returns `None` or raises, this input's
+    pre-existing behaviour is untouched: the roster falls through to the unknown-key
+    findings report (exit `1`) exactly as before.
     """
     try:
         cfg = load_config(config_path)
     except ConfigKeyError as exc:
         key_findings: tuple[ConfigFinding, ...] = ()
+        roster_note: str | None = None
         try:
             raw = json.loads(pathlib.Path(config_path).expanduser().read_text())
-            # bare module name so `monkeypatch.setattr(foundry, ...)` bites
-            key_findings = config_key_findings(raw)
+            try:
+                # bare module name so `monkeypatch.setattr(foundry, ...)` bites
+                note = dispatch_roster_note(raw)
+            except Exception:
+                # FAIL-SAFE: a broken recogniser must not cost the operator the
+                # unknown-key report they already had.
+                note = None
+            roster_note = note if isinstance(note, str) and note else None
+            if roster_note is None:
+                # bare module name so `monkeypatch.setattr(foundry, ...)` bites
+                key_findings = config_key_findings(raw)
         except Exception:
             key_findings = ()
+            roster_note = None
+        if roster_note is not None:
+            return _report_dispatch_roster(config_path, roster_note, as_json)
         if not key_findings:
             return _report_unreadable_config(config_path, exc, as_json)
         lint = ConfigLint(config_path=config_path, findings=key_findings)
