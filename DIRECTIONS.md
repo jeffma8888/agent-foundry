@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-147
+    lenses: simplification-and-deletion (iteration 147), performance-and-throughput
+    - Candidate A1 -- finish iteration 146: the last three `company_*_cli` bodies become thin wrappers too
+    - Candidate A2 -- one shared body behind the three test-scan gatherers
+    - Candidate A3 -- one pure `sentinel_remainder` behind the five gate-sentinel parsers
+    - Candidate B1 -- anchored review-gate trigger: stop firing a fix-review pass on an APPROVE
+    - Candidate B2 -- live-lag is 25 iterations, so every shipped throughput fix is inert
+    - Candidate B3 -- reclaim the engineer stage's in-stage verification cost
+    winner: B1
+    ship: unknown
   iter-146
     lenses: integration-and-adoption (iteration 146), simplification-and-deletion
     - Candidate A1 -- the reviewer card runs a shipped test-quality diagnostic
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- delete 27 byte-identical copies of `_snapshot_tree` into one shared test helper module
     - Candidate B3 -- retire the superseded 60,000 wall's three live-index brakes, so one file has one wall
     winner: B1
-    ship: unknown
+    ship: PUSHED b8116d9
   iter-145
     lenses: hardening/DX, integration-and-adoption (iteration 145)
     - Candidate A1 -- the roadmap brake that actually reverts an iteration is a bare literal; the budget the tools report is 7,313 chars too generous
@@ -376,4 +386,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-43 scouted iterations
+44 scouted iterations

@@ -234,6 +234,7 @@ in the archive.
 - iter 144 -- NEW read-only `foundry prompt`: the EXACT bytes a stage receives, + a two-sided digest drift guard.
 - iter 145 -- one roadmap-index wall constant + pure headroom verdict + a `doctor` WARN line.
 - iter 146 -- six byte-identical `company_*_cli` bodies collapse to ONE shared body + thin wrappers (-124 lines).
+- iter 147 -- both review gates route on the ANCHORED verdict; an APPROVE quoting the token no longer fires a fix pass.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03

@@ -3927,8 +3927,10 @@ def run_execution_plan(cfg: ProductConfig, iteration: int,
       * ANY stage that fails -> infra-fail keyed on that stage; `revert_repo`
         first iff `StagePlan.reverts_on_fail` (True for every gate except `pm`,
         because at the pm stage nothing has been built yet).
-      * `review` gate whose report contains `CHANGES_REQUIRED` -> a fix-review
-        pass; if it fails, revert + infra-fail (stage `fix-review`).
+      * `review` gate whose ANCHORED verdict (`read_review_disposition`) earns a
+        repair round (`needs_review_repair` -- an APPROVE and `NONE` do not; this
+        gate no longer substring-scans the report) -> a fix-review pass; if it
+        fails, revert + infra-fail (stage `fix-review`).
       * `test` gate whose ANCHORED disposition (`read_test_disposition`) earns a
         repair round (`needs_test_repair` -- an earned PASS and `NONE` do not;
         this gate no longer substring-scans the report) -> if the disposition is
@@ -3947,7 +3949,7 @@ def run_execution_plan(cfg: ProductConfig, iteration: int,
     can pass the head `run_iteration` already captured for its log line without a
     second `head_of_branch` call. Every external effect (`run_stage`,
     `revert_repo`, `head_of_branch`, `postrelease_step`, `contains`,
-    `read_test_disposition`, `log`) is
+    `read_review_disposition`, `read_test_disposition`, `log`) is
     called by its BARE module name so a test's `monkeypatch.setattr` bites, and
     module globals are read inside the call. If the plan has NO release gate and
     every stage passes, the loop completes and returns no-ship WITHOUT reverting
@@ -3965,7 +3967,16 @@ def run_execution_plan(cfg: ProductConfig, iteration: int,
             return {"status": "infra-fail", "stage": spec.stage,
                     "iteration": iteration}
 
-        if step.gate == "review" and contains(report, "CHANGES_REQUIRED"):
+        if step.gate == "review" and needs_review_repair(
+                read_review_disposition(report)):
+            # iter-147: route on the ANCHORED reviewer verdict from
+            # `read_review_disposition` rather than a substring scan of the
+            # report, so a reviewer who merely QUOTES the fail sentinel while
+            # explaining itself no longer burns a `fix-review` round (2 of the
+            # old trigger's 30 fleet fires were APPROVE reports describing this
+            # very gate). Mirrors `run_iteration` VERBATIM -- see the comment
+            # there for the measurement. Strictly narrowing: this can only fire
+            # where the substring scan also would have.
             log(cfg, f"iter {iteration:02d} - review requires changes -> fix pass")
             ok, _ = run_stage(cfg, iteration, "fix-review", "fix.md",
                               "fix_review.md",
@@ -9325,6 +9336,107 @@ def needs_test_repair(disposition: str) -> bool:
     return disposition in TEST_GATE_REPAIR_DISPOSITIONS
 
 
+def classify_review_report(text: str) -> str:
+    """Classify a reviewer report body: APPROVE / CHANGES_REQUIRED / NONE (pure, total).
+
+    WHY this exists: until this iteration the review gate fired on the mere
+    PRESENCE of `CHANGES_REQUIRED` ANYWHERE in the reviewer report, so a report
+    that merely QUOTED the fail sentinel while explaining itself burned a whole
+    `fix-review` round under the ~600 s per-stage cap -- this product's #1 loss
+    source. Measured over all 256 `products/*/state/iter-*/review*.md` artifacts
+    in the fleet, the substring trigger fires 30 times and the ANCHORED one 28,
+    so 2 fires are spurious (`_platform` iters 146 and 70, each ending
+    `VERDICT: APPROVE`, each with a real `fix_review.md` proving a stage burned).
+    The trap is self-reinforcing, which is why it recurs: in BOTH cases the token
+    appears because the reviewer was DESCRIBING THE REVIEW GATE ITSELF (iter-70
+    line 38 quotes the routing rule verbatim), so any reviewer who reasons about
+    the mechanism trips it and the false-fire rate RISES as the docs improve.
+    Anchoring beats asking role cards to police their own prose.
+
+    Reuses the anchored `parse_review_verdict` -- pure, total and shipped in
+    iter 100 with 18 assertions on it, but with NO control-path caller for 47
+    iterations: a brake with no pedal. This iteration WIRES it; it does not edit
+    it. So "the sentinel must be the LAST non-empty line" now holds for the
+    routing decision too, exactly as `classify_test_report` does for the tester.
+
+    Returns `"APPROVE"` / `"CHANGES_REQUIRED"` when that token is the anchored
+    verdict, and `"NONE"` for every other input: empty or whitespace-only text,
+    no `VERDICT:` line, an unrecognized token (`VERDICT: MAYBE`), a bare
+    `VERDICT:`, or a `VERDICT:` line that is not the last non-empty one (prose
+    follows it -- a malformed or in-progress artifact). `parse_review_verdict`
+    is called by BARE name so a monkeypatch on it takes effect here. The result
+    is then NORMALIZED against the known token set, so the three-value contract
+    holds unconditionally -- an unrecognized value (only reachable via a patched
+    seam) collapses to `"NONE"` rather than leaking a fourth disposition into the
+    gate. Total by construction: the only work is that call, which never raises
+    for ANY string, so NUL bytes, odd escapes and 100k bodies are all safe.
+    """
+    verdict = parse_review_verdict(text)
+    if verdict in ("APPROVE", "CHANGES_REQUIRED"):
+        return verdict
+    return "NONE"
+
+
+def read_review_disposition(path: pathlib.Path) -> str:
+    """Read a reviewer report FILE and classify it -- the single I/O seam.
+
+    Split from `classify_review_report` so the classifier stays pure and the
+    pipeline has exactly ONE place that touches the filesystem for this
+    decision, mirroring `read_test_disposition`. `classify_review_report` is
+    called by BARE name so a monkeypatch on it takes effect here too.
+
+    A missing or unreadable `path` returns `"NONE"`, which runs NO fix pass.
+    That deliberately DEGRADES to the behavior that shipped before this
+    iteration: the `contains()` this replaces returned False on `OSError` and so
+    ran no fix pass either. Note this is the OPPOSITE token from
+    `read_test_disposition`'s `"RED"` for the SAME reason, not a different one --
+    each seam degrades to ITS OWN pre-change route, so a filesystem hiccup can
+    never invent a code path in either gate.
+    """
+    try:
+        text = path.read_text()
+    except OSError:
+        return "NONE"
+    return classify_review_report(text)
+
+
+# --------------------------------------------------------------------------- #
+# Review-gate routing (iter-147): the ANCHORED trigger
+# --------------------------------------------------------------------------- #
+# WHICH dispositions from `classify_review_report` earn the iteration's one
+# fix-review round. Module level and read by BARE name inside
+# `needs_review_repair`, so a routing test can shrink or redirect the repair set
+# with a single `monkeypatch.setattr(foundry, "REVIEW_GATE_REPAIR_DISPOSITIONS",
+# ...)` and never touch a call site. Mirrors TEST_GATE_REPAIR_DISPOSITIONS.
+REVIEW_GATE_REPAIR_DISPOSITIONS: tuple[str, ...] = ("CHANGES_REQUIRED",)
+
+
+def needs_review_repair(disposition: str) -> bool:
+    """Does this reviewer disposition earn a fix-review round? (pure, total)
+
+    `"NONE"` is deliberately OUT of the repair set, for the same measured reason
+    iter-127 kept it out of the TEST gate: existing routing drivers write an
+    unscripted stage report as the empty string, which classifies `NONE`, so
+    admitting it would turn a large body of existing tests red for no measured
+    benefit.
+
+    That exclusion is also what makes this change STRICTLY NARROWING, which is
+    the property worth stating as a one-line theorem: because the only repair
+    disposition is one `parse_review_verdict` returns solely when the anchored
+    last line reads `VERDICT: CHANGES_REQUIRED`, a fire IMPLIES the token is
+    present in the text, i.e.
+    `needs_review_repair(classify_review_report(t))` implies
+    `"CHANGES_REQUIRED" in t`. The new gate can therefore never fire where the
+    old substring trigger did not -- verified over all 256 real fleet review
+    artifacts with zero violations -- so this can only REMOVE spurious
+    fix-review rounds, never add one.
+
+    Total by construction: one membership test against a tuple of strings, so it
+    never raises for ANY `str` -- empty, unicode, or 100k chars.
+    """
+    return disposition in REVIEW_GATE_REPAIR_DISPOSITIONS
+
+
 # --------------------------------------------------------------------------- #
 # Role-card WRITE-EARLY drift audit (iteration 139)
 # --------------------------------------------------------------------------- #
@@ -14104,7 +14216,17 @@ def run_iteration(cfg: ProductConfig, iteration: int | None = None) -> dict:
         revert_repo(cfg, "reviewer stage failed")
         return {"status": "infra-fail", "stage": "reviewer", "iteration": iteration}
 
-    if contains(review, "CHANGES_REQUIRED"):
+    # iter-147: the gate routes on the ANCHORED reviewer verdict (the last
+    # non-empty line), not on the mere PRESENCE of the fail sentinel anywhere in
+    # the report. Measured over all 256 fleet `review*.md` artifacts, the old
+    # substring trigger fired 30 times and the anchored one 28: 2 spurious fires,
+    # both APPROVE reports that burned a real `fix-review` stage under the 600 s
+    # cap. Both tripped because the reviewer was DESCRIBING THIS GATE, so the
+    # trap is self-reinforcing and its false-fire rate rises as the docs improve.
+    # `parse_review_verdict` already existed and was simply unwired -- a brake
+    # with no pedal. Strictly narrowing (see `needs_review_repair`): a fire here
+    # implies the token is present, so this removes rounds and never adds one.
+    if needs_review_repair(read_review_disposition(review)):
         log(cfg, f"iter {iteration:02d} · review requires changes -> fix pass")
         ok, _ = run_stage(cfg, iteration, "fix-review", "fix.md",
                           "fix_review.md",
