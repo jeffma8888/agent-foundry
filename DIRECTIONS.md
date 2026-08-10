@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-146
+    lenses: integration-and-adoption (iteration 146), simplification-and-deletion
+    - Candidate A1 -- the reviewer card runs a shipped test-quality diagnostic
+    - Candidate A2 -- `live-lag --json`, with the WARN outcome derived from the same token as the exit code
+    - Candidate A3 -- the dormant RESTART_NEEDED flag gets its first LEGAL producer, in `watchdog.py`
+    - Candidate B1 -- collapse the six byte-identical `company_*_cli` bodies into one shared body + six thin wrappers
+    - Candidate B2 -- delete 27 byte-identical copies of `_snapshot_tree` into one shared test helper module
+    - Candidate B3 -- retire the superseded 60,000 wall's three live-index brakes, so one file has one wall
+    winner: B1
+    ship: unknown
   iter-145
     lenses: hardening/DX, integration-and-adoption (iteration 145)
     - Candidate A1 -- the roadmap brake that actually reverts an iteration is a bare literal; the budget the tools report is 7,313 chars too generous
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- give iteration 24/28's launch gate its first real consumer: a tracked, portable launcher
     - Candidate B3 -- the operator cheat-sheet migrates from the manual way to the shipped verbs, with a drift brake
     winner: A1
-    ship: unknown
+    ship: PUSHED e461577
   iter-144
     lenses: new-capability (iteration 144), hardening/DX
     - Candidate A1 -- read-only `foundry prompt`: render the exact bytes a stage receives
@@ -366,4 +376,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-42 scouted iterations
+43 scouted iterations

@@ -47,7 +47,7 @@ import subprocess
 import sys
 import time
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 
 FOUNDRY = pathlib.Path(__file__).resolve().parent
 # The agent CLI is configurable so the foundry stays tool-agnostic. AGENT_BIN
@@ -8480,6 +8480,74 @@ def summarize_company(*, dispatch_path: str,
         errors=tuple((name, message) for name, message in errors))
 
 
+def _company_rollup_cli(dispatch_path: str, as_json: bool,
+                        gather: Callable[[ProductConfig], object],
+                        summarize: Callable[..., object]) -> int:
+    """The ONE shared body behind every `company-*` fleet roll-up verb.
+
+    Six public verbs (`company_status_cli`, `company_weak_tests_cli`,
+    `company_constant_asserts_cli`, `company_skipped_tests_cli`,
+    `company_test_quality_cli`, `company_config_lint_cli`) carried BYTE-IDENTICAL
+    bodies that differed only in which two seams they used, so one roll-up policy
+    lived in six places and every fix had to be made six times. They are now thin
+    wrappers over this private helper, which owns the whole roll-up: read the
+    DISPATCH config at `dispatch_path` (`foundry.config.json`, NOT a product
+    config), then for each ENABLED work item substitute a `{FOUNDRY}` token in its
+    config path to the foundry root and load + measure that product via the
+    `load_config` seam and the caller's `gather`.
+
+    WHY the seams are PARAMETERS and not looked up here: each public wrapper must
+    resolve ITS OWN two seams by BARE module name at CALL time, which is what keeps
+    `monkeypatch.setattr(foundry, "gather_status", ...)` biting through the wrapper.
+    Resolving them in here would need a verb->name table, and one seam
+    (`summarize_company`) is NOT derivable from its verb name. `load_config` and
+    `parse_dispatch_work_items` are still called by bare name in this body, so
+    their patch sites keep biting too.
+
+    Resilient: if reading/parsing the dispatch config fails (missing / not JSON /
+    not an object) it prints a report recording ONE synthetic error and returns
+    that report's exit code; if a single work item's `load_config` or `gather`
+    raises, that item is recorded in `errors` and the roll-up CONTINUES over the
+    rest. No exception from either seam ever propagates. With `as_json=True` stdout
+    is exactly ONE `json.dumps(to_dict(), indent=2)` document; either way the
+    RETURN value is the report's own `exit_code`. Writes NOTHING to disk."""
+    try:
+        dispatch = json.loads(
+            pathlib.Path(dispatch_path).expanduser().read_text())
+        if not isinstance(dispatch, dict):
+            raise ValueError("dispatch config is not a JSON object")
+    except Exception as exc:
+        # A missing / malformed dispatch config is a real operator problem, not a
+        # crash: surface it as ONE synthetic error (attention -> exit 1).
+        company = summarize(
+            dispatch_path=dispatch_path, products=(), disabled=(),
+            errors=((dispatch_path, str(exc)),))
+        print(json.dumps(company.to_dict(), indent=2) if as_json
+              else company.render())
+        return company.exit_code
+
+    products: list[object] = []
+    disabled: list[str] = []
+    errors: list[tuple[str, str]] = []
+    for name, config, enabled in parse_dispatch_work_items(dispatch):
+        if not enabled:
+            disabled.append(name)      # deliberate; never loaded
+            continue
+        try:
+            # {FOUNDRY} -> foundry root BEFORE load_config, exactly as the
+            # dispatcher resolves each work item's config path.
+            cfg = load_config(config.replace("{FOUNDRY}", str(FOUNDRY)))
+            products.append(gather(cfg))
+        except Exception as exc:
+            # One bad team never sinks the whole roll-up -- record + continue.
+            errors.append((name, str(exc)))
+    company = summarize(
+        dispatch_path=dispatch_path, products=tuple(products),
+        disabled=tuple(disabled), errors=tuple(errors))
+    print(json.dumps(company.to_dict(), indent=2) if as_json else company.render())
+    return company.exit_code
+
+
 def company_status_cli(dispatch_path: str, as_json: bool = False) -> int:
     """On-demand CLI: roll every ENABLED team's health into ONE company verdict.
 
@@ -8501,41 +8569,9 @@ def company_status_cli(dispatch_path: str, as_json: bool = False) -> int:
     (0 healthy / 1 needs-attention / 2 no-enabled-products). Writes NOTHING to
     disk -- a read-only report; with `load_config` monkeypatched the filesystem
     is untouched."""
-    try:
-        dispatch = json.loads(
-            pathlib.Path(dispatch_path).expanduser().read_text())
-        if not isinstance(dispatch, dict):
-            raise ValueError("dispatch config is not a JSON object")
-    except Exception as exc:
-        # A missing / malformed dispatch config is a real operator problem, not a
-        # crash: surface it as ONE synthetic error (attention -> exit 1).
-        company = summarize_company(
-            dispatch_path=dispatch_path, products=(), disabled=(),
-            errors=((dispatch_path, str(exc)),))
-        print(json.dumps(company.to_dict(), indent=2) if as_json
-              else company.render())
-        return company.exit_code
-
-    products: list[StatusSummary] = []
-    disabled: list[str] = []
-    errors: list[tuple[str, str]] = []
-    for name, config, enabled in parse_dispatch_work_items(dispatch):
-        if not enabled:
-            disabled.append(name)      # deliberate; never loaded
-            continue
-        try:
-            # {FOUNDRY} -> foundry root BEFORE load_config, exactly as the
-            # dispatcher resolves each work item's config path.
-            cfg = load_config(config.replace("{FOUNDRY}", str(FOUNDRY)))
-            products.append(gather_status(cfg))
-        except Exception as exc:
-            # One bad team never sinks the whole roll-up -- record + continue.
-            errors.append((name, str(exc)))
-    company = summarize_company(
-        dispatch_path=dispatch_path, products=tuple(products),
-        disabled=tuple(disabled), errors=tuple(errors))
-    print(json.dumps(company.to_dict(), indent=2) if as_json else company.render())
-    return company.exit_code
+    # Seams resolved HERE, by BARE name at CALL time, so a monkeypatch bites.
+    return _company_rollup_cli(dispatch_path, as_json,
+                               gather_status, summarize_company)
 
 
 # --------------------------------------------------------------------------- #
@@ -12026,41 +12062,9 @@ def company_weak_tests_cli(dispatch_path: str, as_json: bool = False) -> int:
     (0 clean / 1 findings-or-parse-errors-or-team-errored / 2 no-enabled-
     products). Writes NOTHING to disk -- a read-only report; with `load_config`
     monkeypatched the filesystem is untouched."""
-    try:
-        dispatch = json.loads(
-            pathlib.Path(dispatch_path).expanduser().read_text())
-        if not isinstance(dispatch, dict):
-            raise ValueError("dispatch config is not a JSON object")
-    except Exception as exc:
-        # A missing / malformed dispatch config is a real operator problem, not a
-        # crash: surface it as ONE synthetic error (errors -> exit 1).
-        company = summarize_company_weak_tests(
-            dispatch_path=dispatch_path, products=(), disabled=(),
-            errors=((dispatch_path, str(exc)),))
-        print(json.dumps(company.to_dict(), indent=2) if as_json
-              else company.render())
-        return company.exit_code
-
-    products: list[WeakTestSummary] = []
-    disabled: list[str] = []
-    errors: list[tuple[str, str]] = []
-    for name, config, enabled in parse_dispatch_work_items(dispatch):
-        if not enabled:
-            disabled.append(name)      # deliberate; never loaded
-            continue
-        try:
-            # {FOUNDRY} -> foundry root BEFORE load_config, exactly as the
-            # dispatcher resolves each work item's config path.
-            cfg = load_config(config.replace("{FOUNDRY}", str(FOUNDRY)))
-            products.append(gather_weak_tests(cfg))
-        except Exception as exc:
-            # One bad team never sinks the whole roll-up -- record + continue.
-            errors.append((name, str(exc)))
-    company = summarize_company_weak_tests(
-        dispatch_path=dispatch_path, products=tuple(products),
-        disabled=tuple(disabled), errors=tuple(errors))
-    print(json.dumps(company.to_dict(), indent=2) if as_json else company.render())
-    return company.exit_code
+    # Seams resolved HERE, by BARE name at CALL time, so a monkeypatch bites.
+    return _company_rollup_cli(dispatch_path, as_json,
+                               gather_weak_tests, summarize_company_weak_tests)
 
 
 # --------------------------------------------------------------------------- #
@@ -12310,41 +12314,9 @@ def company_constant_asserts_cli(dispatch_path: str, as_json: bool = False) -> i
     `CompanyConstantAsserts.exit_code` (0 clean / 1 findings-or-parse-errors-or-
     team-errored / 2 no-enabled-products). Writes NOTHING to disk -- a read-only
     report; with `load_config` monkeypatched the filesystem is untouched."""
-    try:
-        dispatch = json.loads(
-            pathlib.Path(dispatch_path).expanduser().read_text())
-        if not isinstance(dispatch, dict):
-            raise ValueError("dispatch config is not a JSON object")
-    except Exception as exc:
-        # A missing / malformed dispatch config is a real operator problem, not a
-        # crash: surface it as ONE synthetic error (errors -> exit 1).
-        company = summarize_company_constant_asserts(
-            dispatch_path=dispatch_path, products=(), disabled=(),
-            errors=((dispatch_path, str(exc)),))
-        print(json.dumps(company.to_dict(), indent=2) if as_json
-              else company.render())
-        return company.exit_code
-
-    products: list[ConstantAssertSummary] = []
-    disabled: list[str] = []
-    errors: list[tuple[str, str]] = []
-    for name, config, enabled in parse_dispatch_work_items(dispatch):
-        if not enabled:
-            disabled.append(name)      # deliberate; never loaded
-            continue
-        try:
-            # {FOUNDRY} -> foundry root BEFORE load_config, exactly as the
-            # dispatcher resolves each work item's config path.
-            cfg = load_config(config.replace("{FOUNDRY}", str(FOUNDRY)))
-            products.append(gather_constant_asserts(cfg))
-        except Exception as exc:
-            # One bad team never sinks the whole roll-up -- record + continue.
-            errors.append((name, str(exc)))
-    company = summarize_company_constant_asserts(
-        dispatch_path=dispatch_path, products=tuple(products),
-        disabled=tuple(disabled), errors=tuple(errors))
-    print(json.dumps(company.to_dict(), indent=2) if as_json else company.render())
-    return company.exit_code
+    # Seams resolved HERE, by BARE name at CALL time, so a monkeypatch bites.
+    return _company_rollup_cli(dispatch_path, as_json,
+                               gather_constant_asserts, summarize_company_constant_asserts)
 
 
 # --------------------------------------------------------------------------- #
@@ -12617,41 +12589,9 @@ def company_skipped_tests_cli(dispatch_path: str, as_json: bool = False) -> int:
     `company-weak-tests` / `company-constant-asserts` -- a THIRD COMPLEMENTARY
     company lens catching a DIFFERENT antipattern (a test that never RUNS at
     all)."""
-    try:
-        dispatch = json.loads(
-            pathlib.Path(dispatch_path).expanduser().read_text())
-        if not isinstance(dispatch, dict):
-            raise ValueError("dispatch config is not a JSON object")
-    except Exception as exc:
-        # A missing / malformed dispatch config is a real operator problem, not a
-        # crash: surface it as ONE synthetic error (errors -> exit 1).
-        company = summarize_company_skipped_tests(
-            dispatch_path=dispatch_path, products=(), disabled=(),
-            errors=((dispatch_path, str(exc)),))
-        print(json.dumps(company.to_dict(), indent=2) if as_json
-              else company.render())
-        return company.exit_code
-
-    products: list[SkippedTestSummary] = []
-    disabled: list[str] = []
-    errors: list[tuple[str, str]] = []
-    for name, config, enabled in parse_dispatch_work_items(dispatch):
-        if not enabled:
-            disabled.append(name)      # deliberate; never loaded
-            continue
-        try:
-            # {FOUNDRY} -> foundry root BEFORE load_config, exactly as the
-            # dispatcher resolves each work item's config path.
-            cfg = load_config(config.replace("{FOUNDRY}", str(FOUNDRY)))
-            products.append(gather_skipped_tests(cfg))
-        except Exception as exc:
-            # One bad team never sinks the whole roll-up -- record + continue.
-            errors.append((name, str(exc)))
-    company = summarize_company_skipped_tests(
-        dispatch_path=dispatch_path, products=tuple(products),
-        disabled=tuple(disabled), errors=tuple(errors))
-    print(json.dumps(company.to_dict(), indent=2) if as_json else company.render())
-    return company.exit_code
+    # Seams resolved HERE, by BARE name at CALL time, so a monkeypatch bites.
+    return _company_rollup_cli(dispatch_path, as_json,
+                               gather_skipped_tests, summarize_company_skipped_tests)
 
 
 # --------------------------------------------------------------------------- #
@@ -12981,41 +12921,9 @@ def company_test_quality_cli(dispatch_path: str, as_json: bool = False) -> int:
     OVERLAP #19/#22 (an always-skipped test may also be assertion-free), so the
     company `total_findings` is a per-CATEGORY triage total, NOT a de-duplicated
     distinct-test count."""
-    try:
-        dispatch = json.loads(
-            pathlib.Path(dispatch_path).expanduser().read_text())
-        if not isinstance(dispatch, dict):
-            raise ValueError("dispatch config is not a JSON object")
-    except Exception as exc:
-        # A missing / malformed dispatch config is a real operator problem, not a
-        # crash: surface it as ONE synthetic error (errors -> exit 1).
-        company = summarize_company_test_quality(
-            dispatch_path=dispatch_path, products=(), disabled=(),
-            errors=((dispatch_path, str(exc)),))
-        print(json.dumps(company.to_dict(), indent=2) if as_json
-              else company.render())
-        return company.exit_code
-
-    products: list[TestQualitySummary] = []
-    disabled: list[str] = []
-    errors: list[tuple[str, str]] = []
-    for name, config, enabled in parse_dispatch_work_items(dispatch):
-        if not enabled:
-            disabled.append(name)      # deliberate; never loaded
-            continue
-        try:
-            # {FOUNDRY} -> foundry root BEFORE load_config, exactly as the
-            # dispatcher resolves each work item's config path.
-            cfg = load_config(config.replace("{FOUNDRY}", str(FOUNDRY)))
-            products.append(gather_test_quality(cfg))
-        except Exception as exc:
-            # One bad team never sinks the whole roll-up -- record + continue.
-            errors.append((name, str(exc)))
-    company = summarize_company_test_quality(
-        dispatch_path=dispatch_path, products=tuple(products),
-        disabled=tuple(disabled), errors=tuple(errors))
-    print(json.dumps(company.to_dict(), indent=2) if as_json else company.render())
-    return company.exit_code
+    # Seams resolved HERE, by BARE name at CALL time, so a monkeypatch bites.
+    return _company_rollup_cli(dispatch_path, as_json,
+                               gather_test_quality, summarize_company_test_quality)
 
 
 # --------------------------------------------------------------------------- #
@@ -13288,41 +13196,9 @@ def company_config_lint_cli(dispatch_path: str, as_json: bool = False) -> int:
     UNLIKE the QUALITY roll-ups, ONLY config ERRORS gate -- a fleet of
     warnings-only configs still exits 0 (the per-product `ConfigLint` semantics,
     inherited)."""
-    try:
-        dispatch = json.loads(
-            pathlib.Path(dispatch_path).expanduser().read_text())
-        if not isinstance(dispatch, dict):
-            raise ValueError("dispatch config is not a JSON object")
-    except Exception as exc:
-        # A missing / malformed dispatch config is a real operator problem, not a
-        # crash: surface it as ONE synthetic error (errors -> exit 1).
-        company = summarize_company_config_lint(
-            dispatch_path=dispatch_path, products=(), disabled=(),
-            errors=((dispatch_path, str(exc)),))
-        print(json.dumps(company.to_dict(), indent=2) if as_json
-              else company.render())
-        return company.exit_code
-
-    products: list[ConfigLint] = []
-    disabled: list[str] = []
-    errors: list[tuple[str, str]] = []
-    for name, config, enabled in parse_dispatch_work_items(dispatch):
-        if not enabled:
-            disabled.append(name)      # deliberate; never loaded
-            continue
-        try:
-            # {FOUNDRY} -> foundry root BEFORE load_config, exactly as the
-            # dispatcher resolves each work item's config path.
-            cfg = load_config(config.replace("{FOUNDRY}", str(FOUNDRY)))
-            products.append(gather_config_lint(cfg))
-        except Exception as exc:
-            # One bad team never sinks the whole roll-up -- record + continue.
-            errors.append((name, str(exc)))
-    company = summarize_company_config_lint(
-        dispatch_path=dispatch_path, products=tuple(products),
-        disabled=tuple(disabled), errors=tuple(errors))
-    print(json.dumps(company.to_dict(), indent=2) if as_json else company.render())
-    return company.exit_code
+    # Seams resolved HERE, by BARE name at CALL time, so a monkeypatch bites.
+    return _company_rollup_cli(dispatch_path, as_json,
+                               gather_config_lint, summarize_company_config_lint)
 
 
 # --------------------------------------------------------------------------- #
