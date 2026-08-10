@@ -562,7 +562,11 @@ def test_b10_the_archived_body_is_gone_from_the_index():
 
 def test_b10_index_is_under_the_declared_budget():
     size = len(_index_text())
-    assert size < 54000, "PLATFORM_ROADMAP.md is %d chars, spec requires < 54,000" % size
+    wall = foundry.ROADMAP_INDEX_HARD_CHARS   # iter 145: single source of truth
+    assert size < wall, (
+        "PLATFORM_ROADMAP.md is %d chars, budget is < %d -- ARCHIVE spent prose to "
+        "PLATFORM_ROADMAP_ARCHIVE.md; raising ROADMAP_INDEX_HARD_CHARS is NOT the remedy"
+        % (size, wall))
 
 
 def test_b10_both_gap_brakes_report_no_gaps():

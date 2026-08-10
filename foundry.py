@@ -646,16 +646,17 @@ def doctor_ok(checks: list[Check]) -> bool:
 
 
 def run_doctor_cli(cfg: ProductConfig) -> int:
-    """CLI entry: print one line per check, two drift lines, and a summary.
+    """CLI entry: print one line per check, THREE drift lines, and a summary.
 
-    Exit code is 0 iff all four checks pass -- UNCHANGED by either drift line (the
-    live-lag line, iter 130; the steering-head line, iter 136). Neither is an
-    environment fault: a stale brain is a restart the operator owes and an
-    over-budget steering head is an edit the operator owes, so both WARN where
-    they will be seen (this is the surface run before every launch) without ever
-    blocking a run. `run_doctor` itself stays a 4-`Check` function, since its
-    shape is pinned by the iter-01 tests, which is exactly why these two
-    diagnostics live HERE and not as fifth and sixth checks.
+    Exit code is 0 iff all four checks pass -- UNCHANGED by ANY drift line (the
+    live-lag line, iter 130; the steering-head line, iter 136; the roadmap-index
+    line, iter 145). None of the three is an environment fault: a stale brain is a
+    restart the operator owes, an over-budget steering head is an edit the operator
+    owes, and a roadmap index near its hard wall is an ARCHIVE the operator owes --
+    so all three WARN where they will be seen (this is the surface run before every
+    launch) without ever blocking a run. `run_doctor` itself stays a 4-`Check`
+    function, since its shape is pinned by the iter-01 tests, which is exactly why
+    these three diagnostics live HERE and not as fifth, sixth and seventh checks.
     """
     checks = run_doctor(cfg)
     for c in checks:
@@ -671,6 +672,11 @@ def run_doctor_cli(cfg: ProductConfig) -> int:
         print(learnings_head_line(cfg))
     except Exception as exc:  # pragma: no cover - contract-impossible belt
         print(f"{LEARNINGS_HEAD_PREFIX} UNKNOWN -- steering-head line errored: "
+              f"{exc!r}")
+    try:
+        print(roadmap_index_line(cfg))
+    except Exception as exc:  # pragma: no cover - contract-impossible belt
+        print(f"{ROADMAP_INDEX_PREFIX} UNKNOWN -- roadmap-index line errored: "
               f"{exc!r}")
     ok = doctor_ok(checks)
     passed = sum(1 for c in checks if c.ok)
@@ -2164,6 +2170,158 @@ def roadmap_ledger_gaps(index_text: str, archive_text: str,
     want = {n for n in (shipped or ())
             if isinstance(n, int) and not isinstance(n, bool)}
     return sorted(want - have)
+
+
+# --------------------------------------------------------------------------- #
+# The roadmap INDEX HARD WALL (`doctor`'s `roadmap-index:` line) -- iter 145.
+#
+# WHY a SECOND roadmap budget, right next to `ROADMAP_SIZE_WARN_CHARS`: they
+# answer different questions and only ONE of them can stop a ship. 60,000 is a
+# SMELL threshold nothing enforces. The number that actually reverts an iteration
+# is the wall the LIVE quality suite asserts the index stays under -- two tests
+# read the product's roadmap index off disk and assert `len(index) < HARD` -- and
+# that wall was written as a BARE LITERAL in those two test files, i.e. it was
+# authoritative in the one place no surface could report. Meanwhile
+# `roadmap_size_verdict`, the only function built to report a roadmap budget,
+# reported 7,313 chars of headroom against the smell threshold while the ENFORCED
+# headroom was 1,313: 5.6x too generous, with ZERO non-test consumers to notice.
+#
+# The failure that produces is dated and self-inflicted. Every PM stage of every
+# shift rewrites the index (measured growth: +987.6 chars per growing iteration),
+# so the next iteration to record itself can redden the live suite -- and a red
+# suite REVERTS the iteration, which is exactly how the permanent records for
+# iterations 64 and 122 were lost. Iteration 142 hit the same wall with 749 chars
+# of headroom and had to pay it down as an unplanned rider.
+#
+# So: state the wall ONCE, here; have those tests derive it; and hang a WARN off
+# the surface the operator already runs before every launch, ~3 iterations before
+# the cliff instead of on the iteration that trips it. The value being PINNED by
+# a test is deliberate -- it closes the escape hatch where a PM facing a red suite
+# raises the budget instead of archiving.
+#
+# `roadmap_index_budget` is PURE and TOTAL (text in, verdict out; no filesystem,
+# subprocess, network or clock; never raises for any `str`) and DORMANT on the
+# control path: nothing in `run_iteration` / `run_stage` / `build_prompt` /
+# `dispatcher.py` calls it, so a loop in flight resumes byte-identically and no
+# restart is owed. The ONLY call site is `run_doctor_cli`, an on-demand read-only
+# verb -- which is also why this is a LINE and not a fifth `Check`, since iter-01
+# pins `run_doctor` at exactly four. It REPORTS; a human or a PM archives.
+# --------------------------------------------------------------------------- #
+ROADMAP_INDEX_HARD_CHARS = 54000        # the wall the LIVE quality suite enforces
+ROADMAP_INDEX_NEAR_WALL_CHARS = 3000    # warn this far out (~3 growing iterations)
+ROADMAP_INDEX_PREFIX = "roadmap-index:"  # stable grep anchor for the one line
+ROADMAP_INDEX_WARN = "WARN"             # ONLY near-wall / over-budget carries it
+
+
+@dataclasses.dataclass(frozen=True)
+class RoadmapIndexBudget:
+    """How much room a roadmap INDEX has left before the quality suite goes red.
+
+    Frozen for the same reason as `RoadmapSize` / `LearningsHeadAudit`: a computed
+    verdict must not be mutable after the fact, and value-equality comes free.
+
+    * `char_count` -- `len(text)`, CHARS not bytes. A roadmap index carries
+      multibyte punctuation (the live one by ~163 bytes), so `wc -c` overstates
+      it; the brake counts chars, and measuring the same way is what keeps this
+      verdict and the brake from ever disagreeing.
+    * `hard_budget` / `near_wall_margin` -- the two module globals as they stood
+      AT CALL TIME, STORED rather than re-derived, so a caller (or a test) can see
+      WHICH budget a given verdict was judged against instead of re-reading a
+      global that may since have changed.
+    * `headroom` -- `hard_budget - char_count`; negative once over the wall.
+    * `over_budget` -- `char_count >= hard_budget`, i.e. INCLUSIVE, because the
+      live tests assert `len(index) < HARD`, so a file of exactly `HARD` chars is
+      already BAD. `roadmap_size_verdict` uses strictly-greater-than for its SMELL
+      budget; copying that here would be off by one against the real brake.
+    * `near_wall` -- inside the margin but not yet over. MUTUALLY EXCLUSIVE with
+      `over_budget` by construction, so the three outcomes (OK / near / over) are
+      unambiguous and a caller never has to break a tie.
+    """
+    char_count: int
+    hard_budget: int
+    near_wall_margin: int
+    headroom: int
+    over_budget: bool
+    near_wall: bool
+
+
+def roadmap_index_budget(text: str) -> RoadmapIndexBudget:
+    """Measure a roadmap index against `ROADMAP_INDEX_HARD_CHARS` (pure, total).
+
+    Both budgets are read from their module globals AT CALL TIME (never captured
+    at import or as default arguments) so a `monkeypatch.setattr(foundry, ...)` on
+    either one changes a subsequent call's verdict with no re-import.
+
+    Touches no filesystem, subprocess, network or clock, and never raises for any
+    `str` -- including `""` (0 chars, full headroom, neither flag set) and text
+    far past the wall.
+    """
+    hard_budget = ROADMAP_INDEX_HARD_CHARS
+    near_wall_margin = ROADMAP_INDEX_NEAR_WALL_CHARS
+    char_count = len(text or "")
+    headroom = hard_budget - char_count
+    over_budget = char_count >= hard_budget
+    return RoadmapIndexBudget(
+        char_count=char_count,
+        hard_budget=hard_budget,
+        near_wall_margin=near_wall_margin,
+        headroom=headroom,
+        over_budget=over_budget,
+        near_wall=(not over_budget) and 0 <= headroom <= near_wall_margin,
+    )
+
+
+def roadmap_index_line(cfg: "ProductConfig") -> str:
+    """ONE human line: how close is the roadmap index to the wall that REVERTS?
+
+    Shaped exactly like `live_lag_line` and `learnings_head_line` because it
+    answers the same class of question -- a drift the operator owes an EDIT for,
+    not an environment fault. `roadmap_index_budget` is called by its BARE module
+    name (and reads both budgets as module globals inside its own body), so a
+    `monkeypatch.setattr(foundry, ...)` on any of the three bites here.
+
+    The path comes from `cfg.roadmap`, which every product config already carries,
+    so this stays repo-agnostic -- no product's filename is hardcoded.
+
+    Three OUTCOMES, deliberately distinct because they demand different actions:
+      * UNKNOWN -- no readable index (empty/missing path, unreadable, or a
+        directory). Says so, claims NOTHING about the size, and carries NO
+        `ROADMAP_INDEX_WARN`, because "I cannot tell" is not evidence of a
+        problem. Every unexpected internal failure degrades to this branch.
+      * OK -- more headroom than the near-wall margin.
+      * WARN -- inside the margin, or already over. Names the count, the headroom
+        and the remedy, which is to ARCHIVE spent prose -- never to raise the
+        budget, since raising it converts a one-off paydown into a file that
+        regrows forever.
+
+    ALWAYS returns a non-empty SINGLE-line `str` (no embedded newline), never
+    `None`, and NEVER raises: a diagnostic that can crash the preflight it
+    decorates is worse than no diagnostic.
+    """
+    try:
+        path = pathlib.Path(str(getattr(cfg, "roadmap", "") or ".")).expanduser()
+        label = path.name or str(path)
+        try:
+            text = path.read_text()
+        except Exception:
+            # Missing / unreadable / a directory -> UNKNOWN, never WARN.
+            return (f"{ROADMAP_INDEX_PREFIX} UNKNOWN -- no readable roadmap index "
+                    f"at {label}; cannot size it against the "
+                    f"{ROADMAP_INDEX_HARD_CHARS}-char wall the quality suite "
+                    f"enforces")
+        v = roadmap_index_budget(text)
+        if not (v.over_budget or v.near_wall):
+            return (f"{ROADMAP_INDEX_PREFIX} OK -- {label} is {v.char_count} chars "
+                    f"with {v.headroom} chars of headroom under the "
+                    f"{v.hard_budget}-char wall (margin {v.near_wall_margin})")
+        return (f"{ROADMAP_INDEX_PREFIX} {ROADMAP_INDEX_WARN} -- {label} is "
+                f"{v.char_count} chars against the {v.hard_budget}-char wall the "
+                f"quality suite enforces (headroom {v.headroom}, margin "
+                f"{v.near_wall_margin}) -- archive spent prose to the "
+                f"*_ARCHIVE.md file; raising the budget is NOT the remedy")
+    except Exception as exc:
+        return (f"{ROADMAP_INDEX_PREFIX} UNKNOWN -- roadmap-index budget "
+                f"unavailable ({exc!r})")
 
 
 def git_ship_subjects(repo_dir) -> tuple[str, ...]:
