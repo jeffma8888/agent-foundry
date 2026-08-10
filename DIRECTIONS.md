@@ -1,6 +1,13 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-148
+    lenses: performance-and-throughput, narrative-and-docs -- iteration 148
+    - Candidate B1 -- two design docs price a retry ladder that misdescribes 130 of 151 real retries
+    - Candidate B2 -- the ~600s agent-CLI cap, the constraint that shaped all 8 role cards, is explained in no design doc
+    - Candidate B3 -- the prompt-inlined quality_bar names two invariants ARCHITECTURE.md does not have
+    winner: A1
+    ship: unknown
   iter-147
     lenses: simplification-and-deletion (iteration 147), performance-and-throughput
     - Candidate A1 -- finish iteration 146: the last three `company_*_cli` bodies become thin wrappers too
@@ -10,7 +17,7 @@ foundry directions -- _platform
     - Candidate B2 -- live-lag is 25 iterations, so every shipped throughput fix is inert
     - Candidate B3 -- reclaim the engineer stage's in-stage verification cost
     winner: B1
-    ship: unknown
+    ship: PUSHED 5811610
   iter-146
     lenses: integration-and-adoption (iteration 146), simplification-and-deletion
     - Candidate A1 -- the reviewer card runs a shipped test-quality diagnostic
@@ -386,4 +393,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-44 scouted iterations
+45 scouted iterations

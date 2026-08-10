@@ -11005,6 +11005,11 @@ class StageAttempt:
         line (ALWAYS >= 0; a run that crossed midnight adds `_ONE_DAY_S` once).
       * `produced` -- True for a `produced` terminal, False for `no output file`
         (the observable no-output / timeout-or-fail signal in `dispatcher.out`).
+      * `kind` -- WHY a no-output attempt produced nothing, as classified by
+        `classify_attempt_failure` (`timeout` / `stalled` / `service` /
+        `cli-error` / `ATTEMPT_FAILURE_DEFAULT`). TRAILING and defaulted to `""`
+        so every pre-existing positional or keyword construction still works, and
+        `""` for a `produced` attempt because a success has no failure kind.
     """
     team: str
     iteration: int
@@ -11012,6 +11017,7 @@ class StageAttempt:
     attempt: int
     duration_s: int
     produced: bool
+    kind: str = ""
 
     def to_dict(self) -> dict:
         """A pure, JSON-safe serialization of one attempt (all values JSON-native,
@@ -11023,6 +11029,7 @@ class StageAttempt:
             "attempt": self.attempt,
             "duration_s": self.duration_s,
             "produced": self.produced,
+            "kind": self.kind,
         }
 
 
@@ -11035,7 +11042,10 @@ def parse_stage_attempts(text: str) -> list["StageAttempt"]:
     `StageAttempt` whose `duration_s` = whole seconds between the two timestamps
     (non-negative; `+_ONE_DAY_S` once if the terminal parses earlier than the start,
     i.e. a midnight/boundary crossing) and whose `produced` reflects the terminal
-    kind. So a retried stage (`start->no-output->start->produced`) yields TWO
+    kind. A no-output terminal ALSO records `kind` -- the
+    `classify_attempt_failure` verdict of the line's remainder AFTER the `no output
+    file` marker (its `tail: '<blob>'` evidence); a `produced` terminal records
+    `kind == ""`. So a retried stage (`start->no-output->start->produced`) yields TWO
     attempts, in terminal order; a start with NO following terminal (an in-flight
     final stage) yields none; a terminal with no preceding start is ignored.
 
@@ -11064,9 +11074,18 @@ def parse_stage_attempts(text: str) -> list["StageAttempt"]:
 
             mt = _STAGE_PRODUCED_RE.match(rest)
             produced = True
+            kind = ""
             if mt is None:
                 mt = _STAGE_NOOUTPUT_RE.match(rest)
                 produced = False
+                if mt is not None:
+                    # Classify ONLY the text after the `no output file` marker (the
+                    # `(attempt i/n); tail: '<blob>'` remainder that carries the
+                    # evidence). Excluding the leading stage token is deliberate:
+                    # stage names come from a product's config, so a stage called
+                    # e.g. `timeout-check` must never colour its own verdict.
+                    # Bare-name call so a monkeypatch of the classifier bites.
+                    kind = classify_attempt_failure(rest[mt.end():])
             if mt is None:
                 continue
             stage = mt.group("stage").strip()
@@ -11081,7 +11100,7 @@ def parse_stage_attempts(text: str) -> list["StageAttempt"]:
                 dur = 0                        # never negative (paranoia clamp)
             attempts.append(StageAttempt(
                 team=team, iteration=iteration, stage=stage,
-                attempt=attempt, duration_s=dur, produced=produced))
+                attempt=attempt, duration_s=dur, produced=produced, kind=kind))
         except Exception:
             # Robustness contract: a single malformed line is skipped, never fatal.
             continue
@@ -11106,7 +11125,16 @@ class StageTimesGroup:
 
     Frozen. `median_s` is an int for an odd count else a float (both JSON-native);
     `over_budget` is `median_s > effective_budget` (the WARN condition); `timeouts`
-    counts the group's no-output attempts (the observable timeout-or-fail signal)."""
+    counts the group's no-output attempts (the observable timeout-or-fail signal).
+
+    `kind_counts` SPLITS that same `timeouts` total by failure kind -- `(kind,
+    count)` pairs ASCENDING by kind name, zero counts excluded, so
+    `sum(c for _k, c in kind_counts) == timeouts` always holds. It is why the split
+    exists: an all-`timeout` stage needs smaller bites while an all-`stalled` stage
+    needs no locally-silent command, and the aggregate cannot tell them apart. A
+    tuple of pairs rather than a dict (unlike the older `EventsSummary.kind_counts`)
+    because this dataclass is frozen and stays hashable + JSON-round-trippable.
+    TRAILING and defaulted to `()` so every pre-existing construction still works."""
     team: str
     stage: str
     count: int
@@ -11114,6 +11142,7 @@ class StageTimesGroup:
     max_s: int
     timeouts: int
     over_budget: bool
+    kind_counts: tuple[tuple[str, int], ...] = ()
 
     def to_dict(self) -> dict:
         """A pure, JSON-safe serialization of one group (all values JSON-native)."""
@@ -11125,6 +11154,9 @@ class StageTimesGroup:
             "max_s": self.max_s,
             "timeouts": self.timeouts,
             "over_budget": self.over_budget,
+            # JSON-native list-of-lists (NOT tuples) so the payload survives a
+            # `json.loads(json.dumps(...))` round-trip by EQUALITY, not just by shape.
+            "kind_counts": [[k, c] for k, c in self.kind_counts],
         }
 
 
@@ -11166,7 +11198,9 @@ class StageTimesSummary:
 
         Carries, as substrings: a header line with `foundry stage-times` and the
         effective soft budget; one line per `(team,stage)` group naming team,
-        stage, count, median_s, max_s, timeouts; and, for EVERY over-budget group,
+        stage, count, median_s, max_s, timeouts -- plus, for a group with at least
+        one no-output attempt, a `kinds ` fragment listing `kind=count` pairs in
+        ascending kind order; and, for EVERY over-budget group,
         a line containing `WARN` that names that team+stage and the effective
         budget. With NOTHING parsed the report carries the literal `no stage
         timings` (and `exit_code` is 2)."""
@@ -11175,9 +11209,14 @@ class StageTimesSummary:
             return "\n".join([header, "  no stage timings"])
         lines = [header]
         for g in self.groups:
-            lines.append(
-                f"  [{g.team}] {g.stage}  count {g.count}  "
-                f"median {g.median_s}s  max {g.max_s}s  timeouts {g.timeouts}")
+            line = (f"  [{g.team}] {g.stage}  count {g.count}  "
+                    f"median {g.median_s}s  max {g.max_s}s  timeouts {g.timeouts}")
+            kinds = getattr(g, "kind_counts", ())
+            if kinds:
+                # Only for a group that actually LOST an attempt: a clean group
+                # must not print an empty `kinds` with nothing after it.
+                line += "  kinds " + " ".join(f"{k}={c}" for k, c in kinds)
+            lines.append(line)
         for g in self.groups:
             if g.over_budget:
                 lines.append(
@@ -11208,7 +11247,9 @@ def summarize_stage_times(attempts, *, budget: int | None = None) -> "StageTimes
     """Pure summariser: group `StageAttempt`s by `(team,stage)` into a digest.
 
     For each group computes `count`, `median_s` (see `_median`), `max_s`, `timeouts`
-    (no-output attempts), and `over_budget` (`median_s > effective_budget`). The
+    (no-output attempts), `kind_counts` (those same no-output attempts split by
+    failure `kind`, ascending by kind name, zero counts excluded, so the pairs
+    always sum to `timeouts`), and `over_budget` (`median_s > effective_budget`). The
     `effective_budget` is the passed `budget` when not None, else the MODULE-LEVEL
     `STAGE_SOFT_BUDGET` READ AT CALL TIME -- so a `monkeypatch.setattr(foundry,
     "STAGE_SOFT_BUDGET", X)` (or a `--budget` override) changes the over-budget
@@ -11223,11 +11264,22 @@ def summarize_stage_times(attempts, *, budget: int | None = None) -> "StageTimes
         items = by_key[(team, stage)]
         durations = [a.duration_s for a in items]
         median_s = _median(durations)
+        no_output = [a for a in items if not a.produced]
+        tally: dict[str, int] = {}
+        for a in no_output:
+            # `getattr` default keeps the summariser total for duck-typed rows
+            # (this parameter is untyped by design); an unlabelled failure folds
+            # into ATTEMPT_FAILURE_DEFAULT, which is exactly what the classifier
+            # itself returns for no evidence -- so the sum invariant cannot break
+            # and no empty-string key can reach the report.
+            kind = getattr(a, "kind", "") or ATTEMPT_FAILURE_DEFAULT
+            tally[kind] = tally.get(kind, 0) + 1
         groups.append(StageTimesGroup(
             team=team, stage=stage, count=len(items),
             median_s=median_s, max_s=max(durations),
-            timeouts=sum(1 for a in items if not a.produced),
-            over_budget=median_s > effective))
+            timeouts=len(no_output),
+            over_budget=median_s > effective,
+            kind_counts=tuple(sorted(tally.items()))))
     return StageTimesSummary(groups=tuple(groups), budget=effective)
 
 
