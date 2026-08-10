@@ -32,7 +32,7 @@ records in its OWN ship commit and must never PLAN on a later stage writing them
 release gate after a 600 s kill, 133's archive bullet by a later stage of the same commit). 145 archived the
 spent iter-142 STATUS stack, the stale iter-86 README-freeze RESOLVED bullet and the two stale item-1/item-11
 deferral notes under `## Compacted from the index by iter 145`, hoisting every live clause first. STILL OPEN:
-(c), (d), (g)'s `parse_triage_winner` half, (i)'s three extra-kwarg members, (j)-(m), (o), and (p).
+(c), (d), (g)'s `parse_triage_winner` half, (i)'s three extra-kwarg members, (j)-(l), (o), and (p).
 NEXT UP, in value order: (a) SHIPPED iter 132 -- the freeze-guard SELECTOR now reads guard BEHAVIOR
 (an in-function `git diff --quiet HEAD --` pathspec, element-form), so the meta-test polices all 26
 every-suite guards instead of the 12 sharing one literal name. Only the OPTIONAL 25-guard
@@ -61,10 +61,8 @@ quality-check command the final gate and fresh clone consume, and 26 freeze guar
 many workers on ONE tree -- only for an iteration that can re-verify the fresh clone. (l) `ARCHITECTURE.md`
 :90 + `CONTINUOUS.md`:39 still price the ladder "10->20->40 min", falsified by 129/135; derive the figures
 from the module constants in a test, asserting PRESENCE of each figure, never an exact sentence.
-(m) the prompt-inlined `quality_bar` in `products/_platform/config.json` names two invariants with 0 hits in
-`ARCHITECTURE.md` (`revert-on-doubt`, `single-brain dispatch`) and omits `Resilience`; iteration 137's PM
-re-verified that `VISION.md`'s five names ARE all real section-3 headings, so the fix is config-VALUE-only plus
-a resolver test. (o) NEW, hoisted from 141's STATUS and named there as the recommended next feature: re-scope
+(m) SHIPPED iter 149 -- `quality_bar` now cites only names findable in `ARCHITECTURE.md`, policed by the pure
+`quality_bar_invariant_gaps` brake plus a two-sided live assertion; detail in the archive. (o) NEW, hoisted from 141's STATUS and named there as the recommended next feature: re-scope
 the 26 every-suite guards asserting `git diff --quiet HEAD -- dispatcher.py scripts/ .gitignore` to an
 AST/symbol invariant (dispatcher.py still imports foundry, still calls exactly load_config / run_iteration /
 dispatch_progress_line in the shift loop, still honors both STOP files). PREREQUISITE for ANY dispatcher-side
@@ -236,6 +234,7 @@ in the archive.
 - iter 146 -- six byte-identical `company_*_cli` bodies collapse to ONE shared body + thin wrappers (-124 lines).
 - iter 147 -- both review gates route on the ANCHORED verdict; an APPROVE quoting the token no longer fires a fix pass.
 - iter 148 -- stage-times splits every no-output attempt by failure KIND; the field named `timeouts` was 2.00x.
+- iter 149 -- quality_bar cited 2 invariants with 0 hits in ARCHITECTURE.md; pure gap brake + live two-sided guard.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03

@@ -2617,6 +2617,91 @@ def config_key_findings(raw: Mapping[str, object]) -> tuple[ConfigFinding, ...]:
         for key in unknown_config_keys(raw))
 
 
+# --------------------------------------------------------------------------- #
+# The QUALITY-BAR CITATION brake (added iter 149): does the bar every stage reads
+# name invariants that the document it cites actually CONTAINS?
+#
+# `build_prompt` inlines `cfg.quality_bar` verbatim into EVERY stage prompt, so a
+# name in its parenthesized citation list is a direct instruction to ~9-11 agents
+# per iteration. Measured at iter 149 against the real ARCHITECTURE.md, two of the
+# five cited names had ZERO hits (`revert-on-doubt`, `single-brain dispatch`) while
+# the real section-3 invariant `Resilience` was omitted -- so an agent that grepped
+# for a cited invariant found nothing and was taught by the prompt to distrust its
+# own quality bar. Nothing could see that, because no brake reads the bar at all.
+#
+# Deliberately a PURE pair with no call site in the pipeline: the live assertion
+# lives in the test suite, exactly like the roadmap-record brakes, so a drift turns
+# the suite RED without putting new logic on the dispatch control path.
+# --------------------------------------------------------------------------- #
+
+# The citation phrase a quality bar uses to point stages at the document that
+# ratifies its invariants. ANCHORED on that phrase, never on "the first (...)
+# group": the live bar contains an EARLIER paren group -- `importable (python -c
+# import)` -- so an unanchored parse returns `("python -c import",)` and the whole
+# brake becomes nonsense while still reading green. Module-level and read as a
+# global INSIDE `quality_bar_invariants`, so a `monkeypatch.setattr(foundry,
+# "QUALITY_BAR_CITATION_RE", ...)` moves a subsequent call's extraction.
+QUALITY_BAR_CITATION_RE = re.compile(
+    r"documented in\s+\S+\s*\(([^)]*)\)", re.IGNORECASE)
+
+
+def _collapsed_fold(text: str) -> str:
+    """Case-folded text with every run of whitespace collapsed to ONE space.
+
+    The single normalisation both sides of the gap comparison pass through, so a
+    cited `pessimistic gate` still matches a document that happens to wrap the
+    heading across a newline. Total: never raises, and mutates nothing.
+    """
+    return " ".join(str(text or "").split()).casefold()
+
+
+def quality_bar_invariants(bar: str) -> tuple[str, ...]:
+    """The invariant names a quality bar CITES, in source order (pure, total).
+
+    Reads the parenthesized list that follows the `documented in <DOC>` phrase --
+    `QUALITY_BAR_CITATION_RE`, read as a module global at CALL TIME -- and splits
+    it on COMMAS. That separator is why a cited name must be comma-free: the real
+    ARCHITECTURE.md heading is `Independent, pessimistic gate`, so a bar has to
+    cite the comma-free `pessimistic gate` to be extractable at all.
+
+    Names are stripped of surrounding whitespace and empty fragments are dropped,
+    so a trailing comma or a `()` citation yields no phantom entry.
+
+    Touches no filesystem, subprocess, network or clock, and never raises for any
+    input -- text with no citation (`""`, `"no citation here"`) and an UNBALANCED
+    citation (`"documented in ARCHITECTURE.md (a, b"`) both return `()`, because
+    `[^)]*` requires a real closing paren.
+    """
+    match = QUALITY_BAR_CITATION_RE.search(str(bar or ""))
+    if not match:
+        return ()
+    return tuple(name.strip() for name in match.group(1).split(",") if name.strip())
+
+
+def quality_bar_invariant_gaps(bar: str, doc: str) -> tuple[str, ...]:
+    """Cited invariant names that are NOT findable in `doc` (pure, total).
+
+    The gap direction only: names present in `doc` are absent from the result, and
+    `()` means every invariant the bar sends agents to look up can actually be
+    found. Matching is SUBSTRING under `_collapsed_fold` -- case-insensitive in
+    both directions and whitespace-insensitive -- with NO stemming and no stripping
+    of trailing words, because that kindness is exactly what would make the brake
+    pass on a name the document does not carry.
+
+    VACUITY RISK -- read this before trusting a green result. An empty extraction
+    also returns `()`, so `gaps == ()` alone is NOT evidence the bar is honest: a
+    re-worded bar that no longer matches `QUALITY_BAR_CITATION_RE` reports zero
+    gaps forever. Every caller must ALSO assert `quality_bar_invariants(bar)` is
+    non-empty; the iter-149 live test pairs the two for that reason.
+
+    Pure (no filesystem/subprocess/network/clock), never mutates its arguments and
+    never raises -- unmatched, malformed or empty input yields `()`.
+    """
+    haystack = _collapsed_fold(doc)
+    return tuple(name for name in quality_bar_invariants(bar)
+                 if _collapsed_fold(name) not in haystack)
+
+
 # The top-level key that makes a JSON file a DISPATCHER ROSTER rather than a product
 # config. Module-level and read as a global inside `dispatch_roster_note`, so a test can
 # `monkeypatch.setattr(foundry, "DISPATCH_ROSTER_KEY", ...)` and watch the verdict move.

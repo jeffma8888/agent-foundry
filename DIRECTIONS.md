@@ -1,13 +1,23 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-149
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- ARCHITECTURE section 3 "Resilience" tells the truth about retry timing: real per-kind ladders plus the binding ~600s cap
+    - Candidate A2 -- the prompt-inlined quality_bar stops naming two invariants that do not exist
+    - Candidate A3 -- one derived README verb-index rule, replacing a per-verb literal that can only ever police one verb
+    - Candidate B1 -- `foundry stop` / `foundry resume`: give the STOP control plane a CLI that forces owner, reason and lift condition
+    - Candidate B2 -- `foundry retry-advice`: name WHY an iteration did not ship, and whether it is re-doable verbatim
+    - Candidate B3 -- `foundry roadmap-record`: write BOTH roadmap records atomically, or write neither
+    winner: A2
+    ship: unknown
   iter-148
     lenses: performance-and-throughput, narrative-and-docs -- iteration 148
     - Candidate B1 -- two design docs price a retry ladder that misdescribes 130 of 151 real retries
     - Candidate B2 -- the ~600s agent-CLI cap, the constraint that shaped all 8 role cards, is explained in no design doc
     - Candidate B3 -- the prompt-inlined quality_bar names two invariants ARCHITECTURE.md does not have
     winner: A1
-    ship: unknown
+    ship: PUSHED 525783a
   iter-147
     lenses: simplification-and-deletion (iteration 147), performance-and-throughput
     - Candidate A1 -- finish iteration 146: the last three `company_*_cli` bodies become thin wrappers too
@@ -393,4 +403,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-45 scouted iterations
+46 scouted iterations
