@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-145
+    lenses: hardening/DX, integration-and-adoption (iteration 145)
+    - Candidate A1 -- the roadmap brake that actually reverts an iteration is a bare literal; the budget the tools report is 7,313 chars too generous
+    - Candidate A2 -- `build_prompt` still recomputes the digest that iteration 144 extracted; make the drift IMPOSSIBLE instead of merely detectable
+    - Candidate A3 -- `foundry stage-times` never says WHY a stage died, and the retry waits it cannot see cost 13.25 h of sleep in 6.35 days
+    - Candidate B1 -- `foundry status` reports the stage-budget WARN it already has an alarm for
+    - Candidate B2 -- give iteration 24/28's launch gate its first real consumer: a tracked, portable launcher
+    - Candidate B3 -- the operator cheat-sheet migrates from the manual way to the shipped verbs, with a drift brake
+    winner: A1
+    ship: unknown
   iter-144
     lenses: new-capability (iteration 144), hardening/DX
     - Candidate A1 -- read-only `foundry prompt`: render the exact bytes a stage receives
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- a missing `tests/test_iterNN*.py` becomes repairable instead of fatal (roadmap item (c), still open)
     - Candidate B3 -- re-scope the 27 control-path freeze guards from a path byte-diff to a symbol invariant (roadmap item (o))
     winner: A1
-    ship: unknown
+    ship: PUSHED a001c40
   iter-143
     lenses: narrative-and-docs (iteration 143), new-capability
     - Candidate A -- ARCHITECTURE's Resilience invariant states a retry ladder the code stopped using two shipped iterations ago
@@ -356,4 +366,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-41 scouted iterations
+42 scouted iterations

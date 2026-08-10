@@ -27,13 +27,12 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 142): the ledger and the archive are current through 142; each iteration's PM writes its own two
-records in the ship commit (126's were written by the RELEASE GATE after a 600 s kill, and 133's archive bullet
-by a later stage of the same commit -- a PM must never PLAN on either). 142 paid the compaction 141 owed it:
-the SEVEN-paragraph STATUS stack (126, 130-135, 136, 137, 138, 140, 141) and the two stale `RE-MEASURED`
-blocks are archived under `## Compacted from the index by iter 142`, with every LIVE clause hoisted FIRST --
-item (m)'s only description and the new item (o) into the lettered list below, the ledger-row and growth
-findings into DEADLINE. STILL OPEN: (c), (d), (g)'s `parse_triage_winner` half, (i), (j)-(m), (o), and NEW (p).
+STATUS (iter 145): ledger and archive are current through 145; each iteration's PM writes BOTH of its own
+records in its OWN ship commit and must never PLAN on a later stage writing them (126's were written by the
+release gate after a 600 s kill, 133's archive bullet by a later stage of the same commit). 145 archived the
+spent iter-142 STATUS stack, the stale iter-86 README-freeze RESOLVED bullet and the two stale item-1/item-11
+deferral notes under `## Compacted from the index by iter 145`, hoisting every live clause first. STILL OPEN:
+(c), (d), (g)'s `parse_triage_winner` half, (i), (j)-(m), (o), and (p).
 NEXT UP, in value order: (a) SHIPPED iter 132 -- the freeze-guard SELECTOR now reads guard BEHAVIOR
 (an in-function `git diff --quiet HEAD --` pathspec, element-form), so the meta-test polices all 26
 every-suite guards instead of the 12 sharing one literal name. Only the OPTIONAL 25-guard
@@ -77,18 +76,15 @@ with a feature.
 (p) NEW (iter 143 scout A, candidate C): 46 CLI verbs, exactly one -- `new-product` (iter 137) -- absent from
 `README.md`'s `# N.` index. Replace iteration 117's hand-written per-verb assertion with ONE derived rule;
 it MUST anchor on the `# N.` entry shape, else common words (`run`, `once`) pass it. Evidence in 143's bullet.
-DEADLINE (re-measured iteration 142; a scheduling item, never a competitive candidate): the BINDING budget is
-**54,000 chars, NOT the 60,000 `ROADMAP_SIZE_WARN_CHARS`** -- `tests/test_iter140_behavior.py:565` and
-`tests/test_iter141_behavior.py:461` each assert `len(index) < 54000` against the LIVE file, so whoever crosses
-54,000 turns the suite RED and gets REVERTED for a docs-only reason. Measured before this iteration's edits:
-53,251 chars = **749 chars of headroom** against growth re-measured from git at ~835 chars/iteration, i.e. LESS
-THAN ONE iteration -- which is why 142 compacted rather than only adding its record. Measure with `len(text)`,
-never `wc -c` (multi-byte dashes make bytes read ~164 high). **DO NOT delete old `- iter N ` ledger rows to
-compact: that instruction reached this file from iteration 136 and is WRONG --
-`tests/test_iter122_behavior.py:179` asserts a CLOSED FROZEN SET of 98 iteration numbers EACH still has a row
-HERE, so deleting one reddens the suite.** The only safe paydown is moving COMPLETED item prose and spent
-STATUS paragraphs verbatim to the archive -- and iteration 140's `## Item 16` brake requires every moved long
-line to be GONE from this file, so a move must DELETE, never copy.
+INDEX BUDGET (a scheduling item, never a competitive candidate): the binding wall is now ONE constant,
+`ROADMAP_INDEX_HARD_CHARS` (54,000) -- NOT the 60,000 `ROADMAP_SIZE_WARN_CHARS` -- and the two live tests that
+read this file derive it from that constant, so crossing it turns the suite RED and REVERTS the iteration for a
+docs-only reason. Since iter 145 `foundry doctor` prints a `roadmap-index:` line that WARNs within 3,000 chars
+of the wall: ASK IT rather than measuring by hand. Growth is ~988 chars/iteration. Three rules that do not
+change: measure `len(text)`, never `wc -c` (multibyte dashes read ~163 bytes high); NEVER delete an old
+`- iter N ` ledger row (`tests/test_iter122_behavior.py:179` pins a closed frozen set of 98 numbers, each
+needing exactly one row HERE); a move must DELETE the lines from this file, never copy them (iter 140's
+`## Item 16` brake). The only safe paydown is moving COMPLETED item prose and spent STATUS paragraphs verbatim.
 
 | # | Increment | Why | Done when |
 |---|---|---|---|
@@ -108,16 +104,14 @@ line to be GONE from this file, so a move must DELETE, never copy.
 | 14 | Single-brain launch preflight (`foundry single-brain`) | The #1 OBSERVED live failure is two dispatchers on one model-API account starving the shared token budget (LEARNINGS `[PM iter01]`, VISION single-brain constraint); `foundry doctor` cannot cover it (its 4-check contract is pinned by iter-01 tests) and the iter-06 watchdog only guards RESURRECTION, not an operator's manual launch | `foundry single-brain [--pattern P]` scans for a running dispatcher and exits 0 SAFE / 1 CONFLICT / 2 UNKNOWN so a launch wrapper can gate on it — **[shipping iter 24 = read-only `running_dispatchers` seam + frozen `SingleBrainStatus` + pure `summarize_single_brain` + on-demand `foundry single-brain` CLI (off the control path, reports only — never kills/force-anything); successor = `--json`]** |
 
 ## Ship order (PM re-orders by value each iteration)
-- Item 1 (`prd.json` machine roadmap) remains high value but is larger and touches dispatcher reporting; deferred to a later iteration after the additive-increment pattern is proven.
-- Item 11 (post-release fresh-clone verification gate) was appended by a sibling factory and is arguably the most on-mission item, but it is a MULTI-iteration effort: it adds a new pipeline stage, a new `POSTRELEASE:` sentinel, and modifies `run_iteration` control flow. Per the size bar it must be SPLIT (e.g. config fields + fresh-clone verify helper first, then wiring + hotfix flag) and, per the self-mod guardrails, deferred behind a flag while a loop is in flight. Strong candidate for iter 02–04; not a safe first bite.
-- **RESOLVED -- applied directly on 2026-08-03 outside the iteration loop (was spec-ed as iter 86): FIXED the iter-83/84 README-freeze systemic blocker (unblocks the entire org-design --json cadence + any doc-touching feature).** iter-85 (escalation-check --json) REVERTED because its README #35 note turned the full suite RED: tests/test_iter83_behavior.py AND tests/test_iter84_behavior.py each bake an over-broad test_ac_control_path_byte_unchanged that freezes README.md and roles/ byte-unchanged via `git diff --quiet HEAD -- dispatcher.py scripts/ .gitignore README.md roles/` -- a PERMANENT regression guard (it runs on EVERY future suite, comparing that iteration's working tree to HEAD) that trips whenever ANY later iteration legitimately edits README (gate 5's own mandate) or a role card (the dual-PM-scout wiring bite 3b-ii). README is DOCS, not the running-loop control path; roles/ edits are operator-gated wiring, not a dormant-iteration concern. This test-ONLY fix narrows BOTH pathspecs to `dispatcher.py scripts/ .gitignore` (matching iter-85's OWN correct probe), touching foundry.py / dispatcher.py ZERO -- so no dormancy question arises and no README edit is needed THIS iteration. Ship diff = {tests/test_iter83_behavior.py (-README.md/-roles/ + msg), tests/test_iter84_behavior.py (-README.md/-roles/), PLATFORM_ROADMAP.md (PM-applied), new tests/test_iter86_behavior.py}. Unblocks re-shipping escalation-check --json VERBATIM next, then the cadence-review/restaffing-review/scout-plan --json + composite gate-verdict/role-model/product-gate/gate-precheck --json cadence. **APPLIED:** both pathspecs narrowed to `dispatcher.py scripts/ .gitignore` (matching iter-85 own correct probe), and a NEW permanent meta-test `tests/test_control_path_freeze_scope.py` AST-scans EVERY test module and fails if any every-suite control-path guard freezes `README.md` or `roles/` again -- while also asserting the guard still covers `dispatcher.py`, so narrowing can never hollow it out. The next PM may re-ship escalation-check --json verbatim.
 
 ### Done ledger -- one line per shipped iteration
 
 Full per-iteration detail lives VERBATIM in `PLATFORM_ROADMAP_ARCHIVE.md`; it is never
-summarised and never read by a role. Keep this index terse: a suite test enforces
-`ROADMAP_SIZE_WARN_CHARS` against this file, and a second test fails if any iteration named
-here has no bullet in the archive.
+summarised and never read by a role. Keep this index terse: two suite tests fail this file at
+`ROADMAP_INDEX_HARD_CHARS` (54,000 -- the BINDING wall, see INDEX BUDGET above), a third warns at
+`ROADMAP_SIZE_WARN_CHARS` (60,000), and a fourth fails if any iteration named here has no bullet
+in the archive.
 
 - iter 1 -- item 9 (`foundry doctor`).
 - iter 2 -- item 11, bite 1 of 2 (SPLIT as instructed above).
@@ -238,6 +232,7 @@ here has no bullet in the archive.
 - iter 142 -- roles/pm.md gets a RUNNABLE lint-spec invocation; two-sided brake on bare `foundry <verb>` in any card.
 - iter 143 -- prd-init renders a schema-valid prd.json from EXPLICIT stories; producer for the live shift-loop meter.
 - iter 144 -- NEW read-only `foundry prompt`: the EXACT bytes a stage receives, + a two-sided digest drift guard.
+- iter 145 -- one roadmap-index wall constant + pure headroom verdict + a `doctor` WARN line.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03

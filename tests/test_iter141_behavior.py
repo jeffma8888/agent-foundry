@@ -458,7 +458,10 @@ def test_ac_roadmap_records_this_iteration_in_both_files():
     rows = [ln for ln in index.splitlines() if ln.startswith(f"- iter {THIS_ITER} ")]
     assert len(rows) == 1, f"expected exactly one iter-{THIS_ITER} ledger row, got {rows}"
     assert len(rows[0]) <= 120, f"ledger row must stay terse, got {len(rows[0])} chars"
-    assert len(index) < 54000, f"index over its declared budget: {len(index)}"
+    wall = foundry.ROADMAP_INDEX_HARD_CHARS   # iter 145: single source of truth
+    assert len(index) < wall, (
+        f"index over its declared budget: {len(index)} >= {wall} -- ARCHIVE spent "
+        f"prose to PLATFORM_ROADMAP_ARCHIVE.md; raising the budget is NOT the remedy")
     bullets = [ln for ln in archive.splitlines()
                if ln.startswith(f"- **iter {THIS_ITER} ")]
     assert len(bullets) == 1, f"expected one iter-{THIS_ITER} archive bullet, got {bullets}"
