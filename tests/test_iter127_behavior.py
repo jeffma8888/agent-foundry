@@ -46,7 +46,6 @@ POST_SENTINEL = "POSTRELEASE: HEALTHY"
 MARKER = "PROGRESS: CHECKPOINT"
 FAIL_SENTINEL = "RESULT: FAIL"
 PASS_SENTINEL = "RESULT: PASS"
-REVIEW_NEEDLE = "CHANGES_REQUIRED"
 RELEASE_NEEDLE = "ACTION: PUSHED"
 
 # default body for any stage the test does not script: approves, passes, ships.
@@ -558,9 +557,11 @@ def test_b10_seam_forces_quiet_over_a_red_body(drive, monkeypatch, tmp_path):
 
 @pytest.mark.parametrize("drive", DRIVERS, ids=DRIVER_IDS)
 def test_b10_test_gate_no_longer_substring_scans_for_the_fail_sentinel(drive, monkeypatch, tmp_path):
-    """Spy on the shared `contains` seam: the review and release gates still use it,
-    the test gate must not. The positive control (the other two needles ARE seen)
-    proves the spy is wired and the assertion cannot fail open."""
+    """Spy on the shared `contains` seam: the release gate still uses it, the test
+    gate must not. The positive control (the release needle IS seen) proves the spy
+    is wired and the assertion cannot fail open. iter-147 moved the REVIEW gate off
+    `contains` onto the anchored verdict too, so the review needle is no longer a
+    valid control here -- the release needle alone carries that job now."""
     real = foundry.contains
     needles = []
 
@@ -572,8 +573,7 @@ def test_b10_test_gate_no_longer_substring_scans_for_the_fail_sentinel(drive, mo
     _res, triples, _reverts = drive(
         monkeypatch, tmp_path, reports={"tester": RED_BODY})
     assert FAIL_SENTINEL not in needles, needles
-    assert REVIEW_NEEDLE in needles, needles      # positive control 1
-    assert RELEASE_NEEDLE in needles, needles     # positive control 2
+    assert RELEASE_NEEDLE in needles, needles     # positive control
     assert _labels(triples) == RED_LABELS, _labels(triples)
 
 

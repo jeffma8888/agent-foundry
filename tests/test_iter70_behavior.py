@@ -274,7 +274,7 @@ def _manifest(names):
 def test_b4_changes_required_runs_fix_review_then_ships(cfg, monkeypatch, tmp_path):
     res, triples, reverts, posts, _ = _drive(
         cfg, monkeypatch, tmp_path, _default_plan(), 70, BASE,
-        reports={"reviewer": "CHANGES_REQUIRED",
+        reports={"reviewer": "VERDICT: CHANGES_REQUIRED",
                  "final": "ACTION: PUSHED " + NEWHEAD})
     # fix-review runs right after the reviewer stage, then the pipeline continues
     assert _labels(triples) == ["pm", "engineer", "reviewer",
@@ -288,7 +288,7 @@ def test_b4_changes_required_runs_fix_review_then_ships(cfg, monkeypatch, tmp_pa
 def test_b4_fix_review_failure_reverts_and_infra_fails(cfg, monkeypatch, tmp_path):
     res, triples, reverts, posts, _ = _drive(
         cfg, monkeypatch, tmp_path, _default_plan(), 70, BASE,
-        reports={"reviewer": "CHANGES_REQUIRED"},
+        reports={"reviewer": "VERDICT: CHANGES_REQUIRED"},
         results={"fix-review": False})
     assert res == {"status": "infra-fail", "stage": "fix-review", "iteration": 70}
     assert len(reverts) == 1
