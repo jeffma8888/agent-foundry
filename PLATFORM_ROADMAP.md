@@ -78,6 +78,7 @@ it MUST anchor on the `# N.` entry shape, else common words (`run`, `once`) pass
 but each group covers a SUBSET (`exit_code` x4/x3, `to_dict` x3, `verdict` x5/x3, `n_flagged` x4, `files_scanned` x4,
 `total_findings` x4, `total_parse_errors` x3, `total` x3) and each is the roll-up's decision/serialisation contract --
 so ONE group per iteration behind golden-output comparison, never a blanket collapse.
+(r) NEW (iter 154), a DE-LISTING: the 4 `live_smoke_on_real_dispatch_config` tests (23.02 s) snapshot `tmp_path`, NOT a real tree -- so iter 154's git-visible-snapshot fix does NOT apply to them and scout A's extrapolation to a ~35 s suite is void; their cost is per-verb AST scanning (iter 153 measured it). Do not re-propose it.
 INDEX BUDGET (a scheduling item, never a competitive candidate): the binding wall is now ONE constant,
 `ROADMAP_INDEX_HARD_CHARS` (54,000) -- NOT the 60,000 `ROADMAP_SIZE_WARN_CHARS` -- and the two live tests that
 read this file derive it from that constant, so crossing it turns the suite RED and REVERTS the iteration for a
@@ -242,6 +243,7 @@ in the archive.
 - iter 151 -- revert_repo saves the doomed tree to ABORTED_IMPLEMENTATION.patch before its reset; the reset stays total.
 - iter 152 -- three extra-kwarg `company_*_cli` stragglers fold into the shared roll-up body; item (i) closed 9 of 9.
 - iter 153 -- one `CompanyRollupCounts` mixin retires 27 hand-copied n_* props across the 9 roll-up dataclasses.
+- iter 154 -- the read-only-CLI tree guard reads git-visible state, not 6574 files of bytes; 3.7s + a live flake gone.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03
