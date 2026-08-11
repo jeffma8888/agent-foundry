@@ -171,6 +171,16 @@ PROMPT_LEARNINGS_LABEL = (
     "whole log):"
 )
 
+# Label for the per-product config-path line `build_prompt` emits (iter 157).
+# Deliberately backtick-free and greppable so a role card, a test and this
+# renderer can all name the same literal: the two cards that invoke `--config`
+# verbs point at THIS label instead of teaching path derivation in prose.
+# "read-only reference" is part of the label because the path is offered for
+# report verbs, never for a mutating one.
+PROMPT_CONFIG_PATH_LABEL = (
+    "- Product config (read-only reference for --config verbs): "
+)
+
 
 # Character bounds for the learnings digest inlined into every stage prompt.
 # `recent` bounds the tail by NUMBER of lessons, but the unit of prompt cost is
@@ -14257,6 +14267,74 @@ def company_events_cli(dispatch_path: str, kind: str | None = None,
 # --------------------------------------------------------------------------- #
 # Prompt + stage runner
 # --------------------------------------------------------------------------- #
+def product_config_path(cfg: ProductConfig) -> str | None:
+    """Absolute path of THIS product's own config file, or None if unverified.
+
+    `load_config` knows the path it read and DISCARDS it (there is no
+    `config_path` field on `ProductConfig`), so the only thing a stage prompt can
+    offer is the CONVENTIONAL location `<work_root>/config.json`. A bare
+    existence check there would let a stale or mis-copied file be announced as
+    "this product's config", so the path is returned only when it is VERIFIED:
+    the file exists, parses as a JSON **object**, and that object's `"name"`
+    equals `cfg.name`. That turns the emitted claim from a convention into a
+    fact for the 90% case at zero schema cost -- recording the authoritative
+    path on the config object is strictly more correct but changes the dataclass
+    field set that `unknown_config_keys` / `config_field_names` police, so it is
+    deliberately out of scope here.
+
+    TOTAL: raises for NO input. A missing/blank `work_root`, a directory in place
+    of the file, undecodable bytes, invalid JSON, a valid non-object document
+    (`[]`, `"x"`, `3`), an object with no `"name"`, or a `"name"` of the wrong
+    type all return None. Totality is the point, not politeness: the sole caller
+    is on the prompt path of EVERY stage of EVERY product, so a raise here would
+    crash iterations for a cosmetic line.
+
+    Read-only: stats and reads one file, writes nothing, no subprocess.
+    """
+    try:
+        work_root = getattr(cfg, "work_root", "") or ""
+        if not work_root:
+            return None
+        candidate = pathlib.Path(work_root) / "config.json"
+        if not candidate.is_file():
+            return None
+        raw = json.loads(candidate.read_text())
+        # A JSON document that is not an object cannot carry a product name, and
+        # `.get` on a list/str would raise -- so gate on the type explicitly.
+        if not isinstance(raw, dict):
+            return None
+        if raw.get("name") != cfg.name or not isinstance(raw.get("name"), str):
+            return None
+        return str(candidate.resolve())
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def config_path_line(cfg: ProductConfig) -> str:
+    """One `## Context` line naming this product's config file, or "" if unknown.
+
+    Renderer over `product_config_path`, kept separate from it so the LOOKUP and
+    the PROMPT TEXT can be tested (and monkeypatched) independently.
+    `product_config_path` is called by BARE module name so a
+    `monkeypatch.setattr(foundry, "product_config_path", ...)` bites at call
+    time.
+
+    Returns `PROMPT_CONFIG_PATH_LABEL` + the absolute path + a single trailing
+    newline when the path is verified, and the EMPTY STRING (no newline) when it
+    is not -- so a product without a conventional config gets a BYTE-IDENTICAL
+    prompt to the pre-iter-157 one. That is the whole safety argument for
+    inlining this into the text every stage reads: the fallback is provably a
+    no-op, not merely a short line.
+
+    Total by inheritance: its only failure source is the lookup above, which
+    never raises. Writes nothing.
+    """
+    path = product_config_path(cfg)
+    if not path:
+        return ""
+    return f"{PROMPT_CONFIG_PATH_LABEL}{path}\n"
+
+
 def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
                  role_file: str, out_file: pathlib.Path,
                  it_dir: pathlib.Path, extra: str) -> str:
@@ -14306,6 +14384,7 @@ def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
         f"- Quality-reference repo (mirror its conventions): {cfg.quality_ref}\n"
         f"- Product quality bar: {cfg.quality_bar or '(see VISION)'}\n"
         f"- Quality-check command (full suite must pass): {cfg.test_cmd}\n"
+        f"{config_path_line(cfg)}"
         f"- This iteration's state dir (all stage outputs live here): {it_dir}\n"
         f"- Foundry learnings log (append your role lessons here): "
         f"{cfg.learnings}\n"
