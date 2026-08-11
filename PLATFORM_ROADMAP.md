@@ -74,6 +74,10 @@ with a feature.
 (p) NEW (iter 143 scout A, candidate C): 46 CLI verbs, exactly one -- `new-product` (iter 137) -- absent from
 `README.md`'s `# N.` index. Replace iteration 117's hand-written per-verb assertion with ONE derived rule;
 it MUST anchor on the `# N.` entry shape, else common words (`run`, `once`) pass it. Evidence in 143's bullet.
+(q) NEW (iter 153, successor to A1): 235 more redundant declared lines remain in the 9 `Company*` roll-up classes,
+but each group covers a SUBSET (`exit_code` x4/x3, `to_dict` x3, `verdict` x5/x3, `n_flagged` x4, `files_scanned` x4,
+`total_findings` x4, `total_parse_errors` x3, `total` x3) and each is the roll-up's decision/serialisation contract --
+so ONE group per iteration behind golden-output comparison, never a blanket collapse.
 INDEX BUDGET (a scheduling item, never a competitive candidate): the binding wall is now ONE constant,
 `ROADMAP_INDEX_HARD_CHARS` (54,000) -- NOT the 60,000 `ROADMAP_SIZE_WARN_CHARS` -- and the two live tests that
 read this file derive it from that constant, so crossing it turns the suite RED and REVERTS the iteration for a
@@ -237,6 +241,7 @@ in the archive.
 - iter 149 -- quality_bar cited 2 invariants with 0 hits in ARCHITECTURE.md; pure gap brake + live two-sided guard.
 - iter 151 -- revert_repo saves the doomed tree to ABORTED_IMPLEMENTATION.patch before its reset; the reset stays total.
 - iter 152 -- three extra-kwarg `company_*_cli` stragglers fold into the shared roll-up body; item (i) closed 9 of 9.
+- iter 153 -- one `CompanyRollupCounts` mixin retires 27 hand-copied n_* props across the 9 roll-up dataclasses.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03

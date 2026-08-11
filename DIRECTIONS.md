@@ -1,6 +1,13 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-153
+    lenses: simplification-and-deletion, performance-and-throughput (iteration 153)
+    - Candidate B1 -- collapse the 5 near-duplicate live-smoke tests onto one cached fixture
+    - Candidate B2 -- a measured suite wall-time budget with a doctor line
+    - Candidate B3 -- TBD (refining)
+    winner: A1
+    ship: unknown
   iter-152
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- doctor grows a fourth drift line so the stage-budget WARN reaches the operator
@@ -10,7 +17,7 @@ foundry directions -- _platform
     - Candidate B2 -- 39 byte-identical copies of `_snapshot_tree` become one shared test helper
     - Candidate B3 -- retire the `FAST_RETRY_KINDS` special case into the general per-kind ladder
     winner: B1
-    ship: unknown
+    ship: PUSHED 4067258
   iter-151
     lenses: hardening/DX -- iteration 151, integration-and-adoption (iteration 151)
     - Candidate A1 -- capture the implementation diff before `revert_repo` hard-resets it
@@ -433,4 +440,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-49 scouted iterations
+50 scouted iterations
