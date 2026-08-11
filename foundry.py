@@ -8651,16 +8651,20 @@ def summarize_company(*, dispatch_path: str,
 
 
 def _company_rollup_cli(dispatch_path: str, as_json: bool,
-                        gather: Callable[[ProductConfig], object],
-                        summarize: Callable[..., object]) -> int:
+                        gather: Callable[..., object],
+                        summarize: Callable[..., object],
+                        gather_args: tuple[object, ...] = (),
+                        summarize_kwargs: dict[str, object] | None = None) -> int:
     """The ONE shared body behind every `company-*` fleet roll-up verb.
 
-    Six public verbs (`company_status_cli`, `company_weak_tests_cli`,
+    All NINE public verbs (`company_status_cli`, `company_weak_tests_cli`,
     `company_constant_asserts_cli`, `company_skipped_tests_cli`,
-    `company_test_quality_cli`, `company_config_lint_cli`) carried BYTE-IDENTICAL
-    bodies that differed only in which two seams they used, so one roll-up policy
-    lived in six places and every fix had to be made six times. They are now thin
-    wrappers over this private helper, which owns the whole roll-up: read the
+    `company_test_quality_cli`, `company_config_lint_cli`, `company_history_cli`,
+    `company_timing_cli`, `company_events_cli`) carried near-identical bodies that
+    differed only in which two seams they used and what EXTRA arguments they fed
+    them, so one roll-up policy lived in nine places and every fix had to be made
+    nine times. They are now thin wrappers over this private helper, which owns
+    the whole roll-up: read the
     DISPATCH config at `dispatch_path` (`foundry.config.json`, NOT a product
     config), then for each ENABLED work item substitute a `{FOUNDRY}` token in its
     config path to the foundry root and load + measure that product via the
@@ -8674,6 +8678,17 @@ def _company_rollup_cli(dispatch_path: str, as_json: bool,
     `parse_dispatch_work_items` are still called by bare name in this body, so
     their patch sites keep biting too.
 
+    WHY the two EXTRA-ARGUMENT parameters exist: three verbs feed their seams more
+    than the shared pair of arguments -- `gather_args` are appended positionally to
+    EVERY per-product `gather(cfg, *gather_args)` call (`history`/`timing` pass
+    their `limit`, `events` passes `kind, limit`), and `summarize_kwargs` are
+    supplied to the `summarize` seam on BOTH the synthetic-error path and the
+    normal path (`timing` passes its call-time `threshold`, `events` its
+    `kind_filter`). Both default to EMPTY, so every existing 4-argument call is
+    byte-for-byte unchanged in behavior. `summarize_kwargs` defaults to `None`
+    rather than `{}` because a mutable default is shared across calls; it is
+    normalised ONCE below, before the `try`, so the error path can use it too.
+
     Resilient: if reading/parsing the dispatch config fails (missing / not JSON /
     not an object) it prints a report recording ONE synthetic error and returns
     that report's exit code; if a single work item's `load_config` or `gather`
@@ -8681,6 +8696,10 @@ def _company_rollup_cli(dispatch_path: str, as_json: bool,
     rest. No exception from either seam ever propagates. With `as_json=True` stdout
     is exactly ONE `json.dumps(to_dict(), indent=2)` document; either way the
     RETURN value is the report's own `exit_code`. Writes NOTHING to disk."""
+    # Normalised BEFORE the try so the synthetic-error path below gets the caller's
+    # extra summarize keywords too -- a report built without them would be a
+    # different shape on failure than on success.
+    extra = dict(summarize_kwargs or {})
     try:
         dispatch = json.loads(
             pathlib.Path(dispatch_path).expanduser().read_text())
@@ -8691,7 +8710,7 @@ def _company_rollup_cli(dispatch_path: str, as_json: bool,
         # crash: surface it as ONE synthetic error (attention -> exit 1).
         company = summarize(
             dispatch_path=dispatch_path, products=(), disabled=(),
-            errors=((dispatch_path, str(exc)),))
+            errors=((dispatch_path, str(exc)),), **extra)
         print(json.dumps(company.to_dict(), indent=2) if as_json
               else company.render())
         return company.exit_code
@@ -8707,13 +8726,13 @@ def _company_rollup_cli(dispatch_path: str, as_json: bool,
             # {FOUNDRY} -> foundry root BEFORE load_config, exactly as the
             # dispatcher resolves each work item's config path.
             cfg = load_config(config.replace("{FOUNDRY}", str(FOUNDRY)))
-            products.append(gather(cfg))
+            products.append(gather(cfg, *gather_args))
         except Exception as exc:
             # One bad team never sinks the whole roll-up -- record + continue.
             errors.append((name, str(exc)))
     company = summarize(
         dispatch_path=dispatch_path, products=tuple(products),
-        disabled=tuple(disabled), errors=tuple(errors))
+        disabled=tuple(disabled), errors=tuple(errors), **extra)
     print(json.dumps(company.to_dict(), indent=2) if as_json else company.render())
     return company.exit_code
 
@@ -10764,41 +10783,11 @@ def company_history_cli(dispatch_path: str, limit: int | None = None,
     (0 gathered-no-errors / 1 errors / 2 no-enabled-products). Writes NOTHING to
     disk -- a read-only report; with `load_config` monkeypatched the filesystem
     is untouched."""
-    try:
-        dispatch = json.loads(
-            pathlib.Path(dispatch_path).expanduser().read_text())
-        if not isinstance(dispatch, dict):
-            raise ValueError("dispatch config is not a JSON object")
-    except Exception as exc:
-        # A missing / malformed dispatch config is a real operator problem, not a
-        # crash: surface it as ONE synthetic error (errors -> exit 1).
-        company = summarize_company_history(
-            dispatch_path=dispatch_path, products=(), disabled=(),
-            errors=((dispatch_path, str(exc)),))
-        print(json.dumps(company.to_dict(), indent=2) if as_json
-              else company.render())
-        return company.exit_code
-
-    products: list[HistorySummary] = []
-    disabled: list[str] = []
-    errors: list[tuple[str, str]] = []
-    for name, config, enabled in parse_dispatch_work_items(dispatch):
-        if not enabled:
-            disabled.append(name)      # deliberate; never loaded
-            continue
-        try:
-            # {FOUNDRY} -> foundry root BEFORE load_config, exactly as the
-            # dispatcher resolves each work item's config path.
-            cfg = load_config(config.replace("{FOUNDRY}", str(FOUNDRY)))
-            products.append(gather_history(cfg, limit))
-        except Exception as exc:
-            # One bad team never sinks the whole roll-up -- record + continue.
-            errors.append((name, str(exc)))
-    company = summarize_company_history(
-        dispatch_path=dispatch_path, products=tuple(products),
-        disabled=tuple(disabled), errors=tuple(errors))
-    print(json.dumps(company.to_dict(), indent=2) if as_json else company.render())
-    return company.exit_code
+    # Seams resolved HERE, by BARE name at CALL time, so a monkeypatch bites;
+    # `limit` rides through as the gather seam's one extra positional.
+    return _company_rollup_cli(dispatch_path, as_json,
+                               gather_history, summarize_company_history,
+                               gather_args=(limit,))
 
 
 # --------------------------------------------------------------------------- #
@@ -12116,41 +12105,16 @@ def company_timing_cli(dispatch_path: str, limit: int | None = None,
     disk -- a read-only report; with `load_config` monkeypatched the filesystem
     is untouched."""
     threshold = SUITE_SLOW_SECONDS  # read at call time -- monkeypatch bites
-    try:
-        dispatch = json.loads(
-            pathlib.Path(dispatch_path).expanduser().read_text())
-        if not isinstance(dispatch, dict):
-            raise ValueError("dispatch config is not a JSON object")
-    except Exception as exc:
-        # A missing / malformed dispatch config is a real operator problem, not a
-        # crash: surface it as ONE synthetic error (errors -> exit 1).
-        company = summarize_company_timing(
-            dispatch_path=dispatch_path, products=(), disabled=(),
-            errors=((dispatch_path, str(exc)),), threshold=threshold)
-        print(json.dumps(company.to_dict(), indent=2) if as_json
-              else company.render())
-        return company.exit_code
-
-    products: list[TimingSummary] = []
-    disabled: list[str] = []
-    errors: list[tuple[str, str]] = []
-    for name, config, enabled in parse_dispatch_work_items(dispatch):
-        if not enabled:
-            disabled.append(name)      # deliberate; never loaded
-            continue
-        try:
-            # {FOUNDRY} -> foundry root BEFORE load_config, exactly as the
-            # dispatcher resolves each work item's config path.
-            cfg = load_config(config.replace("{FOUNDRY}", str(FOUNDRY)))
-            products.append(gather_timing(cfg, limit))
-        except Exception as exc:
-            # One bad team never sinks the whole roll-up -- record + continue.
-            errors.append((name, str(exc)))
-    company = summarize_company_timing(
-        dispatch_path=dispatch_path, products=tuple(products),
-        disabled=tuple(disabled), errors=tuple(errors), threshold=threshold)
-    print(json.dumps(company.to_dict(), indent=2) if as_json else company.render())
-    return company.exit_code
+    # Seams resolved HERE, by BARE name at CALL time, so a monkeypatch bites;
+    # `limit` rides through as the gather seam's extra positional and the
+    # call-time `threshold` as the summarize seam's extra keyword (supplied on
+    # BOTH the synthetic-error and the normal path inside the shared body). The
+    # threshold is read into a LOCAL above -- never a default argument, which
+    # would freeze it at import time and kill the monkeypatch.
+    return _company_rollup_cli(dispatch_path, as_json,
+                               gather_timing, summarize_company_timing,
+                               gather_args=(limit,),
+                               summarize_kwargs={"threshold": threshold})
 
 
 # --------------------------------------------------------------------------- #
@@ -14057,41 +14021,14 @@ def company_events_cli(dispatch_path: str, kind: str | None = None,
     (0 gathered-no-errors / 1 errors / 2 no-enabled-products). Writes NOTHING to
     disk -- a read-only report; with `load_config` monkeypatched the filesystem
     is untouched."""
-    try:
-        dispatch = json.loads(
-            pathlib.Path(dispatch_path).expanduser().read_text())
-        if not isinstance(dispatch, dict):
-            raise ValueError("dispatch config is not a JSON object")
-    except Exception as exc:
-        # A missing / malformed dispatch config is a real operator problem, not a
-        # crash: surface it as ONE synthetic error (errors -> exit 1).
-        company = summarize_company_events(
-            dispatch_path=dispatch_path, products=(), disabled=(),
-            errors=((dispatch_path, str(exc)),), kind_filter=kind)
-        print(json.dumps(company.to_dict(), indent=2) if as_json
-              else company.render())
-        return company.exit_code
-
-    products: list[EventsSummary] = []
-    disabled: list[str] = []
-    errors: list[tuple[str, str]] = []
-    for name, config, enabled in parse_dispatch_work_items(dispatch):
-        if not enabled:
-            disabled.append(name)      # deliberate; never loaded
-            continue
-        try:
-            # {FOUNDRY} -> foundry root BEFORE load_config, exactly as the
-            # dispatcher resolves each work item's config path.
-            cfg = load_config(config.replace("{FOUNDRY}", str(FOUNDRY)))
-            products.append(gather_events(cfg, kind, limit))
-        except Exception as exc:
-            # One bad team never sinks the whole roll-up -- record + continue.
-            errors.append((name, str(exc)))
-    company = summarize_company_events(
-        dispatch_path=dispatch_path, products=tuple(products),
-        disabled=tuple(disabled), errors=tuple(errors), kind_filter=kind)
-    print(json.dumps(company.to_dict(), indent=2) if as_json else company.render())
-    return company.exit_code
+    # Seams resolved HERE, by BARE name at CALL time, so a monkeypatch bites;
+    # `kind`/`limit` ride through as the gather seam's extra positionals and
+    # `kind_filter=kind` as the summarize seam's extra keyword (supplied on BOTH
+    # the synthetic-error and the normal path inside the shared body).
+    return _company_rollup_cli(dispatch_path, as_json,
+                               gather_events, summarize_company_events,
+                               gather_args=(kind, limit),
+                               summarize_kwargs={"kind_filter": kind})
 
 
 # --------------------------------------------------------------------------- #
