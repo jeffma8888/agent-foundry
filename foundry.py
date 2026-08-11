@@ -536,7 +536,81 @@ def contains(path: pathlib.Path, needle: str) -> bool:
         return False
 
 
+def capture_abort_patch(cfg: ProductConfig, reason: str) -> pathlib.Path | None:
+    """Best-effort forensic save of the tree `revert_repo` is about to destroy.
+
+    WHY it exists: the abort path is the one place this framework destroys work
+    it can never recover. The iteration's work was never committed, so after
+    `git reset --hard` the reflog lands directly on the previous iteration's
+    commit and `git stash list` is empty -- there is no dangling object, so no
+    `fsck --lost-found` rescue exists. One stalled stage therefore converts a
+    finished, reviewed implementation into a TOTAL loss; it has landed nine
+    times, and three iteration dirs carry a hand-saved patch this module never
+    wrote. With the diff on disk the same failure is a cheap verbatim
+    `git apply` retry instead.
+
+    WHY `add -A -N` immediately before the diff, and why that is safe: `-N`
+    records intent-to-add ONLY -- it stages no content -- which is what makes
+    untracked new files (exactly the files `git clean -fd` is about to delete)
+    visible to `git diff HEAD`. It does mutate the index, and the ONLY caller's
+    very next statement is `git reset --hard`, which discards that index. So
+    this function must gain NO second call site: anywhere else those
+    intent-to-add entries would survive the call.
+
+    TOTAL by construction: the whole body is wrapped, so a missing state dir, a
+    state dir with no `iter-*` child, or an unwritable target yields `None`
+    rather than raising -- the caller's revert can never be blocked by the
+    capture. The file holds PURE diff bytes (no header, no banner, no
+    timestamp) so `git apply` takes it unmodified; `reason` is recorded in the
+    log line only, never in the patch.
+
+    Returns the patch `pathlib.Path` when one was written, else `None`.
+    """
+    try:
+        # Newest iteration dir IS the current one: every earlier stage of this
+        # iteration already wrote its output there. Derived rather than passed
+        # so none of `revert_repo`'s call sites change. `iteration_numbers`
+        # (bare name -> monkeypatchable) accepts only exact `iter-<digits>`
+        # names; keeping the winning Path rather than rebuilding it avoids
+        # depending on the dir name's zero-padding.
+        target: pathlib.Path | None = None
+        highest = -1
+        for entry in cfg.state.iterdir():
+            if not entry.is_dir():
+                continue
+            numbers = iteration_numbers([entry.name])
+            if numbers and numbers[0] > highest:
+                target, highest = entry, numbers[0]
+        if target is None:
+            return None
+        git(cfg, "add", "-A", "-N")
+        diff = git(cfg, "diff", "HEAD")
+        # Whitespace-only means there was nothing to save: write no file at all
+        # rather than leaving an empty patch that looks like a failed capture.
+        if not diff.strip():
+            return None
+        patch = target / "ABORTED_IMPLEMENTATION.patch"
+        patch.write_text(diff + "\n")
+        log(cfg, f"uncommitted work saved to {patch} before revert "
+                 f"({reason}) -- git apply it to restore")
+        return patch
+    except Exception:
+        return None
+
+
 def revert_repo(cfg: ProductConfig, reason: str) -> None:
+    """Hard-reset the product repo to `origin/<branch>` after a failed stage.
+
+    The capture runs FIRST and is best-effort: it is called by BARE module name
+    (so `monkeypatch.setattr(foundry, "capture_abort_patch", ...)` seams it) and
+    wrapped at the CALL SITE, exactly like the `emit_event` mirror inside
+    `log()`. The reset is the invariant here -- a capture that fails, writes
+    nothing, or raises must never leave the repo dirty for the next iteration.
+    """
+    try:
+        capture_abort_patch(cfg, reason)
+    except Exception:
+        pass
     git(cfg, "reset", "--hard", f"origin/{cfg.branch}")
     git(cfg, "clean", "-fd")
     log(cfg, f"repo reverted to origin/{cfg.branch} ({reason})")

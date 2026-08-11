@@ -1,6 +1,26 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-151
+    lenses: hardening/DX -- iteration 151, integration-and-adoption (iteration 151)
+    - Candidate A1 -- capture the implementation diff before `revert_repo` hard-resets it
+    - Candidate A2 -- one total text-read seam, replacing four inconsistent guard idioms
+    - Candidate A3 -- price the 120s silence watchdog, the wall that is actually killing stages
+    - Candidate B1 -- one derived rule for the README command index, plus the one verb missing from it
+    - Candidate B2 -- one dispatcher-liveness probe, and make the launcher consult the gate that exists
+    - Candidate B3 -- feed the story meter the dispatcher already reads every shift
+    winner: A1
+    ship: unknown
+  iter-150
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- read-only `foundry stops`: make a PAUSED company visible
+    - Candidate A2 -- `foundry exhaustion`: flag a team that has run out of real work
+    - Candidate A3 -- product build-readiness probe before a new repo burns shifts
+    - Candidate B1 -- name the 120 s stall ceiling as a constant and give the suite a countdown to it
+    - Candidate B2 -- put the anti-stall testing discipline into roles/tester.md, policed by a live brake
+    - Candidate B3 -- a foundry-side forensic header on every attempt log
+    winner: A1
+    ship: unknown
   iter-149
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- ARCHITECTURE section 3 "Resilience" tells the truth about retry timing: real per-kind ladders plus the binding ~600s cap
@@ -10,7 +30,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry retry-advice`: name WHY an iteration did not ship, and whether it is re-doable verbatim
     - Candidate B3 -- `foundry roadmap-record`: write BOTH roadmap records atomically, or write neither
     winner: A2
-    ship: unknown
+    ship: PUSHED d47275a
   iter-148
     lenses: performance-and-throughput, narrative-and-docs -- iteration 148
     - Candidate B1 -- two design docs price a retry ladder that misdescribes 130 of 151 real retries
@@ -403,4 +423,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-46 scouted iterations
+48 scouted iterations
