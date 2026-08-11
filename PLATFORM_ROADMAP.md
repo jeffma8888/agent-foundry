@@ -235,6 +235,7 @@ in the archive.
 - iter 147 -- both review gates route on the ANCHORED verdict; an APPROVE quoting the token no longer fires a fix pass.
 - iter 148 -- stage-times splits every no-output attempt by failure KIND; the field named `timeouts` was 2.00x.
 - iter 149 -- quality_bar cited 2 invariants with 0 hits in ARCHITECTURE.md; pure gap brake + live two-sided guard.
+- iter 151 -- revert_repo saves the doomed tree to ABORTED_IMPLEMENTATION.patch before its reset; the reset stays total.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03
