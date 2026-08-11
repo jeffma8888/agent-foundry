@@ -8489,8 +8489,39 @@ def parse_dispatch_work_items(
     return tuple(out)
 
 
+class CompanyRollupCounts:
+    """The three derived counts every `Company*` roll-up shares (item 30 family).
+
+    A PLAIN class, deliberately NOT a dataclass and declaring no annotated
+    attributes of its own, so mixing it into a frozen roll-up dataclass adds NO
+    field: `dataclasses.fields()` names/order, the generated `__init__`, and
+    `frozen=`/`eq=` behaviour are all untouched. It reads only the three fields
+    every roll-up in the family already declares -- `products`, `disabled` and
+    `errors` -- which is why ONE definition can serve all of them instead of the
+    nine hand-copies it replaces (each new `company-*` verb used to add three).
+    """
+
+    @property
+    def n_products(self) -> int:
+        """Count of products successfully ROLLED UP (an errored enabled product
+        is NOT counted here -- it is in `errors`)."""
+        return len(self.products)
+
+    @property
+    def n_disabled(self) -> int:
+        """Count of work items the dispatch config disables (never loaded)."""
+        return len(self.disabled)
+
+    @property
+    def n_errors(self) -> int:
+        """How many TEAMS failed to load/gather (a STRUCTURAL error), NOT a
+        subclass's tally of error-level domain findings (e.g. the separate
+        `CompanyConfigLint.total_errors`)."""
+        return len(self.errors)
+
+
 @dataclasses.dataclass(frozen=True)
-class CompanyStatus:
+class CompanyStatus(CompanyRollupCounts):
     """A one-shot COMPANY-wide health roll-up across a dispatch config (item 30).
 
     Frozen so a computed roll-up can't be mutated after the fact (value equality
@@ -8514,12 +8545,6 @@ class CompanyStatus:
     errors: tuple[tuple[str, str], ...]
 
     @property
-    def n_products(self) -> int:
-        """Count of products successfully ROLLED UP (an errored enabled product
-        is NOT counted here -- it is in `errors`)."""
-        return len(self.products)
-
-    @property
     def n_ok(self) -> int:
         """Count of gathered products whose own `StatusSummary` is `ok`."""
         return sum(1 for p in self.products if p.ok)
@@ -8529,14 +8554,6 @@ class CompanyStatus:
         """Count of gathered products that need attention (a raised hotfix flag
         OR a BROKEN latest post-release)."""
         return sum(1 for p in self.products if p.attention)
-
-    @property
-    def n_disabled(self) -> int:
-        return len(self.disabled)
-
-    @property
-    def n_errors(self) -> int:
-        return len(self.errors)
 
     @property
     def attention(self) -> bool:
@@ -10604,7 +10621,7 @@ def refresh_directions_file(cfg: ProductConfig) -> bool:
 # (unreadable dispatch config, or a team that failed to load/gather) -> exit 1.
 # --------------------------------------------------------------------------- #
 @dataclasses.dataclass(frozen=True)
-class CompanyHistory:
+class CompanyHistory(CompanyRollupCounts):
     """A one-shot COMPANY-wide ship-ledger roll-up across a dispatch config (iter 31).
 
     Frozen so a computed roll-up can't be mutated after the fact (value equality
@@ -10626,20 +10643,6 @@ class CompanyHistory:
     products: tuple[HistorySummary, ...]
     disabled: tuple[str, ...]
     errors: tuple[tuple[str, str], ...]
-
-    @property
-    def n_products(self) -> int:
-        """Count of products successfully ROLLED UP (an errored enabled product
-        is NOT counted here -- it is in `errors`)."""
-        return len(self.products)
-
-    @property
-    def n_disabled(self) -> int:
-        return len(self.disabled)
-
-    @property
-    def n_errors(self) -> int:
-        return len(self.errors)
 
     @property
     def total(self) -> int:
@@ -11861,7 +11864,7 @@ def dispatch_restart_line(cfg: ProductConfig) -> str | None:
 # load/gather) -> exit 1, exactly like `company-history`.
 # --------------------------------------------------------------------------- #
 @dataclasses.dataclass(frozen=True)
-class CompanyTiming:
+class CompanyTiming(CompanyRollupCounts):
     """A one-shot COMPANY-wide suite-wall-time roll-up across a dispatch config.
 
     Frozen so a computed roll-up can't be mutated after the fact (value equality
@@ -11893,20 +11896,6 @@ class CompanyTiming:
     disabled: tuple[str, ...]
     errors: tuple[tuple[str, str], ...]
     threshold: float
-
-    @property
-    def n_products(self) -> int:
-        """Count of products successfully ROLLED UP (an errored enabled product
-        is NOT counted here -- it is in `errors`)."""
-        return len(self.products)
-
-    @property
-    def n_disabled(self) -> int:
-        return len(self.disabled)
-
-    @property
-    def n_errors(self) -> int:
-        return len(self.errors)
 
     @property
     def total(self) -> int:
@@ -12137,7 +12126,7 @@ def company_timing_cli(dispatch_path: str, limit: int | None = None,
 # test OR an unparseable file OR a structural gather error ANYWHERE -> exit 1.
 # --------------------------------------------------------------------------- #
 @dataclasses.dataclass(frozen=True)
-class CompanyWeakTests:
+class CompanyWeakTests(CompanyRollupCounts):
     """A one-shot COMPANY-wide assertion-free-test roll-up across a dispatch config.
 
     Frozen so a computed roll-up can't be mutated after the fact (value equality
@@ -12165,20 +12154,6 @@ class CompanyWeakTests:
     products: tuple[WeakTestSummary, ...]
     disabled: tuple[str, ...]
     errors: tuple[tuple[str, str], ...]
-
-    @property
-    def n_products(self) -> int:
-        """Count of products successfully ROLLED UP (an errored enabled product
-        is NOT counted here -- it is in `errors`)."""
-        return len(self.products)
-
-    @property
-    def n_disabled(self) -> int:
-        return len(self.disabled)
-
-    @property
-    def n_errors(self) -> int:
-        return len(self.errors)
 
     @property
     def files_scanned(self) -> int:
@@ -12379,7 +12354,7 @@ def company_weak_tests_cli(dispatch_path: str, as_json: bool = False) -> int:
 # structural gather error ANYWHERE -> exit 1.
 # --------------------------------------------------------------------------- #
 @dataclasses.dataclass(frozen=True)
-class CompanyConstantAsserts:
+class CompanyConstantAsserts(CompanyRollupCounts):
     """A one-shot COMPANY-wide constant-assert-test roll-up across a dispatch config.
 
     Frozen so a computed roll-up can't be mutated after the fact (value equality
@@ -12413,20 +12388,6 @@ class CompanyConstantAsserts:
     products: tuple[ConstantAssertSummary, ...]
     disabled: tuple[str, ...]
     errors: tuple[tuple[str, str], ...]
-
-    @property
-    def n_products(self) -> int:
-        """Count of products successfully ROLLED UP (an errored enabled product
-        is NOT counted here -- it is in `errors`)."""
-        return len(self.products)
-
-    @property
-    def n_disabled(self) -> int:
-        return len(self.disabled)
-
-    @property
-    def n_errors(self) -> int:
-        return len(self.errors)
 
     @property
     def files_scanned(self) -> int:
@@ -12642,7 +12603,7 @@ def company_constant_asserts_cli(dispatch_path: str, as_json: bool = False) -> i
 # test that never RUNS at all -- not a disjoint partition.
 # --------------------------------------------------------------------------- #
 @dataclasses.dataclass(frozen=True)
-class CompanySkippedTests:
+class CompanySkippedTests(CompanyRollupCounts):
     """A one-shot COMPANY-wide always-skipped-test roll-up across a dispatch config.
 
     Frozen so a computed roll-up can't be mutated after the fact (value equality
@@ -12679,20 +12640,6 @@ class CompanySkippedTests:
     products: tuple[SkippedTestSummary, ...]
     disabled: tuple[str, ...]
     errors: tuple[tuple[str, str], ...]
-
-    @property
-    def n_products(self) -> int:
-        """Count of products successfully ROLLED UP (an errored enabled product
-        is NOT counted here -- it is in `errors`)."""
-        return len(self.products)
-
-    @property
-    def n_disabled(self) -> int:
-        return len(self.disabled)
-
-    @property
-    def n_errors(self) -> int:
-        return len(self.errors)
 
     @property
     def files_scanned(self) -> int:
@@ -12924,7 +12871,7 @@ def company_skipped_tests_cli(dispatch_path: str, as_json: bool = False) -> int:
 # company quality axes #19/#22/#24 into ONE view.
 # --------------------------------------------------------------------------- #
 @dataclasses.dataclass(frozen=True)
-class CompanyTestQuality:
+class CompanyTestQuality(CompanyRollupCounts):
     """A one-shot COMPANY-wide composite test-quality roll-up across a dispatch
     config.
 
@@ -12970,20 +12917,6 @@ class CompanyTestQuality:
     products: tuple[TestQualitySummary, ...]
     disabled: tuple[str, ...]
     errors: tuple[tuple[str, str], ...]
-
-    @property
-    def n_products(self) -> int:
-        """Count of products successfully ROLLED UP (an errored enabled product
-        is NOT counted here -- it is in `errors`)."""
-        return len(self.products)
-
-    @property
-    def n_disabled(self) -> int:
-        return len(self.disabled)
-
-    @property
-    def n_errors(self) -> int:
-        return len(self.errors)
 
     @property
     def files_scanned(self) -> int:
@@ -13251,7 +13184,7 @@ def company_test_quality_cli(dispatch_path: str, as_json: bool = False) -> int:
 # 2 no-enabled-products); read-only.
 # --------------------------------------------------------------------------- #
 @dataclasses.dataclass(frozen=True)
-class CompanyConfigLint:
+class CompanyConfigLint(CompanyRollupCounts):
     """A one-shot COMPANY-wide product-config lint roll-up across a dispatch
     config.
 
@@ -13289,22 +13222,6 @@ class CompanyConfigLint:
     products: tuple[ConfigLint, ...]
     disabled: tuple[str, ...]
     errors: tuple[tuple[str, str], ...]
-
-    @property
-    def n_products(self) -> int:
-        """Count of products successfully ROLLED UP (an errored enabled product
-        is NOT counted here -- it is in `errors`)."""
-        return len(self.products)
-
-    @property
-    def n_disabled(self) -> int:
-        return len(self.disabled)
-
-    @property
-    def n_errors(self) -> int:
-        """How many TEAMS failed to load/gather (a STRUCTURAL error), NOT the
-        count of config error-level findings (that is `total_errors`)."""
-        return len(self.errors)
 
     @property
     def total_errors(self) -> int:
@@ -13779,7 +13696,7 @@ def events_cli(cfg: ProductConfig, kind: str | None = None,
 # the 5th and LAST `company-*` member.
 # --------------------------------------------------------------------------- #
 @dataclasses.dataclass(frozen=True)
-class CompanyEvents:
+class CompanyEvents(CompanyRollupCounts):
     """A one-shot COMPANY-wide typed-event roll-up across a dispatch config.
 
     Frozen so a computed roll-up can't be mutated after the fact (value equality
@@ -13811,20 +13728,6 @@ class CompanyEvents:
     disabled: tuple[str, ...]
     errors: tuple[tuple[str, str], ...]
     kind_filter: str | None
-
-    @property
-    def n_products(self) -> int:
-        """Count of products successfully ROLLED UP (an errored enabled product
-        is NOT counted here -- it is in `errors`)."""
-        return len(self.products)
-
-    @property
-    def n_disabled(self) -> int:
-        return len(self.disabled)
-
-    @property
-    def n_errors(self) -> int:
-        return len(self.errors)
 
     @property
     def total(self) -> int:
