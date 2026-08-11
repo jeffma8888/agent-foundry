@@ -6,8 +6,15 @@ Spec: products/_platform/state/iter-154/pm.md, Expected Behaviors 1-8.
 
   1. `_git_visible_snapshot(dir[, repo_root])` exists at module level and returns a
      value supporting == / != against another call's result.
-  2. BOUNDED: repr() of a real-tree snapshot is <= 20,000 chars (the byte-walk it
-     replaces yields > 40,000,000).
+  2. BOUNDED, and -- strictly stronger -- DOES NOT SCALE: two hermetic tmp_path repos
+     differing 75x in gitignored files-on-disk snapshot to repr() strings of the SAME
+     length, both <= 20,000 chars (the byte-walk it replaces yields > 40,000,000).
+     The real products/ tree is still asserted bounded, now UNCONDITIONALLY.
+     [HOTFIX iter 155] This behavior's non-vacuity precondition used to be a file
+     COUNT over the ambient products/ tree, which holds thousands of files here but
+     only 4 TRACKED ones -- so the oracle passed on this machine and failed in the
+     fresh clone post-release verification builds. The fixture is now built by the
+     test, so the floor cannot depend on any ambient tree.
   3. CHEAP: 20 consecutive real-tree calls finish in < 5.0 s wall clock.
   4. KNOWN-POSITIVE: a new git-visible (not-ignored) file makes it compare UNEQUAL.
   5. KNOWN-POSITIVE: an in-place edit of a committed tracked file -> UNEQUAL.
@@ -36,8 +43,16 @@ with LOCAL user.email / user.name / commit.gpgsign / core.excludesFile so `git
 commit` and the ignore rules cannot depend on ambient config; nothing here writes,
 creates or deletes any file inside the real products/ tree, and behavior 8 proves
 that two-sidedly on the REAL tree.
+
+PROVENANCE NOTE (iter 155): the isolation contract above describes the original
+iter-154 authorship, which still holds for every test here EXCEPT behavior 2 --
+`test_b2_snapshot_is_bounded_not_a_byte_walk` and its two fixture helpers were rebuilt
+by the iter-155 ENGINEER under that iteration's hotfix spec, because the oracle as
+written could only pass on a populated working tree. The independent oracles for that
+rebuild are the iter-155 tester's, in tests/test_iter155_behavior.py.
 """
 import ast
+import os
 import pathlib
 import subprocess
 import sys
@@ -55,6 +70,13 @@ _REAL_PRODUCTS = _ROOT / "products"
 _REPR_CEILING = 20000
 _CALLS = 20
 _CALLS_BUDGET_S = 5.0
+# behavior 2's hermetic fixture sizes: a 75x spread in files-on-disk that the snapshot
+# must not notice at all. Measured build cost of the pair: 0.40 s (0.01 s + 0.39 s).
+_BULK_SUBDIR = "state/bulk"
+_SMALL_FILL = 40
+_LARGE_FILL = 3000
+_SMALL_CEILING = 50
+_LARGE_FLOOR = 3000
 
 
 def _snap():
@@ -117,16 +139,95 @@ def test_b1_helper_exists_and_results_compare(tmp_path):
 
 
 # ---------------------------------------------------------------- behavior 2
-def test_b2_snapshot_is_bounded_not_a_byte_walk():
+def _count_files(root: pathlib.Path) -> int:
+    """Count the files under ``root``.
+
+    WHY os.walk and not a recursive-glob one-liner: the recursive walk this file used
+    to run went over the ambient products/ tree, which is the defect iter 155 removed,
+    and the hotfix's own oracle asserts that helper name no longer appears here. os.walk
+    keeps the count explicit and scoped to a fixture the test itself built.
+    """
+    return sum(len(files) for _, _, files in os.walk(root))
+
+
+def _fill_ignored_state(root: pathlib.Path, count: int) -> tuple[int, str]:
+    """Write ``count`` bulk files under a hermetic repo's committed-ignored ``state/``.
+
+    Returns the resulting on-disk file count under ``state/`` plus a repo-relative
+    probe path, so the caller can PROVE the bulk is gitignored instead of assuming it.
+
+    WHY the fill must land under ``state/`` only: ``_hermetic_repo`` asserts the seeded
+    tree is CLEAN and ``state/`` is the sole rule in its committed ``.gitignore``. Bulk
+    written anywhere else would be reported by ``git status``, grow the snapshot, and
+    fail the does-not-scale assertion for a real reason in the wrong test.
+    """
+    bulk = root / _BULK_SUBDIR
+    bulk.mkdir(parents=True, exist_ok=True)
+    for i in range(count):
+        (bulk / f"bulk_{i:05d}.txt").write_text("x" * 64, encoding="utf-8")
+    return _count_files(root / "state"), f"{_BULK_SUBDIR}/bulk_00000.txt"
+
+
+def test_b2_snapshot_is_bounded_not_a_byte_walk(tmp_path):
+    """BOUNDED, and -- strictly stronger -- the snapshot does not SCALE with the tree.
+
+    HOTFIX (iter 155): the precondition here used to count files under the ambient
+    products/ tree. Those files are gitignored runtime state that exists only in a
+    populated working tree, while the fresh clone post-release verification builds
+    tracks exactly 4 -- so the oracle passed here and failed on the verifier. Building
+    both trees makes the non-vacuity floor ours to guarantee AND lets us vary the
+    on-disk count on purpose, which proves the claim that matters: a 75x difference in
+    files-on-disk moves the snapshot's size by ZERO characters.
+    """
     snap = _snap()
-    n_files = sum(1 for p in _REAL_PRODUCTS.rglob("*") if p.is_file())
-    assert n_files > 6000, (
-        f"precondition for behavior 2: products/ should hold >6000 files, saw {n_files}"
+    small = tmp_path / "repo_b2_small"
+    large = tmp_path / "repo_b2_large"
+    g_small = _hermetic_repo(small)
+    g_large = _hermetic_repo(large)
+    n_small, probe_small = _fill_ignored_state(small, _SMALL_FILL)
+    n_large, probe_large = _fill_ignored_state(large, _LARGE_FILL)
+
+    # the non-vacuity floor comes from fixtures WE built, never from an ambient tree
+    assert n_small <= _SMALL_CEILING, (
+        f"fixture: the small repo must hold <={_SMALL_CEILING} files under state/, "
+        f"saw {n_small}"
     )
-    text = repr(snap(_REAL_PRODUCTS))
-    assert len(text) <= _REPR_CEILING, (
-        f"iter-154 behavior 2: repr(_git_visible_snapshot(products/)) is {len(text)} "
-        f"chars, over the {_REPR_CEILING}-char ceiling -- it is not bounded"
+    assert n_large >= _LARGE_FLOOR, (
+        f"fixture: the large repo must hold >={_LARGE_FLOOR} files under state/, "
+        f"saw {n_large}"
+    )
+
+    # ... and the bulk is genuinely INVISIBLE to git in BOTH repos, not merely absent
+    for label, g, probe in (
+        ("small", g_small, probe_small),
+        ("large", g_large, probe_large),
+    ):
+        ignored = g("check-ignore", "-q", probe)
+        assert ignored.returncode == 0, (
+            f"precondition: {probe} must be gitignored in the {label} fixture, so the "
+            f"fill cannot reach the snapshot through git"
+        )
+
+    small_text = repr(snap(small, small))
+    large_text = repr(snap(large, large))
+    assert len(large_text) <= _REPR_CEILING, (
+        f"iter-154 behavior 2: repr(_git_visible_snapshot(...)) is {len(large_text)} "
+        f"chars at {n_large} files on disk, over the {_REPR_CEILING}-char ceiling -- "
+        f"it is not bounded"
+    )
+    assert len(large_text) == len(small_text), (
+        f"iter-154 behavior 2: the snapshot must not SCALE with the tree it describes "
+        f"-- {n_small} vs {n_large} files on disk gave {len(small_text)} vs "
+        f"{len(large_text)} repr chars"
+    )
+
+    # The real-tree bound survives, but UNCONDITIONALLY: it holds at 4 tracked files
+    # in a fresh clone and at thousands in a populated working tree alike.
+    real_text = repr(snap(_REAL_PRODUCTS))
+    assert len(real_text) <= _REPR_CEILING, (
+        f"iter-154 behavior 2: repr(_git_visible_snapshot(products/)) is "
+        f"{len(real_text)} chars, over the {_REPR_CEILING}-char ceiling -- "
+        f"it is not bounded"
     )
 
 
