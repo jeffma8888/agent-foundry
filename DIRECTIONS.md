@@ -1,13 +1,17 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-154
+    lenses: performance-and-throughput (iteration 154), narrative-and-docs
+    winner: A1
+    ship: unknown
   iter-153
     lenses: simplification-and-deletion, performance-and-throughput (iteration 153)
     - Candidate B1 -- collapse the 5 near-duplicate live-smoke tests onto one cached fixture
     - Candidate B2 -- a measured suite wall-time budget with a doctor line
     - Candidate B3 -- TBD (refining)
     winner: A1
-    ship: unknown
+    ship: PUSHED 6430ba4
   iter-152
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- doctor grows a fourth drift line so the stage-budget WARN reaches the operator
@@ -440,4 +444,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-50 scouted iterations
+51 scouted iterations

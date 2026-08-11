@@ -211,12 +211,34 @@ def _load_leak_guard():
     return mod
 
 
-def _snapshot_tree(root):
-    root = pathlib.Path(root)
-    if not root.exists():
-        return {}
-    return {str(p.relative_to(root)): p.read_bytes()
-            for p in root.rglob("*") if p.is_file()}
+def _git_visible_snapshot(
+    root: str | pathlib.Path,
+    repo_root: str | pathlib.Path = _ROOT,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Snapshot everything a ship diff could carry under ``root``, and nothing else.
+
+    WHY not a byte-walk: reading every file under the real ``products/`` tree cost
+    6574 files / 50.8 MB per call, twice per guard, and FAILED whenever anything wrote
+    there while the guard ran -- which this loop does by design, since
+    ``products/*/state/``, ``events.jsonl``, ``NIGHT_LOG.md`` and ``LEARNINGS.md`` are
+    all gitignored runtime state. So an ordinary, well-behaved stage could turn the
+    ship gate red for a reason unrelated to its change.
+
+    Git already draws the line the guard actually cares about, and ~370x cheaper:
+      layer 1, ``status --porcelain --untracked-files=all`` -- new not-ignored files,
+      in-place edits of tracked files, deletions, staged additions;
+      layer 2, ``ls-files -s`` -- tracked-set and index (mode/blob/stage) mutations.
+    Lines are sorted so the value is order-stable and safe to compare with ``==``.
+    """
+    def _lines(*argv: str) -> tuple[str, ...]:
+        # check=False: a non-repo root yields empty output rather than raising, which
+        # keeps the helper usable as a plain comparison value in any tree.
+        r = subprocess.run(["git", *argv, "--", str(root)], cwd=str(repo_root),
+                           capture_output=True, text=True, check=False)
+        return tuple(sorted(ln for ln in r.stdout.splitlines() if ln.strip()))
+
+    return (_lines("status", "--porcelain", "--untracked-files=all"),
+            _lines("ls-files", "-s"))
 
 
 # ==========================================================================
@@ -762,10 +784,10 @@ def test_b9_cli_writes_nothing_to_repo_tree(tmp_path, monkeypatch):
         {"name": "alpha", "config": str(tmp_path / "alpha.json"), "enabled": True},
     ])
     _patch_cli(monkeypatch, {"alpha": _CL("alpha")})
-    before = _snapshot_tree(_ROOT / "products")
+    before = _git_visible_snapshot(_ROOT / "products")
     _run_cli(str(disp))
     _run_cli(str(disp), as_json=True)
-    after = _snapshot_tree(_ROOT / "products")
+    after = _git_visible_snapshot(_ROOT / "products")
     assert before == after, "the read-only CLI must write NOTHING into the repo tree"
 
 
