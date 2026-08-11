@@ -634,7 +634,13 @@ def test_b13_item_gives_a_cwd_independent_invocation() -> None:
     assert "foundry.py preship --config" in line, line
     assert "config.json" in line, line
     assert "roles/" in line or "`roles`" in line, line
-    assert "state dir" in line, line
+    # iter 157 replaced the state-dir-relative DERIVATION with a supplied path:
+    # `build_prompt` now emits a name-VERIFIED "Product config" line in every
+    # stage's `## Context`, and this card takes it verbatim. The behavior this
+    # assertion protects is unchanged -- the invocation must still name a
+    # cwd-independent way to reach the config -- so the pin moved to the new
+    # source of truth; the `roles/` pin above still covers the fallback clause.
+    assert "Product config" in line, line
 
 
 def test_b13_item_states_the_asymmetric_rule() -> None:

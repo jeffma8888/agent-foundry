@@ -28,8 +28,12 @@ the same work checkpointed early survives the kill.
   lessons) — this now arrives INLINE at the top of your prompt, so read it there first;
   running the CLI is optional. The full `## Chronological lessons` tail remains
   available via the learnings PATH given in `## Context`, or from the checkout's
-  script: `python3 <checkout>/foundry.py learnings --config <this product's config>`
-  (there is no `foundry` command on PATH inside a stage).
+  script: `python3 <checkout>/foundry.py learnings --config PRODUCT_CONFIG`,
+  where PRODUCT_CONFIG is the path on the "Product config" line of your
+  prompt's `## Context` block -- do NOT derive it (that line is emitted only
+  when the file was found AND its `name` matches this product, so it is a
+  verified path, not a convention). There is no `foundry` command on PATH
+  inside a stage.
 
 ## Duties
 0. **First, always: hotfix before feature.** Before picking anything, check for
