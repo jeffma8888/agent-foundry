@@ -1,10 +1,20 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-155
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- Derive the retry-ladder figures in ARCHITECTURE.md / CONTINUOUS.md from the constants, plus a live drift brake
+    - Candidate B1 -- One derived README-verb-index rule, replacing iteration 117's hand-written per-verb assertion, and the missing `new-product` entry
+    - Candidate C1 -- Correct the two stale claims iteration 154's release gate deferred, at their exact recorded sites
+    - Candidate A1 -- `foundry sentinels [--json]`: make the control plane's CONTENT readable, and give it a consumer
+    - Candidate B1 -- A forensic witness block on every no-output attempt log -- plus a MEASURED FALSIFICATION of the standing fix
+    - Candidate C1 -- `foundry recover [--json]`: make a reverted iteration's preserved patch findable and its retry decidable
+    winner: unknown
+    ship: unknown
   iter-154
     lenses: performance-and-throughput (iteration 154), narrative-and-docs
     winner: A1
-    ship: unknown
+    ship: PUSHED 18d28ee
   iter-153
     lenses: simplification-and-deletion, performance-and-throughput (iteration 153)
     - Candidate B1 -- collapse the 5 near-duplicate live-smoke tests onto one cached fixture
@@ -444,4 +454,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-51 scouted iterations
+52 scouted iterations
