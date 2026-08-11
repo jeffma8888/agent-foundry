@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-152
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- doctor grows a fourth drift line so the stage-budget WARN reaches the operator
+    - Candidate A2 -- the brain scan counts processes that only MENTION the dispatcher
+    - Candidate A3 -- the launch wrapper gates on the shipped preflight instead of its own pgrep
+    - Candidate B1 -- the shared roll-up body absorbs the three `company_*_cli` stragglers
+    - Candidate B2 -- 39 byte-identical copies of `_snapshot_tree` become one shared test helper
+    - Candidate B3 -- retire the `FAST_RETRY_KINDS` special case into the general per-kind ladder
+    winner: B1
+    ship: unknown
   iter-151
     lenses: hardening/DX -- iteration 151, integration-and-adoption (iteration 151)
     - Candidate A1 -- capture the implementation diff before `revert_repo` hard-resets it
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- one dispatcher-liveness probe, and make the launcher consult the gate that exists
     - Candidate B3 -- feed the story meter the dispatcher already reads every shift
     winner: A1
-    ship: unknown
+    ship: PUSHED bc86d58
   iter-150
     lenses: new-capability, hardening/DX
     - Candidate A1 -- read-only `foundry stops`: make a PAUSED company visible
@@ -423,4 +433,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-48 scouted iterations
+49 scouted iterations
