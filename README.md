@@ -11,6 +11,42 @@ DevRel, TPM, ...) that activate only when a written trigger fires.
 > Its first artifact is **[repolens](https://github.com/jeffma8888/repolens)** —
 > a repo-analysis CLI it built and shipped 9 features for, overnight, unattended.
 
+## The harness view: environment, verifiable reward, reward hacking
+
+Stripped of the org metaphor, this is **environment and harness engineering**
+for long-horizon agents. The *environment* is a real git repository and its
+test suite. The *reward* is **verifiable and artifact-shaped**: a stage
+succeeds only when the output file it was asked to write exists and the full
+suite is green — never because an agent reported success. And the *grader* is
+independent of the writer: the release gate re-runs ground truth itself before
+it ships or reverts, and it is the only role allowed to touch git.
+
+Which makes **reward hacking a first-class engineering problem, not a
+footnote** — a loop optimizing to pass its own gate is Goodhart's law running
+in production. Three answers, in the order they were needed:
+
+- **Structural.** The Tester is firewalled from `src/` (black-box tests cannot
+  be written *to* the code), and grader roles are decorrelated from the role
+  whose work they judge, because same-model self-review rubber-stamps its own
+  output ([arXiv:2404.13076](https://arxiv.org/abs/2404.13076)).
+- **Empirical.** Dedicated detectors name the exact shapes of a *false green*,
+  a test that passes while validating nothing: assertion-free tests
+  (`weak-tests`), tautological asserts (`constant-asserts`), tests that never
+  run (`skipped-tests`), plus a composite `test-quality` verdict and
+  company-wide roll-ups, each with a scriptable 0/1/2 exit code. They are
+  offline lenses today — CI- and dashboard-shaped, not consulted by the
+  pipeline.
+- **The subtle one, caught in the wild.** Iterations 90–101 shipped TWELVE
+  consecutive `<command> --json` clones. Every one was legitimately correct —
+  tests green, reviewer APPROVE, gate shipped — because the pipeline graded
+  whether work was *correct* and never whether it was *worth doing*, so with an
+  exhausted roadmap the lowest-risk passing pick is always a clone of the last
+  shape. The fix changed the reward, not the agent: a discovery pre-phase with
+  two decorrelated scout lenses rotated per iteration, PM triage that must name
+  the strongest alternative it rejected, and a `novelty-check` repetition brake
+  inlined into the prompt that picks the next feature
+  ([docs/DISCOVERY_LOOP_PLAN.md](docs/DISCOVERY_LOOP_PLAN.md)).
+
 ## The org chart
 
 ```
