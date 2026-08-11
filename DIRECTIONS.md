@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-156
+    lenses: new-capability (iter 156), hardening/DX (iter 156)
+    - Candidate A1 -- `foundry steer`: a supported writer for the pinned operator steering head, delivery proven by the consumer's own parser
+    - Candidate A2 -- `foundry stop`: a structured pause verb over the two STOP sentinels, with `--list` across the fleet
+    - Candidate A3 -- `foundry resume-work`: surface and re-apply the abort patches the loop already saves
+    - Candidate B1 -- `preship`: run the verifier's environment as a gate BETWEEN the commit and the push
+    - Candidate B2 -- a calibrated brake on ambient-tree preconditions in `tests/` (roadmap item (s))
+    - Candidate B3 -- make the per-iteration behavior test a CHECKED precondition (roadmap item (c))
+    winner: B1
+    ship: unknown
   iter-155
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- Derive the retry-ladder figures in ARCHITECTURE.md / CONTINUOUS.md from the constants, plus a live drift brake
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B1 -- A forensic witness block on every no-output attempt log -- plus a MEASURED FALSIFICATION of the standing fix
     - Candidate C1 -- `foundry recover [--json]`: make a reverted iteration's preserved patch findable and its retry decidable
     winner: unknown
-    ship: unknown
+    ship: PUSHED c82e5c9
   iter-154
     lenses: performance-and-throughput (iteration 154), narrative-and-docs
     winner: A1
@@ -454,4 +464,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-52 scouted iterations
+53 scouted iterations

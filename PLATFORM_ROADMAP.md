@@ -85,6 +85,7 @@ a test asserted the ambient `products/` tree holds >6000 files -- true in this w
 clone the verifier builds (4 tracked files). A repo-wide guard over `tests/` banning ambient-tree COUNT
 preconditions owes its own false-positive calibration: only 2 files define `_REAL_PRODUCTS`, and the many
 legitimate `tmp_path` byte-walks must NOT be flagged. Calibrate two-sidedly, then ship.
+(t) SHIPPED iter 156 -- `foundry preship` re-verifies the ship commit from a clone of the LOCAL repo between commit and push, bounded by one `PRESHIP_BUDGET_SECONDS` knob. Exit 1 (suite failed / sha mismatch) BLOCKS; exit 2 (clone, install or budget) is ADVISORY -- `postrelease_step` is still the backstop and a false block destroys a green iteration. Cited in `roles/final.md`. Detail in the archive.
 INDEX BUDGET (a scheduling item, never a competitive candidate): the binding wall is now ONE constant,
 `ROADMAP_INDEX_HARD_CHARS` (54,000) -- NOT the 60,000 `ROADMAP_SIZE_WARN_CHARS` -- and the two live tests that
 read this file derive it from that constant, so crossing it turns the suite RED and REVERTS the iteration for a
@@ -251,6 +252,7 @@ in the archive.
 - iter 153 -- one `CompanyRollupCounts` mixin retires 27 hand-copied n_* props across the 9 roll-up dataclasses.
 - iter 154 -- the read-only-CLI tree guard reads git-visible state, not 6574 files of bytes; 3.7s + a live flake gone.
 - iter 155 -- HOTFIX: the bounded-snapshot oracle builds its own tmp_path fixture; fresh-clone suite green again.
+- iter 156 -- `foundry preship` re-verifies the ship commit from a LOCAL clone between commit and push; exit 1 blocks.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03

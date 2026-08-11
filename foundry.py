@@ -8200,6 +8200,326 @@ def postrelease_step(cfg: ProductConfig, iteration: int,
 
 
 # --------------------------------------------------------------------------- #
+# PRE-ship LOCAL-clone re-verification (iter 156) -- `foundry preship`.
+#
+# WHY a sibling of `verify_fresh_clone` instead of a parameter on it: the only
+# clone-based verification this product had was unreachable from inside the ship
+# decision, and structurally so. `verify_fresh_clone` clones the ORIGIN REMOTE,
+# which only carries a commit AFTER it is published, and its sole call site
+# (`postrelease_step`) runs on the shipped branch, so a BROKEN verdict there can
+# never revert -- it can only raise a hotfix flag for the NEXT iteration. That is
+# exactly what iteration 154 cost: three stages reported a green WORKING TREE,
+# the working tree was never the question (git tracks 4 files under `products/`,
+# so the shipped assertion read `4 > 6000` in a clone), and iteration 155 was
+# spent entirely as the hotfix.
+#
+# `verify_local_clone` clones the product repo's OWN LOCAL path at `HEAD`, so it
+# reproduces the verifier's environment while the ship commit is still LOCAL-ONLY
+# -- the one window where a bad ship costs a `git reset` instead of a whole
+# iteration. It issues NO network command at all.
+#
+# The two verdicts are deliberately OPPOSITE in polarity, which is why this is a
+# separate function rather than a `source=` flag on the existing one:
+#   * `postrelease_verdict` is a post-hoc REPORTER, so a boundary/seam failure
+#     folds to HEALTHY (never a false hotfix against a published commit).
+#   * `preship_verdict` is a GATE, so a boundary/seam failure is INCOMPLETE
+#     (exit 2) -- fail-SAFE: it refuses to bless the tree without claiming the
+#     tree is broken. Only a REAL signal (suite failed / sha mismatch) is BROKEN
+#     (exit 1) and blocks the push.
+# Every external effect flows through the EXISTING module seams (`run_cmd`,
+# `cleanup_clone`, `_monotonic`) called by BARE name, so the whole path is
+# offline-scriptable. DORMANT: nothing in `run_iteration` or the dispatcher calls
+# any of this -- the integration is one checklist line in `roles/final.md`, which
+# every final stage re-reads from disk (a control-path change would be INERT
+# until the live brain restarts, roadmap item (j)).
+# --------------------------------------------------------------------------- #
+# Total wall-clock budget for ONE `foundry preship` verification (seconds), read
+# at CALL time so a test -- or an operator -- can patch it. Sized to fit INSIDE
+# the final stage's own ~600s agent cap alongside the commit and the push, not to
+# be generous: iteration 155 ran this exact control (non-shallow local clone at
+# the ship commit + the full suite) in 57.38s warm, and the unbounded term is a
+# COLD `uv sync`. Exhausting the budget is INCOMPLETE (advisory), never BROKEN,
+# so a slow machine degrades to "could not decide" instead of killing a green
+# iteration.
+PRESHIP_BUDGET_SECONDS: float = 240.0
+
+
+@dataclasses.dataclass(frozen=True)
+class PreshipResult:
+    """Verdict of a pre-ship LOCAL-clone re-verification.
+
+    Stores only the flags; `exit_code` and `sentinel` are DERIVED properties (not
+    fields) so a caller can never be handed a code that disagrees with the
+    verdict text. `verified` and `incomplete` are never both True -- the only
+    constructor on the control path, `preship_verdict`, returns at most one of
+    them -- and both properties branch in the SAME order, so even a hand-built
+    contradictory instance renders consistently.
+
+    `test_seconds` is DIAGNOSTIC ONLY (the clone suite's wall-time when it ran,
+    else `None`); it never affects the verdict.
+    """
+    verified: bool
+    incomplete: bool
+    detail: str
+    test_seconds: float | None = None
+
+    @property
+    def exit_code(self) -> int:
+        """0 verified / 2 could-not-complete / 1 broken (scriptable gate code)."""
+        if self.verified:
+            return 0
+        return 2 if self.incomplete else 1
+
+    @property
+    def sentinel(self) -> str:
+        """The one-line verdict token, branching in `exit_code`'s exact order."""
+        if self.verified:
+            return "PRESHIP: VERIFIED"
+        return "PRESHIP: INCOMPLETE" if self.incomplete else "PRESHIP: BROKEN"
+
+    def render(self) -> str:
+        """Deterministic multi-line human report that NEVER raises.
+
+        Detail-then-sentinel layout: every line of evidence sits ABOVE the
+        sentinel, so "the LAST non-empty line is exactly `self.sentinel`" holds
+        unconditionally and a caller can grep the verdict off the tail.
+        """
+        seconds = ("n/a" if self.test_seconds is None
+                   else f"{self.test_seconds:.2f}s")
+        return "\n".join([
+            "foundry preship (local-clone re-verification)",
+            f"  verified:      {self.verified}",
+            f"  incomplete:    {self.incomplete}",
+            f"  suite wall:    {seconds}",
+            f"  detail:        {self.detail}",
+            f"  exit code:     {self.exit_code}",
+            self.sentinel,
+        ])
+
+    def to_dict(self) -> dict:
+        """JSON-safe payload REUSING the derived properties, so `--json` can
+        never disagree with `render()` or the exit code. Every value is
+        JSON-native, so `json.dumps(...)` never raises."""
+        return {
+            "verified": self.verified,
+            "incomplete": self.incomplete,
+            "exit_code": self.exit_code,
+            "detail": self.detail,
+            "sentinel": self.sentinel,
+            "test_seconds": self.test_seconds,
+        }
+
+
+def preship_verdict(*, clone_ok: bool, setup_ok: bool, test_ok: bool,
+                    sha_ok: bool, budget_exhausted: bool) -> "PreshipResult":
+    """Pure, total decision logic mapping step outcomes to a gate verdict.
+
+    Ordering is the whole point. The BOUNDARY group (budget exhausted, clone
+    could not be made, deps could not be installed) is checked FIRST and yields
+    INCOMPLETE (exit 2): none of those outcomes says anything about the ship
+    tree, and a false BROKEN would send a green iteration down the revert path.
+    `budget_exhausted` dominates even when every other flag is True, because a
+    verification that ran out of time did not finish deciding.
+
+    Only with the boundary clean and the budget intact do the REAL signals
+    decide: a failed suite or a sha mismatch is BROKEN (exit 1) and blocks the
+    push. Never raises; every branch returns a `PreshipResult`.
+    """
+    if budget_exhausted:
+        return PreshipResult(
+            False, True,
+            "pre-ship budget exhausted before the verification finished "
+            f"(PRESHIP_BUDGET_SECONDS={PRESHIP_BUDGET_SECONDS}); no verdict "
+            "was reached about the tree")
+    if not clone_ok:
+        return PreshipResult(
+            False, True,
+            "the local clone step could not complete (git clone of the "
+            "product repo path failed); nothing was verified")
+    if not setup_ok:
+        return PreshipResult(
+            False, True,
+            "the dependency setup step could not complete (cfg.setup_cmd "
+            "failed inside the clone); nothing was verified")
+    if not test_ok:
+        return PreshipResult(
+            False, False, "the declared test suite FAILED inside a clean local "
+                          "clone of the commit about to be pushed")
+    if not sha_ok:
+        return PreshipResult(
+            False, False, "the cloned HEAD sha does not match the expected "
+                          "ship sha, so the suite ran against the wrong tree")
+    return PreshipResult(
+        True, False,
+        "a clean local clone at the expected sha installs and passes the "
+        "declared suite")
+
+
+def preship_step_timeout(remaining: float) -> int:
+    """Whole-second per-command timeout that can never exceed `remaining`.
+
+    Pure + total. Truncation (not rounding) guarantees the returned timeout is
+    `<= remaining`, so no single step can outlive the budget knob, and the
+    `max(0, ...)` floor keeps a negative remainder from becoming a huge
+    unsigned-looking timeout. `run_cmd` folds a timeout into `ok is False`, so a
+    step that hits its slice degrades to a boundary failure rather than raising.
+    """
+    return max(0, int(remaining))
+
+
+def _try_cleanup_clone(clone_dir) -> None:
+    """Best-effort `cleanup_clone`, swallowing any failure of that seam.
+
+    Calls `cleanup_clone` by BARE module name so a monkeypatched seam bites.
+    Guarded because clone deletion is housekeeping: a cleanup that raises must
+    never change a verdict that has already been decided, and must never
+    propagate out of the verifier.
+    """
+    try:
+        cleanup_clone(clone_dir)
+    except Exception:
+        pass
+
+
+def verify_local_clone(cfg: "ProductConfig", expected_sha: str,
+                       clone_dir) -> "PreshipResult":
+    """Re-verify the LOCAL commit at `expected_sha` from a throwaway clone.
+
+    Clones `str(cfg.repo)` -- the filesystem path of the product repo itself, so
+    the ship commit is reachable BEFORE it is pushed and NO network command is
+    ever issued (there is deliberately no `git remote get-url` here). Steps:
+    clone, `cfg.setup_cmd`, `cfg.test_cmd`, then a `rev-parse HEAD` sha check,
+    each inside the clone, each routed through the `run_cmd` seam.
+
+    Budget: `PRESHIP_BUDGET_SECONDS` is read at CALL time, `_monotonic()` is
+    taken on entry, and the remaining budget is recomputed before EVERY command.
+    A non-positive remainder issues no further command and returns the
+    budget-exhausted verdict; otherwise the remainder is passed as that command's
+    explicit `timeout`. So the knob bounds both the total and every step. A
+    DECIDING step (the suite, the sha check) that FAILS having consumed its whole
+    granted slice is budget-attributable too, so it also renders INCOMPLETE: a
+    step the knob killed must never masquerade as a red suite or a wrong tree.
+
+    `cleanup_clone` runs BEFORE the clone (a leftover directory from an
+    interrupted run would make `git clone` fail) and again on EVERY exit path.
+    An unexpected seam exception is INCOMPLETE carrying its repr -- fail-SAFE for
+    a gate, the deliberate opposite of `verify_fresh_clone`'s optimistic fold.
+    """
+    clone_ok = setup_ok = test_ok = sha_ok = False
+    budget_exhausted = False
+    test_seconds: float | None = None
+    result: "PreshipResult"
+    budget = PRESHIP_BUDGET_SECONDS  # module global, read at CALL time
+
+    def _remaining() -> float:
+        """Seconds of budget left; negative once the deadline has passed."""
+        return budget - (_monotonic() - started)
+
+    try:
+        # INSIDE the try because `_monotonic` is a SEAM: a raise here must become
+        # behavior 9's INCOMPLETE (and still reach `finally`'s cleanup), never
+        # propagate out -- an uncaught raise exits 1, i.e. a false BROKEN. The
+        # nested `_remaining` resolves `started` at CALL time, so nothing moves.
+        started = _monotonic()
+        _try_cleanup_clone(clone_dir)  # before the clone, per the docstring
+
+        # 1. clone the LOCAL repo path (never the origin remote)
+        rem = _remaining()
+        if rem <= 0:
+            budget_exhausted = True
+        else:
+            clone_ok = run_cmd(
+                ["git", "clone", str(cfg.repo), str(clone_dir)],
+                timeout=preship_step_timeout(rem)).ok
+
+        # 2. install deps in the clone
+        if clone_ok and not budget_exhausted:
+            rem = _remaining()
+            if rem <= 0:
+                budget_exhausted = True
+            else:
+                setup_ok = run_cmd(shlex.split(cfg.setup_cmd), cwd=clone_dir,
+                                   timeout=preship_step_timeout(rem)).ok
+
+        # 3. the declared suite, timed for diagnostics only
+        if setup_ok and not budget_exhausted:
+            rem = _remaining()
+            if rem <= 0:
+                budget_exhausted = True
+            else:
+                granted = preship_step_timeout(rem)
+                _t0 = _monotonic()
+                test_ok = run_cmd(shlex.split(cfg.test_cmd), cwd=clone_dir,
+                                  timeout=granted).ok
+                test_seconds = _monotonic() - _t0
+                if not test_ok and test_seconds >= granted:
+                    # It consumed its WHOLE granted slice, so the budget killed
+                    # it: boundary (behavior 3), not a red suite (behavior 4).
+                    budget_exhausted = True
+
+        # 4. prove the suite ran against the tree we are about to publish
+        if test_ok and not budget_exhausted:
+            rem = _remaining()
+            if rem <= 0:
+                budget_exhausted = True
+            else:
+                granted = preship_step_timeout(rem)
+                _t1 = _monotonic()
+                head_res = run_cmd(
+                    ["git", "-C", str(clone_dir), "rev-parse", "HEAD"],
+                    timeout=granted)
+                sha_ok = head_res.ok and sha_matches(
+                    expected_sha, head_res.out.strip())
+                if not head_res.ok and _monotonic() - _t1 >= granted:
+                    # Same reclassification, and deliberately keyed on the
+                    # COMMAND failing: a real sha MISMATCH stays BROKEN.
+                    budget_exhausted = True
+
+        result = preship_verdict(
+            clone_ok=clone_ok, setup_ok=setup_ok, test_ok=test_ok,
+            sha_ok=sha_ok, budget_exhausted=budget_exhausted)
+        # Thread the measured wall-time onto the PURE verdict without touching
+        # its decision logic (inert diagnostic; None when the suite never ran).
+        result = dataclasses.replace(result, test_seconds=test_seconds)
+    except Exception as exc:  # fail-SAFE: cannot decide, so do not bless
+        result = PreshipResult(
+            False, True,
+            f"pre-ship verification errored, treated as INCOMPLETE: {exc!r}")
+    finally:
+        _try_cleanup_clone(clone_dir)  # every exit path, verdict-preserving
+    return result
+
+
+def preship_cli(cfg: ProductConfig, as_json: bool = False) -> int:
+    """Gate the commit-to-push window: re-verify HEAD from a local clone.
+
+    Resolves the expected sha ITSELF from the repo's current `HEAD` through the
+    `run_cmd` seam (so the caller cannot pass a sha that disagrees with the tree
+    it is about to push); a failed resolve is INCOMPLETE, exit 2. Verifies via
+    `verify_local_clone` into `cfg.state / "preship_clone"` -- under
+    `products/*/state/`, which is already git-ignored, so the runtime clone can
+    never leak into a ship diff.
+
+    Prints `render()` (or one `--json` document) and returns the DERIVED
+    `exit_code`: 0 verified / 1 broken / 2 could-not-complete. Read-only with
+    respect to source: it writes nothing except the throwaway clone it deletes.
+    """
+    head_res = run_cmd(["git", "-C", str(cfg.repo), "rev-parse", "HEAD"])
+    expected_sha = head_res.out.strip()
+    if not head_res.ok or not expected_sha:
+        result = PreshipResult(
+            False, True,
+            "could not resolve the local HEAD sha to verify against: "
+            f"{expected_sha or 'no output'}")
+    else:
+        result = verify_local_clone(cfg, expected_sha,
+                                    cfg.state / "preship_clone")
+    print(json.dumps(result.to_dict(), indent=2)
+          if as_json else result.render())
+    return result.exit_code
+
+
+# --------------------------------------------------------------------------- #
 # Read-only company-health probe (roadmap item 12 -- `foundry status`).
 #
 # The VISION's single job is to run indefinitely "without babysitting each
@@ -15321,6 +15641,21 @@ def main(argv: list[str] | None = None) -> int:
                      help="emit the composite verdict as one JSON document "
                           "(machine-readable) instead of the human report; "
                           "same 0/1/2 exit code")
+    # `preship` is the PRE-push gate: it clones the product repo's OWN LOCAL
+    # tree at HEAD and runs the declared suite inside that clone, so the ship
+    # commit is re-verified from a clean checkout while it is still local-only.
+    # Read-only with respect to source (its throwaway clone lives under the
+    # already-git-ignored `products/*/state/`) and DORMANT -- the pipeline /
+    # dispatcher NEVER call it; the final-stage role card invokes it by hand.
+    # Exit 0 verified (push) / 1 broken (BLOCKING, revert) / 2 could-not-complete
+    # (advisory: record it and proceed -- see roles/final.md).
+    prs = sub.add_parser("preship")
+    prs.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    prs.add_argument("--json", action="store_true",
+                     help="emit the verdict as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code")
     # `company-status` rolls up EVERY enabled dispatch team's iter-16
     # `status` health into ONE company verdict. Its `--config` points at the
     # DISPATCH config (`foundry.config.json`), NOT a product config, and it
@@ -15654,6 +15989,8 @@ def main(argv: list[str] | None = None) -> int:
         return events_cli(cfg, kind=args.kind, limit=args.limit, as_json=args.json)
     if args.cmd == "preflight":
         return preflight_cli(cfg, pattern=args.pattern, as_json=args.json)
+    if args.cmd == "preship":
+        return preship_cli(cfg, as_json=args.json)
     if args.cmd == "once":
         res = run_iteration(cfg)
         print(json.dumps(res))
