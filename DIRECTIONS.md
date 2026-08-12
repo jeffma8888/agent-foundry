@@ -1,6 +1,10 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-158
+    lenses: integration-and-adoption, simplification-and-deletion
+    winner: B1
+    ship: unknown
   iter-157
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- `foundry roadmap-archive`: a measured, verbatim section-move verb for the index budget
@@ -10,7 +14,7 @@ foundry directions -- _platform
     - Candidate B2 -- the USAGE.md controls cheat-sheet migrates off raw-file reading, and one row points at a file that has NEVER existed
     - Candidate B3 -- `live-lag` is the one verb whose machine verdict must be scraped from its own prose; give it a structured payload + `--json`
     winner: A2
-    ship: unknown
+    ship: PUSHED 6895601
   iter-156
     lenses: new-capability (iter 156), hardening/DX (iter 156)
     - Candidate A1 -- `foundry steer`: a supported writer for the pinned operator steering head, delivery proven by the consumer's own parser
@@ -474,4 +478,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-54 scouted iterations
+55 scouted iterations

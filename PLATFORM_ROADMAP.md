@@ -33,19 +33,12 @@ release gate after a 600 s kill, 133's archive bullet by a later stage of the sa
 spent iter-142 STATUS stack, the stale iter-86 README-freeze RESOLVED bullet and the two stale item-1/item-11
 deferral notes under `## Compacted from the index by iter 145`, hoisting every live clause first. STILL OPEN:
 (c), (d), (g)'s `parse_triage_winner` half, (j)-(l), (o), and (p).
-NEXT UP, in value order: (a) SHIPPED iter 132 -- the freeze-guard SELECTOR now reads guard BEHAVIOR
-(an in-function `git diff --quiet HEAD --` pathspec, element-form), so the meta-test polices all 26
-every-suite guards instead of the 12 sharing one literal name. Only the OPTIONAL 25-guard
+NEXT UP, in value order: (a) Only the OPTIONAL 25-guard
 CONSOLIDATION remains, and it does NOT unblock strangler steps 2/3 (one guard still freezes
-`dispatcher.py` and the meta-test requires it to); (b) SHIPPED iter 128 -- every stage prompt now carries the bounded learnings digest, so a role reads the pinned
-`## Patterns` head without slurping a 3 MB log. Full record in the archive. (c) repair a missing `tests/test_iterNN*.py` at the earliest
+`dispatcher.py` and the meta-test requires it to); (c) repair a missing `tests/test_iterNN*.py` at the earliest
 repairable stage (both iterations that lacked one, 121 and 125, REVERTED); (d) relax `roles/tester.md`'s
 prose discipline around the two gate tokens, which iteration 127 makes safe but which MUST NOT ship in
-the same iteration as 127 itself (a live loop holds the pre-127 `foundry.py` in memory). (e) SHIPPED iter 135 -- the `"stalled"` kind draws from its own `KIND_RETRY_LADDERS` ladder (`60/300/1200s`), which
-`retry_delay` consults BEFORE its fast/long choice; the measured 16-attempt population fell 13,800s -> 3,840s of
-FLEET-wide sleep. Full record in the archive. (f) SHIPPED iter 133 -- all six `PM_SCOUT_LENS_POOL` lenses are now DEFINED in the scout role card, the retired fixed a/b mapping is gone from `roles/pm.md`, `ARCHITECTURE.md` and `docs/DUAL_PM_SCOUT_SPEC.md`, and a LIVE suite assertion over the new pure `scout_lens_audit` fails the ship if the pool and the card ever disagree, so a 7th lens cannot be added undocumented. (g) **candidates half SHIPPING iter 131; the rest still open.** Re-measured iter 131 over all 136 slates on disk: `parse_scout_candidates` accepted only `## Candidate `, so 32 slates rendered ZERO candidates and 6 of 27 COMMITTED `DIRECTIONS.md` blocks were incomplete (3 of them empty). Iter 131 makes it a UNION with an id-first rule (`## A1 --`), measured to admit 99 real candidate headings and ZERO of the 626 non-candidate `##` headings. STILL OPEN, in order: the `parse_triage_winner` half (21 `pm.md` files carry a `## Triage` heading and still yield `None`), then rendering "present but unparsed" distinctly from "absent". (h) SHIPPED iter 142 -- both bare invocations in `roles/pm.md` carry the cwd-independent
-`python3 <checkout>/foundry.py ...` form, and a live two-sided brake over all 21 `roles/**/*.md` fails the ship if
-any card names a bare `foundry <verb>` again. Full record in the archive. (i) SHIPPED iter 152 -- all NINE `company_*_cli` bodies now share ONE body: six collapsed in iter 146, and the three extra-kwarg stragglers (`company_history_cli` / `company_timing_cli` / `company_events_cli`) in iter 152, via two optional pass-through parameters on `_company_rollup_cli`. Item CLOSED; detail in the 146 and 152 archive bullets. **DE-LISTED by iteration 130's scout A, measured -- do not re-propose:** cutting `MAX_ATTEMPTS` for the timeout kind (12 of 17 timeout stage-runs RECOVER on a retry, so it trades 5.83 h of visible waste for lost iterations); and an "output file is stable, so stop the attempt" early exit (the 7.01 h of post-last-write agent time is concentrated in engineer and final, whose real work lands in git rather than in the state file, so stopping there destroys code and commits). ALSO STILL OPEN: the iteration-121 RETRY (its 51,824-byte
+the same iteration as 127 itself (a live loop holds the pre-127 `foundry.py` in memory). (f) SHIPPED iter 133 -- record in the archive. (g) **candidates half SHIPPING iter 131; the rest still open.** Re-measured iter 131 over all 136 slates on disk: `parse_scout_candidates` accepted only `## Candidate `, so 32 slates rendered ZERO candidates and 6 of 27 COMMITTED `DIRECTIONS.md` blocks were incomplete (3 of them empty). Iter 131 makes it a UNION with an id-first rule (`## A1 --`), measured to admit 99 real candidate headings and ZERO of the 626 non-candidate `##` headings. STILL OPEN, in order: the `parse_triage_winner` half (21 `pm.md` files carry a `## Triage` heading and still yield `None`), then rendering "present but unparsed" distinctly from "absent". (i) **DE-LISTED by iteration 130's scout A, measured -- do not re-propose:** cutting `MAX_ATTEMPTS` for the timeout kind (12 of 17 timeout stage-runs RECOVER on a retry, so it trades 5.83 h of visible waste for lost iterations); and an "output file is stable, so stop the attempt" early exit (the 7.01 h of post-last-write agent time is concentrated in engineer and final, whose real work lands in git rather than in the state file, so stopping there destroys code and commits). ALSO STILL OPEN: the iteration-121 RETRY (its 51,824-byte
 `products/_platform/state/iter-121/REVERTED_IMPLEMENTATION.patch` is preserved and its FINAL lesson
 authorises the retry, plus the dispatcher restart that lesson demands), then scout A's per-product
 `fast_test_cmd` for the build stages. DE-LISTED by iteration 126's spec on a measurement both its scouts
@@ -62,8 +55,7 @@ quality-check command the final gate and fresh clone consume, and 26 freeze guar
 many workers on ONE tree -- only for an iteration that can re-verify the fresh clone. (l) `ARCHITECTURE.md`
 :90 + `CONTINUOUS.md`:39 still price the ladder "10->20->40 min", falsified by 129/135; derive the figures
 from the module constants in a test, asserting PRESENCE of each figure, never an exact sentence.
-(m) SHIPPED iter 149 -- `quality_bar` now cites only names findable in `ARCHITECTURE.md`, policed by the pure
-`quality_bar_invariant_gaps` brake plus a two-sided live assertion; detail in the archive. (o) NEW, hoisted from 141's STATUS and named there as the recommended next feature: re-scope
+(o) NEW, hoisted from 141's STATUS and named there as the recommended next feature: re-scope
 the 26 every-suite guards asserting `git diff --quiet HEAD -- dispatcher.py scripts/ .gitignore` to an
 AST/symbol invariant (dispatcher.py still imports foundry, still calls exactly load_config / run_iteration /
 dispatch_progress_line in the shift loop, still honors both STOP files). PREREQUISITE for ANY dispatcher-side
@@ -254,6 +246,7 @@ in the archive.
 - iter 155 -- HOTFIX: the bounded-snapshot oracle builds its own tmp_path fixture; fresh-clone suite green again.
 - iter 156 -- `foundry preship` re-verifies the ship commit from a LOCAL clone between commit and push; exit 1 blocks.
 - iter 157 -- every stage prompt names this product's own config path, name-verified, so card --config verbs run.
+- iter 158 -- five spent blurbs + two tombstones leave the index (verbatim to archive); pure roadmap_spent_blocks.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03
@@ -282,17 +275,9 @@ in the archive.
 - If an increment would touch a currently-running loop's resume behaviour,
   defer it or gate it behind a version flag.
 
-## Detailed spec -- item 11: ARCHIVED by iter 139 (item SHIPPED iters 02/03)
+## Item 16 (ARCHIVED by iter 140; SHIPPED: leak-guard committed, final gate step 6 runs it fail-closed)
 
-The 4,234-char detailed spec moved VERBATIM to `PLATFORM_ROADMAP_ARCHIVE.md` under
-`## Moved from the index by iter 139`, per this file's own contract (archive more when the index
-approaches its budget). It was 395 chars from the hard 60,000 `ROADMAP_SIZE_WARN_CHARS` ship brake.
-
-## Item 16 -- ARCHIVED by iter 140 (SHIPPED: leak-guard committed, final gate step 6 runs it fail-closed)
-
-The section (2,884 chars -- re-measured iter 141; the 3,467 three artifacts agreed on
-was 583 too high, exactly the block 141 restored above `## Item 17`) moved VERBATIM to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Moved from the index by
-iter 140`, per this file's own contract (archive more when the index approaches its budget).
+Section moved VERBATIM to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Moved from the index by iter 140`.
 
 # Org-design track (items 17-22) -- adopted 2026-08-01
 
