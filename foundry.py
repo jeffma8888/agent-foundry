@@ -45,6 +45,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -15531,6 +15532,232 @@ def prompt_cli(cfg: ProductConfig, stage: str, iteration: int | None = None,
     return 0
 
 
+# --------------------------------------------------------------------------- #
+# `save-work` (iter 162): export the uncommitted implementation to a patch from a
+# FRESH PROCESS -- the abort rescue moved OUT of the running brain's memory.
+#
+# `capture_abort_patch` (iter 151) already saves the tree `revert_repo` is about
+# to destroy, but it runs INSIDE the dispatcher's in-memory `foundry`: the live
+# brain does a plain `import foundry` ONCE at launch, so a rescue committed after
+# that instant is INERT (exactly what #43 `live-lag` reports). Measured
+# 2026-08-12: the four product NIGHT_LOGs carry 20
+# `repo reverted to origin/<branch>` lines while `find products -name 'ABORTED*'`
+# is EMPTY fleet-wide -- 20 destructions, 0 rescues ever, including iteration
+# 161's reviewed, fix-verified implementation.
+#
+# A CLI VERB is the half that needs no restart: a role card tells a stage to run
+# `python3 <checkout>/foundry.py save-work --config <product-config>`, cards are
+# re-read from disk on every stage, and the verb gets a brand-new interpreter --
+# so both halves are live on the NEXT stage. This iteration ships the capability
+# DORMANT (no role-card edit, no control-path call site); the two card lines are
+# a deliberately separate bite, because they change what every engineer stage
+# does.
+#
+# The one hard constraint is INDEX SAFETY. `capture_abort_patch`'s docstring
+# forbids a second call site: its `git add -A -N` mutates the REAL index and is
+# safe only because its caller's very next statement is `git reset --hard`. A
+# verb a stage runs MID-ITERATION has no such next statement, so this path copies
+# the index and points `GIT_INDEX_FILE` at the COPY. `capture_abort_patch` is
+# therefore left completely alone: not called, not edited, not converged onto the
+# new seam -- it is on the abort path of a LIVE loop.
+#
+# The patch lands in the newest `iter-NN` state dir, which `.gitignore`'s
+# `products/*/state/` already ignores -- which is also exactly why it SURVIVES
+# `revert_repo`'s `git clean -fd` (no `-x`).
+# --------------------------------------------------------------------------- #
+SAVE_WORK_PATCH_NAME = "IMPLEMENTATION.patch"
+
+
+def worktree_patch_text(cfg: ProductConfig) -> str:
+    """The repo's uncommitted work as patch text, WITHOUT touching the real index.
+
+    The ONLY subprocess/git seam in this feature, so
+    `monkeypatch.setattr(foundry, "worktree_patch_text", ...)` drives every
+    branch above it with zero real git, subprocess or network.
+
+    WHY a temp index copy: `git diff HEAD` alone cannot see UNTRACKED files --
+    precisely the files `git clean -fd` deletes -- and the usual remedy
+    (`add -A -N`, intent-to-add only, no content staged) mutates the index. So
+    copy the index, run BOTH commands with `GIT_INDEX_FILE` pointing at the COPY,
+    and the real `.git/index` plus `git status --porcelain` come out unchanged.
+
+    WHY not the `git()` helper: it returns `(stdout + stderr).strip()`, and any
+    stderr text inside a patch corrupts it for `git apply`; it also accepts no
+    `env`, which the temp-index trick requires. So this calls `subprocess`
+    directly and returns STDOUT ONLY.
+
+    TOTAL: an unlocatable or uncopyable index, a non-zero git exit, a timeout or
+    an OS error all yield `""` (no patch) rather than raising or risking the real
+    index. Every subprocess call carries a timeout.
+
+    WHY `errors="surrogateescape"`: a working-tree file holding invalid UTF-8 and
+    no NUL is TEXT to git, so the raw byte lands in this stdout and a STRICT
+    decode raises `UnicodeDecodeError` -- a `ValueError`, which the clause above
+    does NOT name. Widening that clause is the wrong repair: returning `""` for a
+    DIRTY tree makes the caller report "working tree matches HEAD", a WRONG meter.
+    So the bytes are decoded losslessly instead and `write_worktree_patch`
+    re-encodes with the same handler, making the round trip byte-exact.
+    """
+    repo = str(cfg.repo)
+    try:
+        located = subprocess.run(
+            ["git", "-C", repo, "rev-parse", "--git-path", "index"],
+            capture_output=True, text=True, timeout=120,
+            errors="surrogateescape")
+        raw = (located.stdout or "").strip() if located.returncode == 0 else ""
+        # `--git-path` prints RELATIVE to the `-C` directory in a normal checkout
+        # and absolute under `--git-dir`/worktrees, so resolve both against
+        # `cfg.repo`; an empty answer falls back to the conventional location.
+        index = pathlib.Path(raw) if raw else pathlib.Path(repo) / ".git" / "index"
+        if not index.is_absolute():
+            index = pathlib.Path(repo) / index
+        if not index.is_file():
+            return ""
+        with tempfile.TemporaryDirectory() as tmp:
+            copy = pathlib.Path(tmp) / "index"
+            shutil.copyfile(index, copy)
+            env = dict(os.environ, GIT_INDEX_FILE=str(copy))
+            added = subprocess.run(["git", "-C", repo, "add", "-A", "-N"],
+                                   capture_output=True, text=True,
+                                   errors="surrogateescape",
+                                   timeout=120, env=env)
+            if added.returncode != 0:
+                return ""
+            diff = subprocess.run(["git", "-C", repo, "diff", "HEAD"],
+                                  capture_output=True, text=True,
+                                  errors="surrogateescape",
+                                  timeout=120, env=env)
+            if diff.returncode != 0:
+                return ""
+            return diff.stdout or ""
+    except (subprocess.SubprocessError, OSError):
+        return ""
+
+
+def save_work_target(cfg: ProductConfig) -> pathlib.Path | None:
+    """The newest `iter-<digits>` dir under `cfg.state` -- where a rescue lands.
+
+    The newest iteration dir IS the current one: every earlier stage of this
+    iteration already wrote its output there. Selection goes through the
+    `iteration_numbers` bare-name helper, so `iter-9` sorts BEFORE `iter-10`
+    regardless of zero-padding and a non-matching child (`iter-x`, a plain file)
+    is ignored; the winning `Path` is kept rather than rebuilt from the number,
+    so nothing here depends on the directory name's padding.
+
+    TOTAL: a `cfg.state` that is missing, is not a directory, is unreadable, is
+    empty, or holds no `iter-<digits>` child yields `None`.
+    """
+    target: pathlib.Path | None = None
+    highest = -1
+    try:
+        for entry in cfg.state.iterdir():
+            if not entry.is_dir():
+                continue
+            numbers = iteration_numbers([entry.name])
+            if numbers and numbers[0] > highest:
+                target, highest = entry, numbers[0]
+    except OSError:
+        return None
+    return target
+
+
+def write_worktree_patch(target: pathlib.Path, text: str) -> pathlib.Path | None:
+    """Write `text` as `SAVE_WORK_PATCH_NAME` in `target`; `None` if nothing to write.
+
+    Whitespace-only text means the tree matched HEAD, so NO file is created and
+    any EARLIER rescue already sitting in `target` is left BYTE-UNCHANGED. That
+    is load-bearing: after the abort path's `git reset --hard` the tree IS clean,
+    so a later run must not truncate the patch that just rescued the work. A
+    NON-empty diff does overwrite -- the freshest export is the one worth
+    keeping, and a stale patch is worse than none.
+
+    The bytes are the diff normalised to exactly ONE trailing newline and NOTHING
+    else -- no banner, no timestamp, no reason string (the iter-151 convention)
+    -- so `git apply` takes the file unmodified.
+
+    Reads `SAVE_WORK_PATCH_NAME` as a module global at CALL time, so a test can
+    repoint the filename.
+
+    Encoding is UTF-8 with `errors="surrogateescape"` to mirror the seam's decode:
+    a diff carrying a non-UTF-8 byte arrives as a surrogate, and only the same
+    handler can encode it back to the original byte. Plain UTF-8 text is
+    unaffected -- surrogateescape only ever alters bytes strict UTF-8 rejects.
+    """
+    if not text.strip():
+        return None
+    patch = target / SAVE_WORK_PATCH_NAME
+    try:
+        patch.write_text(text.rstrip("\n") + "\n",
+                         encoding="utf-8", errors="surrogateescape")
+    except OSError:
+        return None
+    return patch
+
+
+def save_work_patch(cfg: ProductConfig) -> pathlib.Path | None:
+    """Export the repo's uncommitted work to a patch and return its `Path`.
+
+    The programmatic entry point; `save_work_cli` reports the same outcomes with
+    distinct exit codes. Composed entirely of BARE-name calls
+    (`save_work_target`, `worktree_patch_text`, `write_worktree_patch`) so a test
+    can seam any one of them, and TOTAL by construction -- every failure yields
+    `None` rather than propagating, because a rescue that raises is worse than no
+    rescue at all.
+
+    DORMANT: nothing in `run_iteration`, `run_stage`, `run_continuous`,
+    `revert_repo`, the final gate or `dispatcher.py` calls this. Its only
+    production reference is `main()`'s `save-work` dispatch.
+    """
+    try:
+        target = save_work_target(cfg)
+        if target is None:
+            return None
+        return write_worktree_patch(target, worktree_patch_text(cfg))
+    except Exception:
+        return None
+
+
+def save_work_cli(cfg: ProductConfig) -> int:
+    """Print exactly ONE `save-work: ` line and exit decidably: 0 / 2 / 1.
+
+    `0` SAVED, `2` NOTHING (the tree matches HEAD -- the shipped
+    `timing`/`directions` "there is something to report" convention, never a
+    build gate), `1` FAILED naming why nothing could be saved. Keeping those
+    three DISTINGUISHABLE is deliberate: printing "working tree matches HEAD" for
+    an unwritable target would be a WRONG meter, and a wrong meter is worse than
+    an absent one.
+
+    The git seam runs exactly ONCE here and the pieces are re-composed, rather
+    than calling `save_work_patch` and then re-observing the tree to learn WHY it
+    returned `None` -- a second git run could disagree with the first.
+    """
+    target = save_work_target(cfg)
+    if target is None:
+        print(f"save-work: FAILED -- no iter-<digits> dir under {cfg.state}, "
+              f"nowhere to write a patch")
+        return 1
+    try:
+        text = worktree_patch_text(cfg)
+    except Exception as exc:  # a seam that raises is FAILED, never a silent 0
+        print(f"save-work: FAILED -- could not export the working tree: {exc!r}")
+        return 1
+    if not (text or "").strip():
+        print("save-work: NOTHING -- working tree matches HEAD, no patch written")
+        return 2
+    patch = write_worktree_patch(target, text)
+    if patch is None:
+        print(f"save-work: FAILED -- exported {len(text)} chars but "
+              f"{target / SAVE_WORK_PATCH_NAME} could not be written")
+        return 1
+    try:
+        size = patch.stat().st_size
+    except OSError:  # written, but unstattable -- report the size we wrote
+        size = len(text.rstrip("\n")) + 1
+    print(f"save-work: SAVED -- {size} bytes to {patch} "
+          f"(git apply it to restore)")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="agent-foundry product team runner")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -16358,6 +16585,13 @@ def main(argv: list[str] | None = None) -> int:
                      help="emit the company roll-up as one JSON document "
                           "(machine-readable) instead of the human report; "
                           "same 0/1/2 exit code")
+    # `save-work` exports the product repo's uncommitted work (tracked edits
+    # AND untracked new files) to a patch in the newest iter-NN state dir,
+    # without mutating the real git index. On-demand only -- the pipeline
+    # never calls it (the role-card lines that would are a later bite).
+    swk = sub.add_parser("save-work")
+    swk.add_argument("--config", required=True,
+                     help="path to product JSON config")
     args = ap.parse_args(argv)
 
     if args.cmd == "lint-spec":
@@ -16433,6 +16667,8 @@ def main(argv: list[str] | None = None) -> int:
     cfg = load_config(args.config)
     if args.cmd == "doctor":
         return run_doctor_cli(cfg)
+    if args.cmd == "save-work":
+        return save_work_cli(cfg)
     if args.cmd == "learnings":
         return learnings_cli(cfg, recent=args.recent, as_json=args.json)
     if args.cmd == "agents":

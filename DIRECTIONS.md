@@ -1,6 +1,26 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-162
+    lenses: new-capability, hardening/DX
+    - Candidate A1 (primary) -- `foundry save-work`: an abort rescue that runs in a fresh process, so live-lag cannot mute it
+    - Candidate A2 -- the ship ledger gets a category for an ABANDONED iteration, so destroyed work is countable
+    - Candidate A3 -- verbatim retry of iteration 161's `doctor stops:` line, with both known defects pre-solved
+    - Candidate B1 -- the steering-head doctor line gets the headroom WARN its sibling already has
+    - Candidate B2 -- an assertion-shaped brake on ambient-tree preconditions (roadmap item (s))
+    - Candidate B3 -- one whole-output WARN assertion becomes line-scoped, plus a meta-brake
+    winner: A1
+    ship: unknown
+  iter-161
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- retire the four DORMANT claims their own wiring outran, behind a call-site checker
+    - Candidate A2 -- the two shipped CLI verbs that no human-facing doc names, plus a coverage guard
+    - Candidate A3 -- stop the two frozen figures that git can already contradict
+    - Candidate B1 -- the health surface cannot see a STOP sentinel, so a halted team reports OK
+    - Candidate B2 -- `foundry attempts`: read the attempt EVIDENCE in the state dir, not the dispatcher log
+    - Candidate B3 -- `foundry salvage`: is any reverted iteration's work still recoverable?
+    winner: B1
+    ship: unknown
   iter-160
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- share one AST parse across the 4 live-smoke CLI tests
@@ -10,7 +30,7 @@ foundry directions -- _platform
     - Candidate B2 -- README's `# N.` command index gains its two missing verbs, behind ONE derived completeness rule
     - Candidate B3 -- ARCHITECTURE.md's ship sequence names the pre-push clone gate, guarded by "a verb a role card orders a stage to run must be documented"
     winner: B1
-    ship: unknown
+    ship: PUSHED 9fca86e
   iter-159
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- collapse the nine `company-*` argparse registrations onto one flat loop
@@ -498,4 +518,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-57 scouted iterations
+59 scouted iterations
