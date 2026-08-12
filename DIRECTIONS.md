@@ -1,10 +1,20 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-159
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- collapse the nine `company-*` argparse registrations onto one flat loop
+    - Candidate A2 -- cap the README Quickstart entry prose against its own `--help`
+    - Candidate A3 -- replace the 28-case pre-`load_config` if-chain with one dispatch table
+    - Candidate B1 -- parse each test file ONCE and share the tree across the three test-quality lenses
+    - Candidate B2 -- gather the test-file list once per product instead of three times
+    - Candidate B3 -- retire the two spent 2026-08-04 OPERATOR-SET blocks from the pinned steering head
+    winner: B1
+    ship: unknown
   iter-158
     lenses: integration-and-adoption, simplification-and-deletion
     winner: B1
-    ship: unknown
+    ship: PUSHED 66bb1f8
   iter-157
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- `foundry roadmap-archive`: a measured, verbatim section-move verb for the index budget
@@ -478,4 +488,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-55 scouted iterations
+56 scouted iterations

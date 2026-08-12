@@ -247,6 +247,7 @@ in the archive.
 - iter 156 -- `foundry preship` re-verifies the ship commit from a LOCAL clone between commit and push; exit 1 blocks.
 - iter 157 -- every stage prompt names this product's own config path, name-verified, so card --config verbs run.
 - iter 158 -- five spent blurbs + two tombstones leave the index (verbatim to archive); pure roadmap_spent_blocks.
+- iter 159 -- the composite test-quality scan walks the repo once and parses each test file once; output byte-identical.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03
