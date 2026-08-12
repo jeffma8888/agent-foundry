@@ -2408,6 +2408,222 @@ def roadmap_index_line(cfg: "ProductConfig") -> str:
                 f"unavailable ({exc!r})")
 
 
+# --------------------------------------------------------------------------- #
+# SPENT-BLOCK INVENTORY (iter 158) -- WHICH index prose is already ARCHIVED?
+#
+# `roadmap_index_budget` says how CLOSE the index is to the wall that reds the
+# suite, and `roadmap_archive_gaps` says whether a past compaction LOST history.
+# Neither answers the question a PM actually faces under the ~600s cap once the
+# budget line WARNs: which blocks can be deleted RIGHT NOW without losing
+# anything? Re-deriving that inventory by hand cost a whole scout shift in
+# iteration 158, which is why it ships as a function instead of a one-off script.
+#
+# A block is SPENT when its record already lives in the archive, so deleting it
+# from the index loses nothing recoverable. Two shapes carry such a record:
+#   * an item blurb inside the `NEXT UP` run-on paragraph, headed `(x) SHIPPED
+#     iter N` -- mid-line by construction, so nothing here anchors at line start;
+#   * a tombstone SECTION whose heading says `ARCHIVED by iter N`.
+# `live_clause_markers` is the HOIST-BEFORE-DELETE signal, and it is the field
+# that makes the verdict safe rather than merely convenient: a spent block can
+# still hold the ONLY live sentence about an OPEN item, in which case the block
+# must be TRUNCATED to that clause instead of deleted (iteration 158 truncated
+# items (a) and (i) for exactly this reason). A caller that ignores the field can
+# lose live information; a caller that respects it cannot.
+#
+# NOT a licence to delete on its own. Two checks live OUTSIDE these two files and
+# this function can never see them: whether any `tests/` module pins a literal
+# from the span (iteration 158 hit exactly that -- `tests/test_iter133_behavior.py`
+# asserts `(f) SHIPPED iter 133` is PRESENT in the index), and whether the item
+# LETTER is referenced elsewhere. So the docstring names them, since a detector
+# that reads as complete is more dangerous than one that reads as partial.
+#
+# PURE, TOTAL and DORMANT by construction: text in, records out; no filesystem,
+# subprocess, network or clock; never raises for any string input; and there is
+# no call site in `run_iteration` / `run_stage` / `build_prompt` /
+# `postrelease_step` / `lint_config` and no CLI verb, so no control flow, prompt,
+# sentinel or resume semantic changes and a running loop needs no restart.
+# Wiring it into `doctor`'s existing `roadmap-index:` line as an ADVISORY count
+# is the natural next bite, and it must stay advisory: a spent-block count that
+# can fail a suite would revert an iteration for a docs-only reason, which is the
+# failure this whole family of brakes exists to avoid.
+# --------------------------------------------------------------------------- #
+
+# The vocabulary that means "this span still says something LIVE". Module level so
+# it is read AT CALL TIME (a `monkeypatch.setattr(foundry, ...)` bites) and an
+# operator can retune it without touching the function.
+ROADMAP_LIVE_CLAUSE_MARKERS: tuple[str, ...] = ("STILL OPEN", "DE-LISTED", "remains")
+
+# `(x) SHIPPED iter N` heads a spent item blurb; the NEXT `(y) ` marker ends it.
+_ROADMAP_SPENT_ITEM_HEAD_RE = re.compile(r"\(([a-z])\) SHIPPED iter (\d+)\b")
+_ROADMAP_ITEM_MARKER_RE = re.compile(r"\([a-z]\) ")
+# A tombstone heading, at any `#` depth, naming the iteration that archived it.
+_ROADMAP_TOMBSTONE_HEAD_RE = re.compile(r"^#{1,6} .*ARCHIVED by iter (\d+)\b")
+_ROADMAP_ANY_HEAD_RE = re.compile(r"^#{1,6} ")
+# The archive-side record. Bullet-anchored (leading whitespace tolerated), NOT a
+# bare substring search, and the asymmetry is deliberate: a looser anchor finds
+# MORE records, which marks MORE blocks spent, which licenses MORE deletion -- so
+# its failure mode is LOSSY. Anchoring can only under-report, which is the safe
+# direction and the same reason `_ROADMAP_HISTORY_BULLET_RE` anchors.
+_ROADMAP_ARCHIVE_RECORD_RE = re.compile(r"^\s*- \*\*iter (\d+) ")
+
+
+@dataclasses.dataclass(frozen=True)
+class RoadmapSpentBlock:
+    """One roadmap-INDEX block whose record already lives in the ARCHIVE.
+
+    Frozen, matching the other verdict cores (`RoadmapSize`, `RoadmapIndexBudget`,
+    `SpecLint`), so a computed record cannot be mutated after the fact and two
+    records over the same span compare `==`.
+
+    * `label` -- `(x)` for an item blurb, or the tombstone's WHOLE heading line
+      for a section. Both are greppable identifiers a human can find in the file,
+      which is what a caller needs in order to act on the record.
+    * `iteration` -- the iteration named in the head, i.e. the number whose
+      `- **iter N ` archive bullet is what makes this block spent.
+    * `chars` -- `len(span)`, CHARS not bytes, for the same reason
+      `RoadmapIndexBudget.char_count` counts chars: the live wall is a char count
+      and a byte count overstates a file carrying multibyte punctuation.
+    * `live_clause_markers` -- the markers from `ROADMAP_LIVE_CLAUSE_MARKERS`
+      found in the span, in declaration order. NON-EMPTY means "do not delete
+      this: TRUNCATE it to the live clause first".
+    """
+    label: str
+    iteration: int
+    chars: int
+    live_clause_markers: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        """JSON-serializable view -- primitives only, no dataclass, no tuple.
+
+        `live_clause_markers` becomes a `list` rather than staying a tuple even
+        though `json.dumps` renders both as an array: a tuple cannot survive a
+        `json.loads` round trip, so a caller comparing the parsed payload with
+        this dict would see a spurious difference.
+        """
+        return {
+            "label": self.label,
+            "iteration": self.iteration,
+            "chars": self.chars,
+            "live_clause_markers": list(self.live_clause_markers),
+        }
+
+
+def _roadmap_archive_records(archive_text: str) -> frozenset[int]:
+    """Iteration numbers holding a verbatim history bullet in the archive."""
+    found: set[int] = set()
+    for line in str(archive_text or "").splitlines():
+        m = _ROADMAP_ARCHIVE_RECORD_RE.match(line)
+        if m:
+            found.add(int(m.group(1)))
+    return frozenset(found)
+
+
+def _roadmap_live_markers(span: str) -> tuple[str, ...]:
+    """Live-clause markers present in `span`, in declaration order.
+
+    Reads `ROADMAP_LIVE_CLAUSE_MARKERS` from the module global INSIDE the body
+    (never captured at def time) so patching the vocabulary changes a subsequent
+    call.
+    """
+    return tuple(marker for marker in ROADMAP_LIVE_CLAUSE_MARKERS if marker in span)
+
+
+def roadmap_spent_blocks(index_text: str, archive_text: str) -> tuple[RoadmapSpentBlock, ...]:
+    """Index blocks whose record already lives in the archive (pure, total).
+
+    Returns one frozen `RoadmapSpentBlock` per spent block, in the order the
+    blocks appear in `index_text`. A block is spent only if its iteration has a
+    `- **iter N ` bullet in `archive_text`: an UNARCHIVED block is deliberately
+    NOT reported, because deleting it would destroy the only copy.
+
+    A non-empty `live_clause_markers` means the span must be TRUNCATED to that
+    clause rather than deleted. TWO further checks are outside this function's
+    reach and a caller owes them both before deleting anything: `rg` every
+    literal in the span over `tests/` (a live assertion can pin one -- iteration
+    158 learned this the expensive way), and check whether the item LETTER is
+    referenced elsewhere in the index.
+
+    Touches no filesystem, subprocess, network or clock, and never raises for any
+    string inputs -- two empty strings, or text with no item markers at all,
+    return an empty tuple.
+    """
+    index = str(index_text or "")
+    archived = _roadmap_archive_records(archive_text)
+    if not index or not archived:
+        return ()
+
+    # Byte offsets of every item marker and every heading line, computed once:
+    # a block ends at whichever comes first, so an item blurb can never swallow
+    # the section below it and a tombstone can never swallow its successor.
+    marker_starts = [m.start() for m in _ROADMAP_ITEM_MARKER_RE.finditer(index)]
+    heading_starts: list[int] = []
+    offset = 0
+    for line in index.splitlines(keepends=True):
+        if _ROADMAP_ANY_HEAD_RE.match(line):
+            heading_starts.append(offset)
+        offset += len(line)
+    boundaries = sorted(set(marker_starts) | set(heading_starts))
+
+    def block_end(start: int) -> int:
+        """First boundary STRICTLY after `start` (the head's own marker is one)."""
+        for pos in boundaries:
+            if pos > start:
+                return pos
+        return len(index)
+
+    def item_end(start: int) -> int:
+        """Where an ITEM blurb stops: also bounded by the PARAGRAPH it lives in.
+
+        The `NEXT UP` inventory is one run-on paragraph, so the LAST item in it has
+        no following marker and no heading until far down the file. Measured on the
+        live index, the marker/heading bound alone reported item (t) as 8,689 chars
+        when its blurb is 1,372: an over-report of 6x in the one field a caller uses
+        to decide how much a deletion buys, which is the same lossy direction the
+        archive-record anchor above refuses. A blank line ends the paragraph, so it
+        ends the blurb; the trailing newline of the last line stays in the span.
+        Section bodies are NOT bounded this way -- a tombstone legitimately spans
+        blank lines, and there the heading-to-heading bound is exact.
+        """
+        end = block_end(start)
+        paragraph = index.find("\n\n", start)
+        return min(end, paragraph + 1) if paragraph != -1 else end
+
+    found: list[tuple[int, RoadmapSpentBlock]] = []
+
+    for m in _ROADMAP_SPENT_ITEM_HEAD_RE.finditer(index):
+        iteration = int(m.group(2))
+        if iteration not in archived:
+            continue
+        span = index[m.start():item_end(m.start())]
+        found.append((m.start(), RoadmapSpentBlock(
+            label=f"({m.group(1)})",
+            iteration=iteration,
+            chars=len(span),
+            live_clause_markers=_roadmap_live_markers(span),
+        )))
+
+    for i, start in enumerate(heading_starts):
+        newline = index.find("\n", start)
+        line = index[start:newline if newline != -1 else len(index)]
+        m = _ROADMAP_TOMBSTONE_HEAD_RE.match(line)
+        if not m:
+            continue
+        iteration = int(m.group(1))
+        if iteration not in archived:
+            continue
+        end = heading_starts[i + 1] if i + 1 < len(heading_starts) else len(index)
+        span = index[start:end]
+        found.append((start, RoadmapSpentBlock(
+            label=line.rstrip(),
+            iteration=iteration,
+            chars=len(span),
+            live_clause_markers=_roadmap_live_markers(span),
+        )))
+
+    found.sort(key=lambda pair: pair[0])
+    return tuple(block for _, block in found)
+
+
 def git_ship_subjects(repo_dir) -> tuple[str, ...]:
     """Commit subjects of `repo_dir` in git order -- the ONE new I/O seam.
 
