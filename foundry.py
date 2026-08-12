@@ -14864,6 +14864,77 @@ def retry_delay(kind: str, attempt: int) -> int:
     return int(max(ladder[idx], RETRY_DELAY_FLOOR))
 
 
+def _render_minutes(seconds: int) -> str:
+    """Render ``seconds`` as MINUTES for a ladder line: 60 -> ``1``, 90 -> ``1.5``.
+
+    One decimal, and NEVER a trailing ``.0``: the line this composes is prose read
+    by humans and by every agent stage, where ``1 min`` is the honest figure and
+    ``1.0 min`` is noise. A delay that is not a whole number of minutes keeps one
+    decimal so a sub-minute ladder cannot silently render as a bare ``0``.
+    """
+    text = f"{seconds / 60.0:.1f}"
+    return text[:-2] if text.endswith(".0") else text
+
+
+def retry_ladder_lines() -> tuple[str, ...]:
+    """One rendered line per DISTINCT retry ladder, DERIVED by calling ``retry_delay``.
+
+    WHY THIS EXISTS: ``build_prompt`` inlines each product's ``quality_bar``, which
+    sends EVERY agent stage to ``ARCHITECTURE.md`` for the design invariants, and
+    iter 149 made **Resilience** one of the six findable names there. That prose
+    documented a SINGLE ladder (10 -> 20 -> 40 min) while ``retry_delay`` has priced
+    three of them since iter 135 -- so the documented first-retry delay was 10x too
+    long for ``timeout``, ``cli-error`` and ``stalled``, which iter 148 measured as
+    essentially every real failure of the two hottest stages. Rendering the figures
+    FROM the decision function is the only shape that cannot drift again: a fourth
+    ladder documents itself, and a re-priced ladder changes this output the same day.
+
+    PURE and TOTAL: no filesystem, subprocess, network or clock access, no argument
+    to get wrong. Every constant is read from the module globals by BARE NAME at CALL
+    time (never captured at def time), so a ``monkeypatch.setattr(foundry,
+    "KIND_RETRY_LADDERS", ...)`` -- or a real edit to any ladder -- is reflected here.
+    The DELAYS come from ``retry_delay`` rather than from the ladder lists directly,
+    so the precedence rules (per-kind map > fast set > default) stay in ONE place.
+
+    KIND UNIVERSE, in declaration order: the fast set, then the per-kind ladder map,
+    then the classifier's marker kinds, then the default kind -- deduplicated,
+    first appearance wins. Kinds INSIDE a line keep that order, so the fast line
+    reads ``timeout, cli-error`` exactly as ``FAST_RETRY_KINDS`` declares it.
+
+    ORDER of the lines is deterministic and independent of dict iteration luck:
+    ascending FIRST delay, then the alphabetically-first kind name sharing the
+    ladder (which is why the two 1-minute ladders come out fast-then-``stalled``).
+
+    SHAPE: ``<kinds>: <m1> -> <m2> -> ... min``, minutes, ASCII arrow, pure ASCII.
+    The docs' U+2192 house style is bridged by the CALLER's normaliser, not by
+    emitting a non-ASCII character from shipped code.
+
+    STEPS are the ``MAX_ATTEMPTS - 1`` gaps BETWEEN attempts, floored at one: a
+    zero-step line would be vacuous, and ``MAX_ATTEMPTS < 2`` means no retry ever
+    fires, so the honest rendering is still what a first retry would cost.
+
+    DORMANT by design (iter 160): zero call sites in ``run_stage``,
+    ``run_iteration``, ``build_prompt``, ``postrelease_step``, the CLI dispatch
+    table or ``dispatcher.py``, so a live loop's resume semantics are unchanged.
+    """
+    steps = max(int(MAX_ATTEMPTS) - 1, 1)
+    order: list[str] = []
+    for kind in (*FAST_RETRY_KINDS, *KIND_RETRY_LADDERS,
+                 *(k for k, _ in ATTEMPT_FAILURE_MARKERS), ATTEMPT_FAILURE_DEFAULT):
+        if kind not in order:
+            order.append(kind)
+    ladders: dict[tuple[int, ...], list[str]] = {}
+    for kind in order:
+        seq = tuple(retry_delay(kind, attempt) for attempt in range(1, steps + 1))
+        ladders.setdefault(seq, []).append(kind)
+    return tuple(
+        "%s: %s min" % (", ".join(kinds),
+                        " -> ".join(_render_minutes(d) for d in seq))
+        for seq, kinds in sorted(ladders.items(),
+                                 key=lambda kv: (kv[0][0], min(kv[1])))
+    )
+
+
 def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
               out_name: str, extra: str = "") -> tuple[bool, pathlib.Path]:
     it_dir = cfg.state / f"iter-{iteration:02d}"

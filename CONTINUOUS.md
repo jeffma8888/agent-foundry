@@ -35,9 +35,11 @@ sleep, so a stop takes effect within ~30s, never mid-git-push.
 
 - Iteration numbering continues across restarts (scans `state/iter-*`), so a
   relaunch never re-does or clobbers a completed iteration.
-- Infra failures (throttle/stall/timeout) are absorbed: 4 attempts/stage with
-  10→20→40 min backoff, then a 30m→1h→2h→4h loop-level cooldown. The loop does
-  not die on infra problems — only on STOP.
+- Infra failures (throttle/stall/timeout) are absorbed: 4 attempts/stage with the backoff
+  priced per failure kind (`foundry.retry_ladder_lines`, rendered from `retry_delay`) —
+  timeout, cli-error: 1 → 2 → 4 min; stalled: 1 → 5 → 20 min; service, other: 10 → 20 → 40 min —
+  then a 30m→1h→2h→4h loop-level cooldown. The loop does not die on
+  infra problems — only on STOP.
 - For extra safety across machine reboots, a `scheduled` watchdog is shipped:
   `watchdog.py` re-launches the dispatcher IFF its process is gone AND no STOP
   file exists (single-brain: never a second dispatcher; STOP-respect: never

@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-160
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- share one AST parse across the 4 live-smoke CLI tests
+    - Candidate A2 -- re-price roadmap item (k) parallel suite now that preship exists
+    - Candidate A3 -- stage-times reports wasted agent-SECONDS, not just attempt counts
+    - Candidate B1 -- the retry ladder is DERIVED from `retry_delay` into both docs, checked line-by-line
+    - Candidate B2 -- README's `# N.` command index gains its two missing verbs, behind ONE derived completeness rule
+    - Candidate B3 -- ARCHITECTURE.md's ship sequence names the pre-push clone gate, guarded by "a verb a role card orders a stage to run must be documented"
+    winner: B1
+    ship: unknown
   iter-159
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- collapse the nine `company-*` argparse registrations onto one flat loop
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- gather the test-file list once per product instead of three times
     - Candidate B3 -- retire the two spent 2026-08-04 OPERATOR-SET blocks from the pinned steering head
     winner: B1
-    ship: unknown
+    ship: PUSHED fa6483e
   iter-158
     lenses: integration-and-adoption, simplification-and-deletion
     winner: B1
@@ -488,4 +498,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-56 scouted iterations
+57 scouted iterations
