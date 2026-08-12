@@ -32,7 +32,7 @@ records in its OWN ship commit and must never PLAN on a later stage writing them
 release gate after a 600 s kill, 133's archive bullet by a later stage of the same commit). 145 archived the
 spent iter-142 STATUS stack, the stale iter-86 README-freeze RESOLVED bullet and the two stale item-1/item-11
 deferral notes under `## Compacted from the index by iter 145`, hoisting every live clause first. STILL OPEN:
-(c), (d), (g)'s `parse_triage_winner` half, (j)-(l), (o), and (p).
+(c), (d), (g)'s `parse_triage_winner` half, (j), (k), (o), and (p).
 NEXT UP, in value order: (a) Only the OPTIONAL 25-guard
 CONSOLIDATION remains, and it does NOT unblock strangler steps 2/3 (one guard still freezes
 `dispatcher.py` and the meta-test requires it to); (c) repair a missing `tests/test_iterNN*.py` at the earliest
@@ -52,9 +52,9 @@ the 129/135 retry re-pricings) have NEVER executed = 2.43 h/day of fleet sleep (
 total). Two bites; bite 2 edits a running loop's control flow, so it needs its own iteration. (k) the suite
 is 46.58 s serial vs 17.02 s under `-n auto` (2.74x, zero verdict changes) BUT that mutates the declared
 quality-check command the final gate and fresh clone consume, and 26 freeze guards would `git diff` from
-many workers on ONE tree -- only for an iteration that can re-verify the fresh clone. (l) `ARCHITECTURE.md`
-:90 + `CONTINUOUS.md`:39 still price the ladder "10->20->40 min", falsified by 129/135; derive the figures
-from the module constants in a test, asserting PRESENCE of each figure, never an exact sentence.
+many workers on ONE tree -- only for an iteration that can re-verify the fresh clone. (l) SHIPPED iter 160 -- `retry_ladder_lines()` derives every DISTINCT per-kind ladder by CALLING `retry_delay`, both docs
+carry the rendered lines, and the guard asserts whole-line PRESENCE under arrow/whitespace normalisation (never a bare
+integer). Detail in the archive.
 (o) NEW, hoisted from 141's STATUS and named there as the recommended next feature: re-scope
 the 26 every-suite guards asserting `git diff --quiet HEAD -- dispatcher.py scripts/ .gitignore` to an
 AST/symbol invariant (dispatcher.py still imports foundry, still calls exactly load_config / run_iteration /
@@ -78,6 +78,11 @@ clone the verifier builds (4 tracked files). A repo-wide guard over `tests/` ban
 preconditions owes its own false-positive calibration: only 2 files define `_REAL_PRODUCTS`, and the many
 legitimate `tmp_path` byte-walks must NOT be flagged. Calibrate two-sidedly, then ship.
 (t) SHIPPED iter 156 -- `foundry preship` re-verifies the ship commit from a clone of the LOCAL repo between commit and push, bounded by one `PRESHIP_BUDGET_SECONDS` knob. Exit 1 (suite failed / sha mismatch) BLOCKS; exit 2 (clone, install or budget) is ADVISORY -- `postrelease_step` is still the backstop and a false block destroys a green iteration. Cited in `roles/final.md`. Detail in the archive.
+(u) NEW (iter 160 scout A, measured): the pinned `## Patterns` head is 9,878 of its 10,000-char
+`PROMPT_LEARNINGS_HEAD_BUDGET_CHARS` budget (122 chars of headroom; `foundry doctor` prints it as `learnings-head:`).
+Crossing it is NOT silent -- `_bound_head` drops bullets from the BOTTOM and emits one loud notice line -- but it DOES
+retire the lowest-precedence operator directives. Nobody owns pruning the head, and it is gitignored, so the shippable
+half is a doctor/CLI WARN threshold, never an edit to the log.
 INDEX BUDGET (a scheduling item, never a competitive candidate): the binding wall is now ONE constant,
 `ROADMAP_INDEX_HARD_CHARS` (54,000) -- NOT the 60,000 `ROADMAP_SIZE_WARN_CHARS` -- and the two live tests that
 read this file derive it from that constant, so crossing it turns the suite RED and REVERTS the iteration for a
@@ -248,6 +253,7 @@ in the archive.
 - iter 157 -- every stage prompt names this product's own config path, name-verified, so card --config verbs run.
 - iter 158 -- five spent blurbs + two tombstones leave the index (verbatim to archive); pure roadmap_spent_blocks.
 - iter 159 -- the composite test-quality scan walks the repo once and parses each test file once; output byte-identical.
+- iter 160 -- both docs price all THREE retry ladders, rendered by calling retry_delay; whole-line presence guard.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03

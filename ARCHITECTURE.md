@@ -87,8 +87,11 @@ core stages above byte-for-byte, so the default path is unchanged.
 - **Anti-delegation clause** is appended to every stage prompt (see
   `foundry.ANTI_DELEGATION`). Without it a general-purpose sub-agent inherits the
   heavy-work gate and recursively launches another runner instead of working.
-- **Resilience.** Per stage: up to 4 attempts, backoff 10→20→40 min. Per loop:
-  after 2 consecutive infra-failing iterations, cool down 30m→1h→2h→4h. A STOP
+- **Resilience.** Per stage: up to 4 attempts, with the backoff priced by failure KIND
+  rather than by attempt index alone (`foundry.retry_ladder_lines` renders these
+  straight from `retry_delay`, so this prose cannot drift from the code):
+  timeout, cli-error: 1 → 2 → 4 min; stalled: 1 → 5 → 20 min; service, other: 10 → 20 → 40 min.
+  Per loop: after 2 consecutive infra-failing iterations, cool down 30m→1h→2h→4h. A STOP
   sentinel is honored between every stage and during every sleep. An external
   `scheduled` watchdog (`watchdog.py`) closes the one gap this cannot: if the
   dispatcher PROCESS itself dies (crash/OOM/kill/restart), the watchdog
