@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-163
+    lenses: hardening/DX -- iteration 163, integration-and-adoption (iteration 163)
+    - Candidate A1 (primary) -- a near-wall WARN band for the pinned steering head, mirroring the shipped roadmap-index shape
+    - Candidate A2 -- a decidably-scoped fresh-clone-safety guard over tests/, calibrated two-sidedly
+    - Candidate A3 -- doctor's oldest check tells the operator a variable name, and separates "never configured" from "configured but gone"
+    - Candidate B1 (primary) -- give the dormant `save-work` verb its first real consumer: one runnable line in `roles/engineer.md` (+ `roles/fix.md`)
+    - Candidate B2 -- the adopter's status on-ramp points at a file no mode ever writes; re-route it to the shipped `status` verb and brake the class
+    - Candidate B3 -- a TRACKED, repo-agnostic launcher that gates on `single-brain` (fail-CLOSED), so a fresh clone can start the loop safely
+    winner: B1
+    ship: unknown
   iter-162
     lenses: new-capability, hardening/DX
     - Candidate A1 (primary) -- `foundry save-work`: an abort rescue that runs in a fresh process, so live-lag cannot mute it
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- an assertion-shaped brake on ambient-tree preconditions (roadmap item (s))
     - Candidate B3 -- one whole-output WARN assertion becomes line-scoped, plus a meta-brake
     winner: A1
-    ship: unknown
+    ship: PUSHED 8d01fb5
   iter-161
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- retire the four DORMANT claims their own wiring outran, behind a call-site checker
@@ -518,4 +528,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-59 scouted iterations
+60 scouted iterations

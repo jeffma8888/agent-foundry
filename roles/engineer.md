@@ -29,6 +29,27 @@ the same work checkpointed early survives the kill.
    decisions and why, how to exercise the feature manually, anything the
    reviewer should scrutinize.
 
+## SAVE-WORK (rescue checkpoint -- export the tree, commit nothing)
+
+Your implementation exists ONLY in the working tree until the Final Reviewer commits it, and a
+stage killed AFTER yours makes the loop run `git reset --hard` + `git clean -fd`, which destroys
+it -- measured 2026-08-12: 20 reverts fleet-wide, zero rescues. So once your change is in and the
+suite is green, export the tree to a patch that OUTLIVES that revert:
+
+`python3 <checkout>/foundry.py save-work --config <PRODUCT_CONFIG>`
+
+- `<checkout>` is the PARENT of the `roles/` directory this card lives in. `<PRODUCT_CONFIG>`
+  is the path on the `- Product config` line of your prompt's `## Context` block -- take it
+  verbatim, do NOT derive it. If your Context block carries no such line, fall back to
+  `<checkout>/products/<product name>/config.json`. That fallback is the NORMAL path today, not
+  an edge case: the running brain predates the Context line, so it is usually absent.
+- Exit `0` = SAVED, a patch was written. Exit `2` = NOTHING is BENIGN: the working tree matches
+  HEAD, so that non-zero status is NOT this stage's own failure -- never report failure and never
+  retry because of it. Only exit `1` = FAILED means the rescue itself could not run.
+- Treat it as a CHECKPOINT you may repeat, never an authoritative final snapshot: any later edit
+  (yours, or a fix pass's) leaves an earlier patch STALE, so re-run it after your last change. It
+  copies the git index rather than mutating it, so repeating it is safe and it stages nothing.
+
 ## Rules
 - Never modify the spec or the roadmap file. Never touch the test engineer's
   tests except when a fix task explicitly points you at failures.
