@@ -83,13 +83,9 @@ legitimate `tmp_path` byte-walks must NOT be flagged. Calibrate two-sidedly, the
 Crossing it is NOT silent -- `_bound_head` drops bullets from the BOTTOM and emits one loud notice line -- but it DOES
 retire the lowest-precedence operator directives. Nobody owns pruning the head, and it is gitignored, so the shippable
 half is a doctor/CLI WARN threshold, never an edit to the log.
-(v) NEW (iter 162, bite 2 of the `save-work` rescue -- the half that makes it FIRE): add one runnable invocation line
-to `roles/engineer.md` and `roles/fix_review.md` telling those stages to run `save-work` the moment their code is in
-place (the iter-142 `lint-spec` shape: absolute `<checkout>/foundry.py`, the "no `foundry` on PATH inside a stage"
-note, and the product config path the stage prompt already names), plus a two-sided brake asserting BOTH cards carry
-it (the iter-139 shape). Card edits are live on the NEXT stage with no dispatcher restart, which is the whole point of
-(v) over (j). Bite 1 (the verb) shipped iter 162; keep the card wording explicit that exit 2 (`NOTHING`) is benign, or
-a stage will read a non-zero exit as its own failure.
+(v) SHIPPED iter 163 -- `roles/engineer.md` + `roles/fix.md` (NOT `fix_review.md`, which does not exist) carry one
+runnable `save-work` checkpoint line, so the iter-162 rescue finally FIRES; the every-suite bare-CLI brake polices it.
+Card edits need no dispatcher restart, which was the whole point of (v) over (j). Detail in the archive.
 INDEX BUDGET (a scheduling item, never a competitive candidate): the binding wall is now ONE constant,
 `ROADMAP_INDEX_HARD_CHARS` (54,000) -- NOT the 60,000 `ROADMAP_SIZE_WARN_CHARS` -- and the two live tests that
 read this file derive it from that constant, so crossing it turns the suite RED and REVERTS the iteration for a
@@ -262,6 +258,7 @@ in the archive.
 - iter 159 -- the composite test-quality scan walks the repo once and parses each test file once; output byte-identical.
 - iter 160 -- both docs price all THREE retry ladders, rendered by calling retry_delay; whole-line presence guard.
 - iter 162 -- new `save-work` verb saves uncommitted work to a patch from a FRESH process; real git index untouched.
+- iter 163 -- roles/engineer.md + roles/fix.md run `save-work`, so the iter-162 rescue fires; 20 reverts, 0 rescues.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03
