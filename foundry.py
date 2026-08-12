@@ -6924,11 +6924,114 @@ def _has_assertion_signal(func: ast.AST) -> bool:
     return False
 
 
-def find_assertionless_tests(source: str) -> tuple[str, ...]:
+# --------------------------------------------------------------------------- #
+# Shared test-file parse cache (item 6, iter 159) -- an output-preserving
+# speed-up of the composite test-quality scan.
+#
+# The three weak-test lenses (assertion-free / constant-assert / always-skipped)
+# each `read_text()` + `ast.parse()`d EVERY test file, so the composite
+# `gather_test_quality` did identical work three times. MEASURED on this repo at
+# head 66bb1f8 over its 334 test files, before -> after: 3.294s -> 2.331s (-29%)
+# with a file list supplied, and 4.218s -> 2.648s (-37%) with `files=None`, where
+# two of the three repo walks also disappear. Only the read+`ast.parse` is
+# shareable -- each lens still runs its OWN `ast.walk` over the tree, which is
+# irreducible without merging the three detectors -- so the saving is the ~0.64s
+# per redundant parse pass, NOT the whole per-lens cost. Suite wall-clock is
+# subtracted from every stage's hard ~600s agent-CLI budget and is paid by
+# engineer, reviewer, tester, final, `preship` AND the post-release fresh clone,
+# so this redundancy is the loop's own throughput.
+#
+# The obvious fix -- thread a `trees=` argument from the composite down into the
+# three gather seams -- is BLOCKED: 17 monkeypatch sites across 6 test files
+# replace those seams with `lambda cfg, files=None:` and would raise `TypeError`
+# the moment the composite passed an extra keyword. Hence shared state in a
+# module-level cache slot consulted through a seam, and NO signature change.
+# --------------------------------------------------------------------------- #
+# The parse cache currently open for `test_tree`, or `None` when none is (the
+# default, and the ONLY value that survives a `gather_test_quality` call -- the
+# composite saves and restores this slot in a `try/finally`). Module-level so the
+# three lens gathers can SHARE one scoped cache without any signature change;
+# `None` rather than an always-on dict so no process-lifetime state accumulates
+# and every other caller (`foundry weak-tests` / `constant-asserts` /
+# `skipped-tests`) keeps today's exact parse-every-time behavior.
+TEST_TREE_CACHE: dict[str, ast.Module] | None = None
+
+
+def parse_test_file(path: str | pathlib.Path) -> ast.Module:
+    """Read and `ast.parse` ONE test file into its module AST.
+
+    The single read+parse seam every weak-test lens now funnels through, called by
+    BARE name from `test_tree` so `monkeypatch.setattr(foundry, "parse_test_file",
+    ...)` bites (that is what lets a test COUNT parses). Deliberately not
+    defensive: a `SyntaxError` (text is not valid Python) or an `OSError` (missing
+    or unreadable path) propagates VERBATIM, because the CALLER decides how to
+    degrade -- each gather folds it into its own graceful
+    `(str(path), f"{type(exc).__name__}: {exc}")` `parse_errors` entry. No
+    `filename=` is passed to `ast.parse`, so a `SyntaxError` keeps the `<unknown>`
+    marker the pre-iter-159 `ast.parse(path.read_text())` produced and every
+    emitted document stays byte-identical. Accepts `str` or `pathlib.Path`.
+    Creates and modifies NOTHING on disk (read-only).
+    """
+    return ast.parse(pathlib.Path(path).read_text())
+
+
+def test_tree(path: str | pathlib.Path) -> ast.Module:
+    """`path`'s module AST, parsed at most ONCE per open cache scope.
+
+    The seam that removes the composite scan's redundant re-parsing without
+    touching a single gather signature. Reads the module-level `TEST_TREE_CACHE`
+    at CALL time (never captured at def-time), so the value in force is whatever
+    the innermost `gather_test_quality` installed:
+
+      * `TEST_TREE_CACHE is None` -- the default, and what the three
+        single-lens CLIs see: every call parses, i.e. today's exact behavior.
+      * a dict -- the FIRST call for a path parses and stores the tree under
+        `str(path)`; every later call for that path returns the IDENTICAL object
+        without re-entering `parse_test_file`.
+
+    Parse FAILURES are never cached: the exception propagates before anything is
+    stored, so an unparseable file is re-attempted by each lens and each lens
+    still records its own byte-identical `parse_errors` entry -- document
+    identity beats saving two parses on a file that does not parse. Read-only.
+    """
+    cache = TEST_TREE_CACHE
+    if cache is None:
+        return parse_test_file(path)
+    key = str(path)
+    if key not in cache:
+        cache[key] = parse_test_file(path)
+    return cache[key]
+
+
+def _test_function_nodes(
+        source: str | ast.AST) -> list[ast.FunctionDef | ast.AsyncFunctionDef]:
+    """Every `test*` `def`/`async def` node in `source`, in `ast.walk` order.
+
+    The 5-line prologue the three weak-test finders shared VERBATIM, extracted so
+    each of them can accept an ALREADY-PARSED tree (what `test_tree` hands back)
+    as well as source text -- that polymorphism is what lets three lenses share
+    one `ast.parse`. `source` is used as-is when it is already an AST node and
+    `ast.parse`d when it is text, so a `SyntaxError` still propagates VERBATIM
+    from text input. Order is `ast.walk`'s, NOT sorted: every finder sorts its own
+    FLAGGED subset by `lineno`, so preserving the walk order here is what keeps
+    each finder's output byte-identical to the pre-iter-159 inline prologue.
+    Considers a method inside a class as well as a top-level function. Pure: no I/O.
+    """
+    tree = source if isinstance(source, ast.AST) else ast.parse(source)
+    return [
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name.startswith("test")
+    ]
+
+
+def find_assertionless_tests(source: str | ast.AST) -> tuple[str, ...]:
     """Names of every `test*` function in `source` with no assertion signal.
 
     Pure AST scan -- no filesystem/subprocess/network/clock, so fully
-    offline-testable. Considers EVERY `def`/`async def` (top-level OR a class
+    offline-testable. Accepts EITHER source text OR an already-parsed `ast.Module`
+    (iter 159, via `_test_function_nodes`), which is what lets all three lenses
+    share ONE `ast.parse` of a file; text input keeps today's exact behavior. Considers EVERY `def`/`async def` (top-level OR a class
     method) whose name starts with the literal ``"test"`` (Behaviors 3/6/8), and
     flags those whose subtree has NO assertion signal per `_has_assertion_signal`
     (Behaviors 1/2/4/5). Results are returned in ASCENDING SOURCE ORDER by line
@@ -6936,12 +7039,7 @@ def find_assertionless_tests(source: str) -> tuple[str, ...]:
     `source` is not valid Python (Behavior 9) -- the caller decides how to
     degrade (the CLI turns it into a graceful parse-error entry).
     """
-    tree = ast.parse(source)
-    funcs = [
-        node for node in ast.walk(tree)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test")
-    ]
+    funcs = _test_function_nodes(source)
     flagged = [f for f in funcs if not _has_assertion_signal(f)]
     flagged.sort(key=lambda f: f.lineno)
     return tuple(f.name for f in flagged)
@@ -6985,11 +7083,13 @@ def _assert_signals(func: ast.AST) -> tuple[bool, bool]:
     return has_constant_assert, has_real_signal
 
 
-def find_constant_assert_tests(source: str) -> tuple[str, ...]:
+def find_constant_assert_tests(source: str | ast.AST) -> tuple[str, ...]:
     """Names of `test*` functions whose ONLY validation is a constant assert.
 
     Pure AST scan -- no filesystem/subprocess/network/clock, so fully
-    offline-testable. Complements the shipped `find_assertionless_tests`: that
+    offline-testable. Accepts EITHER source text OR an already-parsed `ast.Module`
+    (iter 159, via `_test_function_nodes`), which is what lets all three lenses
+    share ONE `ast.parse` of a file; text input keeps today's exact behavior. Complements the shipped `find_assertionless_tests`: that
     detector flags tests with NO assertion signal at all, while this one flags
     the classic LLM-emitted weak test that DOES carry an `assert` node yet checks
     nothing -- a bare-literal `assert True`/`assert 1`/`assert "x"` (Behavior 1).
@@ -7005,12 +7105,7 @@ def find_constant_assert_tests(source: str) -> tuple[str, ...]:
     `source` is not valid Python (Behavior 7) -- the caller decides how to degrade.
     Never referenced on any run path this iteration (dormant, Behavior 8).
     """
-    tree = ast.parse(source)
-    funcs = [
-        node for node in ast.walk(tree)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test")
-    ]
+    funcs = _test_function_nodes(source)
     flagged = []
     for f in funcs:
         has_constant_assert, has_real_signal = _assert_signals(f)
@@ -7063,11 +7158,13 @@ def _is_always_skip_decorator(decorator: ast.expr) -> bool:
     return False
 
 
-def find_always_skipped_tests(source: str) -> tuple[str, ...]:
+def find_always_skipped_tests(source: str | ast.AST) -> tuple[str, ...]:
     """Names of every `test*` function unconditionally skipped by a decorator.
 
     Pure AST scan -- no filesystem/subprocess/network/clock, so fully
-    offline-testable. The 3rd member of the item-6 weak-test detector family
+    offline-testable. Accepts EITHER source text OR an already-parsed `ast.Module`
+    (iter 159, via `_test_function_nodes`), which is what lets all three lenses
+    share ONE `ast.parse` of a file; text input keeps today's exact behavior. The 3rd member of the item-6 weak-test detector family
     (after `find_assertionless_tests` and `find_constant_assert_tests`): a test
     carrying an UNCONDITIONAL skip decorator (`@pytest.mark.skip`,
     `@unittest.skip`, a constant-condition `skipif(True)` / `skipUnless(False)`)
@@ -7086,12 +7183,7 @@ def find_always_skipped_tests(source: str) -> tuple[str, ...]:
     valid Python (Behavior 7) -- the caller decides how to degrade. Never
     referenced on any run path this iteration (dormant, Behavior 8).
     """
-    tree = ast.parse(source)
-    funcs = [
-        node for node in ast.walk(tree)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name.startswith("test")
-    ]
+    funcs = _test_function_nodes(source)
     flagged = [
         f for f in funcs
         if any(_is_always_skip_decorator(d) for d in f.decorator_list)
@@ -7277,7 +7369,7 @@ def gather_weak_tests(cfg: ProductConfig, files=None) -> WeakTestSummary:
     parse_errors: list[tuple[str, str]] = []
     for path in paths:
         try:
-            names = find_assertionless_tests(path.read_text())
+            names = find_assertionless_tests(test_tree(path))
         except (SyntaxError, OSError) as exc:
             parse_errors.append((str(path), f"{type(exc).__name__}: {exc}"))
             continue
@@ -7477,7 +7569,7 @@ def gather_constant_asserts(cfg: ProductConfig, files=None) -> ConstantAssertSum
     parse_errors: list[tuple[str, str]] = []
     for path in paths:
         try:
-            names = find_constant_assert_tests(path.read_text())
+            names = find_constant_assert_tests(test_tree(path))
         except (SyntaxError, OSError) as exc:
             parse_errors.append((str(path), f"{type(exc).__name__}: {exc}"))
             continue
@@ -7682,7 +7774,7 @@ def gather_skipped_tests(cfg: ProductConfig, files=None) -> SkippedTestSummary:
     parse_errors: list[tuple[str, str]] = []
     for path in paths:
         try:
-            names = find_always_skipped_tests(path.read_text())
+            names = find_always_skipped_tests(test_tree(path))
         except (SyntaxError, OSError) as exc:
             parse_errors.append((str(path), f"{type(exc).__name__}: {exc}"))
             continue
@@ -7946,18 +8038,44 @@ def gather_test_quality(cfg: ProductConfig, files=None) -> TestQualitySummary:
     Composes the three SHIPPED gather seams -- `gather_weak_tests`,
     `gather_constant_asserts`, `gather_skipped_tests` (iters 42/48/56) -- each
     called by BARE module name so a `monkeypatch.setattr(foundry, ...)` in a test
-    bites, and each passed the SAME `files` so all three scan the identical set,
-    then folds the three frozen sub-summaries into the pure composite via
-    `summarize_test_quality`. Adds NO new I/O seam of its own (the iter-28/30
-    endorsed "compose existing frozen cores" pattern). `test_quality_cli` keeps
-    its OWN inline composition (byte-unchanged this iter); a DRY refactor to share
-    this seam is a separate future bite. Writes NOTHING to disk (read-only)."""
-    return summarize_test_quality(
-        product=cfg.name,
-        weak=gather_weak_tests(cfg, files),
-        constant=gather_constant_asserts(cfg, files),
-        skipped=gather_skipped_tests(cfg, files),
-    )
+    bites, and each passed the SAME resolved paths so all three scan the identical
+    set, then folds the three frozen sub-summaries into the pure composite via
+    `summarize_test_quality`. `test_quality_cli` keeps its OWN inline composition
+    (byte-unchanged this iter); a DRY refactor to share this seam is a separate
+    future bite. Writes NOTHING to disk (read-only).
+
+    OUTPUT-PRESERVING SPEED-UP (iter 159), two halves at this one call site:
+
+      * the file list is resolved ONCE here -- `_gather_weak_test_files(cfg.repo)`
+        when `files is None`, else `files` untouched -- and the SAME list is handed
+        to all three gathers, so the repo is walked once instead of three times
+        (2 globs x 3 lenses = 6 rglobs) while `files_scanned` and every emitted
+        `str(path)` stay byte-identical. With `files` given, `_gather_weak_test_files`
+        is not called AT ALL, which keeps iter 42's `files`-mode isolation proof green.
+      * a `TEST_TREE_CACHE` dict is opened for the DURATION of this call, so each
+        file is read + `ast.parse`d once and all three lenses share that tree via
+        the `test_tree` seam instead of parsing it three times.
+
+    The cache is SCOPED, never global state: the previous value is saved and
+    restored in a `try/finally`, so the slot is back to `None` even when a lens
+    gather raises, and a NESTED composite call reuses the already-open cache while
+    the OUTER call remains the one that restores `None`. No gather signature
+    changes (a `trees=` argument would `TypeError` in the 17 test monkeypatch sites
+    that replace these seams with `lambda cfg, files=None:`)."""
+    global TEST_TREE_CACHE
+    paths = _gather_weak_test_files(cfg.repo) if files is None else files
+    outer_cache = TEST_TREE_CACHE
+    if outer_cache is None:
+        TEST_TREE_CACHE = {}
+    try:
+        return summarize_test_quality(
+            product=cfg.name,
+            weak=gather_weak_tests(cfg, paths),
+            constant=gather_constant_asserts(cfg, paths),
+            skipped=gather_skipped_tests(cfg, paths),
+        )
+    finally:
+        TEST_TREE_CACHE = outer_cache
 
 
 def test_quality_cli(cfg: ProductConfig, files=None,
