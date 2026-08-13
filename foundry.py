@@ -6885,6 +6885,18 @@ def scout_phase_outcome(cfg: ProductConfig, iteration: int,
 # (not captured at import) -- see Behaviors 8/10.
 # --------------------------------------------------------------------------- #
 WEAK_TEST_GLOBS: tuple[str, ...] = ("test_*.py", "*_test.py")
+# Relative directory names, tried in order, that scope the weak-test walk to the
+# product's OWN suite. WHY: the walk used to rglob the whole checkout, so on this
+# repo 195 of the 345 gathered files (57%) were gitignored per-iteration state
+# snapshots -- including snapshots of a RETIRED product -- and 8 of `test-quality`'s
+# 25 findings pointed at files no live iteration owns, inviting a "fix" that edits
+# another iteration's tests. A report whose input is gitignored local state also
+# reads differently in a fresh clone (the post-release-BROKEN class of item (s)).
+# A name that is not an existing directory inside the repo is skipped; if NONE
+# exists the walk falls back to the whole repo, so a product with no tests/ dir is
+# unchanged. Module-level + patchable + read at CALL time -- mirrors
+# `WEAK_TEST_GLOBS`; NOT a config field (no per-product override -- out of scope).
+WEAK_TEST_ROOT_DIRS: tuple[str, ...] = ("tests",)
 WEAK_TEST_ASSERTION_CALLS: frozenset[str] = frozenset({"raises", "warns", "fail"})
 # Trailing decorator names that ALWAYS skip a test regardless of args or dotted
 # path (`@skip`, `@pytest.mark.skip`, `@unittest.skip`). Module-level + patchable
@@ -7327,21 +7339,43 @@ def summarize_weak_tests(*, product: str, files_scanned: int,
 def _gather_weak_test_files(repo: str) -> list[pathlib.Path]:
     """Test files under `repo` matching `WEAK_TEST_GLOBS`, sorted + deduped.
 
-    Recursively globs each pattern (read at CALL time), skips any path with a
-    hidden or `.git` directory component, keeps only regular files, dedupes (a
-    file could match two globs), and returns a deterministic sorted list. Pure
-    filesystem read -- creates/modifies nothing.
+    Scoped to the product's own suite: each relative name in
+    `WEAK_TEST_ROOT_DIRS` (read at CALL time) that is an existing directory
+    inside `repo` becomes a walk root, and if NONE exists the walk falls back to
+    `repo` itself -- the pre-scoping whole-checkout behavior, kept so a product
+    without a tests/ dir is unaffected. WHY the scoping: an unscoped walk swept
+    gitignored per-iteration state snapshots into all eight consumers' findings
+    (see the constant's note above).
+
+    Recursively globs each pattern (also read at CALL time) under each root,
+    skips any path with a hidden or `.git` component RELATIVE TO `repo` -- so a
+    hidden component ABOVE the repo still excludes nothing -- keeps only regular
+    files, dedupes (a file can match two globs, or sit under two roots), and
+    returns a deterministic sorted list. Pure filesystem read -- creates/modifies
+    nothing, and total: no patched tuple can make it raise.
     """
     root = pathlib.Path(repo)
+    roots: list[pathlib.Path] = []
+    for name in WEAK_TEST_ROOT_DIRS:
+        pure = pathlib.PurePath(name)
+        # An absolute or `..`-escaping name would land outside `repo` and break
+        # the relative_to() anchor below, which is what keeps the hidden/`.git`
+        # pruning measured from the repo root. Skip rather than raise.
+        if pure.is_absolute() or ".." in pure.parts:
+            continue
+        candidate = root / name
+        if candidate.is_dir():
+            roots.append(candidate)
     seen: set[pathlib.Path] = set()
-    for pattern in WEAK_TEST_GLOBS:
-        for path in root.rglob(pattern):
-            if not path.is_file():
-                continue
-            rel_parts = path.relative_to(root).parts
-            if any(part == ".git" or part.startswith(".") for part in rel_parts):
-                continue
-            seen.add(path)
+    for scan_root in roots or [root]:
+        for pattern in WEAK_TEST_GLOBS:
+            for path in scan_root.rglob(pattern):
+                if not path.is_file():
+                    continue
+                rel_parts = path.relative_to(root).parts
+                if any(part == ".git" or part.startswith(".") for part in rel_parts):
+                    continue
+                seen.add(path)
     return sorted(seen)
 
 
