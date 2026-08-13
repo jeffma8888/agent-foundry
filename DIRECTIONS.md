@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-165
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- eight per-product CLI printers collapse onto one shared thin-printer body
+    - Candidate B1 -- one anchored-sentinel reader replaces five hand-copied gate parsers
+    - Candidate C1 -- eight company verdict methods hoist onto the base class they already share
+    - Candidate B1 -- price the stale brain in EXCESS SLEEP HOURS, and let a restart zero it
+    - Candidate B2 -- the learnings digest is 88% of every stage prompt; budget it by SHARE
+    - Candidate B3 -- the two scouts are 23.8% of all agent time for a slate that is 5/6 discarded
+    winner: A1
+    ship: unknown
   iter-164
     lenses: integration-and-adoption (iter 164), simplification-and-deletion (iter 164)
     - Candidate A1 -- Close the README verb index with ONE derived rule (two shipped verbs are documented NOWHERE)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- One `tests/_shared.py` retires 38 hand-copied `_snapshot_tree` definitions
     - Candidate B3 -- Retire the `FAST_RETRY_KINDS` special case into the general `KIND_RETRY_LADDERS` rule
     winner: A3
-    ship: unknown
+    ship: PUSHED a552767
   iter-163
     lenses: hardening/DX -- iteration 163, integration-and-adoption (iteration 163)
     - Candidate A1 (primary) -- a near-wall WARN band for the pinned steering head, mirroring the shipped roadmap-index shape
@@ -538,4 +548,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-61 scouted iterations
+62 scouted iterations

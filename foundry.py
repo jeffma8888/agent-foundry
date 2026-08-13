@@ -7389,6 +7389,44 @@ def gather_weak_tests(cfg: ProductConfig, files=None) -> WeakTestSummary:
         findings=tuple(findings), parse_errors=tuple(parse_errors))
 
 
+def _thin_gather_cli(gather: Callable[..., object], cfg: ProductConfig,
+                     arg: object, as_json: bool) -> int:
+    """The ONE shared body behind every per-product thin `--json` printer verb.
+
+    All EIGHT public verbs (`weak_tests_cli`, `constant_asserts_cli`,
+    `skipped_tests_cli`, `history_cli`, `novelty_check_cli`, `outcomes_cli`,
+    `directions_cli`, `timing_cli`) carried bodies identical up to two tokens --
+    which gather seam they called and what that seam's second argument is named
+    (`files` for the three scanners, `limit` for the five ledgers) -- so ONE
+    print/JSON/exit-code contract lived in EIGHT places and every fix had to be
+    made eight times, with nothing keeping the eight in step. They are now thin
+    wrappers over this private helper: the per-product mirror of
+    `_company_rollup_cli`, its company-side sibling, which collapsed the nine
+    `company-*` fleet roll-ups on exactly this axis (iter 152).
+
+    The contract, unchanged from each verb's own iteration: gather ONCE through
+    the caller's seam as `gather(cfg, arg)`, print the pure summary core (with
+    `as_json=True` the entire stdout is exactly ONE `json.dumps(to_dict(),
+    indent=2)` document -- the stable machine contract for dashboards / reporters
+    / CI; the default `as_json=False` is that verb's byte-for-byte human
+    `render()` text), and RETURN the core's own `exit_code` in BOTH modes. Adds no
+    decision logic of its own, so the printed figures always equal the summary's
+    fields, and writes NOTHING to disk (read-only, creates no directories).
+
+    WHY `gather` is a PARAMETER resolved by the CALLER and not looked up here:
+    each public wrapper must resolve ITS OWN seam by BARE module name at CALL
+    time, which is what keeps `monkeypatch.setattr(foundry, "gather_weak_tests",
+    ...)` biting THROUGH the wrapper. Looking the seam up in here would need a
+    verb->seam-name table, and binding it any earlier (a default argument, a
+    module-scope `functools.partial`, an import-time dict) would freeze the patch
+    site at import and silently break every existing seam test."""
+    summary = gather(cfg, arg)
+    # `--json` emits the pure snapshot as a single JSON document (stdout-only, no
+    # decision logic added); the default stays each verb's exact human report.
+    print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
+    return summary.exit_code
+
+
 def weak_tests_cli(cfg: ProductConfig, files=None, as_json: bool = False) -> int:
     """On-demand CLI: scan test files for assertion-free `test*` functions.
 
@@ -7410,11 +7448,9 @@ def weak_tests_cli(cfg: ProductConfig, files=None, as_json: bool = False) -> int
     over the pure gather seam that adds no decision logic of its own, so the
     printed figures always match the `WeakTestSummary` fields. DORMANT -- no
     control path calls it."""
-    summary = gather_weak_tests(cfg, files)
-    # `--json` emits the pure snapshot as a single JSON document (stdout-only, no
-    # decision logic added); the default stays the exact iter-22 human report.
-    print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
-    return summary.exit_code
+    # Seam resolved HERE, by BARE name at CALL time, so a monkeypatch bites;
+    # `_thin_gather_cli` owns the shared print/JSON/exit-code contract.
+    return _thin_gather_cli(gather_weak_tests, cfg, files, as_json)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -7610,11 +7646,9 @@ def constant_asserts_cli(cfg: ProductConfig, files=None,
     A thin printer over the pure gather seam that adds no decision logic of its
     own, so the printed figures always match the `ConstantAssertSummary` fields.
     DORMANT -- no control path calls it; only `main()`'s argparse dispatch."""
-    summary = gather_constant_asserts(cfg, files)
-    # `--json` emits the pure snapshot as a single JSON document (stdout-only,
-    # no decision logic added); the default stays the human report.
-    print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
-    return summary.exit_code
+    # Seam resolved HERE, by BARE name at CALL time, so a monkeypatch bites;
+    # `_thin_gather_cli` owns the shared print/JSON/exit-code contract.
+    return _thin_gather_cli(gather_constant_asserts, cfg, files, as_json)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -7815,11 +7849,9 @@ def skipped_tests_cli(cfg: ProductConfig, files=None,
     decision logic of its own, so the printed figures always match the
     `SkippedTestSummary` fields. DORMANT -- no control path calls it; only
     `main()`'s argparse dispatch."""
-    summary = gather_skipped_tests(cfg, files)
-    # `--json` emits the pure snapshot as a single JSON document (stdout-only,
-    # no decision logic added); the default stays the human report.
-    print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
-    return summary.exit_code
+    # Seam resolved HERE, by BARE name at CALL time, so a monkeypatch bites;
+    # `_thin_gather_cli` owns the shared print/JSON/exit-code contract.
+    return _thin_gather_cli(gather_skipped_tests, cfg, files, as_json)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -9761,11 +9793,9 @@ def history_cli(cfg: ProductConfig, limit: int | None = None,
     / JSON / exit code are byte-identical to iter 17. Writes NOTHING to disk
     (read-only) -- a thin printer over the pure core that adds no decision logic
     of its own, so the printed rollup always equals the `HistorySummary` fields."""
-    summary = gather_history(cfg, limit)
-    # `--json` emits the pure ledger as a single JSON document (stdout-only, no
-    # decision logic added); the default stays the exact iter-17 human report.
-    print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
-    return summary.exit_code
+    # Seam resolved HERE, by BARE name at CALL time, so a monkeypatch bites;
+    # `_thin_gather_cli` owns the shared print/JSON/exit-code contract.
+    return _thin_gather_cli(gather_history, cfg, limit, as_json)
 
 
 # --------------------------------------------------------------------------- #
@@ -9969,9 +9999,9 @@ def novelty_check_cli(cfg: ProductConfig, limit: int | None = None,
     Gathers through `gather_novelty(cfg, limit)` (bare name -> monkeypatchable),
     prints the JSON payload when `as_json` else the human `render()`; the RETURN
     value is `report.exit_code` in BOTH modes. Writes NOTHING to disk."""
-    report = gather_novelty(cfg, limit)
-    print(json.dumps(report.to_dict(), indent=2) if as_json else report.render())
-    return report.exit_code
+    # Seam resolved HERE, by BARE name at CALL time, so a monkeypatch bites;
+    # `_thin_gather_cli` owns the shared print/JSON/exit-code contract.
+    return _thin_gather_cli(gather_novelty, cfg, limit, as_json)
 
 
 def novelty_advice(report: NoveltyReport) -> str:
@@ -10811,11 +10841,9 @@ def outcomes_cli(cfg: ProductConfig, limit: int | None = None,
     creates no directories -- a thin printer over the pure core that adds no
     decision logic of its own, so the printed rollup / JSON always equals the
     `OutcomesSummary` fields."""
-    summary = gather_outcomes(cfg, limit)
-    # `--json` emits the pure ledger as a single JSON document (stdout-only, no
-    # decision logic added); the default stays the exact iter-100 human report.
-    print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
-    return summary.exit_code
+    # Seam resolved HERE, by BARE name at CALL time, so a monkeypatch bites;
+    # `_thin_gather_cli` owns the shared print/JSON/exit-code contract.
+    return _thin_gather_cli(gather_outcomes, cfg, limit, as_json)
 
 
 # --------------------------------------------------------------------------- #
@@ -11188,9 +11216,9 @@ def directions_cli(cfg: ProductConfig, limit: int | None = None,
     RETURNS `digest.exit_code` (`0` with scouted iterations, `2` without).
     Writes NOTHING to disk (read-only) and creates no directories -- a thin
     printer over the pure core that adds no decision logic of its own."""
-    digest = gather_directions(cfg, limit)
-    print(json.dumps(digest.to_dict(), indent=2) if as_json else digest.render())
-    return digest.exit_code
+    # Seam resolved HERE, by BARE name at CALL time, so a monkeypatch bites;
+    # `_thin_gather_cli` owns the shared print/JSON/exit-code contract.
+    return _thin_gather_cli(gather_directions, cfg, limit, as_json)
 
 
 # --------------------------------------------------------------------------- #
@@ -11767,11 +11795,9 @@ def timing_cli(cfg: ProductConfig, limit: int | None = None,
     are byte-identical to iter 18. Writes NOTHING to disk (read-only) -- a thin
     printer over the pure core that adds no decision logic of its own, so the
     printed rollup always equals the `TimingSummary` fields."""
-    summary = gather_timing(cfg, limit)
-    # `--json` emits the pure digest as a single JSON document (stdout-only, no
-    # decision logic added); the default stays the exact iter-18 human report.
-    print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
-    return summary.exit_code
+    # Seam resolved HERE, by BARE name at CALL time, so a monkeypatch bites;
+    # `_thin_gather_cli` owns the shared print/JSON/exit-code contract.
+    return _thin_gather_cli(gather_timing, cfg, limit, as_json)
 
 
 # --------------------------------------------------------------------------- #
