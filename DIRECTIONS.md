@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-168
+    lenses: new-capability, hardening/DX
+    - Candidate A1 (primary) -- `foundry salvage`: the rescue patches nothing has ever read, now growing one per iteration
+    - Candidate A2 -- the health surface reports 26% of the hard kills, because a rescued kill looks like a clean success
+    - Candidate A3 -- `foundry inflight`: which stage is running right now, and how much of its 600 seconds is gone
+    - Candidate B1 (primary) -- the committed decision log names the REJECTED candidate as the winner in 7 of 64 rows, and the PM card is why
+    - Candidate B2 -- the head row of the decision log can never say whether it shipped, and it says "unknown" rather than "pending"
+    - Candidate B3 -- give the final gate a verb that writes the ship token, so a placeholder cannot be typed
+    winner: A2
+    ship: unknown
   iter-167
     lenses: narrative-and-docs, new-capability
     - Candidate A -- the pinned steering head broadcasts a claim this repo falsified 48 iterations ago
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry sentinels`: read the control plane instead of trusting a claim about it
     - Candidate B3 -- `foundry plan`: price the next iteration before spending the shift on it
     winner: B1
-    ship: unknown
+    ship: PUSHED 0253a24
   iter-166
     lenses: performance-and-throughput (iter 166), narrative-and-docs (iter 166)
     - Candidate A1 -- suite headroom and slope, priced against the 120s wall before it is crossed
@@ -568,4 +578,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-64 scouted iterations
+65 scouted iterations

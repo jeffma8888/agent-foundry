@@ -278,6 +278,7 @@ in the archive.
 - iter 165 -- eight per-product --json CLI printers collapse onto ONE _thin_gather_cli body; seams stay call-time.
 - iter 166 -- iter-158's last-heading archive pin becomes an append-only PREFIX freeze; index paydown unblocked.
 - iter 167 -- the spent (l)/(t)/(v) bodies move VERBATIM to a new archive compaction; index drops below 52,000.
+- iter 168 -- new rescues verb splits 600s kills into RESCUED vs LOST per stage; stage-times saw 45 of 232.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03
