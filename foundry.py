@@ -16003,6 +16003,421 @@ def save_work_cli(cfg: ProductConfig) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------- #
+# RESCUE ACCOUNTING (`rescues`) -- how hard is WRITE-EARLY actually working?
+# Iteration 168.
+#
+# The ~600s agent-CLI per-stage kill is this product's #1 documented cause of lost
+# shifts, and the loop survives it ONLY because every role card orders the stage to
+# checkpoint its output file EARLY: `run_stage` returns success on `out_file.exists()
+# and st_size > 0`, whatever the child did afterwards, so a stage killed at 600s
+# whose file is already non-empty is RESCUED rather than lost. Nothing has ever
+# measured how often that rescue fires, and the framework is blind to it BY
+# CONSTRUCTION -- the iter-117 `dispatcher.out` parser records a killed-but-
+# checkpointed attempt as `produced=True, kind=""`, indistinguishable from one that
+# finished naturally at 598s. Measured on this checkout: #42 `stage-times` reports 45
+# failed attempts over the window in which the attempt LOGS on disk hold 232 hard
+# kills (223 rescued, 9 lost -- every one of the 9 an `engineer` attempt), a 5.2x
+# under-count of the exact failure mode that matters most.
+#
+# This block reads the OTHER evidence the framework already writes and has never once
+# read: `run_stage` saves every attempt's child output to
+# `iter-NN/<stage>.attemptN.log` (that filename's ONLY appearance in this module is
+# the WRITE site), and a kill leaves a ~48-byte stub carrying the agent CLI's own
+# `agent run timed out after` line. A rescue RATE is what prices the write-early rule
+# and makes the roadmap's open throughput items decidable instead of guessed; the
+# permanently-WARNing `STAGE_SOFT_BUDGET` breach (9 of 10 live `_platform` groups
+# exceed it) cannot supply that signal.
+#
+# Pure core + ONE read-only seam, DORMANT on the control path: `run_stage`,
+# `run_iteration`, `build_prompt` and `dispatcher.py` call NOTHING below, so a loop in
+# flight resumes byte-identically and no restart is owed. It REPORTS -- shrinking a
+# bite stays a human/PM decision and the cap is the agent CLI's to raise, not ours.
+# Deliberately NOT in scope: stall (`Connection stalled`) accounting, a `company-*`
+# fleet sibling, and any attempt to PREVENT a kill.
+
+# WHERE the attempt logs live under a product's state dir, and WHAT marks one as a
+# hard kill. Module-level and read INSIDE `gather_rescues` (never captured at def
+# time), so a `monkeypatch.setattr(foundry, ...)` on either reshapes the scan without
+# touching the code that reads them -- the kill signature is DATA, not a literal
+# buried in a branch, because the agent CLI's wording is not ours to control.
+ATTEMPT_LOG_GLOB = "iter-*/*.attempt*.log"
+ATTEMPT_KILL_TOKENS: tuple[str, ...] = ("agent run timed out after",)
+
+# The stage label names the ATTEMPT LOG; it does NOT always name the stage's OUTPUT
+# file. `run_stage(cfg, iteration, stage, role_file, out_name)` takes `out_name` as a
+# SEPARATE argument, and six call sites pass a name that is not `f"{stage}.md"` -- so
+# without this map `produced` is unconditionally False for every one of their attempts.
+# Iteration 168 measured that miscount before it shipped: a 100.0% rescue rate reported
+# as 0.0% for `fix-review` and `fix-tests`, and a product-wide `lost` inflated 14 vs 9.
+# Module-level and patchable like the two constants above, because it mirrors call
+# sites a future iteration may add to. `{iteration}` is substituted (`reporter` alone
+# needs it). Audited against every `run_stage` call site: all the others, including the
+# scout specs (`ScoutStageSpec(out_name=f"{name}.md")`) and the bench specs, pass the
+# default, so an absent key is the CORRECT answer for them rather than an oversight.
+STAGE_OUTPUT_NAMES: dict[str, str] = {
+    "fix-review": "fix_review.md",     # foundry.py:15332, 4375
+    "fix-tests": "fix_tests.md",       # foundry.py:15380, 4407
+    "tester-rerun": "tester2.md",      # foundry.py:15383, 4411
+    "tester-retry": "tester2.md",      # UNFINISHED_TEST_RETRY_STAGES -> 15369, 4396
+    "tester-retry2": "tester3.md",     # UNFINISHED_TEST_RETRY_STAGES -> 15369, 4396
+    "reporter": "reporter_done_{iteration:02d}.md",   # foundry.py:15441
+}
+
+# `<stage>.attempt<N>.log`, the exact shape `run_stage` writes. `stage` is greedy and
+# the tail is ANCHORED, so the split happens at the LAST `.attempt<digits>.log` and a
+# stage label containing a dot could still never be mis-split. A name of any other
+# shape is skipped by the caller rather than guessed at.
+_ATTEMPT_LOG_RE = re.compile(r"^(?P<stage>.+)\.attempt(?P<attempt>\d+)\.log$")
+
+
+@dataclasses.dataclass(frozen=True)
+class AttemptRecord:
+    """ONE stage attempt as read off its `iter-NN/<stage>.attemptN.log` file.
+
+    Frozen (value equality, hashable, no post-hoc mutation). `killed` is "the log
+    carries an `ATTEMPT_KILL_TOKENS` member", i.e. the agent CLI killed the child at
+    its own hard cap; `produced` is "this stage's OUTPUT file exists and is
+    non-empty", which is EXACTLY the condition `run_stage` calls success -- the name
+    comes from `STAGE_OUTPUT_NAMES` (default `<stage>.md`), because `run_stage` takes
+    `out_name` separately from the stage label and they differ for six stages. The two are independent:
+    their CROSS-PRODUCT is the whole point of this lens -- `killed and produced` is a
+    RESCUE, `killed and not produced` is LOST work. `iteration`/`attempt` are carried
+    for provenance (they name the file a human should open) and are deliberately NOT
+    grouped on: the operator question is which STAGE is dying, not which attempt did.
+    """
+    stage: str
+    iteration: int
+    attempt: int
+    killed: bool
+    produced: bool
+
+
+def _attempt_fields(record: object) -> tuple[str, bool, bool] | None:
+    """Read `(stage, killed, produced)` off ONE attempt record, or `None`.
+
+    Accepts BOTH shapes on purpose: the spec's plain
+    `(stage, iteration, attempt, killed, produced)` 5-sequence -- what a test injects,
+    so the pure summariser needs no fixture class -- and any object carrying those
+    attribute names, which is what `gather_rescues` builds (`AttemptRecord`). Returns
+    `None` for anything of neither shape so the summariser can SKIP it: the same
+    "a single malformed input is skipped, never fatal" contract as
+    `parse_stage_attempts`, because a report that raises on one bad row tells the
+    operator less than a report that omits it. Total -- never raises."""
+    if isinstance(record, (tuple, list)):
+        if len(record) < 5:
+            return None
+        return str(record[0]), bool(record[3]), bool(record[4])
+    stage = getattr(record, "stage", None)
+    if stage is None:
+        return None
+    return (str(stage), bool(getattr(record, "killed", False)),
+            bool(getattr(record, "produced", False)))
+
+
+def _rate_text(rate: float | None) -> str:
+    """Render a rescue rate for HUMANS: `94.0%`, or `n/a` when it is undefined.
+
+    ONE source of truth for the token, so a row line, the totals line and the
+    zero-kill case can never drift apart in `render()`."""
+    return "n/a" if rate is None else f"{rate}%"
+
+
+@dataclasses.dataclass(frozen=True)
+class RescueRow:
+    """One STAGE's kill / rescued / lost accounting (a `rescues` report row).
+
+    Frozen. `attempts` counts every attempt recorded for the stage, `kills` only those
+    the agent CLI killed, and `rescued` + `lost` SPLIT that same `kills` total by
+    whether the stage had already checkpointed its output file -- so
+    `kills == rescued + lost` holds by construction for every row, and the pair is
+    what tells "the write-early rule is carrying this stage" apart from "this stage is
+    silently losing shifts"."""
+    stage: str
+    attempts: int
+    kills: int
+    rescued: int
+    lost: int
+
+    @property
+    def rescue_rate(self) -> float | None:
+        """Percent of this stage's kills the write-early rule SAVED, 1 decimal place.
+
+        `None` -- not `0.0`, not `100.0` -- when the stage was never killed: a rate
+        over zero kills is undefined, and either number would be a WRONG meter (a
+        stage nothing has ever killed is not a stage whose rescues all failed, nor one
+        whose rescues all worked). `render()` prints `n/a` and `to_dict()` emits JSON
+        `null` for exactly this case."""
+        if self.kills == 0:
+            return None
+        return round(self.rescued / self.kills * 100, 1)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of one row (all values JSON-native).
+
+        The derived `rescue_rate` REUSES the frozen property -- `None` serialises to
+        JSON `null` -- so the payload can never disagree with what `render()` prints."""
+        return {
+            "stage": self.stage,
+            "attempts": self.attempts,
+            "kills": self.kills,
+            "rescued": self.rescued,
+            "lost": self.lost,
+            "rescue_rate": self.rescue_rate,
+        }
+
+
+@dataclasses.dataclass(frozen=True)
+class RescueSummary:
+    """A per-stage kill/rescued/lost digest for one product (the `rescues` core).
+
+    Frozen (value equality, no post-hoc mutation). `rows` is stored as a `tuple`
+    ordered NEWEST-PAIN-FIRST -- `kills` DESCENDING, ties broken by `stage` ascending
+    -- because the operator reads this to decide which stage to shrink next, and the
+    stage with the most kills is that decision; alphabetical order would bury it. The
+    product-wide totals are pure sums of the rows, so the header can never disagree
+    with the lines beneath it."""
+    product: str
+    rows: tuple[RescueRow, ...]
+
+    @property
+    def attempts(self) -> int:
+        """Every attempt scanned across all stages (0 iff nothing was scanned)."""
+        return sum(r.attempts for r in self.rows)
+
+    @property
+    def kills(self) -> int:
+        """Attempts the agent CLI killed at its own hard cap, across all stages."""
+        return sum(r.kills for r in self.rows)
+
+    @property
+    def rescued(self) -> int:
+        """Kills whose stage had already checkpointed a non-empty output file."""
+        return sum(r.rescued for r in self.rows)
+
+    @property
+    def lost(self) -> int:
+        """Kills that produced NOTHING -- the shifts this framework actually lost."""
+        return sum(r.lost for r in self.rows)
+
+    @property
+    def rescue_rate(self) -> float | None:
+        """Product-wide percent of kills the write-early rule saved, or `None`.
+
+        The headline number this whole verb exists to produce. `None` when there were
+        no kills at all, for the reason `RescueRow.rescue_rate` documents."""
+        if self.kills == 0:
+            return None
+        return round(self.rescued / self.kills * 100, 1)
+
+    @property
+    def exit_code(self) -> int:
+        """`2` nothing scanned / `1` >=1 LOST attempt / `0` nothing lost.
+
+        Mirrors the shipped `weak-tests` / `skipped-tests` contract: nothing-to-scan is
+        checked FIRST so an empty run is `2`, never a false `0`. A killed-but-RESCUED
+        attempt is deliberately NOT a failure -- it is the write-early rule working,
+        and gating on it would make a healthy loop look broken every shift; a LOST
+        attempt is work this framework destroyed, which is what a cron wrapper should
+        act on."""
+        if self.attempts == 0:
+            return 2
+        return 1 if self.lost > 0 else 0
+
+    @property
+    def verdict(self) -> str:
+        """The single human token for the current `exit_code` -- ONE source of truth
+        for `render()`'s last line so the text and the exit code never drift."""
+        return {0: "no lost attempts", 1: "LOST ATTEMPTS",
+                2: "no attempts"}[self.exit_code]
+
+    def render(self) -> str:
+        """A deterministic multi-line report carrying every gathered signal.
+
+        Contains, as substrings (the CLI's black-box contract): the literal
+        `foundry rescues -- <product>`; a totals line naming `attempts`, `kills`,
+        `rescued`, `lost` and the product-wide `rescue rate`; one
+        `  [<stage>] attempts N  kills N  rescued N  lost N  rate R%` line per row in
+        stored (kills-descending) order; and a final `verdict:` token matching
+        `exit_code` as the LAST non-empty line (detail-then-sentinel, so
+        "last non-empty line == sentinel" always holds). With NOTHING scanned the
+        report carries the literal `no attempts` instead of a totals line, rather than
+        raising or printing a misleading all-zero rollup."""
+        lines = [f"foundry rescues -- {self.product}"]
+        if not self.rows:
+            lines.append("  no attempts")
+        else:
+            lines.append(
+                f"  attempts {self.attempts}  kills {self.kills}  "
+                f"rescued {self.rescued}  lost {self.lost}  "
+                f"rescue rate {_rate_text(self.rescue_rate)}")
+            for row in self.rows:
+                lines.append(
+                    f"  [{row.stage}] attempts {row.attempts}  "
+                    f"kills {row.kills}  rescued {row.rescued}  "
+                    f"lost {row.lost}  rate {_rate_text(row.rescue_rate)}")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of the whole digest for machine consumers.
+
+        Returns the stored `product`, then the DERIVED
+        `attempts`/`kills`/`rescued`/`lost`/`rescue_rate`/`exit_code`/`verdict` each
+        REUSING the frozen properties (so the payload can never disagree with
+        `render()` or the returned exit code -- `to_dict` re-derives nothing), then
+        `rows` as a JSON array of each row's `to_dict()` in the SAME order as
+        `self.rows`. Every value is JSON-native (str / int / float / None / list of
+        dicts), so `json.dumps(...)` never raises and the dict round-trips through
+        `json.loads(json.dumps(...))` -- including when `rescue_rate` is `None`. Pure:
+        touches no filesystem, only the already-gathered rows."""
+        return {
+            "product": self.product,
+            "attempts": self.attempts,
+            "kills": self.kills,
+            "rescued": self.rescued,
+            "lost": self.lost,
+            "rescue_rate": self.rescue_rate,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+            "rows": [r.to_dict() for r in self.rows],
+        }
+
+
+def attempt_kill_summary(*, product: str,
+                         records: Iterable[object]) -> RescueSummary:
+    """PURE per-stage kill/rescued/lost summariser -- the `summarize_*` half.
+
+    Keyword-only (the fields can never be transposed) and TOTAL: it touches no
+    filesystem, subprocess, git, network or clock, accepts either plain
+    `(stage, iteration, attempt, killed, produced)` sequences or `AttemptRecord`s (see
+    `_attempt_fields`), SKIPS anything of neither shape, and never mutates the input --
+    it only reads each record, so a caller's tuple/list is returned untouched. Groups
+    by `stage`, splits each group's kills into `rescued` (`killed and produced`) and
+    `lost` (`killed and not produced`) so `kills == rescued + lost` holds per row, and
+    orders the rows `kills` DESCENDING then `stage` ascending. Kept separate from
+    `gather_rescues` so the tester can drive every branch with ZERO filesystem."""
+    tally: dict[str, list[int]] = {}
+    for record in records:
+        fields = _attempt_fields(record)
+        if fields is None:
+            continue
+        stage, killed, produced = fields
+        # [attempts, kills, rescued, lost] -- one bucket per stage, in one pass.
+        bucket = tally.setdefault(stage, [0, 0, 0, 0])
+        bucket[0] += 1
+        if killed:
+            bucket[1] += 1
+            bucket[2 if produced else 3] += 1
+    rows = [RescueRow(stage=stage, attempts=b[0], kills=b[1],
+                      rescued=b[2], lost=b[3])
+            for stage, b in tally.items()]
+    # Newest pain first: most kills wins, name breaks the tie deterministically.
+    rows.sort(key=lambda r: (-r.kills, r.stage))
+    return RescueSummary(product=product, rows=tuple(rows))
+
+
+def gather_rescues(cfg: ProductConfig,
+                   limit: int | None = None) -> RescueSummary:
+    """Gather one product's attempt-log kill accounting into a `RescueSummary`.
+
+    The FIRST reader of the attempt logs `run_stage` has been writing all along. Walks
+    `cfg.state` with the module-level `ATTEMPT_LOG_GLOB`, read at CALL time so a
+    `monkeypatch.setattr(foundry, ...)` bites, and for each matched file derives:
+      * `stage` / `attempt` from the filename via `_ATTEMPT_LOG_RE`, and `iteration`
+        from its parent dir via `iteration_numbers` (called by BARE name) -- a name of
+        any other shape is SKIPPED, never guessed at;
+      * `killed` -- the log text contains any `ATTEMPT_KILL_TOKENS` member (also read
+        at call time, so the kill signature stays patchable DATA). An unreadable or
+        UNDECODABLE log degrades to `killed=False` and is still counted as an attempt:
+        absence of evidence is not evidence of a kill, and dropping the row would
+        under-count the denominator the rate is computed against;
+      * `produced` -- this stage's OUTPUT file in the SAME iteration dir exists with
+        `st_size > 0`, byte-for-byte the condition `run_stage` calls success, so a
+        rescue here means exactly what a rescue meant to the loop. The name comes from
+        `STAGE_OUTPUT_NAMES` (default `<stage>.md`), NOT from the attempt log's own
+        stage label, which `run_stage` does not use to name its output.
+    A POSITIVE `limit` keeps only the newest `limit` iteration dirs under `cfg.state`
+    (the five ledger verbs' `--limit` semantics, derived through the same
+    `iteration_numbers` helper); `None` / non-positive scans them all. Hands the
+    records to the pure `attempt_kill_summary` and returns the frozen core. Read-only:
+    writes nothing, creates no directory, and a missing / unreadable `cfg.state`
+    yields an empty digest (`attempts == 0`, exit 2) rather than raising."""
+    state = cfg.state
+    try:
+        paths = sorted(state.glob(ATTEMPT_LOG_GLOB)) if state.exists() else []
+    except OSError:
+        # A read error on the state dir means "no attempts to report", never a crash
+        # -- the same no-news-is-good-news contract as the other read-only lenses.
+        paths = []
+    keep: set[int] | None = None
+    if isinstance(limit, int) and limit > 0:
+        try:
+            names = [p.name for p in state.iterdir()]
+        except OSError:
+            names = []
+        # `iteration_numbers` is ascending, so the most-recent N are the LAST N.
+        keep = set(iteration_numbers(names)[-limit:])
+    records: list[AttemptRecord] = []
+    for path in paths:
+        match = _ATTEMPT_LOG_RE.match(path.name)
+        if match is None:
+            continue
+        numbers = iteration_numbers([path.parent.name])
+        if not numbers:
+            continue
+        iteration = numbers[0]
+        if keep is not None and iteration not in keep:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except Exception:
+            # Missing / permission / decode error -> no kill evidence, still an
+            # attempt (see the docstring's `killed` bullet for why it is not dropped).
+            text = ""
+        stage = match.group("stage")
+        records.append(AttemptRecord(
+            stage=stage, iteration=iteration,
+            attempt=int(match.group("attempt")),
+            killed=any(token in text for token in ATTEMPT_KILL_TOKENS),
+            produced=_stage_output_present(path.parent, stage, iteration)))
+    return attempt_kill_summary(product=cfg.name, records=tuple(records))
+
+
+def _stage_output_present(it_dir: pathlib.Path, stage: str,
+                          iteration: int) -> bool:
+    """Did this stage's OUTPUT FILE in this iteration dir exist and hold bytes?
+
+    The rescue test, and it mirrors `run_stage`'s success test EXACTLY
+    (`out_file.exists() and out_file.stat().st_size > 0`) so "rescued" here means
+    precisely what it meant to the loop. The filename is resolved through
+    `STAGE_OUTPUT_NAMES` because `run_stage` takes `out_name` SEPARATELY from the stage
+    label: `f"{stage}.md"` is the DEFAULT, not the rule. A template is formatted only
+    when it CAME from that map, so an unusual stage label can never raise on a stray
+    brace. An unstattable path is `False`, never an exception."""
+    template = STAGE_OUTPUT_NAMES.get(stage)
+    name = template.format(iteration=iteration) if template else f"{stage}.md"
+    try:
+        return (it_dir / name).stat().st_size > 0
+    except OSError:
+        return False
+
+
+def rescues_cli(cfg: ProductConfig, limit: int | None = None,
+                as_json: bool = False) -> int:
+    """On-demand CLI: print the per-stage kill/rescued/lost digest + exit code.
+
+    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
+    indent=2)` document (the stable machine contract for dashboards/cron); the default
+    `as_json=False` is the human `render()` text. Either way the RETURN value is the
+    same `summary.exit_code` (0 nothing lost / 1 >=1 lost attempt / 2 nothing to
+    scan) and `--limit` selection is identical. Writes NOTHING to disk (read-only).
+    DORMANT -- no control path calls it; only `main()`'s argparse dispatch."""
+    # Seam resolved HERE, by BARE name at CALL time, so a monkeypatch bites;
+    # `_thin_gather_cli` owns the shared print/JSON/exit-code contract.
+    return _thin_gather_cli(gather_rescues, cfg, limit, as_json)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="agent-foundry product team runner")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -16436,6 +16851,24 @@ def main(argv: list[str] | None = None) -> int:
     tmg.add_argument("--json", action="store_true",
                      help="emit the digest as one JSON document (machine-readable) "
                           "instead of the human report; same 0/2 exit code, honours --limit")
+    # `rescues` prints a read-only, offline PER-STAGE accounting of agent-CLI hard
+    # kills -- attempts / kills / RESCUED (the stage had already checkpointed a
+    # non-empty output file, so `run_stage` returned success) / LOST / rescue rate --
+    # read from the `iter-NN/<stage>.attemptN.log` files `run_stage` writes and
+    # nothing has ever read. It prices the WRITE-EARLY rule that is the only reason
+    # the ~600s cap is survivable, a number #42 `stage-times` cannot supply (it
+    # records a killed-but-checkpointed attempt as produced, so it under-counts hard
+    # kills 5.2x). `--limit N` scans only the most-recent N iterations. On-demand
+    # only -- the pipeline/dispatcher NEVER call it; it writes nothing.
+    # Exit 0 (nothing lost) / 1 (>=1 LOST attempt) / 2 (nothing to scan).
+    rsc = sub.add_parser("rescues")
+    rsc.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    rsc.add_argument("--limit", type=int, default=None,
+                     help="scan only the most-recent N iterations (default: all)")
+    rsc.add_argument("--json", action="store_true",
+                     help="emit the accounting as one JSON document (machine-readable) "
+                          "instead of the human report; same 0/1/2 exit code, honours --limit")
     # `stage-times` prints a read-only, offline per-(team,stage) attempt-DURATION
     # digest parsed from the shared `dispatcher.out` -- count / median / max /
     # timeouts(no-output attempts) -- and WARNs on any (team,stage) whose MEDIAN
@@ -16940,6 +17373,8 @@ def main(argv: list[str] | None = None) -> int:
         return directions_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "timing":
         return timing_cli(cfg, limit=args.limit, as_json=args.json)
+    if args.cmd == "rescues":
+        return rescues_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "live-lag":
         return live_lag_cli(cfg, log_path=args.log)
     if args.cmd == "weak-tests":
