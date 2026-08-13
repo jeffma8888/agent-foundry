@@ -91,6 +91,14 @@ half is a doctor/CLI WARN threshold, never an edit to the log.
 (v) SHIPPED iter 163 -- `roles/engineer.md` + `roles/fix.md` (NOT `fix_review.md`, which does not exist) carry one
 runnable `save-work` checkpoint line, so the iter-162 rescue finally FIRES; the every-suite bare-CLI brake polices it.
 Card edits need no dispatcher restart, which was the whole point of (v) over (j). Detail in the archive.
+(w) NEW (iter 165 scouts; FULL evidence in `products/_platform/state/iter-165/` + 165's archive bullet -- do NOT
+re-measure). The company verdict hoist is item (q) and its OBVIOUS shape is KNOWN-RED: 164's scout B measured that
+extending `CompanyRollupCounts` REDs an iter-153 pin, so only `exit_code = property(fn)` in the 4 class bodies is
+green. NEW CANDIDATE, needs its OWN iteration: the 5 gate parsers write ONE anchored-sentinel rule 5 times, but a
+false `None` there reads as REVERTED, so it wants a wide malformed-input matrix. THREE DE-LISTINGS: (k) is 0.8% of
+an iteration (28.80s fresh-clone suite), so 2.74x buys ~18s -- it is NOT the throughput item; a digest share cap is
+NOT restart-free (the budget is code in the frozen `foundry.py`), fold into (u); one-scout-per-iteration is 23.8% of
+all agent time but sits behind (o).
 INDEX BUDGET (a scheduling item, never a competitive candidate): the binding wall is now ONE constant,
 `ROADMAP_INDEX_HARD_CHARS` (54,000) -- NOT the 60,000 `ROADMAP_SIZE_WARN_CHARS` -- and the two live tests that
 read this file derive it from that constant, so crossing it turns the suite RED and REVERTS the iteration for a
@@ -99,7 +107,7 @@ of the wall: ASK IT rather than measuring by hand. Growth is ~988 chars/iteratio
 change: measure `len(text)`, never `wc -c` (multibyte dashes read ~163 bytes high); NEVER delete an old
 `- iter N ` ledger row (`tests/test_iter122_behavior.py:179` pins a closed frozen set of 98 numbers, each
 needing exactly one row HERE); a move must DELETE the lines from this file, never copy them (iter 140's
-`## Item 16` brake). The only safe paydown is moving COMPLETED item prose and spent STATUS paragraphs verbatim.
+`## Item 16` brake). The only safe paydown is moving COMPLETED item prose and spent STATUS paragraphs verbatim. THAT PAYDOWN IS BLOCKED, measured iter 165: `test_iter158_behavior.py` behavior 8 pins iter 158's compaction section as the LAST `## ` heading of the ARCHIVE, so any later `## Compacted from the index by iter NN` turns the suite RED. A clean 4-block compaction ((f)/(l)/(t)/(v), named by `roadmap_spent_blocks`) was applied, verified, then REVERTED for that guard alone. Re-scope it (PRESENT, not LAST) in its own test-only iteration FIRST; do not dodge it with a `###` heading.
 
 | # | Increment | Why | Done when |
 |---|---|---|---|
@@ -265,6 +273,7 @@ in the archive.
 - iter 162 -- new `save-work` verb saves uncommitted work to a patch from a FRESH process; real git index untouched.
 - iter 163 -- roles/engineer.md + roles/fix.md run `save-work`, so the iter-162 rescue fires; 20 reverts, 0 rescues.
 - iter 164 -- doctor's 4th drift line prices the worst stage median vs the HARD 600s cap; engineer sat at 0.0s.
+- iter 165 -- eight per-product --json CLI printers collapse onto ONE _thin_gather_cli body; seams stay call-time.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03
