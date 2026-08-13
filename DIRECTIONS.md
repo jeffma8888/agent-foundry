@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-166
+    lenses: performance-and-throughput (iter 166), narrative-and-docs (iter 166)
+    - Candidate A1 -- suite headroom and slope, priced against the 120s wall before it is crossed
+    - Candidate A2 -- the four live-smoke fleet scans cost 22% of the suite and contribute nothing in a clone
+    - Candidate A3 -- re-price the parallel suite (roadmap item k), whose stated precondition has since shipped
+    - Candidate B1 -- close the README verb index with ONE derived rule; two shipped verbs are documented nowhere
+    - Candidate B2 -- the roadmap index is ~3 iterations from reverting an iteration for a docs-only reason, and its own growth figure is unreproducible
+    - Candidate B3 -- the committed decision log cannot say which scout won, and its own card is why
+    winner: B2
+    ship: unknown
   iter-165
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- eight per-product CLI printers collapse onto one shared thin-printer body
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the learnings digest is 88% of every stage prompt; budget it by SHARE
     - Candidate B3 -- the two scouts are 23.8% of all agent time for a slate that is 5/6 discarded
     winner: A1
-    ship: unknown
+    ship: PUSHED 349c77e
   iter-164
     lenses: integration-and-adoption (iter 164), simplification-and-deletion (iter 164)
     - Candidate A1 -- Close the README verb index with ONE derived rule (two shipped verbs are documented NOWHERE)
@@ -548,4 +558,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-62 scouted iterations
+63 scouted iterations
