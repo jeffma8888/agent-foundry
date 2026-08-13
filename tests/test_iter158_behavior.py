@@ -84,6 +84,86 @@ SURVIVING_MARKERS = (
 COMPACTION_HEADING = "## Compacted from the index by iter 158"
 
 
+# --------------------------------------------------------------------------
+# The archive's append-only PREFIX invariant -- RE-SCOPED by iteration 166
+# --------------------------------------------------------------------------
+# behavior 8 originally pinned iteration 158's compaction section as the LAST of
+# the archive's `## ` headings -- an encoding of "it was appended last" as "it is
+# last FOREVER". (The old expression is deliberately NOT quoted here: a literal
+# matcher looking for that shape under `tests/` must find zero hits, and a
+# comment carrying it would read as the pin surviving.)
+# That is only true until the next append, so it forbade every later
+# `## Compacted from the index by iter NNN` -- i.e. it forbade the ONLY
+# sanctioned paydown against the 54,000-char `ROADMAP_INDEX_HARD_CHARS` index
+# wall, and iteration 165 lost an applied, verified 4-block compaction to it.
+# The property iteration 158 actually wanted is "the append disturbed nothing
+# that came before it", which is a PREFIX freeze: the nine headings that existed
+# once iteration 158 landed stay frozen, in order, and position ten onwards is
+# free. A prefix freeze can never deadlock a later iteration, and it consults no
+# allowlist or per-iteration exemption, so it cannot go fail-open either.
+FROZEN_ARCHIVE_HEADING_PREFIX = (
+    "## Moved from the index by iter 139",
+    "## Detailed spec — item 11: post-release verification gate + revertable-commit contract",
+    "## Moved from the index by iter 140",
+    "## Item 16 — committed, portable pre-push leak-guard (HIGH: repo is public + auto-pushing)",
+    "## Moved from the index by iter 141",
+    "## RESOLVED 2026-08-04 -- dual-PM-scout bite 3b-ii WIRED (operator sign-off received)",
+    "## Compacted from the index by iter 142",
+    "## Compacted from the index by iter 145",
+    "## Compacted from the index by iter 158",
+)
+
+
+def archive_headings(archive_text: str) -> list[str]:
+    """Return an archive's `## ` heading lines, in file order.
+
+    Takes TEXT and never a path, so the identical rule that guards the real
+    tracked archive can be driven with synthetic fixtures -- offline, and with
+    no dependency on gitignored local state.
+    """
+    return [ln for ln in archive_text.splitlines() if ln.startswith("## ")]
+
+
+def frozen_prefix_violations(archive_text: str) -> list[str]:
+    """Name every breach of the append-only prefix freeze; an empty list is clean.
+
+    Messages rather than a bool, because a bare False cannot say WHICH of the
+    nine frozen positions moved -- and an insertion, a loss and a rewrite are
+    three different repairs.
+    """
+    headings = archive_headings(archive_text)
+    out: list[str] = []
+    if len(headings) < len(FROZEN_ARCHIVE_HEADING_PREFIX):
+        out.append(
+            "archive holds %d `## ` headings, fewer than the %d frozen ones"
+            % (len(headings), len(FROZEN_ARCHIVE_HEADING_PREFIX))
+        )
+    for pos, expected in enumerate(FROZEN_ARCHIVE_HEADING_PREFIX):
+        got = headings[pos] if pos < len(headings) else "<missing>"
+        if got != expected:
+            out.append("frozen heading %d: expected %r, got %r" % (pos + 1, expected, got))
+    return out
+
+
+def compaction_heading_count(archive_text: str) -> int:
+    """Count the archive HEADINGS that are iteration 158's compaction heading."""
+    return sum(1 for ln in archive_headings(archive_text) if ln == COMPACTION_HEADING)
+
+
+def archive_rule_violations(archive_text: str) -> list[str]:
+    """THE RULE: the frozen nine-heading prefix AND exactly one iter-158 compaction heading.
+
+    One callable so the real tracked archive and any synthetic fixture are
+    judged by the SAME code path; duplicating the rule per call site is how the
+    two drift apart.
+    """
+    out = frozen_prefix_violations(archive_text)
+    found = compaction_heading_count(archive_text)
+    if found != 1:
+        out.append("expected exactly 1 %r heading, found %d" % (COMPACTION_HEADING, found))
+    return out
+
+
 def _index_text() -> str:
     return ROADMAP.read_text(encoding="utf-8")
 
@@ -348,12 +428,21 @@ def test_behavior7_no_item_letter_was_renumbered_or_dropped():
 
 def test_behavior8_archive_gains_exactly_one_compaction_section_and_one_bullet():
     archive = _archive_text()
-    assert archive.count(COMPACTION_HEADING) == 1, (
-        "expected exactly one %r heading, got %d" % (COMPACTION_HEADING, archive.count(COMPACTION_HEADING))
-    )
-    headings = [ln for ln in archive.splitlines() if ln.startswith("## ")]
-    assert headings[-1] == COMPACTION_HEADING, (
-        "the compaction section must be APPENDED last, but the last heading is %r" % headings[-1]
+    # HEADING-scoped, not substring-scoped (re-scoped iter 166). The archive is
+    # VERBATIM history, so a later per-iteration bullet may legitimately QUOTE
+    # this heading string inside its prose -- iteration 166's own record does,
+    # while describing the pin it replaced. A raw `archive.count(...)` reads that
+    # truthful quotation as a second section and reds the suite; counting `## `
+    # HEADINGS is what "exactly one compaction section" has always meant.
+    found = compaction_heading_count(archive)
+    assert found == 1, "expected exactly one %r HEADING, got %d" % (COMPACTION_HEADING, found)
+    # RE-SCOPED iter 166: an append-only PREFIX freeze, never a LAST-heading pin.
+    # The old form forbade every future compaction, i.e. the only sanctioned
+    # paydown against the index's hard char wall; this form still rejects an
+    # insertion, a loss or a duplication among the nine historical headings.
+    violations = archive_rule_violations(archive)
+    assert violations == [], (
+        "the archive's frozen nine-heading history was disturbed: %r" % (violations,)
     )
     bullets = [ln for ln in archive.splitlines() if ln.startswith("- **iter 158 ")]
     assert len(bullets) == 1, "expected exactly one iter-158 archive bullet, got %d" % len(bullets)
@@ -394,6 +483,34 @@ def test_behavior8_the_append_did_not_disturb_the_archives_existing_structure():
         "tests/test_iter140_behavior.py pins exactly one `## Item 16` heading in the archive, got %d"
         % len(item16)
     )
+
+
+def test_helper_the_rescoped_rule_is_two_sided_on_synthetic_archives():
+    """Engineer-owned unit test for the re-scoped rule (behaviour tests are the
+    tester's): it must ACCEPT a later append -- otherwise it deadlocks the index
+    paydown, which is the entire point of the re-scope -- and REJECT tampering
+    with the nine frozen headings, otherwise it is fail-open and guards nothing.
+    """
+    clean = "".join(
+        "%s\nbody line %d\n\n" % (h, i) for i, h in enumerate(FROZEN_ARCHIVE_HEADING_PREFIX)
+    )
+    assert archive_rule_violations(clean) == [], "the rule rejects an untampered prefix"
+
+    appended = clean + "## Compacted from the index by iter 999\nbody\n"
+    assert archive_rule_violations(appended) == [], (
+        "the rule must not forbid a LATER heading -- that is the deadlock being repaired"
+    )
+
+    inserted = clean.replace(
+        COMPACTION_HEADING, "## Inserted mid-history\nbody\n\n" + COMPACTION_HEADING, 1
+    )
+    assert archive_rule_violations(inserted) != [], "the rule missed an INSERTED heading"
+
+    dropped = clean.replace(COMPACTION_HEADING + "\n", "", 1)
+    assert archive_rule_violations(dropped) != [], "the rule missed a LOST frozen heading"
+
+    duped = appended + COMPACTION_HEADING + "\n"
+    assert archive_rule_violations(duped) != [], "the rule missed a DUPLICATED compaction heading"
 
 
 # --------------------------------------------------------------------------

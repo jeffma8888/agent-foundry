@@ -64,7 +64,7 @@ bite 2 and (k). TEST-OWNED and the highest blast radius on this list (it re-scop
 over the running loop's control path), with `tests/test_control_path_freeze_scope.py` pinning a guard-count
 FLOOR of 26 plus `FORBIDDEN = ("README.md", "roles/")`, so it wants its OWN iteration and must NOT be bundled
 with a feature.
-(p) NEW (iter 143 scout A); RE-MEASURED iter 164 -- now the TOP next bite: 48 CLI verbs, TWO absent from
+(p) NEW (iter 143 scout A); RE-MEASURED 164 -- TOP bite after 167's paydown: 48 CLI verbs, TWO absent from
 `README.md`'s `# N.` index -- `new-product` (137) and `preship` (156), the latter already a BLOCKING gate in
 `roles/final.md`. Count grew 46->48 and the gap 1->2 while this item waited: that drift IS the case for ONE derived
 rule over iter 117's hand-written pair. Anchor on a `foundry.py <verb>` invocation under a `# N.` heading -- NOT the
@@ -103,11 +103,17 @@ INDEX BUDGET (a scheduling item, never a competitive candidate): the binding wal
 `ROADMAP_INDEX_HARD_CHARS` (54,000) -- NOT the 60,000 `ROADMAP_SIZE_WARN_CHARS` -- and the two live tests that
 read this file derive it from that constant, so crossing it turns the suite RED and REVERTS the iteration for a
 docs-only reason. Since iter 145 `foundry doctor` prints a `roadmap-index:` line that WARNs within 3,000 chars
-of the wall: ASK IT rather than measuring by hand. Growth is ~988 chars/iteration. Three rules that do not
-change: measure `len(text)`, never `wc -c` (multibyte dashes read ~163 bytes high); NEVER delete an old
-`- iter N ` ledger row (`tests/test_iter122_behavior.py:179` pins a closed frozen set of 98 numbers, each
-needing exactly one row HERE); a move must DELETE the lines from this file, never copy them (iter 140's
-`## Item 16` brake). The only safe paydown is moving COMPLETED item prose and spent STATUS paragraphs verbatim. THAT PAYDOWN IS BLOCKED, measured iter 165: `test_iter158_behavior.py` behavior 8 pins iter 158's compaction section as the LAST `## ` heading of the ARCHIVE, so any later `## Compacted from the index by iter NN` turns the suite RED. A clean 4-block compaction ((f)/(l)/(t)/(v), named by `roadmap_spent_blocks`) was applied, verified, then REVERTED for that guard alone. Re-scope it (PRESENT, not LAST) in its own test-only iteration FIRST; do not dodge it with a `###` heading.
+of the wall: ASK IT rather than measuring by hand. GROWTH, re-derived iter 166 with window+method (the figure
+it replaces reproduced under none): the mean of the six per-ship deltas over iterations 159-165, paydowns excluded, is +594/iteration; worst ship seen is 165's +1,434, leaving 222 of
+today's 1,656 headroom. Three rules that do not change: measure `len(text)`, never `wc -c`
+(multibyte dashes read ~163 bytes high); NEVER delete an old `- iter N ` ledger row
+(`tests/test_iter122_behavior.py:179` pins 98 frozen numbers, each needing exactly one row HERE)
+or a frozen `- **iter N ` archive bullet; a move must DELETE the lines from this file, never copy them (iter
+140's `## Item 16` brake). The only safe paydown is moving COMPLETED item prose and spent STATUS paragraphs
+verbatim, and iter 166 UNBLOCKED it: behavior 8's `headings[-1]` pin is now an append-only PREFIX freeze, so a
+NEW `## Compacted from the index by iter NNN` archive heading is legal. NEXT PAYDOWN, pre-declared for iter 167:
+the 4-block (f)/(l)/(t)/(v) compaction `roadmap_spent_blocks` names, verified at 165, reverted for that guard
+alone.
 
 | # | Increment | Why | Done when |
 |---|---|---|---|
@@ -274,6 +280,7 @@ in the archive.
 - iter 163 -- roles/engineer.md + roles/fix.md run `save-work`, so the iter-162 rescue fires; 20 reverts, 0 rescues.
 - iter 164 -- doctor's 4th drift line prices the worst stage median vs the HARD 600s cap; engineer sat at 0.0s.
 - iter 165 -- eight per-product --json CLI printers collapse onto ONE _thin_gather_cli body; seams stay call-time.
+- iter 166 -- iter-158's last-heading archive pin becomes an append-only PREFIX freeze; index paydown unblocked.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03
