@@ -280,6 +280,7 @@ in the archive.
 - iter 167 -- the spent (l)/(t)/(v) bodies move VERBATIM to a new archive compaction; index drops below 52,000.
 - iter 168 -- new rescues verb splits 600s kills into RESCUED vs LOST per stage; stage-times saw 45 of 232.
 - iter 169 -- iter-167's three frozen index-size pins gain a derived per-row allowance; the brake had 8 chars left.
+- iter 170 -- weak-test scans scope to the repo's own tests/ dir; 195 of 345 gathered files were gitignored state.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03

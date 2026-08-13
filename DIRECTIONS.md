@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-170
+    lenses: integration-and-adoption (iter 170), simplification-and-deletion
+    - Candidate A1 -- fold the dormant `roadmap_spent_blocks` into `doctor`'s `roadmap-index:` line
+    - Candidate A2 -- name the foundry checkout in every stage prompt's `## Context` block
+    - Candidate A3 -- make `test-quality` trustworthy enough for a role card to consume
+    - Candidate B1 -- one arity-explicit sentinel helper replaces the rule written 5 times in the gate parsers
+    - Candidate B2 -- collapse the x4 identical `exit_code` bodies onto one shared function (roadmap item (q)'s next bite)
+    - Candidate B3 -- the 9 company verbs' identical flag declarations collapse onto two helpers, proven by byte-exact `--help`
+    winner: A3
+    ship: unknown
   iter-169
     lenses: hardening/DX -- iteration 169, integration-and-adoption -- iteration 169
     - Candidate A1 -- `foundry ship-landed`: ask the SERVER whether the ship commit is public, so an ambiguous push is never read as a gate failure
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry doctor --json`, and put the framework's own health verb into the documented health-check recipe
     - Candidate B3 -- the reporter seat has never run in the dispatcher era; give the re-grounding report a producer that is not the frozen dispatcher
     winner: B1
-    ship: unknown
+    ship: PUSHED b7febf2
   iter-168
     lenses: new-capability, hardening/DX
     - Candidate A1 (primary) -- `foundry salvage`: the rescue patches nothing has ever read, now growing one per iteration
@@ -588,4 +598,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-66 scouted iterations
+67 scouted iterations
