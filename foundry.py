@@ -47,6 +47,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import warnings
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
 
@@ -731,22 +732,24 @@ def doctor_ok(checks: list[Check]) -> bool:
 
 
 def run_doctor_cli(cfg: ProductConfig) -> int:
-    """CLI entry: print one line per check, THREE drift lines, and a summary.
+    """CLI entry: print one line per check, FOUR drift lines, and a summary.
 
     Exit code is 0 iff all four checks pass -- UNCHANGED by ANY drift line (the
     live-lag line, iter 130; the steering-head line, iter 136; the roadmap-index
-    line, iter 145). None of the three is an environment fault: a stale brain is a
-    restart the operator owes, an over-budget steering head is an edit the operator
-    owes, and a roadmap index near its hard wall is an ARCHIVE the operator owes --
-    so all three WARN where they will be seen (this is the surface run before every
-    launch) without ever blocking a run. `run_doctor` itself stays a 4-`Check`
-    function, since its shape is pinned by the iter-01 tests, which is exactly why
-    these three diagnostics live HERE and not as fifth, sixth and seventh checks.
+    line, iter 145; the stage-budget line, iter 164). None of the four is an
+    environment fault: a stale brain is a restart the operator owes, an
+    over-budget steering head is an edit the operator owes, a roadmap index near
+    its hard wall is an ARCHIVE the operator owes, and a stage median at the hard
+    per-stage cap is a SMALLER BITE the PM owes -- so all four WARN where they
+    will be seen (this is the surface run before every launch) without ever
+    blocking a run. `run_doctor` itself stays a 4-`Check` function, since its
+    shape is pinned by the iter-01 tests, which is exactly why these four
+    diagnostics live HERE and not as fifth through eighth checks.
     """
     checks = run_doctor(cfg)
     for c in checks:
         print(f"[{'PASS' if c.ok else 'FAIL'}] {c.name}: {c.detail}")
-    # Both prints are double-guarded on top of each line helper's own never-raise
+    # Every drift print is double-guarded on top of each line helper's own never-raise
     # contract, for the same reason `run_doctor` double-guards its probes: a
     # diagnostic must never be able to crash the preflight it decorates.
     try:
@@ -762,6 +765,11 @@ def run_doctor_cli(cfg: ProductConfig) -> int:
         print(roadmap_index_line(cfg))
     except Exception as exc:  # pragma: no cover - contract-impossible belt
         print(f"{ROADMAP_INDEX_PREFIX} UNKNOWN -- roadmap-index line errored: "
+              f"{exc!r}")
+    try:
+        print(stage_budget_line(cfg))
+    except Exception as exc:  # pragma: no cover - contract-impossible belt
+        print(f"{STAGE_BUDGET_PREFIX} UNKNOWN -- stage-budget line errored: "
               f"{exc!r}")
     ok = doctor_ok(checks)
     passed = sum(1 for c in checks if c.ok)
@@ -12133,6 +12141,217 @@ def stage_times_cli(log_path, *, budget: int | None = None,
     summary = gather_stage_times(log_path, budget=budget, team=team)
     print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
     return summary.exit_code
+
+
+# --------------------------------------------------------------------------- #
+# HEADROOM TO THE HARD CAP: doctor's FOURTH drift line -- iter 164.
+#
+# The operator directive pinned in the learnings head calls the ~600s agent-CLI
+# per-stage kill "the #1 cause of lost shifts, and the foundry is BLIND to it".
+# It is no longer blind -- #42 `stage-times` computes exactly this number -- but
+# that verb is 42nd of 48, no role card names it and the pipeline never calls it,
+# so it runs only when a human happens to remember it exists. This block moves
+# the decision-grade margin onto `doctor`, the surface an operator already runs
+# before every launch: the same "a dormant lens reaches its consumer" move that
+# iters 130, 136 and 145 each shipped, and it needs no control-path call site.
+#
+# WHY HEADROOM TO THE HARD CAP AND NOT THE SOFT-BUDGET BREACH `stage-times`
+# WARNs on: measured on this checkout's live `dispatcher.out`, 9 of 10
+# `_platform` groups already exceed the 420s `STAGE_SOFT_BUDGET`, so porting that
+# threshold here would guarantee a permanent WARN beside three usually-quiet
+# lines -- and a preflight line that ALWAYS fires teaches the operator to skip
+# the preflight, which costs more than the line ever paid. `STAGE_NEAR_CAP_MARGIN
+# = 60` flags exactly 2 of those same 10 groups (engineer at a 600.0s median with
+# 0.0s of headroom and 11 timeouts in 86 attempts; pm at 597.0s, 3.0s of headroom
+# -- 2.0s when the PM stage measured it minutes earlier), which is the decidable
+# signal the head's own diagnosis rule asks for: a stage whose median sits AT the
+# cap was chronically broken and only ever passed by luck.
+#
+# A second READER of the iter-117 parser, never a change to it: `stage-times`,
+# `summarize_stage_times` and `STAGE_SOFT_BUDGET` are untouched, and this line
+# ignores each group's `over_budget` flag entirely. Pure core + ONE seam, DORMANT
+# on the control path -- `run_iteration` / `run_stage` / `build_prompt` /
+# `dispatcher.py` name nothing below -- so a loop in flight resumes
+# byte-identically and no restart is owed. Parsing the whole 335KB live log
+# measures at 0.02s, so the preflight pays no meaningful latency. It REPORTS; a
+# human or a PM shrinks the bite.
+# --------------------------------------------------------------------------- #
+STAGE_HARD_CAP_SECONDS = 600      # the agent CLI's OWN hard per-stage kill
+STAGE_NEAR_CAP_MARGIN = 60        # WARN this close to the wall (basis above)
+STAGE_BUDGET_PREFIX = "stage-budget:"   # stable grep anchor for the one line
+STAGE_BUDGET_WARN = "WARN"        # ONLY the near-wall branch carries it
+
+
+def _stage_budget_int(value: object) -> int:
+    """Coerce a duck-typed group field to an int, defaulting to 0.
+
+    WHY: `stage_budget_verdict` is documented as accepting ANY object exposing a
+    `groups` iterable of rows with `stage`/`median_s`/`timeouts`/`count` -- the
+    seam is monkeypatchable, so the rows a test (or a future caller) hands it may
+    be hand-built stubs rather than real `StageTimesGroup`s. A verdict that raises
+    on an odd field would defeat the never-raise contract of the line above it,
+    and a missing count is not worth an exception when the number it decorates
+    (the median) is present.
+    """
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+
+
+@dataclasses.dataclass(frozen=True)
+class StageBudgetVerdict:
+    """How close is the WORST stage of one team to the hard per-stage kill?
+
+    Frozen for the same reason as `RoadmapIndexBudget` / `StageTimesGroup`: a
+    computed verdict must not be mutable after the fact, and value-equality comes
+    free.
+
+    * `worst_stage` / `worst_median` -- the group with the LARGEST `median_s`,
+      ties broken deterministically by ASCENDING stage name so the same log always
+      names the same stage. Both are `None` when there are no groups.
+    * `headroom` -- `hard_cap - worst_median`; `None` with no groups, and negative
+      for a median already past the wall (which the live log can produce, since a
+      killed attempt is logged at its full duration).
+    * `worst_timeouts` / `worst_count` -- that same worst group's no-output attempt
+      count and total attempt count, carried so the line can price the median
+      against how often the stage actually produced nothing (0 with no groups).
+    * `near_wall_count` / `group_count` -- how many of the team's groups sit within
+      `margin` of the cap, out of how many exist. The COUNT rather than a bool
+      because "2 of 10" and "10 of 10" demand different responses.
+    * `hard_cap` / `margin` -- the two module globals as they stood AT CALL TIME,
+      STORED rather than re-derived, so a caller can see WHICH budget a given
+      verdict was judged against instead of re-reading a global that may since
+      have changed (the `RoadmapIndexBudget` convention).
+
+    `has_data` and `near_wall` are derived PROPERTIES, not fields, so they can
+    never disagree with the counts they summarise.
+    """
+    worst_stage: str | None
+    worst_median: float | None
+    headroom: float | None
+    worst_timeouts: int
+    worst_count: int
+    near_wall_count: int
+    group_count: int
+    hard_cap: int
+    margin: int
+
+    @property
+    def has_data(self) -> bool:
+        """True iff at least one group was measured (else the line says UNKNOWN)."""
+        return self.group_count > 0
+
+    @property
+    def near_wall(self) -> bool:
+        """True iff any group is within `margin` of `hard_cap` -- the WARN condition."""
+        return self.near_wall_count > 0
+
+
+def stage_budget_verdict(summary: object) -> StageBudgetVerdict:
+    """Price a `StageTimesSummary`'s groups against the hard cap (pure, total).
+
+    Reads `STAGE_HARD_CAP_SECONDS` and `STAGE_NEAR_CAP_MARGIN` from their module
+    globals INSIDE the body (never captured at import or as default arguments), so
+    a `monkeypatch.setattr(foundry, "STAGE_NEAR_CAP_MARGIN", X)` changes a
+    subsequent call's verdict with no re-import.
+
+    Touches no filesystem, subprocess, network or clock. TOTAL: an empty (or
+    absent) `groups` yields the no-data verdict -- `worst_stage`/`worst_median`/
+    `headroom` all `None`, both counts 0, `has_data` False -- rather than raising,
+    because "I cannot tell" must reach the operator as a sentence, not a traceback.
+    """
+    hard_cap = STAGE_HARD_CAP_SECONDS
+    margin = STAGE_NEAR_CAP_MARGIN
+    rows: list[tuple[float, str, int, int]] = []
+    for g in (getattr(summary, "groups", ()) or ()):
+        try:
+            median = float(getattr(g, "median_s", 0) or 0)
+        except (TypeError, ValueError):
+            median = 0.0
+        rows.append((median,
+                     str(getattr(g, "stage", "") or ""),
+                     _stage_budget_int(getattr(g, "timeouts", 0)),
+                     _stage_budget_int(getattr(g, "count", 0))))
+    if not rows:
+        return StageBudgetVerdict(
+            worst_stage=None, worst_median=None, headroom=None,
+            worst_timeouts=0, worst_count=0, near_wall_count=0,
+            group_count=0, hard_cap=hard_cap, margin=margin)
+    # Largest median first; ascending stage name breaks a tie deterministically.
+    median, stage, timeouts, count = sorted(rows, key=lambda r: (-r[0], r[1]))[0]
+    return StageBudgetVerdict(
+        worst_stage=stage, worst_median=median, headroom=hard_cap - median,
+        worst_timeouts=timeouts, worst_count=count,
+        near_wall_count=sum(1 for m, *_ in rows if hard_cap - m <= margin),
+        group_count=len(rows), hard_cap=hard_cap, margin=margin)
+
+
+def stage_budget_line(cfg: "ProductConfig",
+                      log_path: "str | pathlib.Path | None" = None) -> str:
+    """ONE human line: how close is this product's worst stage to the 600s kill?
+
+    Shaped exactly like `live_lag_line`, `learnings_head_line` and
+    `roadmap_index_line` because it answers the same class of question (a drift the
+    operator owes an action on, never an environment fault), and composes
+    `gather_stage_times` by its BARE module name so a
+    `monkeypatch.setattr(foundry, "gather_stage_times", ...)` controls it fully
+    with zero real log. Filtered to `cfg.name`, because the fleet-worst group is
+    not this product's worst group -- quoting the fleet number would name the
+    wrong stage (measured this iteration: the fleet led with `pm`, `_platform`'s
+    own worst is `engineer`).
+
+    Three OUTCOMES, deliberately distinct because they demand different actions:
+      * UNKNOWN -- no parsable attempt for this team (missing / unreadable /
+        undecodable log, or a log holding no group for `cfg.name`). Claims nothing
+        about the budget and carries NO `STAGE_BUDGET_WARN`, because "I cannot
+        tell" is not evidence of a problem. Every unexpected internal failure
+        degrades to this branch.
+      * OK -- the worst median is further than `margin` from the cap.
+      * WARN -- at least one group is inside the margin. Names the count, the
+        worst stage's median, headroom, timeouts and attempts, and the remedy,
+        which is to SHRINK the bite (or split the stage) -- never to raise the
+        cap, which is the agent CLI's and not ours to raise.
+
+    ALWAYS returns a non-empty SINGLE-line `str` (no embedded newline), never
+    `None`, and NEVER raises: a diagnostic that can crash the preflight it
+    decorates is worse than no diagnostic. Writes NOTHING to disk.
+    """
+    try:
+        log = (pathlib.Path(log_path) if log_path
+               else (FOUNDRY / "dispatcher.out"))
+        team = str(getattr(cfg, "name", "") or "")
+        try:
+            # The shared `parse_stage_attempts` emits a strptime
+            # DeprecationWarning on this log's year-less stamps. Suppressed
+            # LOCALLY so a preflight run stays quiet without editing a parser
+            # four other readers share.
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", DeprecationWarning)
+                summary = gather_stage_times(log, team=team)
+        except Exception:
+            summary = None       # unreadable / raising seam -> UNKNOWN, not WARN
+        v = stage_budget_verdict(summary) if summary is not None else None
+        if v is None or not v.has_data:
+            return (f"{STAGE_BUDGET_PREFIX} UNKNOWN -- no parsable stage attempts "
+                    f"for team {team!r} in {log.name}; cannot price any stage "
+                    f"against the {STAGE_HARD_CAP_SECONDS}s hard per-stage cap")
+        if v.near_wall:
+            return (f"{STAGE_BUDGET_PREFIX} {STAGE_BUDGET_WARN} -- "
+                    f"{v.near_wall_count}/{v.group_count} stage(s) within "
+                    f"{v.margin}s of the {v.hard_cap}s hard cap; worst is "
+                    f"{v.worst_stage} at a {v.worst_median:.1f}s median "
+                    f"({v.headroom:.1f}s headroom, {v.worst_timeouts} no-output "
+                    f"attempt(s) in {v.worst_count}) -- shrink the bite or split "
+                    f"the stage; a median AT the cap only ever passed by luck")
+        return (f"{STAGE_BUDGET_PREFIX} OK -- worst stage {v.worst_stage} at a "
+                f"{v.worst_median:.1f}s median, {v.headroom:.1f}s clear of the "
+                f"{v.hard_cap}s hard cap (0/{v.group_count} within {v.margin}s)")
+    except Exception as exc:
+        # Whitespace-collapsed so an exception message with a newline in it cannot
+        # break the one-line contract this line's readers rely on.
+        return (f"{STAGE_BUDGET_PREFIX} UNKNOWN -- stage-budget report "
+                f"unavailable ({' '.join(repr(exc).split())})")
 
 
 # --------------------------------------------------------------------------- #
