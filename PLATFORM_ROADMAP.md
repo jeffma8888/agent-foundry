@@ -64,13 +64,18 @@ bite 2 and (k). TEST-OWNED and the highest blast radius on this list (it re-scop
 over the running loop's control path), with `tests/test_control_path_freeze_scope.py` pinning a guard-count
 FLOOR of 26 plus `FORBIDDEN = ("README.md", "roles/")`, so it wants its OWN iteration and must NOT be bundled
 with a feature.
-(p) NEW (iter 143 scout A, candidate C): 46 CLI verbs, exactly one -- `new-product` (iter 137) -- absent from
-`README.md`'s `# N.` index. Replace iteration 117's hand-written per-verb assertion with ONE derived rule;
-it MUST anchor on the `# N.` entry shape, else common words (`run`, `once`) pass it. Evidence in 143's bullet.
+(p) NEW (iter 143 scout A); RE-MEASURED iter 164 -- now the TOP next bite: 48 CLI verbs, TWO absent from
+`README.md`'s `# N.` index -- `new-product` (137) and `preship` (156), the latter already a BLOCKING gate in
+`roles/final.md`. Count grew 46->48 and the gap 1->2 while this item waited: that drift IS the case for ONE derived
+rule over iter 117's hand-written pair. Anchor on a `foundry.py <verb>` invocation under a `# N.` heading -- NOT the
+heading text (real shape `# N. <prose>:`, so a heading matcher scores 0 of 47), NOT bare name-presence (`run`, `once`
+pass). Exemptions: #3 invokes `dispatcher.py`; `prompt` appears twice in its one entry #45. Detail: 164's bullet.
 (q) NEW (iter 153, successor to A1): 235 more redundant declared lines remain in the 9 `Company*` roll-up classes,
 but each group covers a SUBSET (`exit_code` x4/x3, `to_dict` x3, `verdict` x5/x3, `n_flagged` x4, `files_scanned` x4,
 `total_findings` x4, `total_parse_errors` x3, `total` x3) and each is the roll-up's decision/serialisation contract --
-so ONE group per iteration behind golden-output comparison, never a blanket collapse.
+so ONE group per iteration behind golden-output comparison, never a blanket collapse. NEXT BITE, PROTOTYPED iter 164 scout B: `exit_code` x4 (57
+redundant lines); a 2nd mixin AND extending `CompanyRollupCounts` each RED an iter-153 pin, so assign one module-level
+fn as `exit_code = property(fn)` in the 4 class bodies -- MRO stays 3, fget identity holds, zero prior tests edited.
 (r) NEW (iter 154), a DE-LISTING: the 4 `live_smoke_on_real_dispatch_config` tests (23.02 s) snapshot `tmp_path`, NOT a real tree -- so iter 154's git-visible-snapshot fix does NOT apply to them and scout A's extrapolation to a ~35 s suite is void; their cost is per-verb AST scanning (iter 153 measured it). Do not re-propose it.
 (s) NEW (iter 155, the hotfix's deferred CLASS fix): iter 154 shipped green and turned post-release BROKEN because
 a test asserted the ambient `products/` tree holds >6000 files -- true in this working tree, false in the fresh
@@ -259,6 +264,7 @@ in the archive.
 - iter 160 -- both docs price all THREE retry ladders, rendered by calling retry_delay; whole-line presence guard.
 - iter 162 -- new `save-work` verb saves uncommitted work to a patch from a FRESH process; real git index untouched.
 - iter 163 -- roles/engineer.md + roles/fix.md run `save-work`, so the iter-162 rescue fires; 20 reverts, 0 rescues.
+- iter 164 -- doctor's 4th drift line prices the worst stage median vs the HARD 600s cap; engineer sat at 0.0s.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03

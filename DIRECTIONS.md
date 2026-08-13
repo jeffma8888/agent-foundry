@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-164
+    lenses: integration-and-adoption (iter 164), simplification-and-deletion (iter 164)
+    - Candidate A1 -- Close the README verb index with ONE derived rule (two shipped verbs are documented NOWHERE)
+    - Candidate A2 -- A role card runs the composite test-quality scan on THIS iteration's own new test file
+    - Candidate A3 -- Doctor gains a stage-budget headroom line, so the #1 cause of lost shifts reaches the preflight
+    - Candidate B1 -- Retire the `exit_code` x4 hand-copy via a shared property, WITHOUT touching the MRO (roadmap item (q), next bite)
+    - Candidate B2 -- One `tests/_shared.py` retires 38 hand-copied `_snapshot_tree` definitions
+    - Candidate B3 -- Retire the `FAST_RETRY_KINDS` special case into the general `KIND_RETRY_LADDERS` rule
+    winner: A3
+    ship: unknown
   iter-163
     lenses: hardening/DX -- iteration 163, integration-and-adoption (iteration 163)
     - Candidate A1 (primary) -- a near-wall WARN band for the pinned steering head, mirroring the shipped roadmap-index shape
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the adopter's status on-ramp points at a file no mode ever writes; re-route it to the shipped `status` verb and brake the class
     - Candidate B3 -- a TRACKED, repo-agnostic launcher that gates on `single-brain` (fail-CLOSED), so a fresh clone can start the loop safely
     winner: B1
-    ship: unknown
+    ship: PUSHED fb3e1d1
   iter-162
     lenses: new-capability, hardening/DX
     - Candidate A1 (primary) -- `foundry save-work`: an abort rescue that runs in a fresh process, so live-lag cannot mute it
@@ -528,4 +538,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-60 scouted iterations
+61 scouted iterations

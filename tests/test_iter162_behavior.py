@@ -864,7 +864,10 @@ def test_b9_readme_index_is_contiguous_and_46_names_save_work():
     assert nums, "no numbered command index found in README.md"
     assert len(nums) == len(set(nums)), "duplicate index numbers: %s" % nums
     assert sorted(nums) == list(range(0, max(nums) + 1)), "index has gaps: %s" % nums
-    assert max(nums) == 46, "expected the index to end at 46, got %d" % max(nums)
+    # RELAXED iter 164: a `== max` pin forbids the README growth the ship gate
+    # mandates for every new documented surface (iter 164 added `# 47.`). The
+    # intent -- contiguous, no duplicates, and 46 still names save-work -- holds.
+    assert max(nums) >= 46, "index no longer reaches 46, got %d" % max(nums)
 
     entry = [ln for ln in text.splitlines() if ln.startswith("# 46.")]
     assert len(entry) == 1, entry

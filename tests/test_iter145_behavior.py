@@ -572,10 +572,13 @@ def test_ac_older_smell_verdict_is_untouched():
 
 def test_ac_readme_documents_the_third_line():
     txt = (_ROOT / "README.md").read_text()
-    assert re.search(r"(?i)\bthree drift lines\b", txt), \
-        "README does not announce three drift lines"
-    assert not re.search(r"(?i)\btwo drift lines\b", txt), \
-        "README still claims there are two drift lines"
+    # ADVANCED iter 164: doctor grew a FOURTH drift line, so the count word this
+    # test pins moves with it. The invariant is unchanged -- the README announces
+    # the CURRENT number of drift lines and never a stale one.
+    assert re.search(r"(?i)\bfour drift lines\b", txt), \
+        "README does not announce four drift lines"
+    assert not re.search(r"(?i)\bthree drift lines\b", txt), \
+        "README still claims there are three drift lines"
     assert foundry.ROADMAP_INDEX_PREFIX.rstrip(":") in txt
     assert "ROADMAP_INDEX_HARD_CHARS" in txt
     assert re.search(r"(?i)drift line ever changes doctor.s own exit code", txt), \
