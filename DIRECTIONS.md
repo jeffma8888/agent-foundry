@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-167
+    lenses: narrative-and-docs, new-capability
+    - Candidate A -- the pinned steering head broadcasts a claim this repo falsified 48 iterations ago
+    - Candidate B -- retire two false dormancy claims inside ProductConfig, gated by a claim-vs-reader scan
+    - Candidate C -- close the README command index against the shipped verb extractor
+    - Candidate B1 -- `foundry salvage`: an inventory of the rescue patches nothing has ever read
+    - Candidate B2 -- `foundry sentinels`: read the control plane instead of trusting a claim about it
+    - Candidate B3 -- `foundry plan`: price the next iteration before spending the shift on it
+    winner: B1
+    ship: unknown
   iter-166
     lenses: performance-and-throughput (iter 166), narrative-and-docs (iter 166)
     - Candidate A1 -- suite headroom and slope, priced against the 120s wall before it is crossed
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the roadmap index is ~3 iterations from reverting an iteration for a docs-only reason, and its own growth figure is unreproducible
     - Candidate B3 -- the committed decision log cannot say which scout won, and its own card is why
     winner: B2
-    ship: unknown
+    ship: PUSHED 44c80b1
   iter-165
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- eight per-product CLI printers collapse onto one shared thin-printer body
@@ -558,4 +568,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-63 scouted iterations
+64 scouted iterations
