@@ -10623,6 +10623,174 @@ def bare_foundry_cli_findings(text: str, verbs: Iterable[str]) -> list[str]:
     return findings
 
 
+# --------------------------------------------------------------------------
+# iter 169 -- the README command index as a DERIVED contract over the CLI verbs
+# --------------------------------------------------------------------------
+
+# An index entry opens with a `# N.` heading line and its body runs to the next
+# such line. Anchored with `[ \t]+` rather than `\s+` so a heading can never be
+# matched across a newline.
+_README_INDEX_HEADING_RE = re.compile(r"^#[ \t]+(\d+)\.", re.M)
+
+# An INVOCATION is `foundry.py <verb>` on ONE line. The verb class deliberately
+# excludes a leading `-`, so `foundry.py --help` matches NOTHING instead of
+# reporting `--help` as an unknown verb: a flag is not a name, and the error
+# direction that merely hides a section is far safer than one that turns the live
+# brake RED on ordinary prose.
+_README_INVOCATION_RE = re.compile(r"foundry\.py[ \t]+([A-Za-z0-9][A-Za-z0-9_-]*)")
+
+# The DERIVED exemption: a section whose subject is the OTHER entry point
+# legitimately invokes no verb. Read from the section's own TEXT, never an
+# allowlist of section numbers -- a number allowlist goes stale the moment the
+# index is renumbered and would then exempt whatever moved into that slot.
+README_INDEX_OTHER_ENTRY_POINT = "dispatcher.py"
+
+
+@dataclasses.dataclass(frozen=True)
+class ReadmeVerbIndexAudit:
+    """The verdict of auditing README index TEXT against the live CLI verb set.
+
+    Frozen because an audit is a RECORD of one comparison: freezing forbids
+    editing the verdict after the fact and gives value equality for free, so two
+    `readme_verb_index_gaps` calls on equal inputs compare ``==``, which is what
+    makes the purity claim testable. Mirrors `WriteEarlyCardAudit` and
+    `LensDocAudit`, the same shape this repo already uses to hold a code
+    constant and a document in agreement.
+
+    Fields:
+      * `missing_verbs` -- SORTED verbs no section invokes, i.e. the CLI accepts
+        them and no user-facing entry tells anyone they exist.
+      * `sections_without_invocation` -- section numbers, in DOCUMENT order, that
+        invoke no verb and are not exempt. Document order (not sorted) because
+        these are positions a reader walks past, and `"10"` sorts before `"3"`.
+      * `unknown_invocations` -- SORTED names invoked as `foundry.py <name>` that
+        the CLI does not accept, i.e. an example that would fail if pasted.
+      * `sections_scanned` -- how many `# N.` headings were seen. This is the
+        NON-VACUITY floor: a matcher that silently stopped matching reports 0
+        here while every other field looks perfect, so a brake must assert it.
+      * `ok` -- a STORED field (not a property) so assigning to it raises
+        `dataclasses.FrozenInstanceError` like every other field. True iff the
+        three finding tuples are all empty; `sections_scanned` is deliberately
+        NOT part of it, because "how many sections exist" is the caller's floor
+        to choose, not a defect.
+    """
+
+    missing_verbs: tuple[str, ...]
+    sections_without_invocation: tuple[str, ...]
+    unknown_invocations: tuple[str, ...]
+    sections_scanned: int
+    ok: bool
+
+    def render(self) -> str:
+        """A multi-line human-readable rendering of this audit. Never raises.
+
+        Separate from the audit itself so the pure verdict stays comparable and
+        the wording can change without touching a single assertion about the
+        DATA -- the same split the sibling audits use. Always returns a
+        non-empty string: an all-clear when `ok`, otherwise one titled block per
+        non-empty finding category, so a failure message names WHAT is wrong and
+        WHICH members, never just a count.
+        """
+        head = "readme verb index: %d section(s) scanned" % (self.sections_scanned,)
+        if self.ok:
+            return head + "\nOK: every CLI verb has an index entry, every entry invokes a real verb."
+        lines = [head]
+        for title, members in (
+            ("verbs with NO index entry", self.missing_verbs),
+            ("sections invoking no verb (and not about %s)" % (README_INDEX_OTHER_ENTRY_POINT,),
+             self.sections_without_invocation),
+            ("invocations naming a verb the CLI does not accept", self.unknown_invocations),
+        ):
+            if members:
+                lines.append("%s (%d): %s" % (title, len(members), ", ".join(members)))
+        return "\n".join(lines)
+
+
+def readme_verb_index_gaps(readme_text: str, verbs: Iterable[str]) -> ReadmeVerbIndexAudit:
+    """Audit README index TEXT for two-way agreement with the CLI's verb set.
+
+    Takes the README TEXT and a verb set, never paths, so it is PURE and TOTAL:
+    no filesystem, subprocess, network or clock access, no mutation of its
+    arguments, and equal inputs give ``==`` results. Reading `README.md` and
+    `foundry.py` off disk is deliberately the CALLER's job -- that is what lets a
+    test drive every branch from in-memory strings while the live brake points
+    the same function at the real two files.
+
+    WHY THIS EXISTS, and why it is a derived rule rather than another pair of
+    hand-written asserts: today each new verb needs someone to remember to
+    hardcode its index entry into a test (iteration 117 pins `# 42.` and
+    `stage-times` by hand), so a verb ships documented only if a human
+    remembers. Twice nobody did -- `new-product` and, worse, `preship`, a
+    BLOCKING pre-push gate `roles/final.md` runs on every ship, which appeared
+    in NO user-facing document at all. One rule derived from the verb set
+    replaces that per-verb ritual permanently and cannot be forgotten.
+
+    The three findings are deliberately asymmetric, because the two directions
+    fail differently:
+      * FORWARD (`missing_verbs`) -- a verb the CLI accepts that no section
+        invokes. This is documentation DEBT: the feature exists and is
+        undiscoverable.
+      * REVERSE (`sections_without_invocation`) -- a section that invokes no verb
+        at all, EXEMPT when its body names `README_INDEX_OTHER_ENTRY_POINT`,
+        because a section about the dispatcher legitimately runs no verb. The
+        exemption is DERIVED from the section's own text rather than an
+        allowlist of numbers, so it survives renumbering and cannot silently
+        cover a different section later.
+      * WRONG (`unknown_invocations`) -- a name invoked as `foundry.py <name>`
+        that is not a verb, i.e. an example that would fail if pasted. Sorted,
+        and de-duplicated, so the finding is about NAMES, not occurrences.
+
+    Totality details, each chosen so a mis-derived input yields an assertable
+    record instead of a traceback: a non-`str` or empty `readme_text` yields
+    `sections_scanned == 0` with every supplied verb reported missing (an
+    unreadable README is maximal debt, never a vacuous pass); a `verbs` argument
+    that is not iterable is treated as EMPTY; non-`str` members of `verbs` are
+    ignored.
+
+    DORMANT: zero call site in the running pipeline -- no orchestrator,
+    dispatcher, stage, CLI verb or config field references it -- so resume
+    semantics for an in-flight loop are byte-identical. The live brake lives in
+    the test suite, exactly like `foundry_cli_verbs` and
+    `bare_foundry_cli_findings`.
+    """
+    try:
+        known = {verb for verb in verbs if isinstance(verb, str) and verb}
+    except TypeError:
+        known = set()
+
+    if not isinstance(readme_text, str) or not readme_text:
+        missing = tuple(sorted(known))
+        return ReadmeVerbIndexAudit(
+            missing_verbs=missing,
+            sections_without_invocation=(),
+            unknown_invocations=(),
+            sections_scanned=0,
+            ok=not missing,
+        )
+
+    headings = list(_README_INDEX_HEADING_RE.finditer(readme_text))
+    invoked: set[str] = set()
+    silent: list[str] = []
+    for index, heading in enumerate(headings):
+        end = headings[index + 1].start() if index + 1 < len(headings) else len(readme_text)
+        # The body INCLUDES its own heading line: in this README the entry's
+        # whole description lives on that line, so excluding it would drop
+        # exactly the prose a reader reads.
+        body = readme_text[heading.start():end]
+        names = set(_README_INVOCATION_RE.findall(body))
+        invoked |= names
+        if not names and README_INDEX_OTHER_ENTRY_POINT not in body:
+            silent.append(heading.group(1))
+
+    return ReadmeVerbIndexAudit(
+        missing_verbs=tuple(sorted(known - invoked)),
+        sections_without_invocation=tuple(silent),
+        unknown_invocations=tuple(sorted(invoked - known)),
+        sections_scanned=len(headings),
+        ok=not (known - invoked) and not silent and not (invoked - known),
+    )
+
+
 @dataclasses.dataclass(frozen=True)
 class IterationOutcome:
     """One iteration's INTERNAL gate outcome (the `outcomes` ledger row).

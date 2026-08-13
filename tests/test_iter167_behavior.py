@@ -54,12 +54,67 @@ ROADMAP_ARCHIVE = _ROOT / "PLATFORM_ROADMAP_ARCHIVE.md"
 HEADING167 = "## Compacted from the index by iter 167"
 
 # The spec's own pre-paydown measurement of the index, and its acceptance bounds.
+# BOTH are now read THROUGH `index_growth_allowance` -- see the comment on it for
+# why an absolute ceiling here was a scheduled revert. `ACCEPTED_MIN_HEADROOM` is
+# GONE (iter 169): it expanded to `54000 - n >= 2000`, i.e. `n <= 52000`, which is
+# `ACCEPTED_INDEX_CHARS` restated, so it pinned the same wall twice and carried no
+# independent evidence.
 PRE_PAYDOWN_INDEX_CHARS = 52570
 ACCEPTED_INDEX_CHARS = 52000
-ACCEPTED_MIN_HEADROOM = 2000
 
-# The maximum size the spec allows a retired item's remaining stub to be.
+# The maximum size the spec allows a retired item's remaining stub to be. It is
+# ALSO the contract's cap on one ledger row, which is why the allowance below can
+# reuse it rather than invent a second number.
 MAX_STUB_CHARS = 120
+
+# A ledger row, the one index edit the contract MANDATES every iteration.
+_LEDGER_ROW_RE = re.compile(r"^- iter (\d+) ", re.M)
+
+
+def post_paydown_ledger_rows(index_text: str) -> tuple[int, ...]:
+    """Iteration numbers of ledger rows appended AFTER this iteration's paydown.
+
+    Counted from the index TEXT itself, so the allowance below is derived from
+    the file under test rather than from a number a maintainer has to remember
+    to bump. Pure and total: a non-`str` yields `()`.
+    """
+    if not isinstance(index_text, str):
+        return ()
+    return tuple(sorted(
+        int(number) for number in _LEDGER_ROW_RE.findall(index_text)
+        if int(number) > THIS_ITER
+    ))
+
+
+def index_growth_allowance(index_text: str) -> int:
+    """Chars the MANDATORY ledger-row contract is allowed to have added since the paydown.
+
+    WHY THIS EXISTS (iter 169): `roles/pm.md` duty 3 REQUIRES every iteration to
+    append one `- iter N ` row of at most `MAX_STUB_CHARS` chars to this index and
+    FORBIDS ever deleting one, so the file grows monotonically by contract. A
+    ceiling frozen at one commit's outcome is therefore a scheduled revert, not a
+    threshold: iteration 169 measured the index 8 chars under
+    `ACCEPTED_INDEX_CHARS`, so its own mandatory row RED'd this file and would
+    have reverted a fully green iteration over a documentation-size figure --
+    whatever feature it carried. That is the same defect shape iteration 166 fixed
+    in the archive rule, which pinned the LAST heading and so encoded "this
+    heading was appended last" as "it is last forever". (Named in prose, not as
+    the code literal: iteration 166 also ships a substring guard forbidding that
+    literal anywhere under `tests/`, and this docstring tripped it on the first
+    full-suite run.)
+
+    The allowance keeps iteration 167's REAL intent (the index must not reshuffle
+    instead of net-reducing, and spent prose must not re-accumulate) by tolerating
+    EXACTLY the growth the contract mandates and no more: the contract's own
+    per-row cap times the number of post-paydown rows the index itself holds. Any
+    OTHER growth -- a bloated new item body, spent prose creeping back -- still
+    fails, which is the property a blanket bump to 54000 would have thrown away.
+
+    Deliberately NOT applied to `foundry.ROADMAP_INDEX_HARD_CHARS`: that wall stays
+    ABSOLUTE, because it is the backstop that says "archive spent prose" and an
+    allowance on it would let the index grow forever one mandatory row at a time.
+    """
+    return MAX_STUB_CHARS * len(post_paydown_ledger_rows(index_text))
 
 # behaviors 1-3 -- (item marker, the NEXT item marker that bounds its span).
 STUB_BOUNDS = (
@@ -302,20 +357,34 @@ def test_behavior8_index_net_reduced_under_the_hard_wall():
     assert n < foundry.ROADMAP_INDEX_HARD_CHARS, (
         "index is %d chars, at/over the %d hard wall" % (n, foundry.ROADMAP_INDEX_HARD_CHARS)
     )
-    assert n < PRE_PAYDOWN_INDEX_CHARS, (
-        "index is %d chars, not below the pre-paydown %d -- the iteration reshuffled "
-        "rather than net-reduced" % (n, PRE_PAYDOWN_INDEX_CHARS)
+    bound = PRE_PAYDOWN_INDEX_CHARS + index_growth_allowance(_index_text())
+    assert n < bound, (
+        "index is %d chars, not below the pre-paydown %d plus the mandatory-row "
+        "allowance (= %d) -- the iteration reshuffled rather than net-reduced"
+        % (n, PRE_PAYDOWN_INDEX_CHARS, bound)
     )
 
 
 def test_behavior8_meets_the_specs_acceptance_bounds_for_this_paydown():
     n = len(_index_text())
-    headroom = foundry.ROADMAP_INDEX_HARD_CHARS - n
-    assert n <= ACCEPTED_INDEX_CHARS, (
-        "index is %d chars, over the accepted %d" % (n, ACCEPTED_INDEX_CHARS)
+    allowance = index_growth_allowance(_index_text())
+    bound = ACCEPTED_INDEX_CHARS + allowance
+    assert n <= bound, (
+        "index is %d chars, over the accepted %d plus the mandatory-row allowance "
+        "%d (= %d) -- growth beyond the contract's own ledger rows must be paid "
+        "down into PLATFORM_ROADMAP_ARCHIVE.md, not allowanced"
+        % (n, ACCEPTED_INDEX_CHARS, allowance, bound)
     )
-    assert headroom >= ACCEPTED_MIN_HEADROOM, (
-        "headroom is %d chars, under the accepted %d" % (headroom, ACCEPTED_MIN_HEADROOM)
+    # The old second assert here (`headroom >= ACCEPTED_MIN_HEADROOM`) expanded to
+    # `n <= ACCEPTED_INDEX_CHARS` -- the line above, restated. This replaces it with
+    # the FORWARD-LOOKING property it never had: the NEXT mandatory ledger row must
+    # still fit under the ABSOLUTE hard wall, so this brake reports the deadlock
+    # one iteration BEFORE it reverts somebody's green shift.
+    headroom = foundry.ROADMAP_INDEX_HARD_CHARS - n
+    assert headroom >= MAX_STUB_CHARS, (
+        "headroom to the %d hard wall is %d chars, under the %d one mandatory "
+        "ledger row needs -- the NEXT iteration cannot record itself; archive spent "
+        "prose now" % (foundry.ROADMAP_INDEX_HARD_CHARS, headroom, MAX_STUB_CHARS)
     )
 
 

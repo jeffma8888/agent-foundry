@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-169
+    lenses: hardening/DX -- iteration 169, integration-and-adoption -- iteration 169
+    - Candidate A1 -- `foundry ship-landed`: ask the SERVER whether the ship commit is public, so an ambiguous push is never read as a gate failure
+    - Candidate A2 -- the steering-head budget gets a NEAR-WALL band: warn at 122 chars of headroom, not after the operator directives are already gone
+    - Candidate A3 -- catch the missing per-iteration oracle at the earliest repairable stage (roadmap item (c))
+    - Candidate B1 -- make the README verb index a DERIVED contract, and land the two entries it is missing (roadmap item (p))
+    - Candidate B2 -- `foundry doctor --json`, and put the framework's own health verb into the documented health-check recipe
+    - Candidate B3 -- the reporter seat has never run in the dispatcher era; give the re-grounding report a producer that is not the frozen dispatcher
+    winner: B1
+    ship: unknown
   iter-168
     lenses: new-capability, hardening/DX
     - Candidate A1 (primary) -- `foundry salvage`: the rescue patches nothing has ever read, now growing one per iteration
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the head row of the decision log can never say whether it shipped, and it says "unknown" rather than "pending"
     - Candidate B3 -- give the final gate a verb that writes the ship token, so a placeholder cannot be typed
     winner: A2
-    ship: unknown
+    ship: PUSHED be7d6eb
   iter-167
     lenses: narrative-and-docs, new-capability
     - Candidate A -- the pinned steering head broadcasts a claim this repo falsified 48 iterations ago
@@ -578,4 +588,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-65 scouted iterations
+66 scouted iterations
