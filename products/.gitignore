@@ -10,3 +10,17 @@
 # The iter-141 liveness flag: raised when shipped iterations are inert in the
 # running brain, auto-cleared once it is restarted. Per-run state, never source.
 */RESTART_NEEDED.md
+
+# The 5th team's wiring, written by the OPERATOR outside the loop. It was untracked AND unignored,
+# which armed BOTH of the loop's git bulk verbs against it:
+#   * the ship gate's `git add -A` would commit a foreign team's config into an unrelated release
+#     diff (a release commit must contain only this iteration's work);
+#   * the revert path's `git clean -fd` DELETED it -- twice: iteration 173's gate caught it and
+#     restored it from the operator's backup, and it was missing again when 174 opened.
+# One entry closes both, because `git clean -fd` WITHOUT `-x` spares ignored paths, and an ignored
+# path is never staged by `add -A`. Named as exactly ONE literal path, deliberately NOT a wildcard
+# over every team's config file: products/_platform/config.json and products/repolens/config.json
+# are TRACKED SOURCE, and a wildcard would advertise them as runtime state to every future reader.
+# `dispatcher.py` swallows a config load failure BY DESIGN and reads the roster at STARTUP ONLY, so
+# losing this file has no loud symptom -- team 5 just silently never takes a shift.
+agent-gap-radar/config.json
