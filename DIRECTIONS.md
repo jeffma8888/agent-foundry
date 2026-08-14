@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-176
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- `foundry adoption`: a derived verb-consumption ledger
+    - Candidate B1 -- make `foundry agents` stop silently planting a file in the release diff
+    - Candidate C1 -- give the PM's size self-check the measured stage budget, via a role-card line
+    - Candidate A1 -- collapse the three `gather_*` test-scanners onto one parametrised gatherer
+    - Candidate B1 -- one anchored-sentinel parser instead of four hand-maintained ones
+    - Candidate C1 -- retire the frozen-literal allowlist that gates the README-index brake
+    winner: C1
+    ship: unknown
   iter-175
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- One shared README-index rule in foundry.py, plus a tests/-WIDE guard whose domain is not one file
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- write the one missing file that four shipped consumers are all waiting on (`prd.json`)
     - Candidate B3 -- `--json` on `doctor`, closing the machine-readable contract where it matters
     winner: A1
-    ship: unknown
+    ship: PUSHED dff23fc
   iter-174
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `foundry roster`: one verb that says whether every configured team can actually load
@@ -717,4 +727,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-72 scouted iterations
+73 scouted iterations
