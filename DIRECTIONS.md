@@ -1,6 +1,46 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-174
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- `foundry roster`: one verb that says whether every configured team can actually load
+    - Candidate A2 -- `foundry delisted`: surface the "do not re-propose" record the scouts cannot see
+    - Candidate A3 -- `foundry ignore-source`: is a path ignored PORTABLY, or only on this machine?
+    - Candidate B1 -- a genuinely RED retry report must re-enter the fix-tests repair pair, not fall through to the release gate
+    - Candidate B2 -- the revert path must name the FOREIGN untracked paths `git clean -fd` is about to delete
+    - Candidate B3 -- fail fast on the stale-IPC attempt signature instead of burning the whole retry ladder
+    winner: B3
+    ship: unknown
+  iter-173
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- VISION claims "five invariants"; ARCHITECTURE documents six
+    - Candidate A2 -- the rescue-recovery runbook exists nowhere a future reader looks
+    - Candidate A3 -- `DIRECTIONS.md` prints `ship: unknown` where it knows something narrower
+    - Candidate B1 (primary) -- `foundry losses`: name WHY work was lost, not just how often
+    - Candidate B2 -- `foundry iteration --iter NN`: one command for "what happened in that iteration"
+    - Candidate B3 -- `company-rescues`: the fleet sibling the iter-168 docstring already deferred
+    winner: B1
+    ship: REVERTED
+  iter-172
+    lenses: performance-and-throughput (iteration 172), narrative-and-docs (iteration 172)
+    - Candidate A1 -- per-stage CAP-PINNED RATE, because the shipped median gauge is saturated
+    - Candidate A2 -- (see refined file)
+    - Candidate A3 -- (see refined file)
+    - Candidate B1 -- the artifact catalog has no entry for the biggest artifact the foundry has built
+    - Candidate B2 -- the committed decision log says "unknown" about ships the repo can prove
+    - Candidate B3 -- three code comments still name the fixed scout lens pair the rotation retired
+    winner: A1
+    ship: unknown
+  iter-171
+    lenses: simplification-and-deletion, performance-and-throughput (iteration 171)
+    - Candidate A1 -- collapse the five gate sentinel parsers onto one anchored-last-line rule
+    - Candidate A2 -- roadmap item (q) next bite: hoist the x4 identical scanner `exit_code`
+    - Candidate A3 -- one order-preserving `to_dict` template for the 7 roll-ups whose key order matches
+    - Candidate B1 (primary) -- Price the stale-brain lag in reclaimable hours, from the log the loop already writes
+    - Candidate B2 -- Re-measure post-last-write dead time PER STAGE, because the de-listing that killed it may be narrower than written
+    - Candidate B3 -- Charge the tester's 120 s-stall retries to the suite, not to the ladder
+    winner: B1
+    ship: unknown
   iter-170
     lenses: integration-and-adoption (iter 170), simplification-and-deletion
     - Candidate A1 -- fold the dormant `roadmap_spent_blocks` into `doctor`'s `roadmap-index:` line
@@ -10,7 +50,7 @@ foundry directions -- _platform
     - Candidate B2 -- collapse the x4 identical `exit_code` bodies onto one shared function (roadmap item (q)'s next bite)
     - Candidate B3 -- the 9 company verbs' identical flag declarations collapse onto two helpers, proven by byte-exact `--help`
     winner: A3
-    ship: unknown
+    ship: PUSHED a9a982e
   iter-169
     lenses: hardening/DX -- iteration 169, integration-and-adoption -- iteration 169
     - Candidate A1 -- `foundry ship-landed`: ask the SERVER whether the ship commit is public, so an ambiguous push is never read as a gate failure
@@ -123,6 +163,12 @@ foundry directions -- _platform
     ship: PUSHED fa6483e
   iter-158
     lenses: integration-and-adoption, simplification-and-deletion
+    - A1 -- `live-lag` is the only high-value verb whose report exists ONLY as prose: give it `--json` over a frozen record
+    - A2 -- `new-product` births a product with a live story meter (the `prd.json` consumer chain has been starved since iter 12)
+    - A3 -- wire the dormant config lint into `preflight`, the launch surface an operator already runs
+    - B1 -- Retire the roadmap index's superseded blocks: it sits 2,902 chars from a live suite wall
+    - B2 -- One sentinel grammar is implemented four times: collapse the verdict parsers
+    - B3 -- Three false-green scan gatherers differ only in the detector: parameterise one
     winner: B1
     ship: PUSHED 66bb1f8
   iter-157
@@ -157,10 +203,19 @@ foundry directions -- _platform
     ship: PUSHED c82e5c9
   iter-154
     lenses: performance-and-throughput (iteration 154), narrative-and-docs
+    - A1 -- Make the tree-snapshot test bounded: 6574-file double walk, 3rd slowest test, and flaky by design
+    - B1 -- Parallel suite for the build stages only, on a fresh 2.63x measurement (roadmap item (k))
+    - C1 -- Shrink the payload every attempt pays: the pinned head is 92.5% full and part of it is spent
+    - A1 -- ARCHITECTURE.md and CONTINUOUS.md price ONE retry ladder; the code ships THREE, and the documented one fires for 17% of real retries
+    - B1 -- 46 CLI verbs, 46 numbered README entries, and `new-product` appears NOWHERE in the README
+    - C1 -- the budget that actually kills stages is documented in 8 agent prompts and 0 human-facing docs
     winner: A1
     ship: PUSHED 18d28ee
   iter-153
     lenses: simplification-and-deletion, performance-and-throughput (iteration 153)
+    - A1 -- one counts mixin retires 27 hand-copied properties across the 9 company roll-up classes
+    - B1 -- state the dispatch-order rule once, delete the 20 restatements accreted inside main()
+    - C1 -- the eight single-product report printers collapse onto one shared printer
     - Candidate B1 -- collapse the 5 near-duplicate live-smoke tests onto one cached fixture
     - Candidate B2 -- a measured suite wall-time budget with a doctor line
     - Candidate B3 -- TBD (refining)
@@ -208,6 +263,9 @@ foundry directions -- _platform
     ship: PUSHED d47275a
   iter-148
     lenses: performance-and-throughput, narrative-and-docs -- iteration 148
+    - A1 -- stage-times reports a failure-KIND ledger and prices the retry sleep
+    - A2 -- a slope-triggered suite-growth advisory, not a fixed 120 s wall
+    - A3 -- bound the digest share of the stage prompt
     - Candidate B1 -- two design docs price a retry ladder that misdescribes 130 of 151 real retries
     - Candidate B2 -- the ~600s agent-CLI cap, the constraint that shaped all 8 role cards, is explained in no design doc
     - Candidate B3 -- the prompt-inlined quality_bar names two invariants ARCHITECTURE.md does not have
@@ -315,10 +373,19 @@ foundry directions -- _platform
     ship: PUSHED ff0aa10
   iter-137
     lenses: narrative-and-docs, new-capability
+    - A1 -- Docs price the retry ladder at one ladder; 83.6% of real failures now draw a different one
+    - B1 -- The quality bar inlined into every stage prompt names two invariants ARCHITECTURE.md has never defined
+    - C1 -- The public artifacts catalog credits the foundry with 1 product; it has shipped 4, one of them to completion
+    - B1 -- `foundry pin`: delivery-verified operator steering, because a hand-written pin can silently delete the entire steering channel
+    - B2 -- `foundry new-product`: the VISION's headline promise has no command, and the documented recipe fails with exit 1
+    - B3 -- `foundry retire`: the sentinel control plane is invisible to git and to the health probe
     winner: B2
     ship: PUSHED f2e5239
   iter-136
     lenses: performance-and-throughput (iteration 136), narrative-and-docs
+    - A1 -- Activate-on-lag: make the live brain execute the retry pricing it already shipped
+    - A2 -- Run the two independent PM scouts concurrently instead of back-to-back
+    - A3 -- Cut the suite from 46.6 s to 17.0 s so the silent-command stall cannot reach 120 s
     - Candidate B1 -- Retire the spent operator directives; both artifacts still say the discovery loop was never built
     - Candidate B2 -- The invariants doc still prices a retry ladder the code stopped using two iterations ago
     - Candidate B3 -- The PM role card mandates a command that cannot run
@@ -326,6 +393,12 @@ foundry directions -- _platform
     ship: PUSHED 1c4568a
   iter-135
     lenses: simplification-and-deletion (iteration 135), performance-and-throughput
+    - A1 -- Collapse the Company{WeakTests,ConstantAsserts,SkippedTests} triplet onto one shared frozen base
+    - A2 -- Replace the duplicated argparse flag boilerplate in main() with three shared arg-adders
+    - A3 -- Roadmap item (i), narrowed to the six same-signature company_*_cli bodies
+    - B1 -- Make the quality-check command parallel: 46.84s -> 16.76s per verify
+    - B2 -- Put the `stalled` failure kind on the fast retry ladder: 3.8h of fleet-wide sleep -> 0.4h
+    - B3 -- Give the inlined learnings digest a TOTAL character budget, not two stacked ones
     winner: B2
     ship: PUSHED 9dc9849
   iter-134
@@ -333,10 +406,19 @@ foundry directions -- _platform
     - Candidate A1 -- `lint-config` reports a typo'd config key as a FINDING (exit 1), not as "cannot read config" (exit 2)
     - Candidate A2 -- name the runnable foundry CLI in every stage prompt, so 40 shipped verbs stop being unreachable
     - Candidate A3 -- the committed decision log records WHICH candidate won (and refuses to invent one)
+    - B1 -- collapse the nine near-identical `company_*` roll-up CLI bodies into one shared seam
+    - B2 -- consolidate the 26 every-suite control-path freeze guards into one
+    - B3 -- retire the completed discovery-loop directive to a short, accurate stub
     winner: A1
     ship: PUSHED d4b1599
   iter-133
     lenses: hardening/DX, integration-and-adoption
+    - A1 -- Finish the decision log's WINNER half: marker precedence, and drop the cross-validation nobody needs
+    - A2 -- Two of the six live scout lenses are defined; the other scout in THIS iteration is running an undefined one
+    - A3 -- Name the auth failure kind: the loop currently retries, and then re-enters, a wall only a human can move
+    - B1 -- The push contract with an adopted repo is prompt-only: verify it against the real remote before the shift
+    - B2 -- The house rules never reach the adopted repo: wire the AGENTS.md refresh (roadmap item 3, bite 2)
+    - B3 -- Strangler step 3: the stage retry path delegates to the public library (integration, not a copy)
     winner: A2
     ship: PUSHED b6774f9
   iter-132
@@ -344,6 +426,9 @@ foundry directions -- _platform
     - Candidate A1 -- Finish the decision log's WINNER half: a strict-fallback, cross-validated triage-winner rule
     - Candidate A2 -- `foundry new-product`: turn the VISION's "point it at any git repo" into an actual command
     - Candidate A3 -- Record the REJECTED alternative and the reason it lost -- the half of bite 4 that never shipped
+    - B1 -- Re-anchor the every-suite freeze-guard meta-test on guard BEHAVIOR, not the exact guard name
+    - B2 -- Define the 4 undefined scout lenses in roles/pm_scout.md, bound to the pool by a suite test
+    - B3 -- Ground-truth the test gate: an earned PASS with no oracle file on disk
     winner: A1
     ship: PUSHED 65c428e
   iter-131
@@ -368,6 +453,12 @@ foundry directions -- _platform
     ship: PUSHED a734465
   iter-129
     lenses: simplification-and-deletion, performance-and-throughput
+    - A1 -- Collapse the nine `company_*_cli` bodies onto ONE generic roll-up driver (bite 1 = the six uniform ones)
+    - A2 -- Table-driven registration for the nine `company-*` argparse blocks in `main()`
+    - A3 -- Consolidate the 26 every-suite control-path freeze guards to one canonical guard (I MEASURED AWAY ITS MAIN SELLING POINT)
+    - B1 -- Failure-kind-aware retry delay: stop paying a 10/20/40-minute rate-limit sleep for a stage that was killed by the 600 s cap
+    - B2 -- Run the full-suite gate command in parallel (`-n auto`), and ONLY the full-suite command (I measured the obvious version and it is 5.7x SLOWER)
+    - B3 -- Flatten the useless retry tail: attempts 3 and 4 won 2 of 547 stage-runs while costing 8.33 h of sleep
     winner: B1
     ship: PUSHED c9eb30d
   iter-128
@@ -455,6 +546,9 @@ foundry directions -- _platform
     - Candidate C1 -- The loop cannot adopt its own shipped code: surface stale-import drift
     - Candidate C2 -- Never-silent unattended runs: a `notify_cmd` outbound hook
     - Candidate C3 -- `foundry goal`: an operator-intent channel with its own budget
+    - H1 -- Name the CAUSE of a zero-output stage attempt (pure classifier + recorded elapsed/exit)
+    - H2 -- Ship the WORKING `foundry` CLI invocation into every stage prompt
+    - H3 -- Make the shipped IPC self-heal's DORMANCY visible (config-drift check via `preflight`)
     winner: C1
     ship: REVERTED
   iter-119
@@ -469,6 +563,12 @@ foundry directions -- _platform
     ship: PUSHED 1fedfb5
   iter-118
     lenses: performance-and-throughput, narrative-and-docs
+    - C1 -- Cause-aware retry backoff (classify the attempt failure, then pick the ladder)
+    - C2 -- Close the `## Patterns` head exemption in the prompt char budget
+    - C3 -- Per-product FAST build-stage test command (operator-proposed 2026-08-04)
+    - B1 -- Make the tracked DIRECTIONS.md decision log survive the ship (defect fix)
+    - B2 -- `foundry lint-docs`: a mechanical oracle for gate 5's "README is accurate"
+    - B3 -- Split the README front door from the 43-entry command reference
     winner: C2
     ship: unknown
   iter-117
@@ -486,6 +586,9 @@ foundry directions -- _platform
     - Candidate C1 -- Wire discovery bite 4b: append a dated decision block to a TRACKED DIRECTIONS.md on every scouted iteration
     - Candidate C2 -- `foundry init <repo> [--name N]`: the product-onboarding front door
     - Candidate C3 -- `foundry goal "<text>"`: an operator steering channel for the "weekly-defined goal"
+    - B1 — `foundry doctor` stale-IPC-endpoint advisory (completes the iter-114 self-heal)
+    - B2 — role-card `foundry lint-spec` invocation fix (DX paper-cut, prose + content-test)
+    - B3 — preserve partial stage output on a 600s kill (operator fix #3)
     winner: C1
     ship: PUSHED ebcaff9
   iter-115
@@ -530,6 +633,12 @@ foundry directions -- _platform
     ship: PUSHED e81b95e
   iter-111
     lenses: new-capability, hardening/DX
+    - C1 (primary) — Bite 4a: DORMANT `render_directions_block` pure renderer + frozen `DirectionsRecord`
+    - C2 — Bite 4a data source (prose-scan): DORMANT `directions_record_from_state(state_dir, plan)`
+    - C3 — Bite 4a data source (structured contract): PM decision-footer + DORMANT `parse_decision_footer`
+    - C1 — Wire `resolve_agent_endpoint` into `run_stage`'s subprocess env (IPC self-healing) [highest value]
+    - C2 — `fast_test_cmd` per-product config field (DORMANT foundation)
+    - C3 — Surface a stale inherited IPC endpoint as an operator early-warning (read-only) [weakest]
     winner: C1
     ship: REVERTED
   iter-110
@@ -598,4 +707,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-67 scouted iterations
+71 scouted iterations

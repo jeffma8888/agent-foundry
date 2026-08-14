@@ -16318,10 +16318,12 @@ def _attempt_fields(record: object) -> tuple[str, bool, bool] | None:
 
 
 def _rate_text(rate: float | None) -> str:
-    """Render a rescue rate for HUMANS: `94.0%`, or `n/a` when it is undefined.
+    """Render a rescue OR kill rate for HUMANS: `94.0%`, or `n/a` when undefined.
 
-    ONE source of truth for the token, so a row line, the totals line and the
-    zero-kill case can never drift apart in `render()`."""
+    ONE source of truth for the token, so a row line, the totals line, the
+    zero-kill case and the zero-attempt case can never drift apart in
+    `render()` -- both rates print through here, so they cannot format
+    differently even though their denominators differ."""
     return "n/a" if rate is None else f"{rate}%"
 
 
@@ -16354,11 +16356,34 @@ class RescueRow:
             return None
         return round(self.rescued / self.kills * 100, 1)
 
+    @property
+    def kill_rate(self) -> float | None:
+        """Percent of this stage's ATTEMPTS the agent CLI killed, 1 decimal place.
+
+        DIFFERENT DENOMINATOR from `rescue_rate`, and that is the whole point:
+        `rescue_rate` is rescued/KILLS ("once killed, did the checkpoint save it?"),
+        this is kills/ATTEMPTS ("how often does this stage hit the wall at all?"). So a
+        stage reading `rescue rate 100.0%` is NOT healthy if its kill rate is 32.3% --
+        it means write-early is carrying the stage while every one of those kills still
+        burned the full cap and truncated the work. This is the frequency the pinned
+        operator directive needs to decide whether to shrink a bite or split a stage.
+
+        `None` -- not `0.0` -- when nothing was ever attempted, for the same reason
+        `rescue_rate` is `None` over zero kills: a rate over an empty denominator is
+        undefined, and a stage nothing ever attempted is not a stage never killed.
+        Never raises: a defensively-malformed row with `kills > attempts` reports a
+        rate above 100.0 rather than hiding the inconsistency behind an exception."""
+        if self.attempts == 0:
+            return None
+        return round(self.kills / self.attempts * 100, 1)
+
     def to_dict(self) -> dict:
         """A pure, JSON-safe serialization of one row (all values JSON-native).
 
-        The derived `rescue_rate` REUSES the frozen property -- `None` serialises to
-        JSON `null` -- so the payload can never disagree with what `render()` prints."""
+        The derived `rescue_rate` and `kill_rate` REUSE the frozen properties -- `None`
+        serialises to JSON `null` -- so the payload can never disagree with what
+        `render()` prints. Both rates are emitted because they answer different
+        questions over different denominators (see `kill_rate`)."""
         return {
             "stage": self.stage,
             "attempts": self.attempts,
@@ -16366,6 +16391,7 @@ class RescueRow:
             "rescued": self.rescued,
             "lost": self.lost,
             "rescue_rate": self.rescue_rate,
+            "kill_rate": self.kill_rate,
         }
 
 
@@ -16413,6 +16439,18 @@ class RescueSummary:
         return round(self.rescued / self.kills * 100, 1)
 
     @property
+    def kill_rate(self) -> float | None:
+        """Product-wide percent of ATTEMPTS the agent CLI killed, or `None`.
+
+        The same DIFFERENT-DENOMINATOR pairing as on the row (`RescueRow.kill_rate`):
+        `rescue_rate` divides by kills, this divides by attempts, so a 100% rescue rate
+        over a high kill rate is a carried stage and not a healthy one. `None` when
+        nothing was scanned, never `0.0`."""
+        if self.attempts == 0:
+            return None
+        return round(self.kills / self.attempts * 100, 1)
+
+    @property
     def exit_code(self) -> int:
         """`2` nothing scanned / `1` >=1 LOST attempt / `0` nothing lost.
 
@@ -16444,7 +16482,13 @@ class RescueSummary:
         `exit_code` as the LAST non-empty line (detail-then-sentinel, so
         "last non-empty line == sentinel" always holds). With NOTHING scanned the
         report carries the literal `no attempts` instead of a totals line, rather than
-        raising or printing a misleading all-zero rollup."""
+        raising or printing a misleading all-zero rollup.
+
+        The `kill rate K%` token is APPENDED after the existing rate on both the totals
+        line and every row line, so each documented substring above still matches as a
+        PREFIX and no earlier consumer moves. It is deliberately ABSENT from the
+        `no attempts` branch, where the rate is undefined and there is no row to price;
+        `n/a` is reserved for a scanned-but-undefined rate, not for nothing scanned."""
         lines = [f"foundry rescues -- {self.product}"]
         if not self.rows:
             lines.append("  no attempts")
@@ -16452,12 +16496,14 @@ class RescueSummary:
             lines.append(
                 f"  attempts {self.attempts}  kills {self.kills}  "
                 f"rescued {self.rescued}  lost {self.lost}  "
-                f"rescue rate {_rate_text(self.rescue_rate)}")
+                f"rescue rate {_rate_text(self.rescue_rate)}  "
+                f"kill rate {_rate_text(self.kill_rate)}")
             for row in self.rows:
                 lines.append(
                     f"  [{row.stage}] attempts {row.attempts}  "
                     f"kills {row.kills}  rescued {row.rescued}  "
-                    f"lost {row.lost}  rate {_rate_text(row.rescue_rate)}")
+                    f"lost {row.lost}  rate {_rate_text(row.rescue_rate)}  "
+                    f"kill rate {_rate_text(row.kill_rate)}")
         lines.append(f"verdict: {self.verdict}")
         return "\n".join(lines)
 
@@ -16465,7 +16511,8 @@ class RescueSummary:
         """A pure, JSON-safe serialization of the whole digest for machine consumers.
 
         Returns the stored `product`, then the DERIVED
-        `attempts`/`kills`/`rescued`/`lost`/`rescue_rate`/`exit_code`/`verdict` each
+        `attempts`/`kills`/`rescued`/`lost`/`rescue_rate`/`kill_rate`/`exit_code`/
+        `verdict` each
         REUSING the frozen properties (so the payload can never disagree with
         `render()` or the returned exit code -- `to_dict` re-derives nothing), then
         `rows` as a JSON array of each row's `to_dict()` in the SAME order as
@@ -16480,6 +16527,7 @@ class RescueSummary:
             "rescued": self.rescued,
             "lost": self.lost,
             "rescue_rate": self.rescue_rate,
+            "kill_rate": self.kill_rate,
             "exit_code": self.exit_code,
             "verdict": self.verdict,
             "rows": [r.to_dict() for r in self.rows],
@@ -16618,6 +16666,326 @@ def rescues_cli(cfg: ProductConfig, limit: int | None = None,
     # Seam resolved HERE, by BARE name at CALL time, so a monkeypatch bites;
     # `_thin_gather_cli` owns the shared print/JSON/exit-code contract.
     return _thin_gather_cli(gather_rescues, cfg, limit, as_json)
+
+
+# --------------------------------------------------------------------------
+# iter 173 -- `losses`: WHY a no-output stage attempt lost its work, by CAUSE
+# --------------------------------------------------------------------------
+
+
+def _loss_fields(record: object) -> tuple[str, bool, str] | None:
+    """Read `(stage, produced, kind)` off ONE attempt record, or `None`.
+
+    The `_attempt_fields` sibling, and deliberately a SECOND small reader rather than a
+    widened one: `_attempt_fields` reads `killed` at position 3 where this reads
+    `produced` at position 3 and `kind` at position 4, and iteration 172's re-landed
+    `kill_rate` work owns that helper this iteration (the spec freezes it). Two total
+    readers cost less than one helper with a mode flag, and neither can break the other.
+
+    Accepts BOTH shapes on purpose, exactly like the sibling: the plain
+    `(stage, iteration, attempt, produced, kind)` 5-sequence -- what a test injects, so
+    the pure summariser needs no fixture class, and what `gather_losses` builds -- and
+    any object carrying those attribute names. Returns `None` for anything of neither
+    shape (a short sequence, an int, `None`, a bare string) so the summariser can SKIP
+    it: a report that raises on one malformed row tells the operator less than a report
+    that omits it, the same contract as `parse_stage_attempts`.
+
+    A missing `kind` attribute degrades to `ATTEMPT_FAILURE_DEFAULT`, read HERE by BARE
+    name at CALL time (never captured at def time, so a
+    `monkeypatch.setattr(foundry, "ATTEMPT_FAILURE_DEFAULT", ...)` bites) -- an attempt
+    with no evidence is still an attempt with a cause; we just cannot name it, which is
+    exactly what that constant means everywhere else in this module. Total -- never
+    raises."""
+    if isinstance(record, (tuple, list)):
+        if len(record) < 5:
+            return None
+        return str(record[0]), bool(record[3]), str(record[4])
+    stage = getattr(record, "stage", None)
+    if stage is None:
+        return None
+    kind = getattr(record, "kind", None)
+    return (str(stage), bool(getattr(record, "produced", False)),
+            str(kind) if kind is not None else ATTEMPT_FAILURE_DEFAULT)
+
+
+@dataclasses.dataclass(frozen=True)
+class LossRow:
+    """One CAUSE's lost-work accounting (a `losses` report row).
+
+    Frozen (value equality, hashable, no post-hoc mutation). Keyed by `kind` -- the
+    stable label `classify_attempt_failure` already assigns -- because the CAUSE names
+    the OWNER of the fix, and that is the whole reason to split the number:
+    `timeout` means the bite did not fit the budget (a PM decision), `stalled` means a
+    locally-silent command tripped the 120s no-output detector (a tester decision),
+    `cli-error` means the agent app rotated its IPC socket out from under the stage (a
+    human relaunch -- no loop change is owed), `service` means a throttled backend
+    (wait). One undifferentiated count cannot be assigned to anyone, which is why the
+    split is the feature and not a nicety.
+
+    `lost` counts the attempts of this kind that produced NO output file; `stages` is
+    the SORTED distinct stage labels among them, so a row says WHERE a cause bites
+    without paying for a full kind x stage cross-tab. Deliberately carries NO
+    `attempts` and NO rate: a share would want `_rate_text`, which iteration 172's
+    re-land rewrites in this same commit, and that region is frozen this iteration."""
+    kind: str
+    lost: int
+    stages: tuple[str, ...]
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of one row (all values JSON-native).
+
+        `stages` becomes a LIST because JSON has no tuple -- which is also what makes
+        `json.loads(json.dumps(...))` round-trip to an EQUAL payload rather than to a
+        near-miss a machine consumer would have to normalise."""
+        return {"kind": self.kind, "lost": self.lost, "stages": list(self.stages)}
+
+
+@dataclasses.dataclass(frozen=True)
+class LossSummary:
+    """One product's no-output attempts split by CAUSE (the `losses` digest).
+
+    THE DEFECT THIS ANSWERS, measured on this checkout: `rescues` decides "this attempt
+    lost work" from `ATTEMPT_KILL_TOKENS`, a SINGLE token (`agent run timed out
+    after`), so of the 64 `_platform` attempts on disk that produced no output file it
+    counts 9 -- 14.1% -- and prints `[final] attempts 153 kills 4 rescued 4 lost 0 rate
+    100.0%` over a window in which iteration 172's ENTIRE release gate died on a dead
+    IPC endpoint. Its ratio was never wrong; the population it ranges over was, and a
+    gauge whose denominator holds work its numerator cannot see reads as HEALTH. This
+    digest ranges over every attempt that produced no output file and names the cause
+    of each, using the `classify_attempt_failure` labels the retry path has always
+    computed but only ever from `dispatcher.out` -- never from the 2,351 attempt logs
+    that are the durable record.
+
+    `attempts` is STORED, and it is the ONE place this class cannot mirror its
+    `RescueSummary` sibling. That sibling DERIVES `attempts` from its rows because a
+    `RescueRow` exists for every stage that was attempted at all; here a row exists
+    only for a LOSING kind, so an attempt that produced its file has no row to be
+    counted in. Deriving `attempts` from `rows` would therefore make it identical to
+    `lost`, which collapses `exit_code` 0 (scanned, nothing lost) into an unreachable
+    branch and makes the `lost <= attempts` invariant vacuous. `lost` and `kinds` ARE
+    derived from the rows, so they can never disagree with what `render()` prints."""
+    product: str
+    rows: tuple[LossRow, ...]
+    attempts: int
+
+    @property
+    def lost(self) -> int:
+        """Attempts that produced NOTHING -- the work this framework actually lost."""
+        return sum(r.lost for r in self.rows)
+
+    @property
+    def kinds(self) -> int:
+        """How many DISTINCT causes are represented, i.e. how many rows there are.
+
+        Worth a name of its own because it is the operator's triage width: one cause is
+        one owner to hand the fix to, four causes means four different fixes and no
+        single bite that helps."""
+        return len(self.rows)
+
+    @property
+    def exit_code(self) -> int:
+        """`2` nothing scanned / `1` >=1 LOST attempt / `0` nothing lost.
+
+        Mirrors the shipped `rescues` / `weak-tests` / `skipped-tests` contract:
+        nothing-to-scan is checked FIRST so an empty run is `2`, never a false `0`. The
+        `0` branch is reachable here only because `attempts` is stored (see the class
+        docstring): it means attempts WERE scanned and every one of them checkpointed
+        its output file."""
+        if self.attempts == 0:
+            return 2
+        return 1 if self.lost > 0 else 0
+
+    @property
+    def verdict(self) -> str:
+        """The single human token for the current `exit_code` -- ONE source of truth for
+        `render()`'s sentinel, so the text and the exit code can never drift.
+
+        The `1` token is deliberately NOT `rescues`' `LOST ATTEMPTS`: two reports whose
+        sentinels are byte-identical cannot be told apart by a grep or a log scrape, and
+        this one ranges over a DIFFERENT (larger) population, so a reader who confused
+        them would draw the wrong conclusion. The `0` and `2` tokens DO match the
+        sibling on purpose -- there is only one honest way to say them."""
+        return {0: "no lost attempts", 1: "LOST WORK BY CAUSE",
+                2: "no attempts"}[self.exit_code]
+
+    def render(self) -> str:
+        """A deterministic multi-line report carrying every gathered signal.
+
+        Contains, as substrings (the CLI's black-box contract): the literal
+        `foundry losses -- <product>`; a totals line `  attempts N  lost N  kinds N`;
+        one `  [<kind>] lost N  stages: <s1, s2>` line per row in stored
+        (lost-descending) order; and a final `verdict:` token matching `exit_code` as
+        the LAST non-empty line (detail-then-sentinel, so "last non-empty line ==
+        sentinel" always holds however many rows there are).
+
+        The `no attempts` branch tests `rows` EMPTY **and** `attempts == 0`, which is
+        one condition more than the sibling `RescueSummary.render` needs: there a row
+        exists for every attempted stage, so no rows means nothing scanned, while HERE
+        no rows means nothing LOST -- a healthy product that checkpointed all 200 of its
+        attempts has zero rows and must still print its totals, not the misleading
+        `no attempts`. Never raises."""
+        lines = [f"foundry losses -- {self.product}"]
+        if not self.rows and self.attempts == 0:
+            lines.append("  no attempts")
+        else:
+            lines.append(f"  attempts {self.attempts}  lost {self.lost}  "
+                         f"kinds {self.kinds}")
+            for row in self.rows:
+                lines.append(f"  [{row.kind}] lost {row.lost}  "
+                             f"stages: {', '.join(row.stages)}")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of the whole digest for machine consumers.
+
+        Returns the stored `product`, then `attempts` / the DERIVED `lost` / `kinds` /
+        `exit_code` / `verdict` each READ FROM THE PROPERTIES (it re-derives nothing, so
+        the payload can never disagree with `render()` or with the returned exit code),
+        then `rows` as a JSON array of each row's `to_dict()` in the SAME order as
+        `self.rows`. Every value is JSON-native (str / int / list of dicts), so
+        `json.dumps(...)` never raises and the dict round-trips through
+        `json.loads(json.dumps(...))`. Pure: touches no filesystem."""
+        return {
+            "product": self.product,
+            "attempts": self.attempts,
+            "lost": self.lost,
+            "kinds": self.kinds,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+            "rows": [r.to_dict() for r in self.rows],
+        }
+
+
+def attempt_loss_summary(*, product: str,
+                         records: Iterable[object]) -> LossSummary:
+    """PURE per-CAUSE lost-work summariser -- the `summarize_*` half of the verb.
+
+    Keyword-only (the two arguments can never be transposed) and TOTAL: it touches no
+    filesystem, subprocess, git, network or clock, accepts either plain
+    `(stage, iteration, attempt, produced, kind)` sequences or objects carrying those
+    attribute names (see `_loss_fields`), SKIPS anything of neither shape, and never
+    mutates the input -- it only reads each record. A `records` argument that is not
+    ITERABLE is treated as EMPTY rather than fatal, the same "a mis-derived input yields
+    an assertable record instead of a traceback" contract as `readme_verb_index_gaps`;
+    omitting an argument entirely still raises `TypeError`, because that is a caller
+    bug no report can paper over.
+
+    Only records whose `produced` is FALSE are losses. A produced record counts toward
+    `attempts` and toward no row, which is what makes `exit_code` 0 mean "scanned, and
+    every attempt checkpointed". Groups the losses by `kind`, collects each group's
+    distinct stage labels, and orders the rows `lost` DESCENDING then `kind` ASCENDING
+    so the biggest cause reads first and equal causes are stable for ANY input order.
+    Kept separate from `gather_losses` so the tester can drive every branch with ZERO
+    filesystem."""
+    try:
+        iterator = iter(records)
+    except TypeError:
+        iterator = iter(())
+    attempts = 0
+    # kind -> [lost count, distinct stage labels] -- one bucket per cause, one pass.
+    tally: dict[str, list] = {}
+    for record in iterator:
+        fields = _loss_fields(record)
+        if fields is None:
+            continue
+        stage, produced, kind = fields
+        attempts += 1
+        if produced:
+            continue
+        bucket = tally.setdefault(kind, [0, set()])
+        bucket[0] += 1
+        bucket[1].add(stage)
+    rows = [LossRow(kind=kind, lost=bucket[0], stages=tuple(sorted(bucket[1])))
+            for kind, bucket in tally.items()]
+    # Biggest cause first; the name breaks the tie deterministically.
+    rows.sort(key=lambda r: (-r.lost, r.kind))
+    return LossSummary(product=product, rows=tuple(rows), attempts=attempts)
+
+
+def gather_losses(cfg: ProductConfig,
+                  limit: int | None = None) -> LossSummary:
+    """Gather one product's no-output attempts, by cause, into a `LossSummary`.
+
+    The ONLY I/O seam of this verb. Walks `cfg.state` with the module-level
+    `ATTEMPT_LOG_GLOB` (read at CALL time by bare name, so a
+    `monkeypatch.setattr(foundry, ...)` reshapes the scan without touching this code)
+    and, for each matched file, emits ONE plain
+    `(stage, iteration, attempt, produced, kind)` tuple:
+      * `stage` / `attempt` from the filename via `_ATTEMPT_LOG_RE`, `iteration` from
+        the parent dir via `iteration_numbers` (called by BARE name) -- a name of any
+        other shape is SKIPPED, never guessed at;
+      * `produced` from `_stage_output_present`, byte-for-byte the condition
+        `run_stage` calls success, so "lost" here means exactly what it meant to the
+        loop (that helper resolves the OUTPUT name through `STAGE_OUTPUT_NAMES`,
+        because `run_stage` takes `out_name` SEPARATELY from the stage label);
+      * `kind` from `classify_attempt_failure` over the log's TEXT -- the shipped
+        classifier, unchanged, so the labels a human sees here are the same labels
+        `retry_delay` prices. An unreadable or UNDECODABLE log is still an ATTEMPT with
+        no evidence: its text degrades to `""`, which the classifier maps to
+        `ATTEMPT_FAILURE_DEFAULT`, never a crash and never a dropped row.
+    A plain tuple rather than a third dataclass on purpose: the shape is already the
+    contract `_loss_fields` documents, and one fewer public name is one fewer thing a
+    future iteration must keep in step.
+
+    A POSITIVE `limit` keeps only the newest `limit` iteration dirs (the five ledger
+    verbs' `--limit` semantics, via the same `iteration_numbers` helper); `None` or a
+    non-positive value scans them all. Read-only: writes nothing, creates no directory,
+    and a missing or unreadable `cfg.state` yields a digest with no rows and
+    `exit_code == 2` rather than raising."""
+    state = cfg.state
+    try:
+        paths = sorted(state.glob(ATTEMPT_LOG_GLOB)) if state.exists() else []
+    except OSError:
+        # A read error on the state dir means "nothing to report", never a crash --
+        # the same no-news contract as the other read-only lenses.
+        paths = []
+    keep: set[int] | None = None
+    if isinstance(limit, int) and limit > 0:
+        try:
+            names = [p.name for p in state.iterdir()]
+        except OSError:
+            names = []
+        # `iteration_numbers` is ascending, so the most-recent N are the LAST N.
+        keep = set(iteration_numbers(names)[-limit:])
+    records: list[tuple[str, int, int, bool, str]] = []
+    for path in paths:
+        match = _ATTEMPT_LOG_RE.match(path.name)
+        if match is None:
+            continue
+        numbers = iteration_numbers([path.parent.name])
+        if not numbers:
+            continue
+        iteration = numbers[0]
+        if keep is not None and iteration not in keep:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except Exception:
+            # Missing / permission / decode error -> no evidence of a cause, still an
+            # attempt (see the docstring's `kind` bullet for why it is not dropped).
+            text = ""
+        stage = match.group("stage")
+        records.append((
+            stage, iteration, int(match.group("attempt")),
+            _stage_output_present(path.parent, stage, iteration),
+            classify_attempt_failure(text)))
+    return attempt_loss_summary(product=cfg.name, records=tuple(records))
+
+
+def losses_cli(cfg: ProductConfig, limit: int | None = None,
+               as_json: bool = False) -> int:
+    """On-demand CLI: print the per-CAUSE lost-work digest + return its exit code.
+
+    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
+    indent=2)` document (the stable machine contract for dashboards/cron); the default
+    `as_json=False` is the human `render()` text. Either way the RETURN value is the
+    same `summary.exit_code` (0 nothing lost / 1 >=1 LOST attempt / 2 nothing to scan)
+    and `--limit` selection is identical. Writes NOTHING to disk (read-only).
+    DORMANT -- no control path calls it; only `main()`'s argparse dispatch."""
+    # Seam resolved HERE, by BARE name at CALL time, so a monkeypatch bites;
+    # `_thin_gather_cli` owns the shared print/JSON/exit-code contract.
+    return _thin_gather_cli(gather_losses, cfg, limit, as_json)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -17069,6 +17437,29 @@ def main(argv: list[str] | None = None) -> int:
     rsc.add_argument("--limit", type=int, default=None,
                      help="scan only the most-recent N iterations (default: all)")
     rsc.add_argument("--json", action="store_true",
+                     help="emit the accounting as one JSON document (machine-readable) "
+                          "instead of the human report; same 0/1/2 exit code, honours --limit")
+    # `losses` prints a read-only, offline per-CAUSE accounting of the stage attempts
+    # that produced NO output file -- the work this framework actually destroyed --
+    # classified with the shipped `classify_attempt_failure` labels (`timeout` /
+    # `stalled` / `cli-error` / `service` / `other`) over the same `iter-NN/
+    # <stage>.attemptN.log` files #48 `rescues` reads. It exists because `rescues`
+    # decides "lost" from ATTEMPT_KILL_TOKENS, ONE token, so it sees 9 of this
+    # product's 64 no-output attempts (14.1%) and printed `[final] ... lost 0 rate
+    # 100.0%` over the window in which iteration 172's whole release gate died on a
+    # dead IPC endpoint: the ratio was right, the population was wrong. The SPLIT is
+    # the point -- each kind has a different owner (`timeout` = shrink the bite,
+    # `stalled` = a locally-silent command, `cli-error` = relaunch the agent app,
+    # `service` = wait) -- and one undifferentiated number can be assigned to nobody.
+    # `--limit N` scans only the most-recent N iterations. On-demand only: the
+    # pipeline/dispatcher NEVER call it; it writes nothing and REPORTS only.
+    # Exit 0 (nothing lost) / 1 (>=1 LOST attempt) / 2 (nothing to scan).
+    lss = sub.add_parser("losses")
+    lss.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    lss.add_argument("--limit", type=int, default=None,
+                     help="scan only the most-recent N iterations (default: all)")
+    lss.add_argument("--json", action="store_true",
                      help="emit the accounting as one JSON document (machine-readable) "
                           "instead of the human report; same 0/1/2 exit code, honours --limit")
     # `stage-times` prints a read-only, offline per-(team,stage) attempt-DURATION
@@ -17577,6 +17968,8 @@ def main(argv: list[str] | None = None) -> int:
         return timing_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "rescues":
         return rescues_cli(cfg, limit=args.limit, as_json=args.json)
+    if args.cmd == "losses":
+        return losses_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "live-lag":
         return live_lag_cli(cfg, log_path=args.log)
     if args.cmd == "weak-tests":
