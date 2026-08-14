@@ -47,6 +47,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import warnings
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -11038,6 +11039,145 @@ def readme_index_pin_shape_hits(sources: Mapping[str, str]) -> tuple[tuple[str, 
             if pattern.search(source):
                 hits.append((str(name), label))
     return tuple(sorted(hits))
+
+
+# Which pytest command-line options are supplied by which PyPI distribution,
+# read by `pytest_addopts_plugin_gaps`. ONLY options whose absence makes pytest
+# fail at ARGUMENT-PARSE time belong here, because that failure is total: it
+# reddens every consumer of the declared quality-check command at once -- the
+# engineer while iterating, the tester, the release gate, the preship local
+# clone and the post-release remote clone, the last of which raises
+# `HOTFIX_NEEDED.md`. That is the shipped-green / post-release-BROKEN shape that
+# cost iteration 154, which is why the pairing is a brake rather than a
+# convention someone has to remember.
+# Keys are matched against SHELL-SPLIT `addopts` tokens; see
+# `_addopts_requests_plugin` for why long and short forms match differently.
+ADDOPTS_PLUGIN_OPTIONS: tuple[tuple[str, str], ...] = (
+    ("-n", "pytest-xdist"),
+    ("--numprocesses", "pytest-xdist"),
+    ("--dist", "pytest-xdist"),
+)
+
+# A PEP 508 requirement's distribution NAME is its leading run of name
+# characters -- everything up to the first extras bracket, version specifier,
+# marker, or URL. `PyTest_XDist >= 3.6` -> `PyTest_XDist`, normalised later.
+_REQUIREMENT_NAME_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)")
+
+
+def _normalize_distribution_name(raw: str) -> str:
+    """PEP 503 name normalisation: case-fold and collapse `-`, `_`, `.` runs.
+
+    WHY: `PyTest_XDist`, `pytest.xdist` and `pytest-xdist` are the SAME
+    distribution to any installer, so a declaration written in any of those
+    spellings must satisfy the brake. Comparing raw strings would report a
+    phantom gap and redden a healthy iteration.
+    """
+    return re.sub(r"[-_.]+", "-", raw.strip()).lower()
+
+
+def _requirement_distribution_name(requirement: str) -> str:
+    """The normalised distribution name a PEP 508 requirement string declares.
+
+    Returns `""` for anything without a leading name (an empty entry, or a
+    `{include-group = ...}` table that the caller already filtered to strings),
+    so an unreadable entry contributes nothing rather than raising.
+    """
+    match = _REQUIREMENT_NAME_RE.match(requirement)
+    return _normalize_distribution_name(match.group(1)) if match else ""
+
+
+def _addopts_tokens(addopts: object) -> list[str]:
+    """`addopts` in either TOML spelling, flattened to argv-style tokens.
+
+    pytest accepts `addopts` as one string OR as a list of strings, and both
+    appear in real projects, so both must be read. Each string member is still
+    shell-split: a list whose single member is `"-n auto"` is legal and means
+    two tokens. Non-string input yields no tokens (an unreadable value cannot
+    REQUIRE a plugin, and the caller's brake is about what is requested).
+    """
+    if isinstance(addopts, str):
+        return shlex.split(addopts)
+    if isinstance(addopts, (list, tuple)):
+        return [
+            token
+            for member in addopts
+            if isinstance(member, str)
+            for token in shlex.split(member)
+        ]
+    return []
+
+
+def _addopts_requests_plugin(token: str, option: str) -> bool:
+    """Does one `addopts` token invoke `option`, in any legal spelling?
+
+    Long and short options are matched ASYMMETRICALLY, on purpose:
+      * long (`--dist`) -- exact, or `--dist=loadfile`. A prefix match would
+        make `--dist` claim a hypothetical `--distribution`, i.e. invent a
+        required plugin and redden a healthy suite.
+      * short (`-n`) -- exact, or the ATTACHED value form `-nauto`, which is
+        what a prefix match is for. No pytest option is spelled `-n<letters>`
+        other than xdist's, so the looser rule is safe here and is REQUIRED:
+        `-nauto` is the spelling a human is most likely to write by hand.
+    """
+    if option.startswith("--"):
+        return token == option or token.startswith(option + "=")
+    return token == option or (not token.startswith("--") and token.startswith(option))
+
+
+def pytest_addopts_plugin_gaps(pyproject_text: str, group: str = "dev") -> list[str]:
+    """Distributions `addopts` REQUIRES that dependency `group` does not DECLARE.
+
+    Takes `pyproject.toml` TEXT, never a path, so it is PURE: no filesystem,
+    subprocess, network or clock access, and equal inputs give `==` results.
+    Reading the real file off disk is deliberately the CALLER's job -- that is
+    what lets a test drive every branch from in-memory strings while the live
+    brake in the suite points this same function at the repo's own file.
+
+    WHY THIS EXISTS: a plugin option in `addopts` makes pytest fail at
+    ARGUMENT-PARSE time when the plugin is missing, so the pairing is not a
+    style preference -- it is the difference between a green suite and all five
+    consumers of the quality-check command dying at once (see
+    `ADDOPTS_PLUGIN_OPTIONS`). The declaration must live where the setup command
+    installs it: `uv sync` installs the `dev` dependency group by default, which
+    is the one place every consumer inherits, so `dev` is the default `group`.
+
+    FAIL-CLOSED, deliberately: unreadable TOML RAISES (`tomllib.TOMLDecodeError`,
+    or `TypeError` for non-text input) instead of returning `[]`. An empty list
+    means "verified, no gap"; returning it for input that was never read is a
+    fail-open brake, and a fail-open brake is worse than none.
+
+    Returns a sorted, de-duplicated list of NORMALISED distribution names, so
+    the finding is about which plugin is missing, not how many options want it.
+    An absent `addopts`, or one requesting no plugin option, yields `[]`.
+
+    DORMANT: zero call site in the running pipeline -- no orchestrator,
+    dispatcher, stage, CLI verb or config field references it -- so resume
+    semantics for an in-flight loop are byte-identical. Its only consumer is the
+    test suite, exactly like `readme_verb_index_gaps` and `foundry_cli_verbs`.
+    """
+    data = tomllib.loads(pyproject_text)
+
+    tool = data.get("tool")
+    ini = tool.get("pytest", {}).get("ini_options", {}) if isinstance(tool, dict) else {}
+    tokens = _addopts_tokens(ini.get("addopts") if isinstance(ini, dict) else None)
+
+    required = {
+        distribution
+        for token in tokens
+        for option, distribution in ADDOPTS_PLUGIN_OPTIONS
+        if _addopts_requests_plugin(token, option)
+    }
+    if not required:
+        return []
+
+    groups = data.get("dependency-groups")
+    entries = groups.get(group) if isinstance(groups, dict) else None
+    declared = {
+        _requirement_distribution_name(entry)
+        for entry in (entries if isinstance(entries, (list, tuple)) else ())
+        if isinstance(entry, str)
+    }
+    return sorted(_normalize_distribution_name(name) for name in required - declared)
 
 
 @dataclasses.dataclass(frozen=True)

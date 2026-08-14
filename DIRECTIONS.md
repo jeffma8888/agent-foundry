@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-177
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- collapse `exit_code` x4 in the findings-family roll-ups onto one shared function
+    - Candidate B1 -- one anchored-sentinel helper behind the 5 gate parsers
+    - Candidate C1 -- two flag helpers retire 33 hand-copied `--config` and 13 `--json` declarations in `main()`
+    - Candidate A2 -- inherit `-n auto` from `pyproject.toml` addopts: 71.21 s -> 24.17 s suite, measured green
+    - Candidate B2 -- re-price the post-last-write tail: it is 23.56 h and it is NOT where item (i) says it is
+    - Candidate C2 -- price the per-stage prompt, the one cost paid on every single attempt
+    winner: A2
+    ship: unknown
   iter-176
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- `foundry adoption`: a derived verb-consumption ledger
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B1 -- one anchored-sentinel parser instead of four hand-maintained ones
     - Candidate C1 -- retire the frozen-literal allowlist that gates the README-index brake
     winner: C1
-    ship: unknown
+    ship: PUSHED 59ce9f4
   iter-175
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- One shared README-index rule in foundry.py, plus a tests/-WIDE guard whose domain is not one file
@@ -727,4 +737,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-73 scouted iterations
+74 scouted iterations
