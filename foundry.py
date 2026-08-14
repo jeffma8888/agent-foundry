@@ -10825,6 +10825,221 @@ def readme_verb_index_gaps(readme_text: str, verbs: Iterable[str]) -> ReadmeVerb
     )
 
 
+# --------------------------------------------------------------------------- #
+# The README section-number CONTRACT, and the scanner for tests that FREEZE it
+# --------------------------------------------------------------------------- #
+# `readme_verb_index_gaps` above REQUIRES every CLI verb to own a numbered `# N.`
+# README section, so the index grows BY CONTRACT on every add-a-verb iteration.
+# Any test that pins the MAX or the FULL RANGE of those numbers therefore encodes
+# "this was the last section when I was written" as "it is last forever", and
+# reds the next such iteration -- iteration 173 reverted on exactly that assert
+# with every other gate green. The rule below is the growth-tolerant contract;
+# the scanner below it is the brake against the freeze shape RE-APPEARING, and
+# its domain is every source handed to it rather than the single file where the
+# shape was last found (iteration 174 shipped a one-file guard and was blind, in
+# the same commit, to two new instances in a different file).
+
+README_INDEX_EXTRACTION_TOKENS = (
+    "^# (\\d+)\\.",
+    "^#\\s+\\d+\\.",
+)
+"""Regex-source strings that mark a source as one that EXTRACTS the README index.
+
+The scanner gates on these because the three pin shapes are perfectly legitimate
+outside this contract: a trailing-slice assert over a synthetic `argv` list the
+test itself built is exact by construction, and a `tmp_path` walk may honestly
+assert a full range. Only a source that reads the LIVE, growing index can freeze
+it, so the token is what makes a hit a DEFECT rather than a style opinion. Kept as a
+module-level constant, and re-read INSIDE the function on every call, so a test
+can `monkeypatch.setattr` it to drive the gate from synthetic tokens.
+"""
+
+_INDEX_MAX_PIN_RE = re.compile(r"max\s*\(\s*int\b[^\n]*?==\s*-?\d+")
+_INDEX_RANGE_PIN_RE = re.compile(
+    r"sorted\s*\([^\n]*?\)\s*==\s*list\s*\(\s*range\s*"
+    r"\(\s*-?\d+\s*(?:,\s*-?\d+\s*)?\)\s*\)"
+)
+_INDEX_SLICE_PIN_RE = re.compile(r"\[\s*-\s*\d+\s*:\s*\]\s*==\s*\[")
+
+README_INDEX_PIN_SHAPES = (
+    ("max-int-pin", _INDEX_MAX_PIN_RE),
+    ("sorted-range-pin", _INDEX_RANGE_PIN_RE),
+    ("trailing-slice-pin", _INDEX_SLICE_PIN_RE),
+)
+"""`(label, compiled pattern)` for each snapshot shape, in reporting order.
+
+Each pattern demands an INT LITERAL on the right-hand side, which is what
+separates a frozen snapshot from a derived bound: `sorted(nums) ==
+list(range(0, max(nums) + 1))` asserts contiguity and tolerates growth, so it
+must stay silent, while `sorted(numbers) == list(range(52))` asserts the size of
+the index on the day it was written. Line-scoped (`[^\\n]`) so the matcher cannot
+span two unrelated statements and report a hit no reader can find.
+"""
+
+
+def readme_index_number_violations(
+    numbers: Iterable[str],
+    *,
+    required: Iterable[str] = ("42", "49", "50"),
+    adjacent: Iterable[str] = ("49", "50"),
+    contiguous: bool = False,
+) -> tuple[str, ...]:
+    """The README section-number contract as a PURE rule over the number list; `()` means clean.
+
+    Takes the extracted number STRINGS, never a path or the README text, so it is
+    PURE and TOTAL: no filesystem, subprocess, network or clock access, no
+    mutation of its arguments, and equal inputs give `==` results. Extraction is
+    deliberately the CALLER's job, which is what lets a test drive every branch
+    from synthetic lists while the live brakes point the same rule at the real
+    README.
+
+    WHY presence-plus-order instead of position or size: every check here is
+    invariant under APPENDING a section, because appending is precisely what the
+    ship gate mandates. Nothing compares `len(numbers)` or `max(numbers)` against
+    a literal, so no argument combination can make the verdict depend on how far
+    the index has grown -- that dependency is the defect this rule replaces.
+
+    What each check buys, since a growth-tolerant rule is only worth having if it
+    still rejects the real regressions:
+      * `duplicate section numbers` -- two sections claiming one number.
+      * `'<n>' missing` for every member of `required` -- a documented section was
+        DELETED or renumbered away.
+      * `non-integer section number` -- a heading number that is not an integer;
+        recorded rather than raised, and every later check stays reachable.
+      * `not in ascending integer order` -- sections reordered.
+      * `'<b>' does not immediately follow '<a>'` for the `adjacent` pair -- the
+        pair iteration 169 pinned drifted apart or swapped.
+      * `gap in the section-number run` -- only when `contiguous=True`, because a
+        gap is a defect for a 0..N index and merely unproven for an arbitrary
+        subset. OFF by default so the default verdict is exactly the rule
+        iteration 174 shipped and its two-sided samples cannot change meaning.
+
+    Totality details, each so a mis-derived input yields an assertable finding
+    instead of a traceback: a non-iterable `numbers` yields one violation; a
+    non-iterable `required`/`adjacent` is treated as EMPTY; unhashable members
+    are reported as duplicates rather than raising; members are compared as
+    STRINGS, so `42` and `"42"` are different section numbers.
+
+    DORMANT: zero call site in the running pipeline -- no orchestrator,
+    dispatcher, stage, CLI verb or config field references it -- so resume
+    semantics for an in-flight loop are byte-identical. The live brakes live in
+    the test suite, exactly like `readme_verb_index_gaps` itself.
+    """
+    try:
+        items = list(numbers)
+    except TypeError:
+        return ("section numbers are not iterable",)
+    try:
+        wanted = tuple(required)
+    except TypeError:
+        wanted = ()
+    try:
+        pair = tuple(adjacent)
+    except TypeError:
+        pair = ()
+
+    out: list[str] = []
+
+    try:
+        duplicated = len(items) != len(set(items))
+    except TypeError:  # an unhashable member cannot be de-duplicated
+        duplicated = True
+    if duplicated:
+        out.append("duplicate section numbers")
+
+    for member in wanted:
+        if member not in items:
+            out.append("'%s' missing" % (member,))
+
+    try:
+        ascending = items == sorted(items, key=int)
+    except (TypeError, ValueError):  # a non-integer section number is itself a violation
+        ascending = False
+        out.append("non-integer section number")
+    if not ascending:
+        out.append("not in ascending integer order")
+
+    if len(pair) == 2 and pair[0] in items and pair[1] in items:
+        if items.index(pair[1]) != items.index(pair[0]) + 1:
+            out.append("'%s' does not immediately follow '%s'" % (pair[1], pair[0]))
+
+    if contiguous:
+        try:
+            values = sorted(int(number) for number in items)
+        except (TypeError, ValueError):
+            values = []  # already reported as non-integer; do not double-report
+        if values:
+            expected = list(range(values[0], values[-1] + 1))
+            if values != expected:
+                absent = sorted(set(expected) - set(values))
+                out.append("gap in the section-number run: %s" % (
+                    ", ".join(str(value) for value in absent) or "duplicate values",))
+
+    return tuple(out)
+
+
+def readme_index_pin_shape_hits(sources: Mapping[str, str]) -> tuple[tuple[str, str], ...]:
+    """Report every source that FREEZES the growing README index; `()` means clean.
+
+    Takes a `{name: source_text}` mapping, never a directory or a `git ls-files`
+    listing, so it is PURE and TOTAL: no filesystem, subprocess, network or clock
+    access, no mutation of its argument, and equal inputs give `==` results.
+    Enumerating the domain is deliberately the CALLER's job, and that split is
+    the point of this function's existence: a caller that walks `tests/**/*.py`
+    with `rglob` has the file it is writing right now IN the domain, whereas a
+    caller that walks `git ls-files` cannot see its own untracked module -- the
+    blind spot that reverted a whole iteration once already.
+
+    Returns a SORTED tuple of `(name, shape_label)` pairs, one per shape found in
+    that source, so the verdict is stable, comparable, and names WHICH file and
+    WHICH shape rather than a count.
+
+    A source is flagged only when BOTH halves hold, and each half fixes a
+    different failure mode:
+      * it carries one of `README_INDEX_EXTRACTION_TOKENS`, i.e. it reads the
+        LIVE index. Without this gate the scanner would flag a `[-2:]` assert
+        over a fixture the test itself built, and a noisy brake gets deleted.
+      * it matches one of `README_INDEX_PIN_SHAPES`, each of which requires an
+        int LITERAL, so a derived bound such as `range(0, max(nums) + 1)` stays
+        silent while a frozen `range(52)` does not.
+
+    Both constants are read by BARE MODULE NAME inside this function, not
+    captured at definition time, so `monkeypatch.setattr(foundry, ...)` takes
+    effect and the gate can be driven from synthetic tokens. An empty token tuple
+    therefore silences the scanner completely, which is why any live brake must
+    be calibrated TWO-SIDED -- a planted positive alongside the clean tree -- or
+    a `()` result proves nothing (this repo's rule: fail-open monitoring is worse
+    than none).
+
+    Totality: a `sources` argument with no `.items()` yields `()`; non-`str` or
+    empty sources are skipped; a non-iterable token constant is treated as EMPTY.
+
+    DORMANT: zero call site in the running pipeline -- no orchestrator,
+    dispatcher, stage, CLI verb or config field references it -- so resume
+    semantics for an in-flight loop are byte-identical.
+    """
+    try:
+        items = list(sources.items())
+    except AttributeError:
+        return ()
+
+    try:
+        tokens = tuple(README_INDEX_EXTRACTION_TOKENS)
+    except TypeError:
+        tokens = ()
+
+    hits: list[tuple[str, str]] = []
+    for name, source in items:
+        if not isinstance(source, str) or not source:
+            continue
+        if not any(isinstance(t, str) and t and t in source for t in tokens):
+            continue
+        for label, pattern in README_INDEX_PIN_SHAPES:
+            if pattern.search(source):
+                hits.append((str(name), label))
+    return tuple(sorted(hits))
+
+
 @dataclasses.dataclass(frozen=True)
 class IterationOutcome:
     """One iteration's INTERNAL gate outcome (the `outcomes` ledger row).

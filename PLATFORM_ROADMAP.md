@@ -81,11 +81,11 @@ clone the verifier builds (4 tracked files). A repo-wide guard over `tests/` ban
 preconditions owes its own false-positive calibration: only 2 files define `_REAL_PRODUCTS`, and the many
 legitimate `tmp_path` byte-walks must NOT be flagged. Calibrate two-sidedly, then ship.
 (t) SHIPPED iter 156 -- detail in the archive.
-(u) NEW (iter 160 scout A, measured): the pinned `## Patterns` head is 9,878 of its 10,000-char
-`PROMPT_LEARNINGS_HEAD_BUDGET_CHARS` budget (122 chars of headroom; `foundry doctor` prints it as `learnings-head:`).
-Crossing it is NOT silent -- `_bound_head` drops bullets from the BOTTOM and emits one loud notice line -- but it DOES
-retire the lowest-precedence operator directives. Nobody owns pruning the head, and it is gitignored, so the shippable
-half is a doctor/CLI WARN threshold, never an edit to the log.
+(u) NEW (iter 160), RE-MEASURED 175 -- THE DOC NAMED THE WRONG KNOB: the binding bound is the PER-BULLET 800-char
+cap, NOT the 10,000-char head budget. `over_budget=bool(truncated or dropped)` (`foundry.py:1513`), and the live head
+delivers 8,559 of 11,769 raw chars with 1,441 chars of HEADROOM and `dropped=0`; the loss is 3 of 19 bullets TRUNCATED
+(3,198 chars elided, 27.2%), two of them marked "do not delete". The log is gitignored, so the shippable half is a WARN
+naming the WORST BULLET, never an edit to the log.
 (v) SHIPPED iter 163 -- detail in the archive.
 (w) NEW (iter 165 scouts; FULL evidence in `products/_platform/state/iter-165/` + 165's archive bullet -- do NOT
 re-measure). The company verdict hoist is item (q) and its OBVIOUS shape is KNOWN-RED: 164's scout B measured that
@@ -284,6 +284,7 @@ in the archive.
 - iter 172 -- rescues rows gain kill_rate (kills/attempts); pm shows a 100% rescue rate while killed on 60 of 186.
 - iter 173 -- re-lands iter 172; new losses verb splits no-output attempts by CAUSE; rescues saw 9 of 64.
 - iter 174 -- lands the lost 172+173 patch; the README index pin drops POSITION; 5th team config ignored.
+- iter 175 -- README index-number rule moves into foundry.py; a tests/-wide guard bans snapshot pins in any file.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03

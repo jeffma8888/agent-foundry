@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-175
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- One shared README-index rule in foundry.py, plus a tests/-WIDE guard whose domain is not one file
+    - Candidate A2 -- Report WHICH steering bullets never reach a stage prompt (3,198 chars are being cut right now)
+    - Candidate A3 -- A calibrated tests/ guard against preconditions on gitignored or ambient tree state
+    - Candidate B1 -- roles/pm.md runs `foundry doctor` before it specs (apply the proven preship wiring to the best unconsumed verb)
+    - Candidate B2 -- write the one missing file that four shipped consumers are all waiting on (`prd.json`)
+    - Candidate B3 -- `--json` on `doctor`, closing the machine-readable contract where it matters
+    winner: A1
+    ship: unknown
   iter-174
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `foundry roster`: one verb that says whether every configured team can actually load
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the revert path must name the FOREIGN untracked paths `git clean -fd` is about to delete
     - Candidate B3 -- fail fast on the stale-IPC attempt signature instead of burning the whole retry ladder
     winner: B3
-    ship: unknown
+    ship: PUSHED c51c6e3
   iter-173
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- VISION claims "five invariants"; ARCHITECTURE documents six
@@ -707,4 +717,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-71 scouted iterations
+72 scouted iterations

@@ -11,8 +11,10 @@ Spec: products/_platform/state/iter-174/pm.md, Expected Behaviors 1-11.
      `--limit N`, and writes no file and creates no directory.
   3. Every `LossRow.kind` is a label `classify_attempt_failure` returns; that classifier is
      unmodified; `lost <= attempts` with `attempts` a STORED field.
-  4. Both re-landed test modules are present (and byte-identical to the preserved copies when
-     those copies are on disk -- they live under gitignored state, so a fresh clone skips it).
+  4. Both re-landed test modules are present, TRACKED by git, non-trivial (a >= 20 test-function
+     floor) and carry their re-land content marker.  RETIRED iter 175: the original byte-identity
+     comparison against copies under gitignored state was undecidable in a fresh clone AND froze
+     two live modules against repair; the re-land is now settled by git history.
   5. README carries a `# 51.` section titled for `losses` with a runnable invocation, and
      `readme_verb_index_gaps` over the LIVE README + LIVE verb set is clean.
   6. The section pin no longer depends on POSITION: iteration 169's rule is a pure function that
@@ -42,10 +44,11 @@ Offline and deterministic: no network, no agent run, no sleeps, no clock.  Subpr
 `git` (read-only verbs, plus a throwaway `git init` inside `tmp_path`), the product's own CLI, and
 two fresh-interpreter import probes.  NOTHING in the repo is mutated.
 
-CLONE-SAFETY (OPERATOR 2026-08-11): no assertion depends on gitignored ambient state.  The
-preserved-patch copies under `products/_platform/state/` are checked only when present; the
-`losses` CLI probe accepts exit 2 ("nothing to scan"), which is exactly what a fresh clone with no
-state dir returns; every other fixture is built in `tmp_path` or in memory.
+CLONE-SAFETY (OPERATOR 2026-08-11, tightened iter 175): no assertion depends on gitignored ambient
+state.  Behavior 4 no longer reads `products/_platform/state/` at all -- it asks git what it tracks,
+which answers identically in a fresh clone; the `losses` CLI probe accepts exit 2 ("nothing to
+scan"), which is exactly what a fresh clone with no state dir returns, and compares the state dir
+only against ITSELF; every other fixture is built in `tmp_path` or in memory.
 
 AMBIGUITY NOTED (PM feedback), Behavior 1: the spec calls `kill_rate` a "field ... derived as
 `kills / attempts` (one decimal)".  Observably it is a `@property` (not a `dataclasses.field`) and
@@ -56,7 +59,6 @@ line and a `render()` suffix and a ratio-vs-percent mismatch between them would 
 from __future__ import annotations
 
 import dataclasses
-import filecmp
 import importlib.util
 import inspect
 import json
@@ -255,17 +257,37 @@ def test_b3_rows_are_classified_and_lost_never_exceeds_stored_attempts():
 
 # ------------------------------------------------------- 4. both re-landed modules are present
 
-@pytest.mark.parametrize("iteration", [172, 173])
-def test_b4_relanded_test_module_exists_and_matches_its_preserved_copy(iteration):
+@pytest.mark.parametrize("iteration,marker", [(172, "kill_rate"), (173, "attempt_loss_summary")])
+def test_b4_relanded_test_module_is_tracked_and_carries_its_re_land_content(iteration, marker):
+    """Behavior 4: prove the re-land LANDED -- decidably, in a FRESH CLONE.
+
+    RETIRED iter 175.  This assertion used to demand byte-identity against a preserved copy under
+    `products/_platform/state/`, and that is two defects in one line.  (1) The path is GITIGNORED,
+    so the check was only meaningful on the machine that ran the re-land and degraded to a skip
+    anywhere else -- the ambient-tree precondition class that turned iteration 154 post-release
+    BROKEN.  (2) Byte-identity froze two LIVE test modules, so the snapshot pins inside them could
+    not be fixed at all; iteration 174's own engineer hit exactly that wall and correctly flagged
+    instead of silently editing.
+
+    Its purpose -- prove the re-land was VERBATIM rather than a paraphrase -- was ONE-SHOT and is
+    spent: both modules shipped in the release commit and `git ls-files` tracks them, so the
+    verbatim question is settled in git history and cannot regress silently.  The successor asserts
+    what still matters and is decidable from a bare checkout: the module exists, is TRACKED, is
+    non-trivial, and carries the content marker of the feature it re-landed.
+    """
     live = _ROOT / "tests" / ("test_iter%d_behavior.py" % iteration)
-    assert live.is_file(), "the preserved iter-%d module must be back under tests/" % iteration
-    assert live.stat().st_size > 0
-    preserved = (_ROOT / "products" / "_platform" / "state" / "iter-173"
-                 / ("UNGATED_tests_test_iter%d_behavior.py" % iteration))
-    if not preserved.is_file():
-        pytest.skip("preserved copy lives under gitignored state; absent in a fresh clone")
-    assert filecmp.cmp(str(live), str(preserved), shallow=False), \
-        "tests/test_iter%d_behavior.py must be byte-identical to its preserved copy" % iteration
+    assert live.is_file(), "the re-landed iter-%d module must be under tests/" % iteration
+    source = live.read_text(encoding="utf-8")
+    assert source.strip(), "the re-landed iter-%d module is empty" % iteration
+    tracked = _git("ls-files", "--error-unmatch", str(live))
+    assert tracked.returncode == 0, \
+        "git must TRACK the re-landed iter-%d module: %r" % (iteration, tracked.stderr)
+    # A FLOOR, deliberately well under the live counts (31 and 64).  Pinning the live count would
+    # re-commit the very snapshot-as-law defect this iteration retires.
+    assert source.count("def test_") >= 20, \
+        "iter-%d module holds only %d test functions" % (iteration, source.count("def test_"))
+    assert marker in source, \
+        "iter-%d re-land content marker %r is missing" % (iteration, marker)
 
 
 # ------------------------------------------------------- 5. the README index is green with # 51
