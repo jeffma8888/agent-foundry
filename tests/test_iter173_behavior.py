@@ -792,7 +792,13 @@ def test_b16_readme_gains_one_new_index_section_and_invokes_the_verb():
     numbers = re.findall(r"^# (\d+)\.", readme, re.M)
     assert len(numbers) == len(set(numbers)), "duplicate index section number"
     assert "51" in numbers
-    assert max(int(n) for n in numbers) == 51
+    # RELAXED iter 175: a `max(...)` equality froze a snapshot into a law.  The ship gate MANDATES
+    # a new "# N." section for every new verb, so that assert reds the next add-a-verb iteration --
+    # it red iteration 173 itself with every other gate green.  The intent (51 exists, numbers are
+    # unique, ascending, gap-free) is now the derived contract, which tolerates the mandated growth.
+    violations = foundry.readme_index_number_violations(
+        numbers, required=("0", "42", "49", "50", "51"), contiguous=True)
+    assert violations == (), "README section-number contract broken: %s" % (violations,)
     assert "foundry.py losses" in readme
 
 
@@ -867,16 +873,26 @@ def _unreadable(path):
 
 
 def test_b16_pre_existing_index_numbers_did_not_move():
-    """Behavior 16: the new section is ADDITIVE.  Uniqueness plus max == 51
-    would still pass if iteration 169's hand-pinned `# 49.` / `# 50.` had been
-    renumbered, so assert the run is CONTIGUOUS and both pinned numbers survive.
-    Also assert the brake's SECTION floor, which the spec states (>= 49) and no
-    other assertion here checks."""
+    """Behavior 16: the new section is ADDITIVE.  Uniqueness alone would still
+    pass if iteration 169's hand-pinned `# 49.` / `# 50.` had been renumbered, so
+    assert the run is CONTIGUOUS and every pinned number survives.  Also assert
+    the brake's SECTION floor, which the spec states (>= 49) and no other
+    assertion here checks.
+
+    RELAXED iter 175: this used to compare the sorted run against a `range()` of
+    a LITERAL length, which encodes "52 sections existed when I was written" as
+    "52 sections forever" -- the same snapshot-as-law defect as the sibling
+    assert above, and the reason iteration 173 reverted.  The derived contract
+    asserts the same four properties (unique, ascending, gap-free, the pinned
+    numbers present) without any dependency on how far the index has grown."""
     readme = (_ROOT / "README.md").read_text(encoding="utf-8")
-    numbers = [int(n) for n in re.findall(r"^# (\d+)\.", readme, re.M)]
-    assert sorted(numbers) == list(range(52)), (
-        "index numbers must run 0..51 with no gap and no renumber; got "
-        f"{sorted(numbers)}")
+    numbers = re.findall(r"^# (\d+)\.", readme, re.M)
+    assert numbers, "no numbered README index found -- the matcher stopped matching"
+    violations = foundry.readme_index_number_violations(
+        numbers, required=("0", "42", "49", "50", "51"), contiguous=True)
+    assert violations == (), (
+        "index numbers must be unique, ascending and gap-free with 0/42/49/50/51 "
+        "present, and must not be renumbered: %s" % (violations,))
     for pinned in ("\n# 49.", "\n# 50.", "\n# 51."):
         assert pinned in readme, f"{pinned!r} missing -- a section number moved"
     verbs = foundry.foundry_cli_verbs((_ROOT / "foundry.py").read_text(encoding="utf-8"))

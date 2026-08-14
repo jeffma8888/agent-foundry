@@ -351,37 +351,24 @@ def test_b9_existing_section_numbers_are_untouched():
 def index_numbers_pin_violations(numbers: list[str]) -> tuple[str, ...]:
     """The README section-number contract as a PURE rule over the number list; () means clean.
 
-    WHY presence-plus-order instead of position: `readme_verb_index_gaps` (this iteration's own
-    brake) REQUIRES every CLI verb to own a numbered README section, so every add-a-verb iteration
-    appends one.  Pinning "49" and "50" as the LAST two sections therefore froze a snapshot into a
-    law and deadlocked that entire class of work -- iteration 173 reverted on exactly this assert
-    with every other gate green.  Adjacency still rejects a deletion, a duplicate, a reorder and a
-    gap between the pair, while tolerating precisely the growth the contract mandates.
+    WHY presence-plus-order instead of a POSITION assert: `readme_verb_index_gaps` (this
+    iteration's own brake) REQUIRES every CLI verb to own a numbered README section, so every
+    add-a-verb iteration appends one.  Pinning "49" and "50" to the tail of the index therefore
+    froze a snapshot into a law and deadlocked that entire class of work -- iteration 173 reverted
+    on exactly this assert with every other gate green.  Adjacency still rejects a deletion, a
+    duplicate, a reorder and a gap between the pair, while tolerating precisely the growth the
+    contract mandates.
 
-    WHY it is a module-level function rather than inline asserts: a rule reachable only through the
-    live README can never be shown to reject a known-bad input, so it can rot into a fail-open
-    check.  Exposed here (the shape `index_growth_allowance` in tests/test_iter167_behavior.py
-    already established) it can be exercised two-sided over synthetic lists.
+    WHY the NAME stays here and the BODY moved to `foundry.readme_index_number_violations`
+    (iteration 175): a rule that lives inside one test module cannot be reused by the next test
+    that needs it, so each iteration re-invents it -- and re-invents the defect.  Iteration 174
+    rewrote this rule here and, in the SAME commit, shipped two fresh snapshot pins in a DIFFERENT
+    module.  Two shipped consumers reach this name through `_load_test_helper`, so the name is a
+    published surface and keeps its contract; only the implementation is now shared.  Exposed as a
+    module-level function (the shape `index_growth_allowance` in tests/test_iter167_behavior.py
+    established) so it stays exercisable two-sided over synthetic lists.
     """
-    out: list[str] = []
-    if len(numbers) != len(set(numbers)):
-        out.append("duplicate section numbers")
-    if "42" not in numbers:
-        out.append("'42' missing")
-    try:
-        ascending = list(numbers) == sorted(numbers, key=int)
-    except (TypeError, ValueError):  # a non-integer section number is itself a violation
-        ascending = False
-        out.append("non-integer section number")
-    if not ascending:
-        out.append("not in ascending integer order")
-    for pinned in ("49", "50"):
-        if pinned not in numbers:
-            out.append("'%s' missing" % pinned)
-    if "49" in numbers and "50" in numbers:
-        if numbers.index("50") != numbers.index("49") + 1:
-            out.append("'50' does not immediately follow '49'")
-    return tuple(out)
+    return foundry.readme_index_number_violations(numbers)
 
 
 def _sections(text: str) -> dict:
