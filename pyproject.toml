@@ -8,7 +8,17 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "pytest-xdist>=3.6"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Parallel by DEFAULT, so every consumer of the declared quality-check command
+# inherits it without that command string changing: the engineer while iterating,
+# the tester, the release gate, the preship local clone and the post-release remote
+# clone all run `uv run --with pytest pytest -q` unchanged. Measured iter 177:
+# 71.21s serial -> 24.17s on all cores, paid at least 5x per iteration, in the two
+# stages with the highest 600s-cap kill rates (engineer 62.1%, tester 26.1%).
+# `-n` FAILS AT ARGUMENT-PARSE TIME if pytest-xdist is absent, which would turn all
+# five consumers RED at once -- so the pairing is enforced by a suite brake,
+# `foundry.pytest_addopts_plugin_gaps`, not by anyone remembering it.
+addopts = "-n auto"

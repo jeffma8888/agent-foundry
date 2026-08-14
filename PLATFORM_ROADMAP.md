@@ -519,3 +519,4 @@ not die because its terminal did.
 - [ ] All dispatcher/foundry control-path console writes go through the helper; a dead
       stdout mid-session cannot terminate the loop (regression test simulates it).
 - [ ] Shutdown summary reaches the log file even with a dead console; `tests/` green.
+- iter 177 -- suite runs -n auto by default via pyproject addopts; a brake pairs each plugin addopt with its dep.
