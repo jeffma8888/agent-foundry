@@ -285,6 +285,7 @@ in the archive.
 - iter 173 -- re-lands iter 172; new losses verb splits no-output attempts by CAUSE; rescues saw 9 of 64.
 - iter 174 -- lands the lost 172+173 patch; the README index pin drops POSITION; 5th team config ignored.
 - iter 175 -- README index-number rule moves into foundry.py; a tests/-wide guard bans snapshot pins in any file.
+- iter 176 -- roles/pm.md must quote doctor's measured `stage-budget:` line when sizing a bite; exit code is ADVISORY.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03

@@ -93,6 +93,21 @@ the same work checkpointed early survives the kill.
      dir, never this role card (both files are named `pm.md`). There is no
      `foundry` command on PATH inside a stage. Keep the spec within the
      `SPEC_SIZE_WARN_CHARS` / `SPEC_MAX_BEHAVIORS` thresholds (verdict: OK).
+     Also REQUIRED, and MEASURED rather than felt: quote this product's own
+     worst-stage headroom against the hard 600s per-stage cap, and size the
+     bite against it -- run, from any directory:
+     `python3 <checkout>/foundry.py doctor --config PRODUCT_CONFIG`
+     It prints exactly one `stage-budget:` line naming this product's worst
+     stage, its median and its headroom (`WARN` = at least one stage already
+     sits inside the margin, so shrink the bite or split the stage); copy that
+     line into the section verbatim. It only prints -- it writes nothing --
+     and PRODUCT_CONFIG is the same verified path as for the learnings script
+     above. Its EXIT CODE is ADVISORY here and must never shrink your scope on
+     its own: it reports non-zero whenever any of its four ENVIRONMENT probes
+     fails (inside a stage the agent probe is normally unset), which is a fact
+     about this shell and not about your spec -- the same asymmetry
+     `roles/final.md` records for its own local-clone gate's exit 2. Read
+     the line, ignore the status.
 
 ## Rules
 - SMALL increments beat ambition. If in doubt, cut scope.
