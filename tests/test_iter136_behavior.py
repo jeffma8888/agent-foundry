@@ -445,10 +445,26 @@ def test_b13_nothing_was_deleted_from_the_original_plan():
 
 # ----------------------------------------------- Acceptance-criteria oracles
 def test_ac_result_type_is_frozen():
+    """Frozen, and the five fields THIS iteration shipped are all present.
+
+    iter 181 appended a DEFAULTED `worst_loss`, so an exact-SET pin failed on a
+    purely additive change. Re-aimed at the two properties it was protecting --
+    the five original names are still there, and every field beyond them is
+    defaulted, so this iteration's five-keyword construction still works.
+    """
     a = foundry.learnings_head_audit(UNDER, CAP, BUDGET)
     assert dataclasses.is_dataclass(a)
-    assert {f.name for f in dataclasses.fields(a)} == {
-        "bullets", "raw_chars", "truncated", "dropped", "over_budget"}
+    fields = dataclasses.fields(a)
+    assert {"bullets", "raw_chars", "truncated", "dropped",
+            "over_budget"} <= {f.name for f in fields}
+    for extra in fields:
+        if extra.name in ("bullets", "raw_chars", "truncated", "dropped",
+                          "over_budget"):
+            continue
+        assert (extra.default is not dataclasses.MISSING
+                or extra.default_factory is not dataclasses.MISSING), extra
+    assert foundry.LearningsHeadAudit(
+        bullets=0, raw_chars=0, truncated=0, dropped=0, over_budget=False)
     with pytest.raises(dataclasses.FrozenInstanceError):
         a.bullets = 999
 

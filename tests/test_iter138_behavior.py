@@ -319,10 +319,24 @@ def test_ac_modules_import_and_head_constants_keep_their_values():
 
 
 def test_ac_audit_result_type_is_frozen_with_its_five_fields():
+    """The five fields of THIS iteration, in order, first -- plus what makes a
+    later field safe to add. iter 181 appended a DEFAULTED `worst_loss`, so an
+    exact-list pin would have failed on a purely additive change; the pin is
+    re-aimed at the two properties it was really protecting, which is strictly
+    more than it asserted before: the original five keep their order at the
+    front, EVERY later field is defaulted, and the five-keyword construction
+    site this iteration documented still constructs.
+    """
     a = foundry.learnings_head_audit(FITS, CAP, BUDGET)
     assert dataclasses.is_dataclass(a)
-    assert [f.name for f in dataclasses.fields(a)] == [
+    fields = dataclasses.fields(a)
+    assert [f.name for f in fields][:5] == [
         "bullets", "raw_chars", "truncated", "dropped", "over_budget"]
+    for extra in fields[5:]:
+        assert (extra.default is not dataclasses.MISSING
+                or extra.default_factory is not dataclasses.MISSING), extra
+    assert foundry.LearningsHeadAudit(
+        bullets=1, raw_chars=2, truncated=3, dropped=4, over_budget=False)
     with pytest.raises(dataclasses.FrozenInstanceError):
         a.bullets = 99
 

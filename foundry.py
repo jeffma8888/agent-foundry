@@ -1155,6 +1155,35 @@ def _truncate_lesson(line: str, cap: int) -> str:
     return line[:cap - len(marker)] + marker
 
 
+def _split_head_blocks(head: list[str]) -> tuple[list[str], list[list[str]]]:
+    """Split pinned-head lines into ``(preamble, bullet_blocks)``. Pure.
+
+    THE one implementation of the block rule, extracted at iteration 181 so the
+    prompt path (``_bound_head``) and the loss report (``head_bullet_losses``)
+    can never disagree about where a head bullet starts or ends. A second copy
+    of this six-line rule is exactly the drift the loss report exists to
+    prevent: that report publishes PER-BULLET numbers whose only claim to truth
+    is that they describe the same blocks the prompt actually pays for.
+
+    A *bullet block* starts at a head line beginning with ``- `` at column 0 and
+    runs through every following line up to (exclusive) the next such line -- so
+    an indented continuation line (or a blank line) belongs to the bullet above
+    it and is never mistaken for a bullet of its own. The *preamble* is
+    everything before the first bullet block (the ``## Patterns`` heading and
+    its intro prose). Never raises; no filesystem/subprocess/network/clock.
+    """
+    preamble: list[str] = []
+    blocks: list[list[str]] = []
+    for line in head:
+        if line.startswith("- "):
+            blocks.append([line])
+        elif blocks:
+            blocks[-1].append(line)
+        else:
+            preamble.append(line)
+    return preamble, blocks
+
+
 def _bound_head(head: list[str], bullet_cap: int | None,
                 budget: int | None) -> tuple[list[str], int, int, int]:
     """Bound the pinned ``## Patterns`` head by CHARACTERS (prompt path only).
@@ -1206,15 +1235,7 @@ def _bound_head(head: list[str], bullet_cap: int | None,
     and ``dropped`` counts blocks the budget refused -- the three numbers the
     caller's loud notice line reports.
     """
-    preamble: list[str] = []
-    blocks: list[list[str]] = []
-    for line in head:
-        if line.startswith("- "):
-            blocks.append([line])
-        elif blocks:
-            blocks[-1].append(line)
-        else:
-            preamble.append(line)
+    preamble, blocks = _split_head_blocks(head)
     total = len(blocks)
 
     # Fits-whole fast path: a head already within its total budget is emitted
@@ -1254,6 +1275,134 @@ def _bound_head(head: list[str], bullet_cap: int | None,
 
     truncated = sum(1 for _, was_cut in admitted if was_cut)
     return [*preamble, *(text for text, _ in admitted)], total, truncated, dropped
+
+
+# --------------------------------------------------------------------------- #
+# WHICH head bullet is being lost (roadmap item (u), shippable half).
+#
+# `_bound_head` already reports HOW MANY pinned-head bullets do not arrive
+# whole, and `doctor`'s `learnings-head:` WARN prints that count with the remedy
+# "retire the spent directives". The count is not actionable on its own: the
+# operator is handed a number and owes a hand re-split of the head to discover
+# WHICH directive to retire. This section supplies that identity, and nothing
+# more -- it is a SIZE report, never a semantics report. Editing the log stays
+# out of scope by construction (it is gitignored; iteration 136 settled that).
+# --------------------------------------------------------------------------- #
+HEAD_LOSS_TRUNCATED = "truncated"   # an ADMITTED block cut to `bullet_cap`
+HEAD_LOSS_DROPPED = "dropped"       # a block the whole-head budget refused
+HEAD_BULLET_LABEL_CHARS = 80        # label width inside the one-line report
+
+
+@dataclasses.dataclass(frozen=True)
+class HeadBulletLoss:
+    """ONE pinned-head bullet that does not reach a stage prompt whole.
+
+    Frozen for the same reason as `LearningsHeadAudit`: a computed measurement
+    must not be mutable after the fact, and value-equality comes free (these are
+    compared and sorted in tests, never patched).
+
+    * `index` -- 1-based position of the block among the head's bullet blocks in
+      DOCUMENT order, so an operator can count down the file to it.
+    * `label` -- the block's opening line, whitespace-collapsed, bullet marker
+      removed, cut to `HEAD_BULLET_LABEL_CHARS` (see `_head_bullet_label`).
+    * `raw_chars` -- length of the block AS WRITTEN (`"\n".join(block)`).
+    * `elided_chars` -- `raw_chars` minus the characters delivered: for a
+      truncated block `raw_chars - bullet_cap` (`_truncate_lesson` returns a
+      cap-EXACT string), for a dropped block all of them. ONE definition, so
+      worst-first ordering compares like with like across the two kinds.
+    * `kind` -- `HEAD_LOSS_TRUNCATED` or `HEAD_LOSS_DROPPED`. A block the budget
+      refused is reported DROPPED ONLY, never additionally as truncated, which
+      matches `_bound_head`: it counts truncation over ADMITTED blocks only.
+    """
+    index: int
+    label: str
+    raw_chars: int
+    elided_chars: int
+    kind: str
+
+
+def _head_bullet_label(opening: str) -> str:
+    """A one-line, bounded identifier for a head bullet, from its opening line.
+
+    Whitespace-collapsed FIRST, so a bullet whose opening line carries a tab or
+    trailing spaces cannot smuggle stray whitespace -- or, once joined, a
+    newline -- into the single-line `doctor` report. The leading `- ` marker is
+    dropped because every block has one, so it identifies nothing.
+
+    NO truncation marker is appended, deliberately (unlike `_truncate_lesson`):
+    the label's job is to be PASTED INTO A SEARCH over the learnings log, and a
+    marker glued to the last word would break that grep. Bounded to
+    `HEAD_BULLET_LABEL_CHARS` and never empty -- a bullet with no text after the
+    marker still gets a stable placeholder rather than an empty backtick pair,
+    because the report must stay readable for degenerate input. Pure.
+    """
+    collapsed = " ".join(str(opening).split())
+    if collapsed.startswith("- "):
+        collapsed = collapsed[2:].strip()
+    elif collapsed == "-":
+        collapsed = ""
+    return collapsed[:HEAD_BULLET_LABEL_CHARS] or "(unlabeled bullet)"
+
+
+def head_bullet_losses(
+    head: list[str],
+    bullet_cap: int | None = PROMPT_LEARNINGS_HEAD_BULLET_CHARS,
+    budget: int | None = PROMPT_LEARNINGS_HEAD_BUDGET_CHARS,
+) -> tuple[HeadBulletLoss, ...]:
+    """WHICH pinned-head bullets are elided, worst loss first. Pure.
+
+    THE BOUNDING MATH IS NOT REIMPLEMENTED, for the same reason
+    `learnings_head_audit` refuses to reimplement it: a per-bullet report that
+    disagrees with the prompt path is worse than no report. `_bound_head` is
+    called for the AUTHORITATIVE `(truncated, dropped)` pair and the block split
+    comes from the shared `_split_head_blocks`, so the only inference made here
+    is WHICH blocks those two counts refer to -- and that inference is exact,
+    not heuristic, because it rests on two documented properties:
+
+      * `_bound_head` admits blocks TOP-DOWN and therefore drops from the
+        BOTTOM, so the dropped blocks are exactly the final `dropped` blocks;
+      * an ADMITTED block was cut iff its raw text exceeds `bullet_cap`, because
+        `_truncate_lesson` returns its input VERBATIM when it already fits.
+
+    A behavior asserts the per-kind counts here equal `_bound_head`'s own two
+    numbers for every fixture, so a drift in either implementation goes red
+    instead of quietly publishing numbers the prompt path does not pay.
+
+    Returns `()` when NOTHING is elided, which is a stronger statement than
+    "the head is small": an unbounded call (`bullet_cap` and `budget` both
+    `None`), an empty head, a head with no `- ` bullet at column 0, and
+    iteration 138's fits-whole fast path all report NO losses -- so this report
+    agrees with the PROMPT rather than with the caps.
+
+    Sorted by `(-elided_chars, index)`, a TOTAL key: the returned tuple is
+    identical under every `PYTHONHASHSEED` because an equal-loss tie is broken
+    by document order rather than by iteration order. Never raises for any
+    list-of-str input; no filesystem, subprocess, network or clock.
+    """
+    _segments, _total, truncated, dropped = _bound_head(
+        head, bullet_cap, budget)
+    if not (truncated or dropped):
+        return ()
+    _preamble, blocks = _split_head_blocks(head)
+    admitted = len(blocks) - dropped
+    losses: list[HeadBulletLoss] = []
+    for position, block in enumerate(blocks):
+        raw = len("\n".join(block))
+        if position >= admitted:
+            kind, elided = HEAD_LOSS_DROPPED, raw
+        elif bullet_cap is not None and raw > bullet_cap:
+            kind, elided = HEAD_LOSS_TRUNCATED, raw - bullet_cap
+        else:
+            continue
+        losses.append(HeadBulletLoss(
+            index=position + 1,
+            label=_head_bullet_label(block[0]),
+            raw_chars=raw,
+            elided_chars=elided,
+            kind=kind,
+        ))
+    losses.sort(key=lambda loss: (-loss.elided_chars, loss.index))
+    return tuple(losses)
 
 
 def learnings_digest(
@@ -1437,12 +1586,18 @@ class LearningsHeadAudit:
       `learnings_digest` emits its own `> [head bounded: ...]` notice. That
       equality is what keeps this audit from becoming a second, divergent
       implementation of the bound, and it is asserted as a behavior.
+    * `worst_loss` -- the single WORST-elided bullet block (see
+      `head_bullet_losses`), or `None` when nothing is elided. DEFAULTED, so
+      every pre-iteration-181 five-keyword construction site still works and no
+      equality assertion over the five original fields changes. It answers the
+      question the counts cannot: WHICH directive the operator should retire.
     """
     bullets: int
     raw_chars: int
     truncated: int
     dropped: int
     over_budget: bool
+    worst_loss: "HeadBulletLoss | None" = None
 
 
 def learnings_head_audit(
@@ -1488,7 +1643,10 @@ def learnings_head_audit(
     placeholder head so its OUTPUT SHAPE stays stable; that placeholder is a
     renderer artifact, never file content, so counting its characters here would
     report a head the operator cannot edit.) Empty text is the same case. Never
-    raises.
+    raises for any input text -- but `worst_loss` is filled by calling
+    `head_bullet_losses` through the module global, so a SCRIPTED seam that
+    raises does propagate; `learnings_head_line` absorbs that into its UNKNOWN
+    branch, the same degradation every unexpected failure there already takes.
     """
     lines = text.splitlines()
     head_start = next(
@@ -1506,12 +1664,21 @@ def learnings_head_audit(
         head.append(ln)
     _segments, bullets, truncated, dropped = _bound_head(
         head, bullet_cap, head_budget)
+    over_budget = bool(truncated or dropped)
+    # Only an ELIDED head has a loss to name, and `over_budget` already means
+    # "something does not arrive whole" rather than "the total is large", so
+    # `worst_loss` stays None on the OK branch BY CONSTRUCTION -- no second size
+    # test to drift. `head_bullet_losses` is called by its BARE module name (a
+    # scripted seam takes effect) and returns worst-first, so `[0]` IS the worst.
+    losses = (head_bullet_losses(head, bullet_cap, head_budget)
+              if over_budget else ())
     return LearningsHeadAudit(
         bullets=bullets,
         raw_chars=len("\n".join(head)),
         truncated=truncated,
         dropped=dropped,
-        over_budget=bool(truncated or dropped),
+        over_budget=over_budget,
+        worst_loss=losses[0] if losses else None,
     )
 
 
@@ -1555,12 +1722,22 @@ def learnings_head_line(cfg: "ProductConfig") -> str:
                     f"{audit.raw_chars} chars in {audit.bullets} bullet(s) and "
                     f"arrives whole in every stage prompt (bounds: {bullet_cap} "
                     f"chars/bullet, {budget} total)")
+        # The WARN branch, and ONLY it, names the worst loser: the counts alone
+        # leave the operator owing a hand re-split of the head to learn WHICH
+        # directive to retire. Reuses the audit pass above -- no second audit.
+        worst = audit.worst_loss
+        worst_clause = ""
+        if worst is not None:
+            worst_clause = (f"; worst is bullet #{worst.index} "
+                            f"`{worst.label}` ({worst.kind}, losing "
+                            f"{worst.elided_chars} of its {worst.raw_chars} "
+                            f"chars)")
         return (f"{LEARNINGS_HEAD_PREFIX} {LEARNINGS_HEAD_WARN} -- pinned "
                 f"`## Patterns` head is {audit.raw_chars} chars in "
                 f"{audit.bullets} bullet(s) and does NOT arrive whole: "
                 f"{audit.truncated} bullet(s) truncated, {audit.dropped} dropped "
                 f"in EVERY stage prompt (bounds: {bullet_cap} chars/bullet, "
-                f"{budget} total) -- retire the spent directives")
+                f"{budget} total){worst_clause} -- retire the spent directives")
     except Exception as exc:
         return (f"{LEARNINGS_HEAD_PREFIX} UNKNOWN -- steering-head audit "
                 f"unavailable ({exc!r})")
