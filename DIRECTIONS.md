@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-184
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A -- `stage-times --limit N`, so the PM's required sizing line prices the CURRENT loop
+    - Candidate B -- a `deadtail` report: wall-clock paid AFTER the required artifact stopped growing
+    - Candidate C -- price live-lag as a RUN RATE, not a count
+    - Candidate B1 -- the invariant doc never names 4 of the 5 verbs the role cards order, incl. `preship`, the one gate that can BLOCK a push
+    - Candidate B2 -- "the five invariants" contradicts the six bullets it points at, on four surfaces, with no check
+    - Candidate B3 -- five stale present-tense figures in README index prose; make the verb count derived
+    winner: B1
+    ship: unknown
   iter-183
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- collapse the three `gather_*` test-quality scanners onto one shared body
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- surface each product's measured suite wall-time to the tester
     - Candidate B3 -- ration the lessons window per role so it covers >1 iteration
     winner: A1
-    ship: unknown
+    ship: PUSHED a11b0c0
   iter-182
     lenses: integration-and-adoption (iteration 182), simplification-and-deletion (iteration 182)
     - Candidate A1 -- the reporter seat and STATUS_REPORT.md are unreachable on the path this company actually runs
@@ -797,4 +807,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-80 scouted iterations
+81 scouted iterations
