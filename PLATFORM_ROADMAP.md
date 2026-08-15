@@ -286,6 +286,8 @@ in the archive.
 - iter 174 -- lands the lost 172+173 patch; the README index pin drops POSITION; 5th team config ignored.
 - iter 175 -- README index-number rule moves into foundry.py; a tests/-wide guard bans snapshot pins in any file.
 - iter 176 -- roles/pm.md must quote doctor's measured `stage-budget:` line when sizing a bite; exit code is ADVISORY.
+- iter 178 -- DIRECTIONS.md `ship:` takes git ship-truth as authority; a brake flags rows git proves shipped.
+- iter 179 -- re-lands 178's git ship-truth labels; the healed-row proof moves off the live artifact onto a fixture.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03
