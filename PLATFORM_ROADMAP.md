@@ -287,25 +287,11 @@ in the archive.
 - iter 179 -- re-lands 178's git ship-truth labels; the healed-row proof moves off the live artifact onto a fixture.
 - iter 180 -- outcomes reads the AUTHORITATIVE tester report (newest tester<N>.md), clearing 27 false FAIL rows.
 - iter 181 -- doctor's learnings-head WARN names the WORST-elided head bullet (label + chars), not just how many.
+- iter 182 -- agents refuses to clobber a hand-written AGENTS.md (exit 2, --force overrides); ignore line DEFERRED.
 
 
-### Migration note (per §6 self-mod guardrail) — iter 03
-- **New sentinel introduced:** `POSTRELEASE: HEALTHY|BROKEN`, written to `products/<name>/state/iter-NN/postrelease.md` (last non-empty line). It does NOT participate in loop control flow — `run_iteration`/`run_continuous` branch only on `VERDICT:`/`RESULT:`/`ACTION:` and the `res["status"]` value; `POSTRELEASE:` is diagnostic and carried as an additive `res["postrelease"]` key.
-- **New per-product artifact:** `products/<name>/HOTFIX_NEEDED.md` — a BROKEN post-release raises it (with the sha + evidence); a genuine-HEALTHY later ship clears it; the next PM must clear it before any new feature (now stated in `roles/pm.md`).
-- **Unchanged:** iteration numbering, `state/iter-NN` layout, the `VERDICT:`/`RESULT:`/`ACTION:` sentinel strings, `run`/`once`/`doctor` CLI, and the `run_continuous` status branches {shipped, no-ship, infra-fail, stopped}.
-
-### Migration note (per §6 self-mod guardrail) — iter 14
-- **New per-product artifact:** `products/<name>/SPEED_STORY_NEEDED.md` — an **advisory** (NON-blocking) throughput flag raised on a genuine SLOW ship (`test_seconds > SUITE_SLOW_SECONDS`), auto-cleared on the next genuine fast ship, left untouched on infra-skip / disabled / errored. Git-ignored (`products/*/SPEED_STORY_NEEDED.md`).
-- **New advisory PM duty** in `roles/pm.md` (after the hotfix check): consider a throughput/speed increment when the flag is present and no higher-value feature is warranted — subordinate to the blocking `HOTFIX_NEEDED.md` flag.
-- **No new sentinel; ADDITIVE and off the control path:** `run_iteration`/`run_continuous` still branch only on `VERDICT:`/`RESULT:`/`ACTION:` and `res["status"]` ∈ {shipped, no-ship, infra-fail, stopped}; iteration numbering and `state/iter-NN` layout are unchanged. The advisory write/clear rides the existing post-release ship branch and is swallow-safe, so a live loop resumes cleanly on restart.
-
-### Migration note (per §6 self-mod guardrail) — iter 26
-- **No new sentinel; ADDITIVE schema enrichment only.** `events.jsonl` records gain one ADDITIVE `kind` field (a semantic type from the pure `classify_event`); the top-level `event` key stays `"log"` (backward-compatible — existing consumers filtering `event=="log"` keep working), and historical lines without `kind` remain valid JSON.
-- **First change to `log()`'s emit call**, but strictly inside the EXISTING best-effort try/except mirror: the durable NIGHT_LOG write, all `VERDICT:`/`RESULT:`/`ACTION:`/`POSTRELEASE:` sentinels, iteration numbering, and `state/iter-NN` layout are UNCHANGED; `dispatcher.py` and every pipeline branch are untouched, and `kind` is never read on a control path — resume-safe (a live loop holds old code in memory; the change activates only on a clean restart). ARCHITECTURE.md §5 events bullet extended by one clause.
-
-### Migration note (per §6 self-mod guardrail) — iter 52
-- **No new sentinel; ADDITIVE gate-checklist step only.** `roles/final.md` gains a repo-agnostic leak-guard pre-push check (run `python3 <repo>/scripts/leak_guard.py --ref HEAD --repo <repo>` after the commit, before the push; a non-zero exit — 1 findings OR 2 error, fail-CLOSED — routes to the existing "If ANY fail — revert" path). It adds to the "ALL must hold to ship" set; it does NOT change iteration numbering, `state/iter-NN` layout, or the `VERDICT:`/`RESULT:`/`ACTION:`/`POSTRELEASE:` sentinel strings.
-- **Resume-safe for an in-flight loop.** Role prompts are read fresh from disk each stage, so a running loop picks this up on its next `final` stage; the change is purely additive (can only ADD a revert-on-leak, never suppress a ship that would otherwise pass a clean scan) and produces the SAME ship/revert sentinels. `foundry.py` / `dispatcher.py` are byte-unchanged and every pipeline branch is untouched. Repo-agnostic: a product repo without `scripts/leak_guard.py` skips the check, so no other product's gate is affected.
+### Migration notes (per §6 self-mod guardrail)
+- iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
 
 ## Guardrails for self-modification
 - Never change iteration numbering, state layout, or the `VERDICT:`/`RESULT:`/

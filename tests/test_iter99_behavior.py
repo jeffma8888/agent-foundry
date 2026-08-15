@@ -256,12 +256,15 @@ def test_b08_empty_learnings_placeholder_ascii_safe():
 # --- Behavior 9 -- agents_cli signature + defaults -------------------------
 def test_b09_agents_cli_signature_defaults():
     params = inspect.signature(foundry.agents_cli).parameters
-    assert list(params) == ["cfg", "recent", "print_only", "as_json"], (
+    assert list(params) == ["cfg", "recent", "print_only", "as_json", "force"], (
         f"agents_cli signature params wrong: {list(params)!r}"
     )
     assert params["recent"].default == 12
     assert params["print_only"].default is False
     assert params["as_json"].default is False
+    # iter 182: the non-destructive default is the SAFE one, so `force` must
+    # opt IN. A default of True would silently restore the clobbering write.
+    assert params["force"].default is False
 
 
 # --- Behavior 10 -- as_json prints exact json.dumps + newline, rc 0 --------
@@ -398,8 +401,9 @@ def test_b17_dispatch_spy_flag_mapping(tmp_path, monkeypatch):
     cfg_path = str(_write_cfg(tmp_path))
     calls = []
 
-    def spy(cfg, recent=12, print_only=False, as_json=False):
-        calls.append({"recent": recent, "print_only": print_only, "as_json": as_json})
+    def spy(cfg, recent=12, print_only=False, as_json=False, force=False):
+        calls.append({"recent": recent, "print_only": print_only,
+                      "as_json": as_json, "force": force})
         return 0
 
     monkeypatch.setattr(foundry, "agents_cli", spy)

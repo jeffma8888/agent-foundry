@@ -182,7 +182,7 @@ uv run python dispatcher.py --config foundry.config.json
 uv run python foundry.py learnings --config products/repolens/config.json  # [--recent N] [--json for one machine-readable learnings view: dashboards/reporters/CI; same exit 0 both modes]
 
 # 5. Emit an AGENTS.md house-rules file into the product repo from its learnings:
-uv run python foundry.py agents --config products/repolens/config.json  # [--recent N] [--print] [--json for one machine-readable AGENTS.md view: doc-publishers/CI; read-only, never writes the file, overrides --print; same exit 0]
+uv run python foundry.py agents --config products/repolens/config.json  # [--recent N] [--print] [--json for one machine-readable AGENTS.md view: doc-publishers/CI; read-only, never writes the file, overrides --print; same exit 0] [--force to overwrite an `AGENTS.md` that looks hand-written (no generated banner); without it the default write REFUSES with exit 2 and writes ZERO bytes]
 
 # 6. Lint a PM spec for completeness + size before an iteration (exit 1 = REVIEW):
 uv run python foundry.py lint-spec --file products/repolens/state/iter-NN/pm.md  # [--json for one machine-readable lint verdict: release-gate/CI/operator; same 0/1/2 exit code (2 = file-not-found, always plain-text)]
