@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-183
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- collapse the three `gather_*` test-quality scanners onto one shared body
+    - Candidate B1 -- collapse the `render` triplet on the three test-quality Summary classes
+    - Candidate C1 -- delete the duplicated pinned-head region scan behind `learnings_digest`
+    - Candidate B1 -- dispatcher re-execs itself when its loaded foundry.py is stale
+    - Candidate B2 -- surface each product's measured suite wall-time to the tester
+    - Candidate B3 -- ration the lessons window per role so it covers >1 iteration
+    winner: A1
+    ship: unknown
   iter-182
     lenses: integration-and-adoption (iteration 182), simplification-and-deletion (iteration 182)
     - Candidate A1 -- the reporter seat and STATUS_REPORT.md are unreachable on the path this company actually runs
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the `exit_code` property written four times becomes one function
     - Candidate B3 -- archive the four spent migration notes before the index wall reverts an iteration
     winner: B1
-    ship: unknown
+    ship: PUSHED ae0dbd3
   iter-181
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- doctor's learnings-head WARN names the WORST truncated bullet
@@ -787,4 +797,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-79 scouted iterations
+80 scouted iterations
