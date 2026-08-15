@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-181
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- doctor's learnings-head WARN names the WORST truncated bullet
+    - Candidate A2 -- reconcile the two gauges that price the 600s wall and disagree ~7x
+    - Candidate A3 -- (placeholder, refining) tests whose domain is `git ls-files`
+    - Candidate B1 -- the periodic reporter hand-parses what 8 ledger verbs already answer
+    - Candidate B2 -- the reviewer has never been shown the test-quality scanner
+    - Candidate B3 -- the `agents` default mode would clobber TRACKED source, and it blocks item 3
+    winner: A1
+    ship: unknown
   iter-180
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `doctor` gains a 5th drift line: the live brain's TEAM ROSTER is stale, and nothing can say so
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- re-scope the 27 every-suite byte-freeze guards to an AST/symbol invariant (roadmap item (o))
     - Candidate B3 -- the roadmap index sits 869 chars from a hard wall that reverts a verified iteration for a docs-only reason, and the automated paydown is exhausted
     winner: B1
-    ship: unknown
+    ship: PUSHED 55d6640
   iter-179
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- Commit the revert-and-re-land runbook; today its only copy is gitignored
@@ -767,4 +777,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-77 scouted iterations
+78 scouted iterations

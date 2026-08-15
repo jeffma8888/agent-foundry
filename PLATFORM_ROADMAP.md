@@ -81,11 +81,7 @@ clone the verifier builds (4 tracked files). A repo-wide guard over `tests/` ban
 preconditions owes its own false-positive calibration: only 2 files define `_REAL_PRODUCTS`, and the many
 legitimate `tmp_path` byte-walks must NOT be flagged. Calibrate two-sidedly, then ship.
 (t) SHIPPED iter 156 -- detail in the archive.
-(u) NEW (iter 160), RE-MEASURED 175 -- THE DOC NAMED THE WRONG KNOB: the binding bound is the PER-BULLET 800-char
-cap, NOT the 10,000-char head budget. `over_budget=bool(truncated or dropped)` (`foundry.py:1513`), and the live head
-delivers 8,559 of 11,769 raw chars with 1,441 chars of HEADROOM and `dropped=0`; the loss is 3 of 19 bullets TRUNCATED
-(3,198 chars elided, 27.2%), two of them marked "do not delete". The log is gitignored, so the shippable half is a WARN
-naming the WORST BULLET, never an edit to the log.
+(u) SHIPPED iter 181 -- detail in the archive.
 (v) SHIPPED iter 163 -- detail in the archive.
 (w) NEW (iter 165 scouts; FULL evidence in `products/_platform/state/iter-165/` + 165's archive bullet -- do NOT
 re-measure). The company verdict hoist is item (q) and its OBVIOUS shape is KNOWN-RED: 164's scout B measured that
@@ -290,6 +286,7 @@ in the archive.
 - iter 178 -- DIRECTIONS.md `ship:` takes git ship-truth as authority; a brake flags rows git proves shipped.
 - iter 179 -- re-lands 178's git ship-truth labels; the healed-row proof moves off the live artifact onto a fixture.
 - iter 180 -- outcomes reads the AUTHORITATIVE tester report (newest tester<N>.md), clearing 27 false FAIL rows.
+- iter 181 -- doctor's learnings-head WARN names the WORST-elided head bullet (label + chars), not just how many.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03
