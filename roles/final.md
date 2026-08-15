@@ -24,6 +24,12 @@ while holding a placeholder verdict.
 1. Reviewer verdict is APPROVE, or a fix pass addressed every BLOCKING item
    (verify yourself in the code).
 2. Tester result is PASS (after fixes, the LAST tester report must be PASS).
+   WHICH file that is is DECIDABLE, not a judgement call: a rerun / retry round writes
+   `tester2.md` / `tester3.md`, so ask the module -- `foundry.authoritative_tester_report`
+   names the authoritative report present in a state dir and
+   `foundry.read_authoritative_tester_result` parses its verdict. Do not re-derive it by
+   hand: an early `tester.md` ending `RESULT: FAIL` is usually a cap-killed checkpoint a
+   later round already superseded, and taking it would revert a green iteration.
 3. You independently run the quality-check command from Context -- full suite green.
 4. `git -C <repo> status` shows only intended changes (no stray files, no
    state/log files, no caches).

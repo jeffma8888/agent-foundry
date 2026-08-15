@@ -286,8 +286,10 @@ in the archive.
 - iter 174 -- lands the lost 172+173 patch; the README index pin drops POSITION; 5th team config ignored.
 - iter 175 -- README index-number rule moves into foundry.py; a tests/-wide guard bans snapshot pins in any file.
 - iter 176 -- roles/pm.md must quote doctor's measured `stage-budget:` line when sizing a bite; exit code is ADVISORY.
+- iter 177 -- suite runs -n auto by default via pyproject addopts; a brake pairs each plugin addopt with its dep.
 - iter 178 -- DIRECTIONS.md `ship:` takes git ship-truth as authority; a brake flags rows git proves shipped.
 - iter 179 -- re-lands 178's git ship-truth labels; the healed-row proof moves off the live artifact onto a fixture.
+- iter 180 -- outcomes reads the AUTHORITATIVE tester report (newest tester<N>.md), clearing 27 false FAIL rows.
 
 
 ### Migration note (per §6 self-mod guardrail) — iter 03
@@ -521,4 +523,3 @@ not die because its terminal did.
 - [ ] All dispatcher/foundry control-path console writes go through the helper; a dead
       stdout mid-session cannot terminate the loop (regression test simulates it).
 - [ ] Shutdown summary reaches the log file even with a dead console; `tests/` green.
-- iter 177 -- suite runs -n auto by default via pyproject addopts; a brake pairs each plugin addopt with its dep.
