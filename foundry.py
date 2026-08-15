@@ -7607,6 +7607,65 @@ def _gather_weak_test_files(repo: str) -> list[pathlib.Path]:
     return sorted(seen)
 
 
+def _gather_test_scan(cfg: ProductConfig, files: object,
+                      detector: Callable[[ast.AST], tuple[str, ...]],
+                      summarize: Callable[..., object]) -> object:
+    """The ONE shared body behind all three per-product test-quality scanners.
+
+    `gather_weak_tests` (iter 42), `gather_constant_asserts` (iter 48) and
+    `gather_skipped_tests` (iter 56) carried bodies identical up to EXACTLY TWO
+    tokens -- the detector each parsed file is handed to, and the pure summarizer
+    that builds the frozen core -- so ONE path-resolution + graceful-degradation
+    contract lived in THREE places, every fix to it had to be made three times
+    with nothing keeping the three in step, and a fourth detector would have
+    copied it a fourth time. They are now thin wrappers over this private helper:
+    the scanner-side mirror of `_thin_gather_cli` (iter 165, which collapsed the
+    eight per-product `--json` printers) and `_company_rollup_cli` (iter 152,
+    which collapsed the nine company roll-ups) on exactly this axis.
+
+    The contract, unchanged from each scanner's own iteration: take the paths from
+    `files` if given (scanning EXACTLY those `pathlib.Path(f)` and NOT walking the
+    repo -- the iter-22/14 `--files` contract) else an rglob of `cfg.repo` via the
+    bare-name `_gather_weak_test_files`; parse each path through the bare-name
+    `test_tree` and hand the tree to `detector`, folding a raised
+    `SyntaxError`/`OSError` into a graceful `parse_errors` entry `(str(path),
+    f"{type(exc).__name__}: {exc}")` and CONTINUING to the next path rather than
+    crashing or propagating; collect each finding as `(str(path), name)`,
+    path-major and in the order the detector returned them; then return whatever
+    `summarize` builds from the four KEYWORD arguments `product` /
+    `files_scanned` / `findings` / `parse_errors` (the last two as `tuple`). Adds
+    no decision logic of its own, so each scanner's report is byte-identical to
+    what its own copy built, and writes NOTHING to disk (read-only).
+
+    WHY `detector` and `summarize` are PARAMETERS resolved by the CALLER rather
+    than looked up in here: each public wrapper must resolve ITS OWN two seams by
+    BARE module name at CALL time, which is what keeps
+    `monkeypatch.setattr(foundry, "find_always_skipped_tests", ...)` and
+    `monkeypatch.setattr(foundry, "summarize_weak_tests", ...)` biting THROUGH the
+    wrapper. Looking either up in here would need a scanner->seam-name table, and
+    binding one any earlier (a default argument, a module-scope
+    `functools.partial`, an import-time dict) would freeze the patch site at
+    import and silently kill those existing seam tests while leaving the suite
+    green -- the worst failure shape available here."""
+    if files is None:
+        paths = _gather_weak_test_files(cfg.repo)
+    else:
+        paths = [pathlib.Path(f) for f in files]
+    findings: list[tuple[str, str]] = []
+    parse_errors: list[tuple[str, str]] = []
+    for path in paths:
+        try:
+            names = detector(test_tree(path))
+        except (SyntaxError, OSError) as exc:
+            parse_errors.append((str(path), f"{type(exc).__name__}: {exc}"))
+            continue
+        for name in names:
+            findings.append((str(path), name))
+    return summarize(
+        product=cfg.name, files_scanned=len(paths),
+        findings=tuple(findings), parse_errors=tuple(parse_errors))
+
+
 def gather_weak_tests(cfg: ProductConfig, files=None) -> WeakTestSummary:
     """Gather one product's assertion-free-test scan into a `WeakTestSummary`
     (item 6's offline slice -- a false-green test is the foundry's #1
@@ -7631,24 +7690,13 @@ def gather_weak_tests(cfg: ProductConfig, files=None) -> WeakTestSummary:
     rather than crashing -- Behavior 15 -- and continuing, never propagating);
     collects each assertion-free finding as `(str(path), name)`; hands them to
     the pure `summarize_weak_tests`; and returns the frozen `WeakTestSummary`
-    core. Writes NOTHING to disk (read-only)."""
-    if files is None:
-        paths = _gather_weak_test_files(cfg.repo)
-    else:
-        paths = [pathlib.Path(f) for f in files]
-    findings: list[tuple[str, str]] = []
-    parse_errors: list[tuple[str, str]] = []
-    for path in paths:
-        try:
-            names = find_assertionless_tests(test_tree(path))
-        except (SyntaxError, OSError) as exc:
-            parse_errors.append((str(path), f"{type(exc).__name__}: {exc}"))
-            continue
-        for name in names:
-            findings.append((str(path), name))
-    return summarize_weak_tests(
-        product=cfg.name, files_scanned=len(paths),
-        findings=tuple(findings), parse_errors=tuple(parse_errors))
+    core. Writes NOTHING to disk (read-only).
+
+    The scan body itself is the shared `_gather_test_scan` (iter 183); this
+    wrapper resolves its OWN detector and summarizer by BARE name at CALL time
+    and passes them in, so every existing seam monkeypatch still bites."""
+    return _gather_test_scan(cfg, files, find_assertionless_tests,
+                            summarize_weak_tests)
 
 
 def _thin_gather_cli(gather: Callable[..., object], cfg: ProductConfig,
@@ -7867,24 +7915,13 @@ def gather_constant_asserts(cfg: ProductConfig, files=None) -> ConstantAssertSum
     the next path, never propagating -- Behavior 5); collects each
     constant-assert finding as `(str(path), name)`; hands them to the pure
     bare-name `summarize_constant_asserts`; and returns the frozen
-    `ConstantAssertSummary` core. Writes NOTHING to disk (read-only)."""
-    if files is None:
-        paths = _gather_weak_test_files(cfg.repo)
-    else:
-        paths = [pathlib.Path(f) for f in files]
-    findings: list[tuple[str, str]] = []
-    parse_errors: list[tuple[str, str]] = []
-    for path in paths:
-        try:
-            names = find_constant_assert_tests(test_tree(path))
-        except (SyntaxError, OSError) as exc:
-            parse_errors.append((str(path), f"{type(exc).__name__}: {exc}"))
-            continue
-        for name in names:
-            findings.append((str(path), name))
-    return summarize_constant_asserts(
-        product=cfg.name, files_scanned=len(paths),
-        findings=tuple(findings), parse_errors=tuple(parse_errors))
+    `ConstantAssertSummary` core. Writes NOTHING to disk (read-only).
+
+    The scan body itself is the shared `_gather_test_scan` (iter 183); this
+    wrapper resolves its OWN detector and summarizer by BARE name at CALL time
+    and passes them in, so every existing seam monkeypatch still bites."""
+    return _gather_test_scan(cfg, files, find_constant_assert_tests,
+                            summarize_constant_asserts)
 
 
 def constant_asserts_cli(cfg: ProductConfig, files=None,
@@ -8070,24 +8107,13 @@ def gather_skipped_tests(cfg: ProductConfig, files=None) -> SkippedTestSummary:
     next path, never propagating -- Behavior 5); collects each always-skipped
     finding as `(str(path), name)`; hands them to the pure bare-name
     `summarize_skipped_tests`; and returns the frozen `SkippedTestSummary` core.
-    Writes NOTHING to disk (read-only)."""
-    if files is None:
-        paths = _gather_weak_test_files(cfg.repo)
-    else:
-        paths = [pathlib.Path(f) for f in files]
-    findings: list[tuple[str, str]] = []
-    parse_errors: list[tuple[str, str]] = []
-    for path in paths:
-        try:
-            names = find_always_skipped_tests(test_tree(path))
-        except (SyntaxError, OSError) as exc:
-            parse_errors.append((str(path), f"{type(exc).__name__}: {exc}"))
-            continue
-        for name in names:
-            findings.append((str(path), name))
-    return summarize_skipped_tests(
-        product=cfg.name, files_scanned=len(paths),
-        findings=tuple(findings), parse_errors=tuple(parse_errors))
+    Writes NOTHING to disk (read-only).
+
+    The scan body itself is the shared `_gather_test_scan` (iter 183); this
+    wrapper resolves its OWN detector and summarizer by BARE name at CALL time
+    and passes them in, so every existing seam monkeypatch still bites."""
+    return _gather_test_scan(cfg, files, find_always_skipped_tests,
+                            summarize_skipped_tests)
 
 
 def skipped_tests_cli(cfg: ProductConfig, files=None,

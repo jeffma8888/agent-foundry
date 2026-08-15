@@ -91,6 +91,10 @@ false `None` there reads as REVERTED, so it wants a wide malformed-input matrix.
 an iteration (28.80s fresh-clone suite), so 2.74x buys ~18s -- it is NOT the throughput item; a digest share cap is
 NOT restart-free (the budget is code in the frozen `foundry.py`), fold into (u); one-scout-per-iteration is 23.8% of
 all agent time but sits behind (o).
+(x) NEW (iter 183 scout A); evidence, method and rejected alternatives in 183's archive bullet -- do NOT re-measure.
+Rank duplication by STATEMENTS, never lines. NEXT BITE, not bundled with 183 (same subsystem): the `render` triplet
+on the three test-quality Summary classes -- 8 statements each differing in TWO string literals, uncovered by (q),
+guarded by 18 literal assertions, so golden-capture it. C1 (`_head_region`) is HOT-PATH: its own iteration.
 INDEX BUDGET (a scheduling item, never a competitive candidate): the binding wall is now ONE constant,
 `ROADMAP_INDEX_HARD_CHARS` (54,000) -- NOT the 60,000 `ROADMAP_SIZE_WARN_CHARS` -- and the two live tests that
 read this file derive it from that constant, so crossing it turns the suite RED and REVERTS the iteration for a
@@ -288,6 +292,7 @@ in the archive.
 - iter 180 -- outcomes reads the AUTHORITATIVE tester report (newest tester<N>.md), clearing 27 false FAIL rows.
 - iter 181 -- doctor's learnings-head WARN names the WORST-elided head bullet (label + chars), not just how many.
 - iter 182 -- agents refuses to clobber a hand-written AGENTS.md (exit 2, --force overrides); ignore line DEFERRED.
+- iter 183 -- three gather_* test-quality scanners collapse onto ONE shared body; 26 redundant statements gone.
 
 
 ### Migration notes (per §6 self-mod guardrail)
