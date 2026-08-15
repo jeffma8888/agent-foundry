@@ -10230,6 +10230,147 @@ def read_test_disposition(path: pathlib.Path) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# Authoritative tester report (iter-180): WHICH report carries the gate verdict
+# --------------------------------------------------------------------------- #
+# The first tester round writes `tester.md`; a RERUN or RETRY round writes
+# `tester2.md` / `tester3.md` (`STAGE_OUTPUT_NAMES` routes them). So the FIRST
+# report is routinely a cap-killed checkpoint ending `RESULT: FAIL` that a later
+# round SUPERSEDED with an earned PASS -- measured on this tree, 27 of the 37
+# iteration dirs holding more than one report disagree that way, and 26 of the 27
+# SHIPPED. Anything reporting "the tester verdict" must therefore select the
+# NEWEST-round report PRESENT instead of hardcoding a filename.
+#
+# All of these live at MODULE level and read their inputs (`TESTER_REPORT_BASE`,
+# `STAGE_OUTPUT_NAMES`, and each other) by BARE name INSIDE the function body, so
+# a `monkeypatch.setattr(foundry, ...)` bites and a test can reshape the family
+# without touching a call site.
+TESTER_REPORT_BASE = "tester.md"
+
+# The STRICT shape a tester report filename may take. ANCHORED both ends, like
+# `_ATTEMPT_LOG_RE`, so it cannot be mis-used as a PREFIX test either: an
+# unformatted `{iteration:02d}` template, a `testerp.md` typo and a
+# `tester.md.bak` backup are all REJECTED rather than guessed at -- the same
+# "skip a name of any other shape" contract `_ATTEMPT_LOG_RE` gives attempt logs.
+_TESTER_REPORT_RE = re.compile(r"^tester(\d*)\.md$")
+
+# The round is the TRAILING digit run of the filename STEM.
+_TESTER_ROUND_RE = re.compile(r"(\d+)$")
+
+
+def tester_report_round(name: str) -> int:
+    """The round number encoded in a tester report FILENAME (pure, total).
+
+    `"tester.md"` -> `0` (the first round writes no digit), `"tester2.md"` ->
+    `2`, `"tester12.md"` -> `12`. WHY an int and not the raw name: it is the sort
+    key `tester_report_names` orders by, and a LEXICAL sort would place
+    `"tester10.md"` BEFORE `"tester2.md"` and so hand the ledger a superseded
+    verdict the first day a tenth round exists.
+
+    TOTAL: any name with no digit run before the final extension reads as round
+    `0` and nothing raises -- `""`, `None`, `"reviewer.md"`, `"testerp.md"`,
+    `"tester.md.bak"`. The `tester` PREFIX is deliberately NOT checked here;
+    admitting only the strict `tester<digits>.md` shape is
+    `tester_report_names`'s job, so this stays a one-responsibility sort key.
+    """
+    stem = str(name or "")
+    dot = stem.rfind(".")
+    if dot > 0:
+        # Strip the LAST extension only, mirroring `pathlib.Path.stem`, so
+        # `tester.md.bak` degrades to round 0 rather than reading `md` as a round.
+        stem = stem[:dot]
+    match = _TESTER_ROUND_RE.search(stem)
+    return int(match.group(1)) if match else 0
+
+
+def tester_report_names() -> tuple[str, ...]:
+    """Every tester report filename the loop can write, OLDEST round FIRST.
+
+    DERIVED from `STAGE_OUTPUT_NAMES` at CALL time: every entry whose STAGE key
+    starts with `"tester"` and whose VALUE fullmatches the strict
+    `tester<digits>.md` shape, seeded with `TESTER_REPORT_BASE` (the base round
+    has no table entry of its own -- `run_stage` passes the default
+    `<stage>.md`). WHY derive instead of listing: `STAGE_OUTPUT_NAMES` is the
+    very table that ROUTES `tester-rerun` / `tester-retry` / `tester-retry2`, so
+    a hardcoded list would go stale, SILENTLY and read-only, the day a fourth
+    round is wired -- which is the drift class that made the ledger defame its
+    own best-recovering iterations in the first place.
+
+    Ordered by `tester_report_round` ASCENDING and de-duplicated, so the
+    authoritative (newest-round) report is always the LAST element and the first
+    is always `TESTER_REPORT_BASE`. On the shipped table that is exactly
+    `("tester.md", "tester2.md", "tester3.md")`; on an EMPTY table it degrades to
+    `(TESTER_REPORT_BASE,)` -- never empty, so no caller needs a special case.
+    Non-`str` keys / values are skipped rather than coerced.
+    """
+    names = {TESTER_REPORT_BASE}
+    for stage, out_name in STAGE_OUTPUT_NAMES.items():
+        if not isinstance(stage, str) or not isinstance(out_name, str):
+            continue
+        if stage.startswith("tester") and _TESTER_REPORT_RE.fullmatch(out_name):
+            names.add(out_name)
+    return tuple(sorted(names, key=tester_report_round))
+
+
+def authoritative_tester_report(present: Iterable[str] | None) -> str | None:
+    """Pick which of the PRESENT tester reports carries the gate verdict (pure).
+
+    Returns the LAST member of `tester_report_names()` that appears in `present`
+    -- i.e. the highest-round report actually on disk -- or `None` when none of
+    the known names is present. This is the rule `roles/final.md` gate checklist
+    item 2 states in prose ("the LAST tester report must be PASS"), made
+    decidable so neither the release gate nor the ledger re-derives it by hand.
+
+    A GAP is fine: `{"tester.md", "tester3.md"}` -> `"tester3.md"`, because a
+    missing middle round means that round never wrote, not that the newest one
+    does not count. Unrelated names are IGNORED, so a sibling `reviewer.md` /
+    `final.md` / `tester.attempt1.log` / `testerp.md` can never be selected.
+
+    TOTAL and filesystem-free: an empty iterable, `None`, a generator and an
+    iterable with duplicates are all accepted without raising, and nothing here
+    touches disk -- the caller decides what "present" means.
+    """
+    have = set(present or ())
+    for name in reversed(tester_report_names()):
+        if name in have:
+            return name
+    return None
+
+
+def read_authoritative_tester_result(iter_dir: pathlib.Path) -> str | None:
+    """One iteration dir's authoritative tester verdict: `"PASS"` / `"FAIL"` / `None`.
+
+    The ONLY filesystem seam of this family: probe each `tester_report_names()`
+    candidate with `.is_file()`, hand what is PRESENT to
+    `authoritative_tester_report`, then read the selected file through the
+    EXISTING `_read_sentinel` + `parse_tester_result` pair -- no second sentinel
+    parser. Every helper is called by BARE name, so a monkeypatch on any of them
+    bites here too.
+
+    PRESENCE decides WHICH report is authoritative, and that report's parse is
+    then reported AS-IS: a newest report with no recognizable `RESULT:` sentinel
+    reads `None` even when an OLDER report parses cleanly. Deliberately
+    pessimistic -- the same reading `parse_ship_action` gives a malformed
+    `final.md` -- because falling back to a superseded round is precisely how a
+    stale verdict would re-enter the ledger.
+
+    Returns `None`, never raising, for a dir holding no report file, a
+    nonexistent dir, or an `OSError` while probing (the read itself is already
+    guarded inside `_read_sentinel`).
+    """
+    try:
+        present = [name for name in tester_report_names()
+                   if (iter_dir / name).is_file()]
+    except OSError:
+        # A probe error must degrade to "unknown", never crash a read-only
+        # ledger -- same contract as `_read_sentinel` and `gather_outcomes`.
+        return None
+    name = authoritative_tester_report(present)
+    if name is None:
+        return None
+    return _read_sentinel(iter_dir / name, parse_tester_result)
+
+
+# --------------------------------------------------------------------------- #
 # Test-gate routing (iter-127): the ANCHORED trigger
 # --------------------------------------------------------------------------- #
 # WHICH dispositions from `classify_test_report` earn the iteration's one repair
@@ -11335,11 +11476,16 @@ def gather_outcomes(cfg: ProductConfig,
     Mirrors `gather_history` (iter 31) exactly, but reads the THREE final gate
     sentinels per iteration instead of the ship action + post-release verdict:
     for each `state/iter-NN/` it reads the reviewer verdict from `reviewer.md`
-    via `parse_review_verdict`, the tester result from `tester.md` via
-    `parse_tester_result`, and the ship action from `final.md` via
-    `parse_ship_action`. Every signal is read through the module-level seams by
-    BARE name so a `monkeypatch.setattr(foundry, ...)` in a test bites, and each
-    is guarded via `_read_sentinel` to `None` on an absent file / read error.
+    via `parse_review_verdict`, the ship action from `final.md` via
+    `parse_ship_action` -- both guarded via `_read_sentinel` to `None` on an
+    absent file / read error -- and the tester result through
+    `read_authoritative_tester_result`, which selects the NEWEST-round tester
+    report actually present (iter 180). That selection is the whole reason no
+    report filename is spelled here: a rerun / retry round writes its verdict to
+    `tester2.md` / `tester3.md`, so hardcoding the base name printed `FAIL` for
+    iterations whose LAST report was an earned `PASS`. Every signal is read
+    through the module-level seams by BARE name, so a
+    `monkeypatch.setattr(foundry, ...)` in a test bites.
 
       * lists `cfg.state`'s dir names (guarded -- a missing / unreadable state
         dir yields no names, never an error) and derives the iteration numbers
@@ -11368,8 +11514,7 @@ def gather_outcomes(cfg: ProductConfig,
             iteration=n,
             review=_read_sentinel(state / f"iter-{n:02d}" / "reviewer.md",
                                   parse_review_verdict),
-            tester=_read_sentinel(state / f"iter-{n:02d}" / "tester.md",
-                                  parse_tester_result),
+            tester=read_authoritative_tester_result(state / f"iter-{n:02d}"),
             action=_read_sentinel(state / f"iter-{n:02d}" / "final.md",
                                   parse_ship_action),
         )
@@ -11390,8 +11535,8 @@ def outcomes_cli(cfg: ProductConfig, limit: int | None = None,
     to disk.
 
     Gathers the ledger through the `gather_outcomes(cfg, limit)` seam (which
-    reads each iteration's `reviewer.md` / `tester.md` / `final.md` sentinels
-    via the EXISTING module-level parsers, called by BARE name so a
+    reads each iteration's reviewer / AUTHORITATIVE-tester / final sentinels via
+    the EXISTING module-level parsers, called by BARE name so a
     `monkeypatch.setattr(foundry, ...)` bites) then prints the pure
     `OutcomesSummary` core. Returns `summary.exit_code` (`0` when the state dir
     has iterations, `2` when empty). Writes NOTHING to disk (read-only) and

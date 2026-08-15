@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-180
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- `doctor` gains a 5th drift line: the live brain's TEAM ROSTER is stale, and nothing can say so
+    - Candidate A2 -- `restore-work`: the framework saves the work its abort path destroys and still cannot give it back
+    - Candidate A3 -- make the ship ledger tell in-flight, stranded, and forbidden-token apart
+    - Candidate B1 -- the gate ledger reads the wrong tester report: 27 iterations render `tester: FAIL` for rounds that PASSED and shipped
+    - Candidate B2 -- re-scope the 27 every-suite byte-freeze guards to an AST/symbol invariant (roadmap item (o))
+    - Candidate B3 -- the roadmap index sits 869 chars from a hard wall that reverts a verified iteration for a docs-only reason, and the automated paydown is exhausted
+    winner: B1
+    ship: unknown
   iter-179
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- Commit the revert-and-re-land runbook; today its only copy is gitignored
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `push-target`: nothing in 18,352 lines checks that the declared push target is the repo git would actually push to
     - Candidate B3 -- name the committed artifacts the pipeline rewrites, so a test stops pinning a moving target
     winner: B1
-    ship: unknown
+    ship: PUSHED c32d099
   iter-178
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A2 -- stop the unfinished-checkpoint tester chain from re-paying a whole stage
@@ -757,4 +767,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-76 scouted iterations
+77 scouted iterations
