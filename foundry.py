@@ -746,6 +746,13 @@ def run_doctor_cli(cfg: ProductConfig) -> int:
     blocking a run. `run_doctor` itself stays a 4-`Check` function, since its
     shape is pinned by the iter-01 tests, which is exactly why these four
     diagnostics live HERE and not as fifth through eighth checks.
+
+    Since iter 184 the stage-budget line is priced over the most-recent
+    `STAGE_BUDGET_RECENT_ITERATIONS` iterations, read from that module global
+    INSIDE this body (so a `monkeypatch.setattr(foundry, ...)` re-windows the
+    printed line), because an all-time median cannot show that a throughput fix
+    worked and a permanently-standing WARN teaches the operator to skip the
+    preflight.
     """
     checks = run_doctor(cfg)
     for c in checks:
@@ -768,7 +775,7 @@ def run_doctor_cli(cfg: ProductConfig) -> int:
         print(f"{ROADMAP_INDEX_PREFIX} UNKNOWN -- roadmap-index line errored: "
               f"{exc!r}")
     try:
-        print(stage_budget_line(cfg))
+        print(stage_budget_line(cfg, limit=STAGE_BUDGET_RECENT_ITERATIONS))
     except Exception as exc:  # pragma: no cover - contract-impossible belt
         print(f"{STAGE_BUDGET_PREFIX} UNKNOWN -- stage-budget line errored: "
               f"{exc!r}")
@@ -13109,9 +13116,21 @@ class StageTimesSummary:
     soft budget used (the passed `--budget`, else `STAGE_SOFT_BUDGET` read at call
     time). `exit_code` is the ONLY gating axis: `2` iff nothing was parsed, `1` iff
     at least one group is over budget (so a wrapper can gate on the WARN), else `0`.
+
+    `limit` is the EFFECTIVE window this digest was computed over (iter 184):
+    `None` for an all-time digest, else the POSITIVE number of most-recent
+    ITERATIONS kept, already normalised by `effective_stage_window` so a `0` /
+    negative / non-int `--limit` can never reach a consumer as "windowed".
+    `iterations` is how many DISTINCT iteration numbers actually landed in the
+    digest, which is what stops a window wider than the history from reading as
+    evidence that does not exist. Both TRAIL with defaults, so every
+    pre-iter-184 construction and every equality against an unwindowed summary
+    still holds.
     """
     groups: tuple["StageTimesGroup", ...]
     budget: int
+    limit: int | None = None
+    iterations: int = 0
 
     @property
     def total(self) -> int:
@@ -13137,7 +13156,10 @@ class StageTimesSummary:
         """A deterministic human report (the CLI's black-box contract).
 
         Carries, as substrings: a header line with `foundry stage-times` and the
-        effective soft budget; one line per `(team,stage)` group naming team,
+        effective soft budget -- plus, for a WINDOWED digest only, that window's
+        size and the number of DISTINCT iterations included, so a windowed
+        report can never be mistaken for the all-time one (iter 184); one line
+        per `(team,stage)` group naming team,
         stage, count, median_s, max_s, timeouts -- plus, for a group with at least
         one no-output attempt, a `kinds ` fragment listing `kind=count` pairs in
         ascending kind order; and, for EVERY over-budget group,
@@ -13145,6 +13167,12 @@ class StageTimesSummary:
         budget. With NOTHING parsed the report carries the literal `no stage
         timings` (and `exit_code` is 2)."""
         header = f"foundry stage-times (soft budget {self.budget}s)"
+        if self.limit is not None:
+            # Name the REQUESTED window AND what actually landed in it: a window
+            # of 20 over a 5-iteration log must not read as 20 iterations of
+            # evidence (the whole point of the line is to be trusted).
+            header += (f" -- most-recent {self.limit} iteration(s) window, "
+                       f"{self.iterations} distinct iteration(s) included")
         if not self.groups:
             return "\n".join([header, "  no stage timings"])
         lines = [header]
@@ -13176,6 +13204,11 @@ class StageTimesSummary:
         through `json.loads(json.dumps(...))`. Pure: touches no filesystem."""
         return {
             "budget": self.budget,
+            # The window travels WITH the numbers it produced: a machine consumer
+            # that cannot see `limit` cannot tell an all-time median from a
+            # recent one, which is the defect iter 184 exists to fix.
+            "limit": self.limit,
+            "iterations": self.iterations,
             "total": self.total,
             "over_budget_count": self.over_budget_count,
             "exit_code": self.exit_code,
@@ -13183,7 +13216,56 @@ class StageTimesSummary:
         }
 
 
-def summarize_stage_times(attempts, *, budget: int | None = None) -> "StageTimesSummary":
+def effective_stage_window(limit: int | None) -> int | None:
+    """Normalise a raw `--limit` into the EFFECTIVE window (`None` = unwindowed).
+
+    ONE place decides what "windowed" means, so `summarize_stage_times`,
+    `render()`, `to_dict()` and `stage_budget_line` can never disagree about a
+    `0`, negative or non-int `limit`. Mirrors the five ledger verbs' documented
+    idiom (`isinstance(limit, int) and limit > 0` keeps the highest-N
+    iterations, anything else means ALL) and coerces the survivor with
+    `int(...)` so a `bool` can never reach a JSON payload as `true`. Pure."""
+    return int(limit) if isinstance(limit, int) and limit > 0 else None
+
+
+def _stage_attempt_iteration(attempt: object) -> int:
+    """One attempt's iteration number, coerced TOTALLY (0 when unreadable).
+
+    `summarize_stage_times` is deliberately untyped in `attempts` (it summarises
+    duck-typed rows in several tests), so the window has to survive a row whose
+    `iteration` is missing or unparsable rather than raising inside a read-only
+    lens."""
+    try:
+        return int(getattr(attempt, "iteration", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def limit_stage_attempts(attempts, limit: int | None = None) -> list:
+    """Keep only the attempts belonging to the `limit` most-recent ITERATIONS.
+
+    Windows by DISTINCT iteration number, never by row count: a stage that
+    retried four times in one iteration must not crowd three other iterations
+    out of the window (the same "keep the highest-N iterations" idiom `timing`,
+    `history`, `outcomes`, `rescues` and `losses` already document). `limit` is
+    normalised through `effective_stage_window`, called by its BARE module name
+    so a `monkeypatch.setattr(foundry, ...)` bites, so `None` / `0` / a negative
+    / a non-int returns EVERY attempt in input order -- today's behaviour.
+
+    Pure and total: no filesystem, no clock, the input sequence is never
+    mutated, and a row with an unreadable `iteration` still gets a place in the
+    ordering (as 0) instead of raising."""
+    items = list(attempts)
+    window = effective_stage_window(limit)
+    if window is None:
+        return items
+    # Ascending distinct iteration numbers -> the most-recent N are the LAST N.
+    keep = set(sorted({_stage_attempt_iteration(a) for a in items})[-window:])
+    return [a for a in items if _stage_attempt_iteration(a) in keep]
+
+
+def summarize_stage_times(attempts, *, budget: int | None = None,
+                          limit: int | None = None) -> "StageTimesSummary":
     """Pure summariser: group `StageAttempt`s by `(team,stage)` into a digest.
 
     For each group computes `count`, `median_s` (see `_median`), `max_s`, `timeouts`
@@ -13196,6 +13278,12 @@ def summarize_stage_times(attempts, *, budget: int | None = None) -> "StageTimes
     verdict. Groups are ordered deterministically by `(team,stage)` ascending.
     Total (never raises): an empty `attempts` yields an empty digest (exit 2)."""
     effective = STAGE_SOFT_BUDGET if budget is None else budget
+    # Window FIRST, then group: every metric below (count/median/max/timeouts)
+    # must describe the kept attempts only. Both seams are called by BARE name
+    # so a test can patch either one.
+    attempts = limit_stage_attempts(attempts, limit)
+    window = effective_stage_window(limit)
+    included = len({_stage_attempt_iteration(a) for a in attempts})
     by_key: dict[tuple[str, str], list["StageAttempt"]] = {}
     for a in attempts:
         by_key.setdefault((a.team, a.stage), []).append(a)
@@ -13220,11 +13308,13 @@ def summarize_stage_times(attempts, *, budget: int | None = None) -> "StageTimes
             timeouts=len(no_output),
             over_budget=median_s > effective,
             kind_counts=tuple(sorted(tally.items()))))
-    return StageTimesSummary(groups=tuple(groups), budget=effective)
+    return StageTimesSummary(groups=tuple(groups), budget=effective,
+                             limit=window, iterations=included)
 
 
 def gather_stage_times(log_path, *, budget: int | None = None,
-                       team: str | None = None) -> "StageTimesSummary":
+                       team: str | None = None,
+                       limit: int | None = None) -> "StageTimesSummary":
     """Read a `dispatcher.out` path and summarise its stage attempt durations.
 
     Reads the file at `log_path`, runs `parse_stage_attempts` on its text (called
@@ -13241,11 +13331,16 @@ def gather_stage_times(log_path, *, budget: int | None = None,
     attempts = parse_stage_attempts(text)
     if team is not None:
         attempts = [a for a in attempts if a.team == team]
-    return summarize_stage_times(attempts, budget=budget)
+    # `limit` rides through to the summariser, which windows AFTER this team
+    # filter -- so the window is computed from THIS team's own iteration
+    # numbers, never from the log's global maximum (which would return an empty
+    # digest for a team that has not run recently).
+    return summarize_stage_times(attempts, budget=budget, limit=limit)
 
 
 def stage_times_cli(log_path, *, budget: int | None = None,
-                    team: str | None = None, as_json: bool = False) -> int:
+                    team: str | None = None, limit: int | None = None,
+                    as_json: bool = False) -> int:
     """On-demand CLI: print a per-(team,stage) attempt-duration digest + exit code.
 
     Gathers via the `gather_stage_times(...)` seam (called by BARE name so a
@@ -13254,7 +13349,8 @@ def stage_times_cli(log_path, *, budget: int | None = None,
     indent=2)` document, else `render()`. RETURNS `summary.exit_code` (0 healthy /
     1 >=1 over budget / 2 nothing to report). Writes NOTHING to disk (read-only) --
     a thin printer over the pure core that adds no decision logic of its own."""
-    summary = gather_stage_times(log_path, budget=budget, team=team)
+    summary = gather_stage_times(log_path, budget=budget, team=team,
+                                 limit=limit)
     print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
     return summary.exit_code
 
@@ -13296,6 +13392,24 @@ STAGE_HARD_CAP_SECONDS = 600      # the agent CLI's OWN hard per-stage kill
 STAGE_NEAR_CAP_MARGIN = 60        # WARN this close to the wall (basis above)
 STAGE_BUDGET_PREFIX = "stage-budget:"   # stable grep anchor for the one line
 STAGE_BUDGET_WARN = "WARN"        # ONLY the near-wall branch carries it
+
+# WHY A RECENT WINDOW, AND WHY 20 (iter 184). `roles/pm.md`'s size self-check
+# makes this line a REQUIRED verbatim input to every spec, so it must price the
+# loop the PM is about to run -- not the loop's whole life. `gather_stage_times`
+# had no window, so the line reported an all-time median (106 `engineer`
+# attempts): it under-reports current harm (`tester` read a 558s all-time median
+# against 600s over the recent 20) and, worse, it can never show RECOVERY --
+# halving a stage's duration moves an all-time median by ~1/5 of the delta, so a
+# successful stage split and a failed one look identical for dozens of
+# iterations and the operator learns to ignore a permanent WARN. 20 iterations is
+# ~6-12 attempts per stage (a few days of loop time): long enough that one slow
+# outlier cannot own the median, short enough that a throughput fix shows up
+# within a few ships. Measured recent-20 vs all-time on this checkout: tester
+# +42s, pm_scout_a +67s, reviewer +54s, final +38s -- every drift in the
+# harm-HIDING direction. Read at CALL TIME by `run_doctor_cli`, so a
+# `monkeypatch.setattr(foundry, "STAGE_BUDGET_RECENT_ITERATIONS", X)` re-windows
+# the printed line with no re-import.
+STAGE_BUDGET_RECENT_ITERATIONS = 20   # doctor's default stage-budget window
 
 
 def _stage_budget_int(value: object) -> int:
@@ -13403,8 +13517,28 @@ def stage_budget_verdict(summary: object) -> StageBudgetVerdict:
         group_count=len(rows), hard_cap=hard_cap, margin=margin)
 
 
+def stage_budget_window_phrase(summary: object) -> str:
+    """The ` over the N most-recent iteration(s)` clause -- or `""` when unwindowed.
+
+    Duck-typed on `limit`/`iterations` and TOTAL: any summary that does not carry
+    a POSITIVE `limit` (a `None`, a scripted test seam's stand-in object, a
+    pre-iter-184 summary) yields the EMPTY string, which is exactly what keeps
+    the unwindowed `stage-budget:` line byte-identical to the one iter 164
+    shipped. When the requested window is WIDER than the history it says "all
+    available" rather than implying evidence that does not exist -- the same
+    honesty the `render()` header owes. Pure: no filesystem, no clock."""
+    limit = getattr(summary, "limit", None)
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit <= 0:
+        return ""
+    included = _stage_budget_int(getattr(summary, "iterations", 0))
+    tail = "; all available" if 0 < included < limit else ""
+    return (f" over the {included} most-recent iteration(s) "
+            f"(window {limit}{tail})")
+
+
 def stage_budget_line(cfg: "ProductConfig",
-                      log_path: "str | pathlib.Path | None" = None) -> str:
+                      log_path: "str | pathlib.Path | None" = None,
+                      *, limit: int | None = None) -> str:
     """ONE human line: how close is this product's worst stage to the 600s kill?
 
     Shaped exactly like `live_lag_line`, `learnings_head_line` and
@@ -13429,6 +13563,14 @@ def stage_budget_line(cfg: "ProductConfig",
         which is to SHRINK the bite (or split the stage) -- never to raise the
         cap, which is the agent CLI's and not ours to raise.
 
+    `limit` (iter 184) windows the digest to the N most-recent ITERATIONS of
+    THIS team, and the OK/WARN branches then NAME that window in words (via
+    `stage_budget_window_phrase`) so no reader can mistake a recent median for
+    an all-time one. `limit=None` reproduces the iter-164 line byte-for-byte,
+    which is what lets `doctor` adopt a window without invalidating a single
+    existing assertion on this line; a `limit` wider than the history degrades
+    to "all available" rather than to an empty report.
+
     ALWAYS returns a non-empty SINGLE-line `str` (no embedded newline), never
     `None`, and NEVER raises: a diagnostic that can crash the preflight it
     decorates is worse than no diagnostic. Writes NOTHING to disk.
@@ -13444,10 +13586,13 @@ def stage_budget_line(cfg: "ProductConfig",
             # four other readers share.
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", DeprecationWarning)
-                summary = gather_stage_times(log, team=team)
+                summary = gather_stage_times(log, team=team, limit=limit)
         except Exception:
             summary = None       # unreadable / raising seam -> UNKNOWN, not WARN
         v = stage_budget_verdict(summary) if summary is not None else None
+        # Empty for an unwindowed digest, so both branches below stay
+        # byte-identical to iter 164 when no window is asked for.
+        window = stage_budget_window_phrase(summary)
         if v is None or not v.has_data:
             return (f"{STAGE_BUDGET_PREFIX} UNKNOWN -- no parsable stage attempts "
                     f"for team {team!r} in {log.name}; cannot price any stage "
@@ -13455,13 +13600,13 @@ def stage_budget_line(cfg: "ProductConfig",
         if v.near_wall:
             return (f"{STAGE_BUDGET_PREFIX} {STAGE_BUDGET_WARN} -- "
                     f"{v.near_wall_count}/{v.group_count} stage(s) within "
-                    f"{v.margin}s of the {v.hard_cap}s hard cap; worst is "
+                    f"{v.margin}s of the {v.hard_cap}s hard cap{window}; worst is "
                     f"{v.worst_stage} at a {v.worst_median:.1f}s median "
                     f"({v.headroom:.1f}s headroom, {v.worst_timeouts} no-output "
                     f"attempt(s) in {v.worst_count}) -- shrink the bite or split "
                     f"the stage; a median AT the cap only ever passed by luck")
         return (f"{STAGE_BUDGET_PREFIX} OK -- worst stage {v.worst_stage} at a "
-                f"{v.worst_median:.1f}s median, {v.headroom:.1f}s clear of the "
+                f"{v.worst_median:.1f}s median{window}, {v.headroom:.1f}s clear of the "
                 f"{v.hard_cap}s hard cap (0/{v.group_count} within {v.margin}s)")
     except Exception as exc:
         # Whitespace-collapsed so an exception message with a newline in it cannot
@@ -18390,6 +18535,10 @@ def main(argv: list[str] | None = None) -> int:
                      help="only report attempts for this team (default: all teams)")
     stm.add_argument("--budget", type=int, default=None,
                      help="override STAGE_SOFT_BUDGET (seconds) for this invocation")
+    stm.add_argument("--limit", type=int, default=None,
+                     help="report only the most-recent N ITERATIONS (default: "
+                          "all; 0 or negative also means all, matching the "
+                          "timing/history/outcomes/rescues/losses idiom)")
     stm.add_argument("--json", action="store_true",
                      help="emit the digest as one JSON document (machine-readable) "
                           "instead of the human report; same 0/1/2 exit code")
@@ -18823,7 +18972,7 @@ def main(argv: list[str] | None = None) -> int:
         # Dispatched BEFORE load_config: needs no product --config;
         # `dispatcher.out` is a foundry-root artifact (read-only, writes nothing).
         return stage_times_cli(args.log, budget=args.budget, team=args.team,
-                               as_json=args.json)
+                               limit=args.limit, as_json=args.json)
 
     cfg = load_config(args.config)
     if args.cmd == "doctor":

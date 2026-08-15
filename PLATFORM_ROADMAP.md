@@ -27,11 +27,8 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 145): ledger and archive are current through 145; each iteration's PM writes BOTH of its own
-records in its OWN ship commit and must never PLAN on a later stage writing them (126's were written by the
-release gate after a 600 s kill, 133's archive bullet by a later stage of the same commit). 145 archived the
-spent iter-142 STATUS stack, the stale iter-86 README-freeze RESOLVED bullet and the two stale item-1/item-11
-deferral notes under `## Compacted from the index by iter 145`, hoisting every live clause first. STILL OPEN:
+STATUS (iter 184): ledger and archive are current through 184.
+STILL OPEN:
 (c), (d), (g)'s `parse_triage_winner` half, (j), (k), (o), and (p).
 NEXT UP, in value order: (a) Only the OPTIONAL 25-guard
 CONSOLIDATION remains, and it does NOT unblock strangler steps 2/3 (one guard still freezes
@@ -95,21 +92,23 @@ all agent time but sits behind (o).
 Rank duplication by STATEMENTS, never lines. NEXT BITE, not bundled with 183 (same subsystem): the `render` triplet
 on the three test-quality Summary classes -- 8 statements each differing in TWO string literals, uncovered by (q),
 guarded by 18 literal assertions, so golden-capture it. C1 (`_head_region`) is HOT-PATH: its own iteration.
+(y) NEW (iter 184 scout A; evidence + rejected alternatives in 184's archive bullet -- do NOT re-measure).
+NEXT BITE, not bundled with 184: put a recent-vs-all-time DELTA on the SAME stage-budget line, which is the
+only form that can prove a throughput fix worked. Then scout A's `deadtail` report (12.0 min/iteration of
+wall clock after the required artifact stops growing; 7.0 of it in prose-only stages). Item (i) already
+DE-LISTED the stop-when-stable EARLY EXIT -- report only, never a kill.
 INDEX BUDGET (a scheduling item, never a competitive candidate): the binding wall is now ONE constant,
 `ROADMAP_INDEX_HARD_CHARS` (54,000) -- NOT the 60,000 `ROADMAP_SIZE_WARN_CHARS` -- and the two live tests that
 read this file derive it from that constant, so crossing it turns the suite RED and REVERTS the iteration for a
 docs-only reason. Since iter 145 `foundry doctor` prints a `roadmap-index:` line that WARNs within 3,000 chars
 of the wall: ASK IT rather than measuring by hand. GROWTH, re-derived iter 166 with window+method (the figure
-it replaces reproduced under none): the mean of the six per-ship deltas over iterations 159-165, paydowns excluded, is +594/iteration; worst ship seen is 165's +1,434, leaving 222 of
-today's 1,656 headroom. Three rules that do not change: measure `len(text)`, never `wc -c`
+it replaces reproduced under none): the mean of the six per-ship deltas over iterations 159-165, paydowns excluded, is +594/iteration; worst ship seen is 165's +1,434, which left 222 chars of headroom at iter 166. Three rules that do not change: measure `len(text)`, never `wc -c`
 (multibyte dashes read ~163 bytes high); NEVER delete an old `- iter N ` ledger row
 (`tests/test_iter122_behavior.py:179` pins 98 frozen numbers, each needing exactly one row HERE)
 or a frozen `- **iter N ` archive bullet; a move must DELETE the lines from this file, never copy them (iter
 140's `## Item 16` brake). The only safe paydown is moving COMPLETED item prose and spent STATUS paragraphs
 verbatim, and iter 166 UNBLOCKED it: behavior 8's `headings[-1]` pin is now an append-only PREFIX freeze, so a
-NEW `## Compacted from the index by iter NNN` archive heading is legal. PAYDOWN DONE at iter 167: of the 4 blocks (f)/(l)/(t)/(v)
-`roadmap_spent_blocks` names, the (l)/(t)/(v) bodies now sit in the archive behind minimal stubs and
-(f) already was one, so that set is CLOSED and headroom is back over 2,000.
+NEW `## Compacted from the index by iter NNN` archive heading is legal. PAYDOWN DONE at 167 CLOSED blocks (f)/(l)/(t)/(v).
 
 | # | Increment | Why | Done when |
 |---|---|---|---|
@@ -293,6 +292,7 @@ in the archive.
 - iter 181 -- doctor's learnings-head WARN names the WORST-elided head bullet (label + chars), not just how many.
 - iter 182 -- agents refuses to clobber a hand-written AGENTS.md (exit 2, --force overrides); ignore line DEFERRED.
 - iter 183 -- three gather_* test-quality scanners collapse onto ONE shared body; 26 redundant statements gone.
+- iter 184 -- stage-times gains --limit N; doctor's mandatory stage-budget: line prices the RECENT window, not all-time.
 
 
 ### Migration notes (per §6 self-mod guardrail)
