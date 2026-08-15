@@ -11592,6 +11592,53 @@ class DirectionsEntry:
         }
 
 
+def directions_ship_label(entry: "DirectionsEntry",
+                          ship_subjects: Iterable[str] = (),
+                          newest_iteration: int | None = None) -> str:
+    """The `ship:` field text for one decision row, with GIT as the tie-breaker.
+
+    PURE and total: commit subjects arrive as DATA (`ship_subjects`), never
+    fetched here, so every branch is scriptable offline with zero subprocess
+    work. WHY git had to become an authority: `final.md`'s `ACTION:` line was the
+    ONLY source consulted, and it lies in two directions. `iter-118/final.md`
+    reads `ACTION: PENDING` while `(foundry iter 118)` is in git -- a falsehood
+    that stood for 60 iterations and was unhealable by regeneration, because
+    re-rendering can only re-read the same stale line -- and the NEWEST row is a
+    guaranteed falsehood at commit time, because `refresh_directions_file` runs
+    immediately BEFORE the gate decides the outcome it is reporting.
+
+    Precedence, highest first:
+      * an explicit `PUSHED` / `REVERTED` action is a DECISION and wins outright
+        -- even against a matching subject, because a reverted iteration can
+        still leave an unrelated commit in the log, so git inference must never
+        overturn a recorded verdict;
+      * else a matching `(foundry iter N)` subject -> `PUSHED (per git)`;
+      * else `pending (not yet decided)` for `newest_iteration` (the highest
+        iteration in the log), whose outcome cannot exist yet at render time;
+      * else `unknown` -- still the honest label for an iteration that neither
+        recorded an action nor appears in git.
+
+    An EMPTY `ship_subjects` is MISSING INFRASTRUCTURE (`git_ship_subjects`'
+    documented contract), NOT "nothing shipped", so every label then degrades to
+    the byte-identical pre-git output: no row is upgraded and none downgraded on
+    absent git. Iteration matching goes through `shipped_iterations`, so it is
+    exact on the NUMBER: `(foundry iter 118)` matches 118 and never 11, 18, 1180.
+    """
+    # The two recorded verdicts first, byte-for-byte as `_ship_label` had them.
+    if entry.action == "PUSHED":
+        return f"PUSHED {entry.sha}" if entry.sha else "PUSHED"
+    if entry.action == "REVERTED":
+        return "REVERTED"
+    subjects = tuple(ship_subjects or ())
+    if not subjects:
+        return "unknown"
+    if entry.iteration in shipped_iterations(subjects):
+        return "PUSHED (per git)"
+    if newest_iteration is not None and entry.iteration == newest_iteration:
+        return "pending (not yet decided)"
+    return "unknown"
+
+
 @dataclasses.dataclass(frozen=True)
 class DirectionsDigest:
     """A per-iteration DECISION ledger for one product (the `directions` core).
@@ -11601,9 +11648,17 @@ class DirectionsDigest:
     supplies). `total` and `exit_code` are pure derivations. `exit_code` is `2`
     iff there is NOTHING to report (`total == 0`) else `0`: directions is
     INFORMATIONAL like `outcomes` -- it never gates on the past (a scouted iter
-    that reverted still lists), so only an empty ledger exits non-zero."""
+    that reverted still lists), so only an empty ledger exits non-zero.
+
+    `ship_subjects` is git ship-truth carried as DATA for `render()`'s label core
+    (`git log --format=%s` subjects, supplied by `gather_directions`). DEFAULTED
+    to `()` on purpose: `()` IS the missing-infrastructure case, so every existing
+    construction site keeps working AND stays byte-identical to the pre-git
+    output by construction rather than by an extra branch. It is render INPUT, not
+    a decision record, so `to_dict()` still reports exactly its 4 pinned keys."""
     product: str
     entries: tuple["DirectionsEntry", ...]
+    ship_subjects: tuple[str, ...] = ()
 
     @property
     def total(self) -> int:
@@ -11617,15 +11672,17 @@ class DirectionsDigest:
 
     @staticmethod
     def _ship_label(entry: "DirectionsEntry") -> str:
-        """The `ship:` field text for one entry: `PUSHED <sha>` / `PUSHED` /
-        `REVERTED` / `unknown` -- a PUSH with a sha is the common case, a PUSH
-        without one and a REVERT are named plainly, everything else is
-        `unknown`."""
-        if entry.action == "PUSHED":
-            return f"PUSHED {entry.sha}" if entry.sha else "PUSHED"
-        if entry.action == "REVERTED":
-            return "REVERTED"
-        return "unknown"
+        """The SUBJECT-BLIND `ship:` label: `PUSHED <sha>` / `PUSHED` /
+        `REVERTED` / `unknown`.
+
+        Kept as the named guarantee that git-truth changed NOTHING about the
+        three pre-existing outcomes: it is exactly
+        `directions_ship_label(entry, ())`, the missing-infrastructure path, so a
+        drift between the old and new cores is impossible by construction rather
+        than by two copies agreeing. `render()` calls the module-level core
+        instead, because only the digest knows the subjects and the newest
+        iteration."""
+        return directions_ship_label(entry, ())
 
     def render(self) -> str:
         """A deterministic multi-line decision log (the CLI's black-box contract).
@@ -11635,7 +11692,9 @@ class DirectionsDigest:
         zero-pad), a `lenses: {L}` line (L = the lenses joined by `, ` in order,
         or the literal `unknown` when empty), ONE line per candidate with the
         candidate string verbatim, a `winner: {W}` line (W = the winner id or
-        the literal `unknown`), and a `ship: {S}` line (S from `_ship_label`);
+        the literal `unknown`), and a `ship: {S}` line (S from
+        `directions_ship_label`, which is `_ship_label`'s output verbatim
+        whenever `ship_subjects` is empty);
         and a rollup line `{total} scouted iterations`. When there are NO entries
         it also carries the literal `no scouted iterations yet` (and the rollup
         reads `0 scouted iterations`)."""
@@ -11643,6 +11702,11 @@ class DirectionsDigest:
         rollup = f"{self.total} scouted iterations"
         if not self.entries:
             return "\n".join([header, "  no scouted iterations yet", rollup])
+        # The newest row's outcome CANNOT exist yet when the committed file is
+        # written (`refresh_directions_file` runs immediately before the gate
+        # decides), so the label core is told which iteration that is and can say
+        # `pending` instead of asserting `unknown` about the future.
+        newest = max(e.iteration for e in self.entries)
         lines = [header]
         for e in self.entries:
             lines.append(f"  iter-{e.iteration:02d}")
@@ -11652,7 +11716,10 @@ class DirectionsDigest:
                 lines.append(f"    - {cand}")
             winner = e.winner if e.winner is not None else "unknown"
             lines.append(f"    winner: {winner}")
-            lines.append(f"    ship: {self._ship_label(e)}")
+            # BARE module name so `monkeypatch.setattr(foundry,
+            # "directions_ship_label", ...)` bites on the rendered bytes.
+            lines.append(
+                f"    ship: {directions_ship_label(e, self.ship_subjects, newest)}")
         lines.append(rollup)
         return "\n".join(lines)
 
@@ -11674,7 +11741,8 @@ class DirectionsDigest:
         }
 
 
-def summarize_directions(*, product: str, entries) -> DirectionsDigest:
+def summarize_directions(*, product: str, entries,
+                         ship_subjects: Iterable[str] = ()) -> DirectionsDigest:
     """Pure keyword-only constructor for a `DirectionsDigest`.
 
     A thin, total wrapper that packs the product name + an iterable of
@@ -11683,8 +11751,12 @@ def summarize_directions(*, product: str, entries) -> DirectionsDigest:
     never be mutated out from under it). Keyword-only so the two fields can
     never be transposed; it never raises and adds no I/O. Kept separate from
     `directions_cli` so the decision core stays a pure function the tester can
-    drive without any filesystem (mirrors `summarize_outcomes`)."""
-    return DirectionsDigest(product=product, entries=tuple(entries))
+    drive without any filesystem (mirrors `summarize_outcomes`).
+
+    `ship_subjects` (git ship-truth as DATA) is materialized the same way and
+    DEFAULTS to `()`, so an existing 2-argument call keeps the pre-git labels."""
+    return DirectionsDigest(product=product, entries=tuple(entries),
+                            ship_subjects=tuple(ship_subjects or ()))
 
 
 def gather_directions(cfg: ProductConfig,
@@ -11702,6 +11774,10 @@ def gather_directions(cfg: ProductConfig,
     ordered concatenation of `parse_scout_candidates` over the two scout files;
     `winner` is `parse_triage_winner` over `pm.md`; `action`/`sha` are
     `parse_ship_action`/`parse_ship_sha` over `final.md`.
+
+    `ship_subjects` on the returned digest is git ship-truth for `cfg.repo`
+    (`git_ship_subjects`, the ONE I/O seam) so `render()` can override a stale or
+    missing `ACTION:` line; a git failure yields `()`, i.e. the pre-git labels.
 
     Every artifact is read through the guarded `_read_sentinel` seam (absent
     file / OSError -> treated as empty, never raising), and every parser is
@@ -11758,7 +11834,12 @@ def gather_directions(cfg: ProductConfig,
     if isinstance(limit, int) and limit > 0:
         # entries are now descending, so the most-recent N are the FIRST N.
         entries = entries[:limit]
-    return summarize_directions(product=cfg.name, entries=entries)
+    # Ship-truth as DATA: the ONE I/O seam, called by BARE name so
+    # `monkeypatch.setattr(foundry, "git_ship_subjects", ...)` scripts every
+    # label offline. It never raises and returns `()` on any git failure, which
+    # the pure core reads as "no upgrade, no downgrade".
+    return summarize_directions(product=cfg.name, entries=entries,
+                                ship_subjects=git_ship_subjects(cfg.repo))
 
 
 def directions_cli(cfg: ProductConfig, limit: int | None = None,
@@ -11804,6 +11885,60 @@ def render_directions_doc(digest: "DirectionsDigest") -> str:
     never raises for ANY digest -- an EMPTY one still yields the header plus
     `render()`'s `no scouted iterations yet` sentinel."""
     return f"# Foundry directions\n\n{digest.render()}\n"
+
+
+# One rendered decision block's two anchored lines. Kept as module-level
+# patterns (not rebuilt per call) so the brake and any future consumer read the
+# committed file with ONE parser: `iter-NN` opens a block, `ship: X` closes it.
+_DIRECTIONS_ITER_LINE_RE = re.compile(r"^\s*iter-(\d+)\s*$")
+_DIRECTIONS_SHIP_LINE_RE = re.compile(r"^\s*ship:\s*(.*?)\s*$")
+
+
+def directions_ship_gaps(text: str,
+                         ship_subjects: Iterable[str] = ()) -> tuple[str, ...]:
+    """Rows of a rendered decision log that deny a ship git can prove (the PEDAL).
+
+    `directions_ship_label` is the fix; this is the brake that keeps the fix
+    honest, because `DIRECTIONS.md` is TRACKED -- it is the loop's public record
+    of what it considered and what came of it, so a row claiming an iteration
+    produced nothing while git carries its commit is the register lying about the
+    product's own output. Reads the FILE TEXT rather than a digest so it also
+    catches a committed file that was rendered by older code (iteration 118's row
+    was wrong for 60 iterations).
+
+    Returns one finding per row whose `ship:` field is exactly `unknown` while
+    `ship_subjects` proves that iteration shipped; `()` means clean. Each finding
+    names the iteration number. Findings are in file order (newest-first, as
+    rendered), so the first one is the most recent defect.
+
+    SKIPS on missing infrastructure: an empty `ship_subjects` returns `()` rather
+    than failing a ship, mirroring `git_ship_subjects`' documented rule that `()`
+    means "nothing to check", not "a record is gone". PURE and total -- no I/O, and
+    a non-`str` `text` or a malformed document yields `()`, never an exception.
+    """
+    if not isinstance(text, str):
+        return ()
+    shipped = set(shipped_iterations(ship_subjects or ()))
+    if not shipped:
+        return ()
+    findings: list[str] = []
+    current: int | None = None
+    for line in text.splitlines():
+        opener = _DIRECTIONS_ITER_LINE_RE.match(line)
+        if opener is not None:
+            current = _iter_number(opener.group(1))
+            continue
+        closer = _DIRECTIONS_SHIP_LINE_RE.match(line)
+        if closer is None or current is None:
+            continue
+        if closer.group(1) == "unknown" and current in shipped:
+            findings.append(
+                f"iter-{current:02d} reads `ship: unknown` but git proves "
+                f"iteration {current} shipped")
+        # One `ship:` line closes a block, so forget the iteration: a stray
+        # later `ship:` line must never be attributed to the wrong row.
+        current = None
+    return tuple(findings)
 
 
 def iteration_is_scouted(cfg: ProductConfig, n: int) -> bool:

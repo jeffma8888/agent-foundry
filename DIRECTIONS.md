@@ -1,6 +1,26 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-179
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- Commit the revert-and-re-land runbook; today its only copy is gitignored
+    - Candidate A2 -- ARCHITECTURE.md prices the 30-minute timeout and never mentions the 600-second kill the loop actually survives
+    - Candidate A3 -- Three committed artifacts, three different rosters of "the invariants" -- and the divergent one is inlined into every stage prompt
+    - Candidate B1 -- `restore-work`: the framework can SAVE the work its abort path destroys and cannot RESTORE it
+    - Candidate B2 -- `push-target`: nothing in 18,352 lines checks that the declared push target is the repo git would actually push to
+    - Candidate B3 -- name the committed artifacts the pipeline rewrites, so a test stops pinning a moving target
+    winner: B1
+    ship: unknown
+  iter-178
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A2 -- stop the unfinished-checkpoint tester chain from re-paying a whole stage
+    - Candidate A3 -- price post-deliverable agent time, and re-scope de-listed item (i) to the report-only stages
+    - Candidate A1 -- the learnings digest is 87% of every prompt, and it is over budget while truncating
+    - Candidate B1 -- the committed decision log tells GitHub that two shipped iterations never shipped
+    - Candidate B2 -- ARCHITECTURE.md never names 4 of the 5 verbs the role cards mandate
+    - Candidate B3 -- the roadmap-record duty is named in the PM's card and in no card that outlives it
+    winner: B1
+    ship: REVERTED
   iter-177
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- collapse `exit_code` x4 in the findings-family roll-ups onto one shared function
@@ -10,7 +30,7 @@ foundry directions -- _platform
     - Candidate B2 -- re-price the post-last-write tail: it is 23.56 h and it is NOT where item (i) says it is
     - Candidate C2 -- price the per-stage prompt, the one cost paid on every single attempt
     winner: A2
-    ship: unknown
+    ship: PUSHED a5da0f7
   iter-176
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- `foundry adoption`: a derived verb-consumption ledger
@@ -737,4 +757,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-74 scouted iterations
+76 scouted iterations
