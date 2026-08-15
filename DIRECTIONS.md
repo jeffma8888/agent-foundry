@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-182
+    lenses: integration-and-adoption (iteration 182), simplification-and-deletion (iteration 182)
+    - Candidate A1 -- the reporter seat and STATUS_REPORT.md are unreachable on the path this company actually runs
+    - Candidate B1 -- make `foundry agents` non-destructive so item 3's on-ramp becomes runnable at all
+    - Candidate C1 -- the tester card consumes the shipped weak-assertion scan it currently ignores
+    - Candidate B1 -- one anchored-sentinel rule instead of five
+    - Candidate B2 -- the `exit_code` property written four times becomes one function
+    - Candidate B3 -- archive the four spent migration notes before the index wall reverts an iteration
+    winner: B1
+    ship: unknown
   iter-181
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- doctor's learnings-head WARN names the WORST truncated bullet
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the reviewer has never been shown the test-quality scanner
     - Candidate B3 -- the `agents` default mode would clobber TRACKED source, and it blocks item 3
     winner: A1
-    ship: unknown
+    ship: PUSHED ec0ade8
   iter-180
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `doctor` gains a 5th drift line: the live brain's TEAM ROSTER is stale, and nothing can say so
@@ -777,4 +787,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-78 scouted iterations
+79 scouted iterations
