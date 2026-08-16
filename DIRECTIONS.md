@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-190
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- stage-times reports cap saturation in SECONDS, and says so in its verdict
+    - Candidate A2 -- wire the dormant ship_decision so a cap-killed final gate retries instead of reverting
+    - Candidate A3 -- every stage prompt carries its own measured pacing line on attempt 1
+    - Candidate B1 -- ARCHITECTURE's gate invariant documents the post-push verify and never names `preship`, the only step that can BLOCK a push
+    - Candidate B2 -- `roles/final.md` credits `parse_ship_action` for a branch the loop actually takes with a whole-file substring test
+    - Candidate B3 -- "five hard-won invariants" disagrees with the six the doc it summarises actually lists
+    winner: A1
+    ship: pending (not yet decided)
   iter-189
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- two argparse helpers retire 33 duplicated `--config` declarations
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- price the digest, the one payload every stage pays for
     - Candidate B3 -- derive a per-stage wall-clock deadline from measured medians (the `final` precedent)
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 35919b4
   iter-188
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- teach the story meter the register's `prd.json` key, so the dispatcher's already-live hook stops reading "unparseable"
@@ -857,4 +867,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-86 scouted iterations
+87 scouted iterations

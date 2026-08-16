@@ -13606,7 +13606,26 @@ class StageTimesGroup:
     needs no locally-silent command, and the aggregate cannot tell them apart. A
     tuple of pairs rather than a dict (unlike the older `EventsSummary.kind_counts`)
     because this dataclass is frozen and stays hashable + JSON-round-trippable.
-    TRAILING and defaulted to `()` so every pre-existing construction still works."""
+    TRAILING and defaulted to `()` so every pre-existing construction still works.
+
+    `total_s` / `cap_hits` / `cap_seconds` are the CAP-SATURATION accounting (iter
+    190): the group's total kept seconds, how many of its attempts ran to at least
+    the EFFECTIVE hard cap, and how many seconds sit inside exactly those attempts.
+    They exist because `timeouts` is a PRODUCED-NOTHING population and therefore
+    structurally cannot see an attempt killed at the wall that had ALREADY written a
+    non-empty file -- `run_stage` scores that a SUCCESS -- so a stage pinned at the
+    cap reports `timeouts 0` and its saturation survives only as the unnamed
+    coincidence `median == max == cap`. Measured over the same 20-iteration window,
+    `stage-times` said `pm ... timeouts 0` while `rescues` said 15 of 18 attempts
+    were killed: same denominator, and the two verbs disagreed completely on the
+    numerator. Neither number is a subset of the other, so both are kept.
+
+    They sit BEFORE `kind_counts` rather than after it because
+    `tests/test_iter148_behavior.py:329` pins `kind_counts` as THE trailing field;
+    every one of them defaults, so the spec's compatibility requirement is met
+    anyway -- the pre-190 seven-positional construction and every keyword
+    construction still build, and still compare equal to an instance built the old
+    way."""
     team: str
     stage: str
     count: int
@@ -13614,7 +13633,24 @@ class StageTimesGroup:
     max_s: int
     timeouts: int
     over_budget: bool
+    total_s: int = 0
+    cap_hits: int = 0
+    cap_seconds: int = 0
     kind_counts: tuple[tuple[str, int], ...] = ()
+
+    @property
+    def cap_share_pct(self) -> float:
+        """What share of THIS group's seconds sits inside cap-killed attempts (0-100).
+
+        A DERIVED property and never a field (the `ShipDecision`/`PreshipResult`
+        idiom), so no caller can hold a share that disagrees with the `cap_seconds`
+        and `total_s` it was computed from -- the frozen types' whole point. Rounded
+        to one decimal to match the other reported shares, and zero-guarded: a group
+        whose durations are all `0` reports `0.0` instead of raising
+        `ZeroDivisionError`."""
+        if self.total_s > 0:
+            return round(100.0 * self.cap_seconds / self.total_s, 1)
+        return 0.0
 
     def to_dict(self) -> dict:
         """A pure, JSON-safe serialization of one group (all values JSON-native)."""
@@ -13626,6 +13662,12 @@ class StageTimesGroup:
             "max_s": self.max_s,
             "timeouts": self.timeouts,
             "over_budget": self.over_budget,
+            "total_s": self.total_s,
+            "cap_hits": self.cap_hits,
+            "cap_seconds": self.cap_seconds,
+            # REUSE the frozen property, so the JSON payload can never disagree
+            # with what `render()` prints for the same group.
+            "cap_share_pct": self.cap_share_pct,
             # JSON-native list-of-lists (NOT tuples) so the payload survives a
             # `json.loads(json.dumps(...))` round-trip by EQUALITY, not just by shape.
             "kind_counts": [[k, c] for k, c in self.kind_counts],
@@ -13651,11 +13693,21 @@ class StageTimesSummary:
     evidence that does not exist. Both TRAIL with defaults, so every
     pre-iter-184 construction and every equality against an unwindowed summary
     still holds.
+
+    `cap` is the EFFECTIVE hard cap this digest's `cap_hits` were counted against
+    (iter 190), carried on the summary so a rendered or serialised report can never
+    be read against the wrong wall. It TRAILS with a default of `0`, meaning "not
+    recorded" -- the default is a literal rather than `STAGE_HARD_CAP_SECONDS`
+    because that constant is defined LATER in this module and a dataclass default is
+    evaluated at class-definition time, so naming it here would `NameError` on
+    import. `render()` therefore falls back to the module constant, read at call
+    time, when `cap` is unset.
     """
     groups: tuple["StageTimesGroup", ...]
     budget: int
     limit: int | None = None
     iterations: int = 0
+    cap: int = 0
 
     @property
     def total(self) -> int:
@@ -13666,6 +13718,35 @@ class StageTimesSummary:
     def over_budget_count(self) -> int:
         """How many `(team,stage)` groups are over the soft budget (the WARNs)."""
         return sum(1 for g in self.groups if g.over_budget)
+
+    @property
+    def total_seconds(self) -> int:
+        """Total kept seconds across every group (the rollup's denominator).
+
+        Reads each group through `getattr` for the same reason `render()`'s
+        `kind_counts` read does: `render()` calls this property, and a duck-typed
+        group stub exposing only the pre-190 attributes must render rather than
+        raise `AttributeError`."""
+        return sum(int(getattr(g, "total_s", 0) or 0) for g in self.groups)
+
+    @property
+    def cap_seconds(self) -> int:
+        """Seconds across every group that sit inside attempts killed at the cap.
+
+        Fleet-wide this was measured at 133.95h of 284.67h; no verb printed it."""
+        return sum(int(getattr(g, "cap_seconds", 0) or 0) for g in self.groups)
+
+    @property
+    def cap_share_pct(self) -> float:
+        """`cap_seconds` as a share of `total_seconds` (0-100), one decimal.
+
+        Derived from the two properties above rather than averaged over the groups'
+        own shares, so the rollup is seconds-weighted and cannot disagree with them.
+        Zero-guarded exactly like the per-group property."""
+        total = self.total_seconds
+        if total > 0:
+            return round(100.0 * self.cap_seconds / total, 1)
+        return 0.0
 
     @property
     def exit_code(self) -> int:
@@ -13709,12 +13790,36 @@ class StageTimesSummary:
                 # Only for a group that actually LOST an attempt: a clean group
                 # must not print an empty `kinds` with nothing after it.
                 line += "  kinds " + " ".join(f"{k}={c}" for k, c in kinds)
+            # Cap saturation goes LAST on the line, after `timeouts N` and after
+            # any `kinds ` fragment, so every pre-existing substring pin (iters
+            # 117/135/148/151/160/173) still matches byte-for-byte. Printed
+            # UNCONDITIONALLY, unlike `kinds`: `cap-hits 0` is the informative
+            # NEGATIVE reading, and a fragment that appears only when non-zero
+            # cannot be read as evidence of health. Every new attribute is read
+            # through `getattr` with a default, exactly as the `kinds` read above
+            # is, so a duck-typed pre-190 group stub renders instead of raising.
+            line += ("  cap-hits {} ({}% of {}s)".format(
+                getattr(g, "cap_hits", 0),
+                getattr(g, "cap_share_pct", 0.0),
+                getattr(g, "total_s", 0)))
             lines.append(line)
         for g in self.groups:
             if g.over_budget:
                 lines.append(
                     f"  WARN [{g.team}] {g.stage} median {g.median_s}s "
                     f"exceeds soft budget {self.budget}s")
+        # EXACTLY ONE rollup line, and only on the with-data path (the empty-digest
+        # branch returned above, so a `no stage timings` report emits none). It
+        # prints the figure no other verb does: what share of this window's agent
+        # seconds sits inside attempts the CLI killed at the wall. Deliberately NOT
+        # a `WARN` and it moves no exit code -- a "saturated" verdict needs a
+        # threshold, which is an unmeasured magic number until this distribution is
+        # known. `cap-saturation` is lexically distinct from the per-group
+        # `cap-hits ` fragment so either one can be counted unambiguously.
+        cap = getattr(self, "cap", 0) or STAGE_HARD_CAP_SECONDS
+        lines.append(
+            f"  cap-saturation {self.cap_share_pct}% -- {self.cap_seconds}s of "
+            f"{self.total_seconds}s inside attempts at/over the {cap}s hard cap")
         return "\n".join(lines)
 
     def to_dict(self) -> dict:
@@ -13734,9 +13839,17 @@ class StageTimesSummary:
             # recent one, which is the defect iter 184 exists to fix.
             "limit": self.limit,
             "iterations": self.iterations,
+            # The cap travels WITH the counts taken against it, for the same
+            # reason `limit` travels with the medians it produced.
+            "cap": self.cap,
             "total": self.total,
             "over_budget_count": self.over_budget_count,
             "exit_code": self.exit_code,
+            # All three REUSE the frozen properties, so the machine payload can
+            # never disagree with the rollup line `render()` prints.
+            "total_seconds": self.total_seconds,
+            "cap_seconds": self.cap_seconds,
+            "cap_share_pct": self.cap_share_pct,
             "groups": [g.to_dict() for g in self.groups],
         }
 
@@ -13790,7 +13903,8 @@ def limit_stage_attempts(attempts, limit: int | None = None) -> list:
 
 
 def summarize_stage_times(attempts, *, budget: int | None = None,
-                          limit: int | None = None) -> "StageTimesSummary":
+                          limit: int | None = None,
+                          cap: int | None = None) -> "StageTimesSummary":
     """Pure summariser: group `StageAttempt`s by `(team,stage)` into a digest.
 
     For each group computes `count`, `median_s` (see `_median`), `max_s`, `timeouts`
@@ -13801,8 +13915,21 @@ def summarize_stage_times(attempts, *, budget: int | None = None,
     `STAGE_SOFT_BUDGET` READ AT CALL TIME -- so a `monkeypatch.setattr(foundry,
     "STAGE_SOFT_BUDGET", X)` (or a `--budget` override) changes the over-budget
     verdict. Groups are ordered deterministically by `(team,stage)` ascending.
+
+    Also computes the CAP-SATURATION accounting (iter 190) per group: `total_s`,
+    `cap_hits` (attempts whose `duration_s >= the effective hard cap`) and
+    `cap_seconds`. The `effective_cap` is the passed `cap` when not None, else the
+    MODULE-LEVEL `STAGE_HARD_CAP_SECONDS` READ AT CALL TIME -- the same idiom as the
+    soft budget one line below, so a `monkeypatch.setattr(foundry,
+    "STAGE_HARD_CAP_SECONDS", X)` moves `cap_hits` without re-importing. The
+    threshold is `>=`, not `>`: the CLI kills AT the wall, so an attempt that
+    measured exactly the cap was killed by it. This adds NO gating axis --
+    `exit_code`, `over_budget`, `timeouts` and `kind_counts` are untouched on every
+    input.
+
     Total (never raises): an empty `attempts` yields an empty digest (exit 2)."""
     effective = STAGE_SOFT_BUDGET if budget is None else budget
+    effective_cap = STAGE_HARD_CAP_SECONDS if cap is None else cap
     # Window FIRST, then group: every metric below (count/median/max/timeouts)
     # must describe the kept attempts only. Both seams are called by BARE name
     # so a test can patch either one.
@@ -13817,6 +13944,14 @@ def summarize_stage_times(attempts, *, budget: int | None = None,
         items = by_key[(team, stage)]
         durations = [a.duration_s for a in items]
         median_s = _median(durations)
+        # ONE pass over the already-materialised durations for all three
+        # cap-saturation numbers -- never a second walk of `items`.
+        total_s = cap_hits = cap_seconds = 0
+        for d in durations:
+            total_s += d
+            if d >= effective_cap:
+                cap_hits += 1
+                cap_seconds += d
         no_output = [a for a in items if not a.produced]
         tally: dict[str, int] = {}
         for a in no_output:
@@ -13832,14 +13967,21 @@ def summarize_stage_times(attempts, *, budget: int | None = None,
             median_s=median_s, max_s=max(durations),
             timeouts=len(no_output),
             over_budget=median_s > effective,
+            # `int(...)` so the documented "all three are ints" contract holds even
+            # for a duck-typed row whose `duration_s` is a float (this parameter is
+            # untyped by design and several tests summarise stubs).
+            total_s=int(total_s), cap_hits=cap_hits,
+            cap_seconds=int(cap_seconds),
             kind_counts=tuple(sorted(tally.items()))))
     return StageTimesSummary(groups=tuple(groups), budget=effective,
-                             limit=window, iterations=included)
+                             limit=window, iterations=included,
+                             cap=effective_cap)
 
 
 def gather_stage_times(log_path, *, budget: int | None = None,
                        team: str | None = None,
-                       limit: int | None = None) -> "StageTimesSummary":
+                       limit: int | None = None,
+                       cap: int | None = None) -> "StageTimesSummary":
     """Read a `dispatcher.out` path and summarise its stage attempt durations.
 
     Reads the file at `log_path`, runs `parse_stage_attempts` on its text (called
@@ -13847,7 +13989,13 @@ def gather_stage_times(log_path, *, budget: int | None = None,
     ONLY attempts whose `team` equals the `team` filter, then returns
     `summarize_stage_times(...)`. A missing / unreadable / undecodable `log_path`
     degrades to an EMPTY summary (exit_code 2) and NEVER raises -- the same
-    no-news-is-good-news contract as the other read-only lenses."""
+    no-news-is-good-news contract as the other read-only lenses.
+
+    `cap` is forwarded UNTOUCHED to `summarize_stage_times` (iter 190) so a test can
+    move the cap-hit threshold offline without patching a module global. Called
+    without it, every pre-existing field of the returned summary is what it was
+    before iter 190, and NO new CLI flag exists: `stage-times` keeps exactly its
+    `--log/--team/--budget/--limit` surface."""
     try:
         text = pathlib.Path(log_path).expanduser().read_text()
     except Exception:
@@ -13860,7 +14008,7 @@ def gather_stage_times(log_path, *, budget: int | None = None,
     # filter -- so the window is computed from THIS team's own iteration
     # numbers, never from the log's global maximum (which would return an empty
     # digest for a team that has not run recently).
-    return summarize_stage_times(attempts, budget=budget, limit=limit)
+    return summarize_stage_times(attempts, budget=budget, limit=limit, cap=cap)
 
 
 def stage_times_cli(log_path, *, budget: int | None = None,
