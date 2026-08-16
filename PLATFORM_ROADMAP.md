@@ -27,9 +27,9 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 184): ledger and archive are current through 184.
+STATUS (iter 185): ledger and archive are current through 185.
 STILL OPEN:
-(c), (d), (g)'s `parse_triage_winner` half, (j), (k), (o), and (p).
+(c), (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
 NEXT UP, in value order: (a) Only the OPTIONAL 25-guard
 CONSOLIDATION remains, and it does NOT unblock strangler steps 2/3 (one guard still freezes
 `dispatcher.py` and the meta-test requires it to); (c) repair a missing `tests/test_iterNN*.py` at the earliest
@@ -59,12 +59,7 @@ bite 2 and (k). TEST-OWNED and the highest blast radius on this list (it re-scop
 over the running loop's control path), with `tests/test_control_path_freeze_scope.py` pinning a guard-count
 FLOOR of 26 plus `FORBIDDEN = ("README.md", "roles/")`, so it wants its OWN iteration and must NOT be bundled
 with a feature.
-(p) NEW (iter 143 scout A); RE-MEASURED 164 -- TOP bite after 167's paydown: 48 CLI verbs, TWO absent from
-`README.md`'s `# N.` index -- `new-product` (137) and `preship` (156), the latter already a BLOCKING gate in
-`roles/final.md`. Count grew 46->48 and the gap 1->2 while this item waited: that drift IS the case for ONE derived
-rule over iter 117's hand-written pair. Anchor on a `foundry.py <verb>` invocation under a `# N.` heading -- NOT the
-heading text (real shape `# N. <prose>:`, so a heading matcher scores 0 of 47), NOT bare name-presence (`run`, `once`
-pass). Exemptions: #3 invokes `dispatcher.py`; `prompt` appears twice in its one entry #45. Detail: 164's bullet.
+(p) SHIPPED iters 169/174/175 -- README verb-index gap now DERIVED and measured 0; detail in the archive.
 (q) NEW (iter 153, successor to A1): 235 more redundant declared lines remain in the 9 `Company*` roll-up classes,
 but each group covers a SUBSET (`exit_code` x4/x3, `to_dict` x3, `verdict` x5/x3, `n_flagged` x4, `files_scanned` x4,
 `total_findings` x4, `total_parse_errors` x3, `total` x3) and each is the roll-up's decision/serialisation contract --
@@ -293,6 +288,7 @@ in the archive.
 - iter 182 -- agents refuses to clobber a hand-written AGENTS.md (exit 2, --force overrides); ignore line DEFERRED.
 - iter 183 -- three gather_* test-quality scanners collapse onto ONE shared body; 26 redundant statements gone.
 - iter 184 -- stage-times gains --limit N; doctor's mandatory stage-budget: line prices the RECENT window, not all-time.
+- iter 185 -- roadmap CLI-verb figure becomes DERIVED; two frozen 48-verb pins retire; spent (p) archived.
 
 
 ### Migration notes (per §6 self-mod guardrail)

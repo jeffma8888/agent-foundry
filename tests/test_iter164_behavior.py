@@ -719,11 +719,21 @@ def test_ac_roadmap_archive_carries_the_verbatim_detail_bullet():
 
 
 def test_ac_roadmap_item_p_carries_the_refreshed_measurement():
-    text = ROADMAP.read_text()
-    assert "48 CLI verbs" in text, "item (p) still carries the stale 46-verb figure"
-    assert "TWO absent" in text
-    assert "new-product" in text and "preship" in text
-    assert "46 CLI verbs" not in text
+    """REPOINTED iter 185 -- this froze the LITERAL 48-verb figure into the index.
+
+    The pin outlived its evidence: the live CLI grew to 50 verbs and item (p)'s
+    README gap measured 0, yet correcting either number RED this suite. A brake
+    that forbids fixing a document is worse than no brake, so the figure is
+    DERIVED now and cannot rot again; item (p)'s spent body moved to
+    `PLATFORM_ROADMAP_ARCHIVE.md` behind a stub that keeps its marker.
+    """
+    text = ROADMAP.read_text(encoding="utf-8")
+    verbs = foundry.foundry_cli_verbs((_ROOT / "foundry.py").read_text(encoding="utf-8"))
+    assert len(verbs) > 40, "control: the live CLI verb set failed to parse"
+    assert foundry.roadmap_verb_figure_gaps(text, len(verbs)) == (), (
+        "the index advertises a CLI-verb figure the live CLI contradicts"
+    )
+    assert "(p) " in text, "item (p) lost its marker"
 
 
 # ==========================================================================

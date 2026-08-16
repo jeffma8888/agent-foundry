@@ -11005,6 +11005,100 @@ def foundry_cli_verbs(source_text: str) -> tuple[str, ...]:
     return tuple(sorted(verbs))
 
 
+# The ONE figure shape the roadmap index uses to advertise the CLI's size, read
+# by `roadmap_verb_figure_gaps`. The literal `CLI` is load-bearing SCOPE, not
+# decoration: `PLATFORM_ROADMAP_ARCHIVE.md` carries 15 historical `N verbs`
+# figures that the archive contract forbids re-wording and `README.md` one more,
+# so a `(\d+)\s+verbs` pattern would flag 16 legitimate frozen rows -- exactly
+# the fail-CLOSED shape this repo treats as no better than a fail-open one.
+# Measured 2026-08-15: this pattern finds 1 figure in the index and 0 in the
+# archive.
+ROADMAP_VERB_FIGURE_RE = re.compile(r"(\d+)\s+CLI\s+verbs")
+
+
+@dataclasses.dataclass(frozen=True, order=True)
+class RoadmapVerbFigureGap:
+    """ONE `N CLI verbs` figure in the roadmap index that the live CLI contradicts.
+
+    Frozen for the same reason as every other measurement record here: a computed
+    verdict must not be mutable after the fact, and value-equality comes free.
+    `order=True` is deliberate rather than convenient -- the gap tuple is
+    documented as SORTED, and only a TOTAL ordering key is deterministic under an
+    arbitrary `PYTHONHASHSEED` (iteration 180's lesson: `sorted()` over a
+    non-total key leaves ties in set-iteration order).
+
+    * `claimed` -- the figure the index prints.
+    * `expected` -- the live verb count it should have printed.
+    """
+    claimed: int
+    expected: int
+
+
+def roadmap_verb_figure_gaps(
+    index_text: str, live_verb_count: int
+) -> tuple[RoadmapVerbFigureGap, ...]:
+    """Every `N CLI verbs` figure in `index_text` the live verb count contradicts.
+
+    `()` means the index tells the truth about the CLI's size. WHY this exists at
+    all: two suite brakes -- `tests/test_iter164_behavior.py` and
+    `tests/test_iter173_behavior.py` -- asserted the LITERAL `48 CLI verbs`
+    against the live roadmap, so CORRECTING a stale hand-count turned the suite
+    RED. The second one even named the trap in its own docstring. A brake that
+    forbids fixing a document is worse than no brake: the figure sat two
+    iterations out of date (live count 50) while item (p) advertised itself as the
+    TOP bite even though its README gap had already measured 0, so a future PM
+    could burn a whole iteration re-shipping closed work. This is the same
+    frozen-pin-to-derived-rule move the product already made for the README index
+    (iterations 169/174/175); the roadmap index never got it, because
+    `readme_index_pin_shape_hits` gates on a README-index extraction token and a
+    guard's DOMAIN is its blind spot.
+
+    Takes the index TEXT and an already-computed count, never a path and never
+    `foundry.py`'s source, so it is PURE and TOTAL: no filesystem, subprocess,
+    network or clock access, no mutation of its argument, and equal inputs give
+    `==` results on repeated calls. Composing it with `foundry_cli_verbs` is
+    deliberately the CALLER's job -- that split is what lets a test plant a
+    known-bad fixture (`48 CLI verbs` against a live count of 50) beside the clean
+    live index, which is the two-sided calibration a `()` result cannot supply by
+    itself.
+
+    Returns a SORTED tuple of `RoadmapVerbFigureGap`, one per DISTINCT wrong
+    figure rather than one per occurrence, because the repair is per-figure: every
+    occurrence of the same wrong number is one edit family, and an occurrence
+    count is recoverable by grep while a stable comparable verdict is not.
+
+    SCOPE, measured rather than assumed: point this at `PLATFORM_ROADMAP.md` ONLY.
+    See `ROADMAP_VERB_FIGURE_RE` for why the archive is out of its domain.
+
+    Totality: a non-`str` or empty `index_text`, a non-`int` (or `bool`)
+    `live_verb_count`, a text with no CLI-verb figure, or a
+    `ROADMAP_VERB_FIGURE_RE` patched to a non-pattern each yield `()` rather than
+    raising. `ROADMAP_VERB_FIGURE_RE` is read by BARE MODULE NAME inside the
+    function, not captured at definition time, so `monkeypatch.setattr` bites.
+
+    DORMANT: zero call site in the running pipeline -- no orchestrator,
+    dispatcher, stage, CLI verb or config field references it -- so resume
+    semantics for an in-flight loop are byte-identical.
+    """
+    if not isinstance(index_text, str) or not index_text:
+        return ()
+    if isinstance(live_verb_count, bool) or not isinstance(live_verb_count, int):
+        return ()
+
+    try:
+        figures = ROADMAP_VERB_FIGURE_RE.findall(index_text)
+    except AttributeError:
+        return ()
+
+    gaps = {
+        RoadmapVerbFigureGap(claimed=int(figure), expected=live_verb_count)
+        for figure in figures
+        if isinstance(figure, str) and figure.isdigit()
+        and int(figure) != live_verb_count
+    }
+    return tuple(sorted(gaps))
+
+
 def bare_foundry_cli_findings(text: str, verbs: Iterable[str]) -> list[str]:
     """Report every line of `text` that tells a reader to run a bare `foundry <verb>`.
 

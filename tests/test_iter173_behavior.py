@@ -832,11 +832,18 @@ def test_b17_archive_carries_one_iter_173_bullet():
 
 
 def test_b17_the_cli_verb_count_trap_is_respected():
-    """Acceptance-criteria TRAP: tests/test_iter164_behavior.py pins the literal
-    `48 CLI verbs` in the roadmap, so refreshing that figure turns the suite red."""
+    """REPOINTED iter 185 -- the trap this test NAMED is gone at the root.
+
+    It pinned the literal 48-verb figure against the live roadmap while its own
+    docstring recorded that refreshing the figure turns the suite red. Iteration
+    185 replaced both pins with `roadmap_verb_figure_gaps`, which subsumes the old
+    negative pin as well: ANY figure disagreeing with the live count is flagged,
+    so no stale value needs naming.
+    """
     roadmap = (_ROOT / "PLATFORM_ROADMAP.md").read_text(encoding="utf-8")
-    assert "48 CLI verbs" in roadmap
-    assert "46 CLI verbs" not in roadmap
+    verbs = foundry.foundry_cli_verbs((_ROOT / "foundry.py").read_text(encoding="utf-8"))
+    assert verbs, "control: the live CLI verb set failed to parse"
+    assert foundry.roadmap_verb_figure_gaps(roadmap, len(verbs)) == ()
 
 
 # --------------------------------------------------------------------------

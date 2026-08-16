@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-185
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- retire roadmap item (p): its stated defect is measurably closed and its figure drifted twice
+    - Candidate A2 -- docs must anchor on symbols, not line numbers: 10 of 10 source line citations in docs/ are wrong
+    - Candidate A3 -- the decision log asserts ignorance it does not have: 4 of 4 unknown winners are parse failures
+    - Candidate B1 -- the push-target guard is PROSE, not code: nothing compares the declared target to the repo's real remote
+    - Candidate B2 -- price the DEAD TAIL: the wall clock a stage burns after its required artifact stops growing
+    - Candidate B3 -- the story meter has a producer and a reader but NOTHING can advance it
+    winner: A1
+    ship: unknown
   iter-184
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A -- `stage-times --limit N`, so the PM's required sizing line prices the CURRENT loop
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- "the five invariants" contradicts the six bullets it points at, on four surfaces, with no check
     - Candidate B3 -- five stale present-tense figures in README index prose; make the verb count derived
     winner: B1
-    ship: unknown
+    ship: PUSHED 7a8e388
   iter-183
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- collapse the three `gather_*` test-quality scanners onto one shared body
@@ -807,4 +817,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-81 scouted iterations
+82 scouted iterations
