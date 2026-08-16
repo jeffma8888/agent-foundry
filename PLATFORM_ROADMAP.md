@@ -27,7 +27,7 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 186): ledger and archive are current through 186.
+STATUS (iter 189): ledger and archive are current through 189.
 STILL OPEN:
 (c), (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
 NEXT UP, in value order: (a) Only the OPTIONAL 25-guard
@@ -293,6 +293,7 @@ in the archive.
 - iter 185 -- roadmap CLI-verb figure becomes DERIVED; two frozen 48-verb pins retire; spent (p) archived.
 - iter 186 -- 4th test-quality lens detects an assert that CANNOT fail; tests/ pinned at 0; iter-152 site repaired.
 - iter 188 -- gap-radar phase 1: gather_gaps/gap_advice/pm_gap_block read the register from local JSON; ZERO call site.
+- iter 189 -- ship_decision tells a CAP-KILLED final gate from an explicit REVERTED: SHIP/RETRY/REVERT, zero call site.
 
 
 ### Migration notes (per §6 self-mod guardrail)
