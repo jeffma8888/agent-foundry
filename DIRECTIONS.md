@@ -1,6 +1,26 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-188
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- teach the story meter the register's `prd.json` key, so the dispatcher's already-live hook stops reading "unparseable"
+    - Candidate A2 -- gap-radar phase 1, built on measured bytes: FIVE contract corrections, three of them new
+    - Candidate A3 -- give the fleet's highest-kill stage the diff-scoping verb it already ships: `gate-scope` into `roles/tester.md`
+    - Candidate B1 -- three of the five gate-sentinel parsers collapse onto one anchored-token helper
+    - Candidate B2 -- the `exit_code` property written four times becomes one module-level function
+    - Candidate B3 -- retire the dominated 60,000-char roadmap budget, so ONE wall guards the index
+    winner: A2
+    ship: pending (not yet decided)
+  iter-187
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- a pure "killed mid-verification" vs "refused to ship" disposition for the ship gate
+    - Candidate B1 -- report an enabled team that the RUNNING dispatcher never saw
+    - Candidate C1 -- make `rescues` say WHEN work was last lost, so a healthy loop stops reading red
+    - Candidate B2 -- gap-radar phase 1 (`gather_gaps` / `gap_advice` / `pm_gap_block`), read the register JSON directly rather than the uninstalled CLI
+    - Candidate B3 -- an adoption ratchet: 45 of 50 shipped CLI verbs have no in-loop consumer
+    - Candidate B4 -- inject the test-quality verdict into the tester prompt: 9 scanners the test-writing stage never consults
+    winner: unknown
+    ship: unknown
   iter-186
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `foundry mutation-probe`: the offline, deterministic half of roadmap item 6
@@ -10,7 +30,7 @@ foundry directions -- _platform
     - Candidate B2 -- guard the ambient-tree PRECONDITION class that turned a green ship post-release BROKEN
     - Candidate B3 -- fold the leak guard into a foundry verb so its exit code cannot be lost in a pipe
     winner: B1
-    ship: unknown
+    ship: PUSHED b291238
   iter-185
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- retire roadmap item (p): its stated defect is measurably closed and its figure drifted twice
@@ -690,7 +710,7 @@ foundry directions -- _platform
     - B2 -- `foundry lint-docs`: a mechanical oracle for gate 5's "README is accurate"
     - B3 -- Split the README front door from the 43-entry command reference
     winner: C2
-    ship: unknown
+    ship: PUSHED (per git)
   iter-117
     lenses: new-capability, hardening/DX
     - Candidate C1 -- `foundry init`: the product-onboarding front door (bite 1 = pure scaffold renderer + read-only preview)
@@ -827,4 +847,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-83 scouted iterations
+85 scouted iterations

@@ -237,6 +237,11 @@ class ProductConfig:
     setup_cmd: str = "uv sync"          # how to install deps in the fresh clone
     smoke_cmd: str | None = None       # optional smoke command; None => skipped
     dual_pm_scouts: bool = False       # dual-PM-scout opt-in (dormant; wired in a later bite)
+    # External agent-gap register (read-only evidence feed; dormant -- ZERO call
+    # site this iteration). Both default OFF so every existing config loads
+    # UNCHANGED and no product reads a register until one is set deliberately.
+    gap_register: str = ""             # dir holding gaps/*.json ("" => feed off)
+    gap_layers: tuple[str, ...] = ()   # stack layers to keep (() => every layer)
 
     def resolve(self) -> "ProductConfig":
         def expand(p: str) -> str:
@@ -262,6 +267,16 @@ class ProductConfig:
         # the product's own git repo. Needs `work_root` resolved first (above).
         self.staffing = expand(self.staffing) or str(
             pathlib.Path(self.work_root) / "staffing.json")
+        # External gap register: expand `~` / `{FOUNDRY}` like every other path,
+        # and NORMALIZE the layer filter to a tuple of `str`. `json.loads` hands a
+        # LIST here, and a bare string would iterate PER CHARACTER inside the
+        # layer filter (silently matching nothing), so the coercion is what lets
+        # `gather_gaps` trust the declared type instead of re-checking it.
+        self.gap_register = expand(self.gap_register)
+        raw_layers = self.gap_layers
+        if isinstance(raw_layers, str):
+            raw_layers = (raw_layers,) if raw_layers else ()
+        self.gap_layers = tuple(str(x) for x in (raw_layers or ()))
         return self
 
     @property
@@ -10423,6 +10438,196 @@ def pm_novelty_block(cfg: ProductConfig, stage: str) -> str:
         return novelty_advice(gather_novelty(cfg)) + "\n"
     except Exception:
         return ""
+
+
+# --------------------------------------------------------------------------- #
+# External agent-gap register -- read-only evidence feed (ZERO call site)
+#
+# The foundry has always been able to answer "is this work CORRECT?" (the suite,
+# the reviewer, the pessimistic gate) but has only ever answered "is this work
+# WORTH DOING?" from the INSIDE, via the roadmap and the novelty brake. Iterations
+# 90-101 are the standing proof of what that costs: twelve consecutive `--json`
+# clones, every one of them correct. These three functions are the read-only seam
+# that can later put an EXTERNAL, evidence-ranked statement of what is broken in
+# this problem domain in front of the PM. Deliberately dormant: `build_prompt`
+# lives in the FROZEN `foundry.py` the running brain imported at launch, so a call
+# site added now could not take effect before a restart anyway, while the seam and
+# its tests can be verified today.
+#
+# The register is read as PLAIN LOCAL JSON -- no subprocess, no `uv`, no PATH
+# lookup, no third-party import. Measured against the provider's bytes: `radar` is
+# an UNINSTALLED console script, `radar list` has neither `--json` nor `--layer`,
+# and `import agent_gap_radar.registry` raises ModuleNotFoundError for `pydantic`
+# under the ambient interpreter, so every non-stdlib route is closed.
+# --------------------------------------------------------------------------- #
+GAP_BLOCK_TOP_N = 5              # records NAMED in the PM-facing gap block
+
+# The stored keys a record must carry to be usable: its identity, the two fields
+# the filters read, and the three integers the ordering reads. A file missing any
+# of them is counted `unreadable` rather than defaulted, because a guessed score
+# would silently RANK a record on data the register never asserted.
+GAP_REQUIRED_KEYS: tuple[str, ...] = (
+    "id", "status", "layer", "severity", "frequency", "tractability")
+
+# Stored statuses whose work is already DONE. This is an EXCLUDE-list, not an
+# include-list of {"open"}: the live vocabulary is ("open", "partially-addressed",
+# "addressed", "retired") -- so `partially-addressed` is a LIVE gap that an
+# include-list would drop -- and a vocabulary the register can EXTEND must not
+# silently discard a status this repo has never heard of.
+GAP_DONE_STATUSES: frozenset[str] = frozenset({"addressed", "retired"})
+
+
+def _gap_sort_key(rec: Mapping[str, object]) -> tuple[int, int, int, str]:
+    """Total, stable order for register records: stored scores DESC, then `id` ASC.
+
+    Negating the three integers keeps a single ascending `sort` total in one pass,
+    and the `str(id)` tiebreak makes the order deterministic for records with
+    identical scores. Raises TypeError/ValueError when a score is not int-able --
+    `gather_gaps` converts that into an `unreadable` count rather than an ordering
+    crash, because a record whose scores cannot be ordered cannot be RANKED and is
+    therefore unusable, not merely odd.
+
+    Ordering by the STORED integers, never by a locally recomputed score, is
+    load-bearing: the register DERIVES `priority` as a weighted sum
+    (`(sev*3 + freq*2 + trac*1)`), which genuinely INVERTS against the plain
+    product on live records -- `(3,3,5)` beats `(5,4,2)` on the product and loses
+    on the weighted sum. Restating a figure the provider derives is how a consumer
+    ends up quietly disagreeing with the provider's own CLI while looking correct.
+    """
+    return (-int(rec["severity"]), -int(rec["frequency"]),
+            -int(rec["tractability"]), str(rec["id"]))
+
+
+def gather_gaps(cfg: ProductConfig) -> dict[str, object]:
+    """Read an external agent-gap register from local JSON (read-only; writes NOTHING).
+
+    Returns exactly `{"register", "records", "unreadable"}`. An empty
+    `cfg.gap_register` short-circuits to `{"register": "", "records": (),
+    "unreadable": 0}` and touches NO file, so an unconfigured product pays no I/O.
+
+    `records` are the STORED record dicts, UNCHANGED -- no `priority`, no
+    `confidence`, no other synthesized field. Both of those scores are DERIVED by
+    the register from the stored inputs and are the register's to retune; carrying
+    the inputs verbatim is what keeps this reader from competing with them.
+
+    Filters, applied to stored fields only: `GAP_DONE_STATUSES` are dropped, and a
+    non-empty `cfg.gap_layers` keeps only those layers. Order is `_gap_sort_key`.
+
+    Every per-file failure is COUNTED, never raised: unparseable JSON, a payload
+    that is not a dict, a record missing a `GAP_REQUIRED_KEYS` key, or a score
+    that will not order all increment `unreadable` and leave the file's valid
+    siblings intact. A malformed sibling must not be able to blind the PM to the
+    rest of the register, and the surviving count plus `unreadable` is what lets
+    `gap_advice` distinguish "no register configured" from "the register is broken".
+    """
+    register = getattr(cfg, "gap_register", "") or ""
+    if not register:
+        return {"register": "", "records": (), "unreadable": 0}
+    layers = tuple(getattr(cfg, "gap_layers", ()) or ())
+    kept: list[dict[str, object]] = []
+    unreadable = 0
+    try:
+        paths = sorted((pathlib.Path(register) / "gaps").glob("*.json"))
+    except OSError:
+        paths = []
+    for path in paths:
+        try:
+            rec = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            unreadable += 1
+            continue
+        if not isinstance(rec, dict) or any(
+                key not in rec for key in GAP_REQUIRED_KEYS):
+            unreadable += 1
+            continue
+        try:
+            _gap_sort_key(rec)
+        except (TypeError, ValueError):
+            unreadable += 1
+            continue
+        if str(rec.get("status", "")) in GAP_DONE_STATUSES:
+            continue
+        if layers and str(rec.get("layer", "")) not in layers:
+            continue
+        kept.append(rec)
+    kept.sort(key=_gap_sort_key)
+    return {"register": register, "records": tuple(kept), "unreadable": unreadable}
+
+
+def gap_advice(feed: Mapping[str, object]) -> str:
+    """Render a `gather_gaps` feed into a PM-facing block (pure; NO trailing newline).
+
+    Returns "" for an UNCONFIGURED feed (empty `register`) -- that is the only
+    silent case. A CONFIGURED register always renders a non-empty block, even when
+    zero records survive, because "no register configured" and "the register I read
+    is empty or broken" are different facts and a silent block would merge them
+    into one indistinguishable "" -- the fail-open shape this repo's own
+    dormant-by-accident failures keep taking.
+
+    Names at most `GAP_BLOCK_TOP_N` records and says how many it omitted. Each line
+    carries the record's stored identity, its three stored integers and its distinct
+    `evidence[].source_class` values, and the header states that the register's own
+    `priority`/`confidence` are DERIVED there and are deliberately not restated
+    here. Deterministic and total: no disk, network or subprocess, and a record
+    missing an optional display field renders as empty rather than raising.
+    """
+    register = str(feed.get("register", "") or "")
+    if not register:
+        return ""
+    records = tuple(feed.get("records") or ())
+    unreadable = int(feed.get("unreadable") or 0)
+    lines = [
+        f"EXTERNAL GAP REGISTER (read-only evidence feed): {register}",
+        f"{len(records)} record(s) survived the status/layer filter; "
+        f"{unreadable} file(s) unreadable and skipped.",
+        "Ordered by the register's STORED (severity, frequency, tractability), "
+        "ties on id. The register DERIVES its own priority/confidence from those "
+        "inputs; they are deliberately NOT restated here, so this block can never "
+        "disagree with the register's own ranking.",
+    ]
+    for rec in records[:GAP_BLOCK_TOP_N]:
+        classes: list[str] = []
+        evidence = rec.get("evidence") if isinstance(rec, Mapping) else None
+        for item in (evidence if isinstance(evidence, Iterable)
+                     and not isinstance(evidence, (str, bytes)) else ()):
+            if isinstance(item, Mapping):
+                name = str(item.get("source_class", "") or "")
+                if name and name not in classes:
+                    classes.append(name)
+        lines.append(
+            f"- {rec.get('id', '')} [{rec.get('layer', '')} / "
+            f"{rec.get('gap_type', '')}] status={rec.get('status', '')} "
+            f"severity={rec.get('severity', '')} "
+            f"frequency={rec.get('frequency', '')} "
+            f"tractability={rec.get('tractability', '')} "
+            f"evidence={','.join(classes) or 'none'} -- {rec.get('title', '')}")
+    omitted = len(records) - len(records[:GAP_BLOCK_TOP_N])
+    if omitted > 0:
+        lines.append(f"({omitted} further record(s) not shown -- "
+                     f"read the register directly for the full set.)")
+    return "\n".join(lines)
+
+
+def pm_gap_block(cfg: ProductConfig, stage: str) -> str:
+    """Read-only injection seam: the PM-stage external gap feed for build_prompt.
+
+    Returns "" for every non-`pm` stage, so those prompts stay BYTE-IDENTICAL;
+    for `pm` returns the gap block plus a single trailing newline, or "" when no
+    register is configured. `gather_gaps` and `gap_advice` are called by BARE
+    module name so a `monkeypatch.setattr(foundry, ...)` bites at call time.
+    Defensive: ANY exception degrades to "" (== the pre-feed prompt) so a missing,
+    unreadable or malformed register can NEVER crash the PM stage. Writes nothing.
+
+    DORMANT this iteration -- no run-path caller. Wiring it into `build_prompt` is
+    a later bite, and could not take effect without a dispatcher restart regardless.
+    """
+    if stage != "pm":
+        return ""
+    try:
+        block = gap_advice(gather_gaps(cfg))
+    except Exception:
+        return ""
+    return (block + "\n") if block else ""
 
 
 def parse_review_verdict(text: str) -> str | None:
