@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-186
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- `foundry mutation-probe`: the offline, deterministic half of roadmap item 6
+    - Candidate A2 -- `foundry heartbeat`: is the IN-FLIGHT stage still writing, or alive-but-broken?
+    - Candidate A3 -- `foundry deadtail`: the wall clock burned after a stage's artifact stops growing
+    - Candidate B1 -- `unfailable-asserts`: the 4th test-quality lens, with a LIVE known-bad in tests/
+    - Candidate B2 -- guard the ambient-tree PRECONDITION class that turned a green ship post-release BROKEN
+    - Candidate B3 -- fold the leak guard into a foundry verb so its exit code cannot be lost in a pipe
+    winner: B1
+    ship: unknown
   iter-185
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- retire roadmap item (p): its stated defect is measurably closed and its figure drifted twice
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- price the DEAD TAIL: the wall clock a stage burns after its required artifact stops growing
     - Candidate B3 -- the story meter has a producer and a reader but NOTHING can advance it
     winner: A1
-    ship: unknown
+    ship: PUSHED d1c4589
   iter-184
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A -- `stage-times --limit N`, so the PM's required sizing line prices the CURRENT loop
@@ -817,4 +827,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-82 scouted iterations
+83 scouted iterations

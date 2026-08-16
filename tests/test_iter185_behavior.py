@@ -16,7 +16,9 @@ Spec under test (products/_platform/state/iter-185/pm.md), Expected Behaviors 1-
       from the index, and the pre-existing heading order is unchanged
   10. neither `tests/test_iter164_behavior.py` nor `tests/test_iter173_behavior.py` pins the frozen
       literal any more; each replacement derives from the new brake or from `foundry_cli_verbs`
-  11. index headroom under the hard char cap is >= 4600
+  11. index headroom under the hard char cap leaves room for the NEXT mandatory ledger row
+      above iter 182's absolute floor (see the comment on the test -- the original literal
+      was an achievement pin, retired at the iteration-186 fix pass)
   12. DORMANT: zero call sites in the running pipeline; `foundry` + `dispatcher` still import
   13. the iteration record lands in THIS commit (ledger row, archive bullet, STATUS line)
 
@@ -330,13 +332,31 @@ def test_b10b_no_test_module_pins_the_literal_against_the_live_roadmap():
 
 
 # ============================================================== behavior 11
+# The floor here WAS the headroom iteration 185 itself achieved (4,676) minus 76 -- an
+# ACHIEVEMENT pin, not a threshold, and it fails BY CONSTRUCTION from iteration 186 onward:
+# `roles/pm.md` duty 3 MANDATES one `- iter N ` ledger row of up to MAX_ROW_CHARS chars every
+# iteration and FORBIDS deleting one, so 76 chars of allowance cannot hold a 115-char
+# obligation.  It also contradicted its own author's recorded intent -- 185's archive bullet
+# says the paydown "is what buys iteration 186 a mandatory ledger row at all".  Retired at the
+# iteration-186 fix pass to the forward-looking property it was reaching for: the index must stay
+# far enough under the wall to leave room for the NEXT mandatory row above iter 182's absolute
+# floor.  Same defect class as the STATUS equality pin repaired below and as the README POSITION
+# pin retired at iter 179.  Deliberately NOT lowered to the absolute floor alone: that would
+# restate `tests/test_iter182_behavior.py::test_b13b_index_headroom_at_least_4000` and cost this
+# module a real assertion, which is the vacuity trap iteration 186's own feature exists to catch.
+ABSOLUTE_INDEX_FLOOR = 4000   # tests/test_iter182_behavior.py::test_b13b_index_headroom_at_least_4000
+MAX_ROW_CHARS = 120           # `roles/pm.md` duty 3; the same contract cap iter 167 reads as MAX_STUB_CHARS
+
+
 def test_b11_index_headroom_improved_and_is_legal():
     cap = getattr(foundry, "ROADMAP_INDEX_HARD_CHARS", 54000)
     size = len(ROADMAP.read_text(encoding="utf-8"))
     headroom = cap - size
-    assert headroom >= 4600, (
-        f"index headroom is {headroom} chars (cap {cap}, size {size}); the spec requires "
-        ">= 4600 after the paydown"
+    floor = ABSOLUTE_INDEX_FLOOR + MAX_ROW_CHARS
+    assert headroom >= floor, (
+        f"index headroom is {headroom} chars (cap {cap}, size {size}); it must stay >= {floor} "
+        f"-- the {ABSOLUTE_INDEX_FLOOR}-char absolute floor plus ONE {MAX_ROW_CHARS}-char mandatory "
+        "ledger row, so the NEXT iteration can still write its own record"
     )
 
 
@@ -386,8 +406,17 @@ def test_b13a_done_ledger_row_and_status_line():
     assert len(rows[0]) <= 120, f"ledger row is {len(rows[0])} chars (max 120): {rows[0]!r}"
     status = [ln for ln in text.splitlines() if ln.startswith("STATUS (iter ")]
     assert status, "the index has no STATUS line"
-    assert f"STATUS (iter {THIS_ITER})" in status[0], (
-        f"the STATUS line was not advanced to {THIS_ITER}: {status[0]!r}"
+    # ITERATION-RELATIVE, not pinned to THIS_ITER. The index convention REQUIRES
+    # every later iteration to advance this line, so an equality pin fails BY
+    # CONSTRUCTION from iter 186 onward (it did -- repaired at the iter-186
+    # engineer stage, same defect class as the iter-169 README POSITION pin).
+    # The durable intent is that the line is never left STALE, i.e. it names an
+    # iteration at least as recent as this test's own.
+    named = re.match(r"STATUS \(iter (\d+)\)", status[0])
+    assert named, f"the STATUS line does not name an iteration: {status[0]!r}"
+    assert int(named.group(1)) >= THIS_ITER, (
+        f"the STATUS line is STALE -- it names iteration {named.group(1)}, "
+        f"older than {THIS_ITER}: {status[0]!r}"
     )
 
 

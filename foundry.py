@@ -7371,6 +7371,87 @@ def find_constant_assert_tests(source: str | ast.AST) -> tuple[str, ...]:
     return tuple(f.name for f in flagged)
 
 
+def _is_unfailable_assert_test(test: ast.expr) -> bool:
+    """True iff an `ast.Assert`'s `.test` node is TRUE BY CONSTRUCTION.
+
+    Three statically-decidable kinds, and deliberately NOTHING beyond literal
+    constants -- no dataflow, so a tautological compare (`assert x == x`) and a
+    falsy-literal disjunction (`assert x or []`) are both left alone, which is
+    what keeps the measured false-positive count on the live suite at 0:
+    * `bare-truthy` -- a truthy `ast.Constant` (`assert True`, `assert 1`,
+      `assert "msg"`). A FALSY constant (`assert False`/`assert 0`/`assert None`)
+      ALWAYS fails, which is the opposite defect and out of this lens.
+    * `nonempty-tuple` -- an `ast.Tuple` display with >=1 element, the classic
+      pytest footgun `assert (cond, "msg")`: a non-empty tuple is always truthy,
+      so the intended condition became a tuple member. An EMPTY `assert ()` is
+      falsy, so it always FAILS -- NOT flagged, same reasoning as above.
+    * `or-truthy` -- an `ast.BoolOp` over `ast.Or` with ANY truthy `ast.Constant`
+      operand. The disjunction can never be false, so the real operand beside it
+      is never load-bearing. Keeping a FALSY constant operand (`assert x or
+      False`, `assert x or None`) leaves the outcome decided by the real operand,
+      so that is a genuine check -- NOT flagged.
+    Only the assert's `.test` is inspected, NEVER its `.msg`, mirroring
+    `_assert_signals`: `assert x == y, "msg"` is a real check whose message
+    happens to be a constant. Pure: no filesystem/subprocess/network/clock, and
+    the argument node is never mutated.
+    """
+    if isinstance(test, ast.Constant):
+        return bool(test.value)
+    if isinstance(test, ast.Tuple):
+        return len(test.elts) >= 1
+    if isinstance(test, ast.BoolOp) and isinstance(test.op, ast.Or):
+        return any(
+            isinstance(v, ast.Constant) and bool(v.value) for v in test.values)
+    return False
+
+
+def find_unfailable_assert_tests(source: str | ast.AST) -> tuple[str, ...]:
+    """Names of `test*` functions carrying an assert that CANNOT FAIL.
+
+    The 4th test-quality lens, and the first to ask *can this assertion fail?*
+    rather than *is there an assertion?*. Pure AST scan -- no
+    filesystem/subprocess/network/clock, so fully offline-testable. Accepts
+    EITHER source text OR an already-parsed `ast.AST` (via
+    `_test_function_nodes`, so a pre-parsed tree is used AS-IS with no re-parse
+    and can later join the shared `TEST_TREE_CACHE`/`test_tree` path unchanged);
+    totality on odd input is therefore parity-by-construction with its three
+    siblings -- whatever they do for `None`/`123`/`[]`/bytes/`""`, so does this.
+    Flags a `test*` function iff >=1 `ast.Assert` in its subtree is unfailable
+    per `_is_unfailable_assert_test` -- the three kinds being `bare-truthy`
+    (truthy literal), `nonempty-tuple` (`assert (cond, "msg")`) and `or-truthy`
+    (a disjunction holding a truthy literal). A string literal spelling any of
+    those shapes is DATA, not code, so a fixture holding one is never flagged.
+
+    OVERLAP, stated because the shipped pair next door is disjoint and this one
+    is not: a function whose ONLY signal is `assert True` is flagged BOTH here
+    and by `find_constant_assert_tests` -- this lens keys on the assert node
+    alone, while that one additionally requires the function to hold NO real
+    signal. So the relationship mirrors the documented `skipped-tests` overlap,
+    NOT the by-construction-disjoint `weak`/`constant` pair. The complementary
+    half is what earns the lens: `assert <real check> or True` carries a REAL
+    signal (`.test` is an `ast.BoolOp`, not a plain `ast.Constant`), so
+    `find_assertionless_tests`, `find_constant_assert_tests` and
+    `find_always_skipped_tests` ALL return `()` for it -- an unfailable assert
+    does not merely escape those detectors, it VOUCHES for the function holding
+    it.
+
+    Results are SORTED ALPHABETICALLY by name and DE-DUPLICATED: a function
+    holding three unfailable asserts appears exactly once. That is a deliberate
+    departure from the siblings' ascending-`lineno` order -- de-duplication needs
+    a set, and a set cannot carry the line number that ordered them.
+    Never referenced on any run path (DORMANT, resume-safe): its brake lives in
+    the suite, exactly like `readme_verb_index_gaps` and `foundry_cli_verbs`.
+    """
+    flagged: set[str] = set()
+    for func in _test_function_nodes(source):
+        for node in ast.walk(func):
+            if isinstance(node, ast.Assert) and _is_unfailable_assert_test(
+                    node.test):
+                flagged.add(func.name)
+                break
+    return tuple(sorted(flagged))
+
+
 def _is_always_skip_decorator(decorator: ast.expr) -> bool:
     """True iff `decorator` UNCONDITIONALLY skips the test it decorates.
 
