@@ -27,7 +27,7 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 189): ledger and archive are current through 189.
+STATUS (iter 190): ledger and archive are current through 190.
 STILL OPEN:
 (c), (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
 NEXT UP, in value order: (a) Only the OPTIONAL 25-guard
@@ -66,7 +66,7 @@ but each group covers a SUBSET (`exit_code` x4/x3, `to_dict` x3, `verdict` x5/x3
 so ONE group per iteration behind golden-output comparison, never a blanket collapse. NEXT BITE, PROTOTYPED iter 164 scout B: `exit_code` x4 (57
 redundant lines); a 2nd mixin AND extending `CompanyRollupCounts` each RED an iter-153 pin, so assign one module-level
 fn as `exit_code = property(fn)` in the 4 class bodies -- MRO stays 3, fget identity holds, zero prior tests edited.
-(r) NEW (iter 154), a DE-LISTING: the 4 `live_smoke_on_real_dispatch_config` tests (23.02 s) snapshot `tmp_path`, NOT a real tree -- so iter 154's git-visible-snapshot fix does NOT apply to them and scout A's extrapolation to a ~35 s suite is void; their cost is per-verb AST scanning (iter 153 measured it). Do not re-propose it.
+(r) DE-LISTED (iter 154) -- detail in the archive; do NOT re-propose.
 (s) NEW (iter 155, the hotfix's deferred CLASS fix): iter 154 shipped green and turned post-release BROKEN because
 a test asserted the ambient `products/` tree holds >6000 files -- true in this working tree, false in the fresh
 clone the verifier builds (4 tracked files). A repo-wide guard over `tests/` banning ambient-tree COUNT
@@ -294,6 +294,7 @@ in the archive.
 - iter 186 -- 4th test-quality lens detects an assert that CANNOT fail; tests/ pinned at 0; iter-152 site repaired.
 - iter 188 -- gap-radar phase 1: gather_gaps/gap_advice/pm_gap_block read the register from local JSON; ZERO call site.
 - iter 189 -- ship_decision tells a CAP-KILLED final gate from an explicit REVERTED: SHIP/RETRY/REVERT, zero call site.
+- iter 190 -- stage-times prices cap SATURATION per group: total_s/cap_hits/cap_seconds + cap_share_pct + one rollup.
 
 
 ### Migration notes (per §6 self-mod guardrail)
