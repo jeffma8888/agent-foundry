@@ -246,7 +246,8 @@ def test_b01_shared_body_takes_two_new_optional_passthrough_params():
     assert sig.parameters[extra_kw].default in (None, {}), \
         f"{extra_kw} must default to empty/None: {sig}"
     for name in (extra_pos, extra_kw):
-        assert sig.parameters[name].kind is not inspect.Parameter.KEYWORD_ONLY or True
+        assert sig.parameters[name].kind is not inspect.Parameter.KEYWORD_ONLY, \
+            f"{name} must stay POSITIONAL_OR_KEYWORD, not KEYWORD_ONLY: {sig}"
         assert sig.parameters[name].default is not inspect.Parameter.empty, \
             f"{name} must be OPTIONAL: {sig}"
 

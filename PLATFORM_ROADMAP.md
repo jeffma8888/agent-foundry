@@ -27,7 +27,7 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 185): ledger and archive are current through 185.
+STATUS (iter 186): ledger and archive are current through 186.
 STILL OPEN:
 (c), (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
 NEXT UP, in value order: (a) Only the OPTIONAL 25-guard
@@ -92,6 +92,8 @@ NEXT BITE, not bundled with 184: put a recent-vs-all-time DELTA on the SAME stag
 only form that can prove a throughput fix worked. Then scout A's `deadtail` report (12.0 min/iteration of
 wall clock after the required artifact stops growing; 7.0 of it in prose-only stages). Item (i) already
 DE-LISTED the stop-when-stable EARLY EXIT -- report only, never a kill.
+(z) NEW (iter 186) -- DEFERRED reporting half of the 4th test-quality lens: the `unfailable-asserts` CLI
+trio, then the fold into the FROZEN 3-lens `TestQualitySummary`. Detail in the archive.
 INDEX BUDGET (a scheduling item, never a competitive candidate): the binding wall is now ONE constant,
 `ROADMAP_INDEX_HARD_CHARS` (54,000) -- NOT the 60,000 `ROADMAP_SIZE_WARN_CHARS` -- and the two live tests that
 read this file derive it from that constant, so crossing it turns the suite RED and REVERTS the iteration for a
@@ -289,6 +291,7 @@ in the archive.
 - iter 183 -- three gather_* test-quality scanners collapse onto ONE shared body; 26 redundant statements gone.
 - iter 184 -- stage-times gains --limit N; doctor's mandatory stage-budget: line prices the RECENT window, not all-time.
 - iter 185 -- roadmap CLI-verb figure becomes DERIVED; two frozen 48-verb pins retire; spent (p) archived.
+- iter 186 -- 4th test-quality lens detects an assert that CANNOT fail; tests/ pinned at 0; iter-152 site repaired.
 
 
 ### Migration notes (per §6 self-mod guardrail)
