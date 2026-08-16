@@ -1,5 +1,7 @@
 # agent-foundry
 
+> **Layer: a harness that carries all four layers.** An always-on orchestration harness whose release gate is a guardrail, whose per-product LEARNINGS.md head is a policy channel, and whose roles/ cards are skills.
+
 **An always-on autonomous product org.** Point it at any git repo and a lean
 core team of AI agents — a product agent, an engineer, a reviewer, an isolated
 QA engineer, and an independent release gate — builds it feature by feature,

@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-189
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- two argparse helpers retire 33 duplicated `--config` declarations
+    - Candidate A2 -- collapse the byte-identical methods in the 10-class `Company*` roll-up family
+    - Candidate A3 -- retire the 6 spent roadmap index blocks the detector already names
+    - Candidate B1 -- `stage-burn`: measure the wall-clock spent AFTER the output file stops changing
+    - Candidate B2 -- price the digest, the one payload every stage pays for
+    - Candidate B3 -- derive a per-stage wall-clock deadline from measured medians (the `final` precedent)
+    winner: B1
+    ship: pending (not yet decided)
   iter-188
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- teach the story meter the register's `prd.json` key, so the dispatcher's already-live hook stops reading "unparseable"
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the `exit_code` property written four times becomes one module-level function
     - Candidate B3 -- retire the dominated 60,000-char roadmap budget, so ONE wall guards the index
     winner: A2
-    ship: pending (not yet decided)
+    ship: PUSHED 8634b02
   iter-187
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- a pure "killed mid-verification" vs "refused to ship" disposition for the ship gate
@@ -847,4 +857,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-85 scouted iterations
+86 scouted iterations

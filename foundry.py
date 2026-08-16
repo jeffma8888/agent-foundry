@@ -9923,6 +9923,151 @@ def parse_ship_action(text: str) -> str | None:
     return action if action in ("PUSHED", "REVERTED") else None
 
 
+# --------------------------------------------------------------------------- #
+# A CAP-KILLED final gate is NOT a refusal.
+#
+# `parse_ship_action` above returns None both for "the gate never wrote a
+# verdict" and for "the gate wrote a malformed one", and `run_iteration` treats a
+# missing token exactly like `ACTION: REVERTED` -- so a gate killed mid-
+# verification destroys an iteration whose suite was green. Measured over every
+# surviving `final.md` on disk: 5 iterations carry no usable ship token, ALL 5
+# attempt logs read `agent run timed out after 600s` (that is `run_stage`'s own
+# timeout branch, not agent prose), ZERO are genuine refusals, and 4 of the 5
+# carry an authoritative tester `RESULT: PASS`.
+#
+# The asymmetry below is NOT invented here: it is generalized from
+# `preship_verdict`, which already folds a boundary/seam failure to INCOMPLETE
+# and only a REAL signal to BROKEN, because "a false BROKEN would send a green
+# iteration down the revert path". A cap kill is a boundary failure; an
+# `ACTION: REVERTED` is a real signal.
+#
+# Purely additive and DORMANT: nothing in the pipeline or the dispatcher calls
+# these names, so the running loop's resume semantics are byte-identical. The
+# plumbing that carries the kill fact out of `run_stage` (which already catches
+# `subprocess.TimeoutExpired` and then discards that fact) is a LATER bite.
+# --------------------------------------------------------------------------- #
+SHIP_DECISION_TOKENS: tuple[str, str, str] = ("SHIP", "RETRY", "REVERT")
+
+
+@dataclasses.dataclass(frozen=True)
+class ShipDecision:
+    """One final-gate verdict: ship the commit, retry the stage, or revert.
+
+    Stores ONLY `verdict` + `detail`; `ship`, `retry`, `revert` and `sentinel`
+    are DERIVED properties, never fields, so a caller can never hold a flag set
+    that disagrees with the verdict -- the `PreshipResult` idiom. Because all
+    four derive from the SAME single field, a contradictory instance is not
+    merely unlikely, it is unrepresentable.
+
+    An out-of-vocabulary `verdict` (only reachable by hand-building one; every
+    `ship_decision` branch returns a member of `SHIP_DECISION_TOKENS`) makes all
+    three flags False rather than contradictory -- fail-closed, since the flag
+    that matters at this gate is `ship`.
+    """
+    verdict: str
+    detail: str
+
+    @property
+    def ship(self) -> bool:
+        """True iff the commit should be pushed/kept."""
+        return self.verdict == "SHIP"
+
+    @property
+    def retry(self) -> bool:
+        """True iff the evidence is about the MACHINE, so re-run the stage.
+
+        This is the one cell that differs from today's live rule: today a
+        missing verdict is indistinguishable from a refusal and reverts.
+        """
+        return self.verdict == "RETRY"
+
+    @property
+    def revert(self) -> bool:
+        """True iff the tree should be reset (the gate's answer, or no answer left)."""
+        return self.verdict == "REVERT"
+
+    @property
+    def sentinel(self) -> str:
+        """The one-line greppable token, mirroring `PreshipResult.sentinel`."""
+        return f"SHIPGATE: {self.verdict}"
+
+
+def ship_decision(*, action: str | None, head_moved: bool,
+                  attempt_killed: bool, retries_remaining: bool) -> "ShipDecision":
+    """Decide SHIP / RETRY / REVERT from the parsed ACTION token + the kill fact.
+
+    Pure and TOTAL: no I/O, no clock, no raise for any input, one
+    `ShipDecision` on every path.
+
+    Arguments (keyword-only so a caller can never transpose two booleans):
+      * `action` -- `parse_ship_action`'s output: `"PUSHED"`, `"REVERTED"` or
+        `None`. Matching is EXACT and CASE-SENSITIVE, so `"pushed"`,
+        `"PENDING"`, `"MAYBE"`, `""` and `"   "` are all treated exactly as
+        `None` -- an unrecognized token is an absent verdict, which is precisely
+        what `parse_ship_action` already decided by returning `None` for them.
+      * `head_moved` -- whether the branch head actually advanced, i.e. today's
+        `new_head != base`.
+      * `attempt_killed` -- whether THIS stage attempt was killed at the hard
+        per-stage cap (evidence about the machine).
+      * `retries_remaining` -- whether the retry budget still allows another
+        attempt.
+
+    ORDERING IS THE WHOLE DESIGN. The ACTION token is authoritative WHENEVER
+    PRESENT, so `attempt_killed` is consulted only when the token is absent:
+      1. `PUSHED` + head moved -> SHIP. A kill never voids a ship the branch
+         head corroborates; the commit is genuinely on the remote.
+      2. `PUSHED` + head unmoved -> REVERT. The claim is contradicted by the
+         tree, and the tree wins.
+      3. `REVERTED` -> REVERT on every flag combination. A completed gate that
+         declines to ship is a REAL signal, even if the attempt was also killed.
+      4. no usable token + killed + retries left -> RETRY. This is the new cell:
+         machine evidence, not tree evidence.
+      5. no usable token + killed + budget exhausted -> REVERT. Nothing is left
+         to try, so today's behaviour stands.
+      6. no usable token + NOT killed -> REVERT. The stage ran to completion and
+         still wrote no verdict, which is evidence about the ARTIFACT.
+
+    Blast radius, pinned by the tester's today-equivalence oracle: `.ship` is
+    True in exactly the cells where today's live rule
+    `action == "PUSHED" and head_moved` is True (this never ships anything
+    today would not), and `.revert` diverges from today ONLY in the cells where
+    the token is absent AND the attempt was killed AND retries remain.
+    """
+    if action == "PUSHED":
+        if head_moved:
+            return ShipDecision(
+                "SHIP",
+                "the gate wrote an explicit ACTION: PUSHED and the branch head "
+                "moved, so the ship is corroborated by the tree itself")
+        return ShipDecision(
+            "REVERT",
+            "the gate wrote ACTION: PUSHED but the branch head did not move, "
+            "so nothing was actually pushed and the tree contradicts the claim")
+    if action == "REVERTED":
+        return ShipDecision(
+            "REVERT",
+            "ACTION: REVERTED is the gate's own explicit verdict about the "
+            "tree, which is authoritative even when the attempt was also killed")
+    # No usable ACTION token: `None`, or any spelling `parse_ship_action` would
+    # itself reject. ONLY here does the kill fact matter.
+    if attempt_killed:
+        if retries_remaining:
+            return ShipDecision(
+                "RETRY",
+                "no ACTION verdict was written and the attempt was killed at "
+                "the stage cap: that is evidence about the MACHINE, not about "
+                "the tree, so retry rather than revert a possibly-green tree")
+        return ShipDecision(
+            "REVERT",
+            "the attempt was killed at the stage cap with no ACTION verdict "
+            "and the retry budget is exhausted, so no evidence about the tree "
+            "will ever arrive")
+    return ShipDecision(
+        "REVERT",
+        "the stage COMPLETED and wrote no usable ACTION verdict, which is "
+        "evidence about the ARTIFACT rather than about the machine")
+
+
 def iteration_numbers(names) -> list[int]:
     """Parse an iterable of dir names into sorted-ascending UNIQUE iteration ints.
 
