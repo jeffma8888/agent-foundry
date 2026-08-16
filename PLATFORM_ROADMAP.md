@@ -292,6 +292,7 @@ in the archive.
 - iter 184 -- stage-times gains --limit N; doctor's mandatory stage-budget: line prices the RECENT window, not all-time.
 - iter 185 -- roadmap CLI-verb figure becomes DERIVED; two frozen 48-verb pins retire; spent (p) archived.
 - iter 186 -- 4th test-quality lens detects an assert that CANNOT fail; tests/ pinned at 0; iter-152 site repaired.
+- iter 188 -- gap-radar phase 1: gather_gaps/gap_advice/pm_gap_block read the register from local JSON; ZERO call site.
 
 
 ### Migration notes (per §6 self-mod guardrail)
