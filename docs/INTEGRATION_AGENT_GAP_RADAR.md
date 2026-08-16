@@ -38,7 +38,8 @@ Four verbs, all offline, all read-only, all with machine-readable output:
 | `radar list --json [--layer L] [--floor N]` | ranked open gaps for the PM block |
 | `radar show <ID>` | full brief when the PM picks a gap |
 | `radar prd <repo> --gap <ID>` | a loop-shaped `prd.json` whose FIRST story is a failing reproduction of the gap |
-| `radar audit <repo>` | (TO BUILD) static detection of structurally-checkable gaps, for the gate |
+| `radar scan <target> [--gaps R]` | applies the register's checks to a concrete repo: file:line findings, plus MANUAL questions where static analysis honestly cannot decide |
+| `radar scan <target> --prd` | a `prd.json` for the worst PRESENT finding in that target |
 
 `radar prd` is the hinge. Its `US-001` is always "reproduce the gap as a failing
 test" with the acceptance criterion "the test FAILS on the current code and the
@@ -127,27 +128,50 @@ asserts:
 This blocks a FALSE claim, never a missing one. A `GAP: none` spec passes
 untouched. It is offline, deterministic, and costs one register read.
 
-### Check two - the gap-regression audit (report-only first)
+### Check two - the gap-regression scan (report-only first)
 
-`radar audit <repo>` statically detects the register's structurally-checkable
-gaps. The seed register already contains five that are decidable from code:
+`radar scan` already exists - this integration needs no new radar verb, only a
+consumer. It applies each register check to the target repo and returns one of
+PRESENT / ABSENT / NOT_APPLICABLE / MANUAL / UNKNOWN per gap, with file:line
+locators.
 
-- GAP-006 a machine-parsed verdict whose absent value defaults to the
-  destructive branch (this repo's own `parse_ship_action` history);
-- GAP-003 a step running under a hard wall-clock cap with no checkpoint-first
-  write;
-- GAP-007 concurrent agents sharing a working tree and a git index with no
-  protocol;
-- GAP-004 steering context assumed delivered with nothing verifying delivery;
-- GAP-009 "shipped is not live" - a long-running process still executing code
-  that git reports as shipped.
+**Live baseline, `radar scan` against this repo on 2026-08-16:** 2 PRESENT,
+1 ABSENT, 1 NOT_APPLICABLE, 5 MANUAL, 0 UNKNOWN.
 
-Introduce it DORMANT: the gate runs it and records the verdict in `final.md`,
-and the verdict does not affect shipping. Promote it to a blocker only after it
-has produced BOTH a proven true positive (it fired on a planted known-bad
-sample) and a proven true negative (it stayed silent on a known-good one). An
-audit that has only ever returned "clean" is not evidence of health - it is an
-unproven detector, and a fail-open gate is worse than no gate.
+- **GAP-006 PRESENT (priority 8.7, confidence 5)** - "a missing machine-parsed
+  verdict defaults to the destructive answer". This is the foundry's own known
+  live defect: it is already an operator directive in the `_platform` head, and
+  it is what destroyed iteration 172. The register found it independently, from
+  outside, which is the whole argument for the integration.
+- **GAP-008 PRESENT (7.3, confidence 4)** - no `evals/` directory and no
+  `test_eval*` anywhere, in a repo whose entire product is agent behaviour.
+- **GAP-003 and GAP-005 MANUAL** - and this repo can answer both from artifacts
+  it already has: `dispatcher.py` runs stages under a hard cap WITH
+  checkpoint-first writes (write-early is in all 8 role cards), and the
+  lessons-written vs lessons-delivered ratio is measurable from
+  `learnings_digest` (currently 10 delivered of 1,554+ written, which IS the
+  GAP-005 signature).
+
+**Two measured reasons the scan must start report-only, not blocking.**
+
+1. **A proven false negative.** GAP-009 ("shipped is not live") was reported
+   ABSENT, citing `tests/test_iter105_behavior.py:587` as a positively
+   identified mitigation. It is in fact PRESENT and always has been: the running
+   dispatcher imports `foundry` once at launch, this repo ships a `live-lag`
+   verb precisely because of it, and on the day of the scan the live brain was
+   16 commits behind `HEAD`. The check's `mitigated_when` pattern matched a TEST
+   that mentions `importlib.reload`, not a reload that runs. A mitigation
+   pattern that can be satisfied by test text is fail-open.
+2. **Noisy locators.** GAP-006's verdict is correct but 12 of its 13 locators
+   are test files that merely spell `PUSHED|REVERTED|verdict`. The finding is
+   actionable; the file list is not.
+
+So: consume the scan, record its verdict in `final.md`, and let it block
+NOTHING until each check being relied on has fired on a planted known-bad
+sample AND stayed silent on a known-good one. Fixing CHK-009's `mitigated_when`
+to exclude test globs is the first upstream fix this integration owes the
+register - and finding that defect by pointing the instrument at a repo whose
+ground truth we already knew is exactly how a detector earns the right to gate.
 
 ## What must NEVER be gated
 
@@ -182,8 +206,8 @@ makes the register worth consulting.
 | 1 | `gather_gaps` + `gap_advice` + `pm_gap_block` as pure functions with ZERO call site, plus config fields with off-by-default. Tests only. | none - additive-dormant |
 | 2 | Wire `pm_gap_block` into `build_prompt` for the `pm` stage; `roles/pm.md` requires the `GAP:` line. | low - one stage's prompt |
 | 3 | Final-gate traceability assertion on a `GAP:` claim. | low - blocks only false claims |
-| 4 | `radar audit` consumed by the gate in report-only mode. | none while dormant |
-| 5 | Promote the audit to a blocker, once two-sided proof exists. | medium - do last |
+| 4 | `radar scan` consumed by the gate in REPORT-ONLY mode; verdict recorded in `final.md`, blocks nothing. | none while dormant |
+| 5 | Promote ONE scan check to a blocker, once that check has two-sided proof (CHK-009's fail-open is why this is not phase 4). | medium - do last |
 | 6 | `gap-register` scout lens (7th lens, rotation period 6 -> 7). | medium - control path |
 
 Phase 1 is one iteration's work and changes no behaviour. Phases 5 and 6 are
