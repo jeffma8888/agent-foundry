@@ -27,7 +27,7 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 190): ledger and archive are current through 190.
+STATUS (iter 191): ledger and archive are current through 191.
 STILL OPEN:
 (c), (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
 NEXT UP, in value order: (a) Only the OPTIONAL 25-guard
@@ -295,6 +295,7 @@ in the archive.
 - iter 188 -- gap-radar phase 1: gather_gaps/gap_advice/pm_gap_block read the register from local JSON; ZERO call site.
 - iter 189 -- ship_decision tells a CAP-KILLED final gate from an explicit REVERTED: SHIP/RETRY/REVERT, zero call site.
 - iter 190 -- stage-times prices cap SATURATION per group: total_s/cap_hits/cap_seconds + cap_share_pct + one rollup.
+- iter 191 -- ARCHITECTURE.md records the verdict-ABSENCE rule + the DORMANT ship_decision successor; parity brake.
 
 
 ### Migration notes (per §6 self-mod guardrail)
