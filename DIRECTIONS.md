@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-191
+    lenses: narrative-and-docs, new-capability
+    - Candidate A -- retire the 4 stale `foundry.py:NNNN` line pointers for symbol anchors, plus a brake
+    - Candidate B -- `docs/artifacts.md` claims to be a running catalog and reports one product with pre-generalization figures
+    - Candidate C -- ARCHITECTURE.md never records the gate rule with the largest measured cost, nor its dormant successor
+    - Candidate A -- `foundry steer`: the first WRITE path to the steering channel, with a delivery proof
+    - Candidate B -- `foundry recurrence`: the 431 losing scout candidates nothing has ever read
+    - Candidate C -- grade a role's ARTIFACT against its own card, the way `lint-spec` grades the PM's
+    winner: unknown
+    ship: pending (not yet decided)
   iter-190
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- stage-times reports cap saturation in SECONDS, and says so in its verdict
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `roles/final.md` credits `parse_ship_action` for a branch the loop actually takes with a whole-file substring test
     - Candidate B3 -- "five hard-won invariants" disagrees with the six the doc it summarises actually lists
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 23f32c2
   iter-189
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- two argparse helpers retire 33 duplicated `--config` declarations
@@ -867,4 +877,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-87 scouted iterations
+88 scouted iterations

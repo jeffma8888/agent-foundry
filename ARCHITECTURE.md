@@ -38,6 +38,21 @@ plus the one mandated marker line `PROGRESS: CHECKPOINT` that distinguishes a
 tester round cut short from a genuinely red suite (stage 4b vs 4c); it never
 parses free-form prose for control flow.
 
+**When a sentinel is ABSENT.** `parse_ship_action` returns `None` both for "the gate has
+written no `ACTION:` line yet" and for a malformed one, and its caller treats that `None`
+exactly like `ACTION: REVERTED`. So a final gate killed at the hard per-stage cap
+mid-verification destroys an otherwise-green iteration -- which has happened nine times.
+The rule is right for a stage that RAN TO COMPLETION (no verdict is evidence about the
+artifact) and lossy for one that was KILLED (evidence about the machine). Iteration 189
+shipped the successor: the pure `ship_decision` + frozen `ShipDecision` pair, whose
+vocabulary `SHIP_DECISION_TOKENS` is `SHIP` / `RETRY` / `REVERT`, and whose one divergence
+from the live rule is that an absent verdict on a KILLED attempt with retries left
+resolves to `RETRY` instead of a revert. `ship_decision` is **DORMANT** -- nothing in
+`foundry.py` or `dispatcher.py` calls it, so the live rule above is unchanged, and the
+plumbing that carries the kill fact out of `run_stage` is a later bite. A suite brake
+(`sentinel_dormancy_gaps`) reds if this paragraph stops citing every member of
+`SHIP_DECISION_TOKENS`, or if that dormancy claim outlives the arrival of a call site.
+
 Stage 6 runs **only after `ACTION: PUSHED`** (the ship branch); it is SKIPPED on a
 no-ship iteration. It is a deterministic inline step, not an agent-CLI run
 (bite 1 built the whole verify as a mechanical helper, and the quality bar demands

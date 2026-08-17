@@ -10068,6 +10068,209 @@ def ship_decision(*, action: str | None, head_moved: bool,
         "evidence about the ARTIFACT rather than about the machine")
 
 
+# --------------------------------------------------------------------------- #
+# Prose-vs-code brake for the sentinel-vocabulary paragraph (iter 191).
+#
+# WHY: ARCHITECTURE.md declares itself "the source of truth for the design
+# invariants", and its section-2 paragraph enumerates the whole sentinel
+# vocabulary -- yet until this iteration it never recorded the highest-consequence
+# CONSEQUENCE of that vocabulary (an ABSENT `ACTION:` line is read exactly like
+# `ACTION: REVERTED`, so a final gate killed at the hard per-stage cap destroys an
+# otherwise-green iteration; nine occurrences), nor that iteration 189 shipped the
+# vetted successor. That reasoning lived only in `roles/final.md` (an instruction
+# to the gate, not an explanation), in `parse_ship_action`'s docstring, in the
+# generated DIRECTIONS.md, and in the pinned head of a GITIGNORED,
+# character-bounded LEARNINGS.md -- none of them where a reader of the invariant
+# document looks, and the last is not in the repo at all. The reader who needs it
+# is the next PM deciding whether wiring `ship_decision` is safe.
+#
+# So the paragraph is DERIVED, not merely written: the repo's proven brake idiom
+# (iter 149 quality-bar citations, iter 169/174/175 README verb index, iter 185
+# roadmap CLI figures). It forces the prose update into the SAME commit as the
+# wiring, because the dormancy claim reds the suite the day a call site arrives.
+#
+# Both functions are pure and TOTAL, and both are themselves DORMANT: nothing in
+# foundry.py or dispatcher.py calls either name, so a running loop's resume
+# semantics are byte-identical.
+# --------------------------------------------------------------------------- #
+
+# How near the literal `DORMANT` must sit to the symbol for the claim to be ABOUT
+# that symbol, in characters of WHITESPACE-COLLAPSED text. Proximity rather than
+# co-presence is load-bearing, and measured: `DORMANT` already appears once in
+# ARCHITECTURE.md (`DORMANT-UNTIL-DATA`, a DIFFERENT dormant feature) thousands of
+# characters from section 2, so a co-presence rule would read green forever on an
+# unrelated sentence. Module-level and read as a global INSIDE
+# `sentinel_dormancy_gaps` (never captured at def-time) -- the
+# `QUALITY_BAR_CITATION_RE` idiom -- so a `monkeypatch.setattr(foundry,
+# "SENTINEL_DORMANCY_WINDOW_CHARS", 5)` moves a subsequent call's verdict on
+# unchanged input.
+SENTINEL_DORMANCY_WINDOW_CHARS = 400
+
+
+def _min_span_gap(text: str, first: str, second: str) -> int | None:
+    """Fewest characters BETWEEN an occurrence of `first` and one of `second`.
+
+    `0` when the two spans touch or overlap; `None` when either literal is absent
+    from `text` (or is empty), which the caller reads as "no claim here" rather
+    than as "distance zero". Every occurrence of each literal is considered, so a
+    document that mentions a word once far away and once adjacent measures as
+    ADJACENT -- the near miss is what the brake is asking about.
+
+    Distance is measured between the two spans' nearest EDGES, not their starts,
+    so "how far apart do these two phrases sit" means the same thing whichever
+    literal is longer. Matching is case-SENSITIVE substring: the caller's literals
+    are loud tokens whose case is the signal.
+
+    Pure and total: no I/O, mutates nothing, never raises for any input.
+    """
+    haystack = str(text or "")
+    needles = (str(first or ""), str(second or ""))
+    if not needles[0] or not needles[1]:
+        return None
+    found: list[list[int]] = []
+    for needle in needles:
+        starts: list[int] = []
+        at = haystack.find(needle)
+        while at != -1:
+            starts.append(at)
+            # +1 rather than +len so OVERLAPPING occurrences are both seen.
+            at = haystack.find(needle, at + 1)
+        if not starts:
+            return None
+        found.append(starts)
+    best: int | None = None
+    for a_start in found[0]:
+        a_end = a_start + len(needles[0])
+        for b_start in found[1]:
+            b_end = b_start + len(needles[1])
+            # Overlapping spans have a NEGATIVE raw difference; clamp to 0.
+            gap = max(0, max(a_start, b_start) - min(a_end, b_end))
+            if best is None or gap < best:
+                best = gap
+    return best
+
+
+def call_site_count(source: str, *, symbol: str) -> int | None:
+    """How many times `source` CALLS `symbol`; `None` if `source` does not parse.
+
+    The dormancy half of `sentinel_dormancy_gaps` needs a fact about the CODE, and
+    a text search cannot supply it: a `grep -c ship_decision` over foundry.py
+    counts the `def` statement, every docstring mention and every comment mention
+    besides, so a symbol that is called NOWHERE reads as heavily used. This walks
+    the AST and counts `ast.Call` nodes only -- a `def`, a string literal and a
+    `#` comment therefore all count 0.
+
+    The callee's TRAILING name is what matches, via the existing
+    `_callee_trailing_name` helper (deliberately NOT re-implemented here -- one
+    owner for Name/Attribute unwrapping), so `ship_decision(x)`,
+    `foundry.ship_decision(x)` and `self.ship_decision(x)` each count: a call
+    through any owner is a real call site. A callee with no stable name
+    (`f()()`, `d[k]()`, a lambda) is not counted, which is right for the dormancy
+    question -- such a call cannot be attributed to a symbol BY NAME, and reading
+    it as a call site would make the brake unfalsifiable.
+
+    Undecidable is FAIL-CLOSED, and it is the entire reason the return type is
+    `int | None` rather than `int`: source that does not parse returns `None`,
+    never `0`. A `0` there would be indistinguishable from "confirmed dormant",
+    letting a syntax error silently SATISFY a dormancy claim. `""` parses to an
+    empty module and so correctly returns `0`.
+
+    Pure and TOTAL: no filesystem, subprocess, network or clock; mutates nothing;
+    never raises for any input. A non-`str` `source` is read as its `str()` text,
+    an empty `symbol` returns `0` (nothing is named), and `SyntaxError` /
+    `ValueError` (embedded NUL) / `RecursionError` (pathological nesting) all fold
+    to `None`.
+    """
+    try:
+        tree = ast.parse(str(source or ""))
+    except (SyntaxError, ValueError, RecursionError):
+        return None
+    wanted = str(symbol or "")
+    if not wanted:
+        return 0
+    total = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and _callee_trailing_name(node.func) == wanted:
+            total += 1
+    return total
+
+
+def sentinel_dormancy_gaps(doc: str, *, tokens, symbol: str,
+                           call_sites: int | None) -> tuple[str, ...]:
+    """Ways `doc` fails to record a control vocabulary + its dormancy fact.
+
+    Gap direction only, mirroring `quality_bar_invariant_gaps`: `()` means the
+    document cites every member of `tokens` as an EXACT BACKTICKED span, and its
+    dormancy claim about `symbol` agrees with `call_sites`. Two independent halves,
+    composed in a fixed order -- token gaps first in `tokens` order, then AT MOST
+    ONE dormancy-class gap:
+
+      * `f"token-not-cited:{token}"` -- the literal ``f"`{token}`"`` (backticks
+        included) is absent from the collapsed text.
+      * `"dormant-claim-missing"` -- `call_sites == 0` but no `DORMANT` sits within
+        `SENTINEL_DORMANCY_WINDOW_CHARS` of `symbol`. The code says dormant and the
+        prose does not.
+      * `"stale-dormant-claim"` -- a call site EXISTS and the prose still claims
+        dormancy. This is the cell that makes the brake earn its place: wiring the
+        symbol reds the suite until the paragraph is updated, in the same commit.
+      * `"call-sites-undecidable"` -- `call_sites is None`, i.e. the source could
+        not be parsed. Reported rather than assumed, so an unparseable module can
+        never be read as "confirmed dormant".
+
+    WHY THE CITATION MUST BE BACKTICKED, not bare: these tokens are SHORT words.
+    A bare case-sensitive `SHIP` is satisfied by the ordinary word `SHIPPED`, and a
+    case-INSENSITIVE match is satisfied by ordinary prose -- either would make the
+    brake pass on a document that never names the vocabulary. Note also that
+    ``f"`{token}`"`` is not satisfied by a LONGER backticked span:
+    `` `SHIP_DECISION_TOKENS` `` does not contain `` `SHIP` ``.
+
+    WHY WHITESPACE-COLLAPSED BUT CASE-PRESERVING: the comparison runs against
+    `" ".join(doc.split())`, so a hard-wrapped paragraph still satisfies the
+    proximity window (a newline is not distance). The existing `_collapsed_fold`
+    is deliberately NOT reused: it CASEFOLDS, which is exactly the kindness that
+    would let ordinary prose satisfy `SHIP` and `DORMANT`.
+
+    Worked example of the composition rule, since the two halves are independent:
+    for three tokens and an EMPTY `doc`, the result is the three `token-not-cited:`
+    gaps ALONE when `call_sites` is POSITIVE (no claim is present, so nothing is
+    stale), and those three PLUS `dormant-claim-missing` when `call_sites == 0`.
+    Either way a blanked document can never read clean -- the vacuity failure the
+    iter-149 brake's own docstring warns about.
+
+    `call_sites` is read as a fact, not validated: `None` is undecidable, `0` is
+    dormant, and ANY other value is read as "at least one call site". That default
+    is fail-CLOSED, because the stale branch is the one that reds the build.
+
+    Pure and total: no filesystem, subprocess, network or clock; the arguments are
+    never mutated; and no ARGUMENT value raises (a non-`str` `doc` or `symbol` is
+    read as its `str()` text, and a non-iterable `tokens` is read as empty). As
+    with `quality_bar_invariants` and its module-level pattern, the module-level
+    window is assumed to be an int.
+    """
+    collapsed = " ".join(str(doc or "").split())
+    try:
+        wanted = tuple(tokens or ())
+    except TypeError:
+        wanted = ()
+    gaps: list[str] = []
+    for token in wanted:
+        if "`%s`" % (token,) not in collapsed:
+            gaps.append("token-not-cited:%s" % (token,))
+    # Read the window as a module GLOBAL here, at call time, so a monkeypatch of
+    # the constant re-decides subsequent calls on unchanged input.
+    window = SENTINEL_DORMANCY_WINDOW_CHARS
+    distance = _min_span_gap(collapsed, str(symbol or ""), "DORMANT")
+    claimed = distance is not None and distance <= window
+    if call_sites is None:
+        gaps.append("call-sites-undecidable")
+    elif call_sites == 0:
+        if not claimed:
+            gaps.append("dormant-claim-missing")
+    elif claimed:
+        gaps.append("stale-dormant-claim")
+    return tuple(gaps)
+
+
 def iteration_numbers(names) -> list[int]:
     """Parse an iterable of dir names into sorted-ascending UNIQUE iteration ints.
 
