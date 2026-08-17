@@ -492,16 +492,35 @@ def test_b12_neither_field_is_a_new_accepted_unknown_key(tmp_path) -> None:
     assert foundry.unknown_config_keys({"gap_register": "x", "gap_layers": []}) == ()
 
 
-def test_b12_tracked_configs_leave_both_fields_unset() -> None:
-    """Acceptance criterion: shipped configs must not switch the feature on."""
+def test_b12_only_platform_opts_in_and_it_does_so_clone_safely() -> None:
+    """RETIRED BY ITERATION 192: `_platform` now DECLARES the opt-in deliberately.
+
+    Iter 188's brake asserted no tracked config set either field, which is exactly
+    the assertion iteration 192 makes false (it wired the seam and opted `_platform`
+    in). The half worth keeping is the clone-safety half: a tracked file may not
+    carry an absolute machine path, and no OTHER product may be switched on by
+    accident. This asserts the DECLARED config only -- never that the register
+    directory exists, because a fresh clone has no sibling register.
+    """
+    seen = 0
     for cfg_path in sorted((_ROOT / "products").glob("*/config.json")):
         data = json.loads(cfg_path.read_text(encoding="utf-8"))
+        seen += 1
+        if cfg_path.parent.name == "_platform":
+            assert data["gap_register"].startswith("~/"), (
+                "the tracked opt-in must be a ~ path, not an absolute machine path")
+            assert isinstance(data["gap_layers"], list) and data["gap_layers"]
+            continue
         assert "gap_register" not in data, "%s enables gap_register" % cfg_path.name
         assert "gap_layers" not in data, "%s enables gap_layers" % cfg_path.name
+    assert seen >= 1, "no tracked product config was examined -- vacuous scan"
 
 
 # --------------------------------------------------------------------------
-# behavior 13 -- ZERO call site, proved from OUTSIDE the module
+# behavior 13 -- the call site, proved from OUTSIDE the module
+# (iteration 192 wired the seam; both dormancy brakes below were RETIRED by it and
+#  now assert the live wiring instead. The exhaustive prompt matrix lives in
+#  tests/test_iter192_behavior.py.)
 # --------------------------------------------------------------------------
 def _prompt(cfg, stage, tmp_path):
     it_dir = pathlib.Path(cfg.work_root) / "state" / ("iter-%d" % THIS_ITER)
@@ -551,25 +570,46 @@ def _twin_cfgs(tmp_path):
     return off, on, reg
 
 
-def test_b13_prompt_is_byte_identical_with_and_without_a_register(tmp_path) -> None:
-    """Dormancy, measured: configuring the register may not move ANY prompt."""
+def test_b13_register_moves_the_pm_prompt_and_only_the_pm_prompt(tmp_path) -> None:
+    """RETIRED BY ITERATION 192: configuring the register now moves `pm`, only `pm`.
+
+    Iter 188 asserted the opposite (no prompt moves at all) because the seam shipped
+    with zero call site. The surviving guarantee is the one every non-opted-in
+    product relies on: the delta is EXACTLY the seam's output, inserted once, in the
+    `pm` prompt and nowhere else.
+    """
     off, on, reg = _twin_cfgs(tmp_path)
     assert off.gap_register == "" and on.gap_register == reg
-    assert foundry.pm_gap_block(on, "pm"), "the ON fixture must render a block"
+    block = foundry.pm_gap_block(on, "pm")
+    assert block, "the ON fixture must render a block"
     for stage in ALL_STAGES:
         a = _prompt(off, stage, tmp_path)
         b = _prompt(on, stage, tmp_path)
-        assert a == b, "stage %r prompt changed when a gap register was configured" % stage
+        if stage == "pm":
+            assert b != a, "the pm prompt must carry the configured register"
+            assert len(b) == len(a) + len(block)
+            assert b.replace(block, "", 1) == a, (
+                "the pm delta is not EXACTLY one insertion of the seam's output")
+        else:
+            assert a == b, (
+                "stage %r prompt changed when a gap register was configured" % stage)
 
 
-def test_b13_no_prompt_consumes_pm_gap_block(tmp_path, monkeypatch) -> None:
-    """Scripted sentinel: if any prompt called the seam, the marker would appear."""
+def test_b13_every_stage_prompt_consumes_the_seam_exactly_once(tmp_path,
+                                                               monkeypatch) -> None:
+    """RETIRED BY ITERATION 192: the sentinel must now appear for EVERY stage.
+
+    A stage-IGNORING scripted seam proves WHERE the gating lives: the call site is
+    unconditional, so the `stage != "pm"` decision is inside `pm_gap_block` and no
+    caller can get the branch wrong. Iter 188's version asserted the marker was
+    absent everywhere, which is the assertion iteration 192 deliberately falsifies.
+    """
     cfg, _ = _seeded(tmp_path, sub="sentinel", records=[_record("GAP-001", 5, 5, 5)])
-    sentinel = "ZZ-GAP-BLOCK-SENTINEL-188-ZZ"
+    sentinel = "ZZ-GAP-BLOCK-SENTINEL-192-ZZ"
     monkeypatch.setattr(foundry, "pm_gap_block", lambda c, s: sentinel + "\n")
     for stage in ALL_STAGES:
-        assert sentinel not in _prompt(cfg, stage, tmp_path), (
-            "stage %r consumes pm_gap_block -- this bite must ship DORMANT" % stage)
+        assert _prompt(cfg, stage, tmp_path).count(sentinel) == 1, (
+            "stage %r does not consume pm_gap_block exactly once" % stage)
 
 
 def test_b13_both_modules_still_import() -> None:

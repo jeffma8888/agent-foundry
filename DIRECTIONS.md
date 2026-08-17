@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-192
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- wire `pm_gap_block` into `build_prompt` and opt `_platform` in
+    - Candidate A2 -- `foundry gaps [--config C] [--layer L] [--limit N] [--json]`
+    - Candidate A3 -- `gap-evidence`: emit DRAFT register records from the loop's own kills
+    - Candidate B1 -- retire the gate's ad-hoc substring rule: wire `ship_decision`, reading the kill fact off the attempt logs
+    - Candidate B2 -- a PROBE HYGIENE rule in all 8 role cards, enforced by a pure card audit + live brake
+    - Candidate B3 -- close the tester-verdict helper pair's argument-type trap
+    winner: A1
+    ship: pending (not yet decided)
   iter-191
     lenses: narrative-and-docs, new-capability
     - Candidate A -- retire the 4 stale `foundry.py:NNNN` line pointers for symbol anchors, plus a brake
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B -- `foundry recurrence`: the 431 losing scout candidates nothing has ever read
     - Candidate C -- grade a role's ARTIFACT against its own card, the way `lint-spec` grades the PM's
     winner: unknown
-    ship: pending (not yet decided)
+    ship: PUSHED 648f5b3
   iter-190
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- stage-times reports cap saturation in SECONDS, and says so in its verdict
@@ -877,4 +887,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-88 scouted iterations
+89 scouted iterations

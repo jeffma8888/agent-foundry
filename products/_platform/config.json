@@ -11,5 +11,7 @@
   "work_root": "{FOUNDRY}/products/_platform",
   "quality_bar": "This product IS the foundry framework itself. Improvements must keep foundry.py and dispatcher.py importable (python -c import), keep tests/ green, and preserve the design invariants documented in ARCHITECTURE.md (output-file success, anti-delegation, pessimistic gate, tester isolation, resilience, single-brain). Small, safe, reversible increments only. Never edit a currently-running loop's semantics in a way that breaks resume.",
   "push_enabled": true,
-  "dual_pm_scouts": true
+  "dual_pm_scouts": true,
+  "gap_register": "~/projects/agent-gap-radar",
+  "gap_layers": ["orchestration", "eval-verification", "observability"]
 }
