@@ -62,7 +62,12 @@ BANNED_IN_BAR = ("revert-on-doubt", "single-brain dispatch")
 
 # Behavior 11 before-state: top-level keys of the PRE-CHANGE committed config, measured
 # once from `git show HEAD:products/_platform/config.json` (key names only, no values).
-CONFIG_TOP_LEVEL_KEYS = ("allowed_push_repo", "branch", "dual_pm_scouts", "name",
+# EXTENDED (not weakened) by iteration 192: `_platform` opted the external gap feed on, so the
+# key set legitimately GREW by `gap_register` + `gap_layers`. The freeze stays an EXACT equality --
+# the property iter 149 wanted was "no key silently appears or disappears", not "this file never
+# gains a field" (same extend-don't-loosen move iter 188 made to iter 157's FROZEN_FIELDS).
+CONFIG_TOP_LEVEL_KEYS = ("allowed_push_repo", "branch", "dual_pm_scouts", "gap_layers",
+                         "gap_register", "name",
                          "push_enabled", "quality_bar", "quality_ref", "repo", "roadmap",
                          "roles_dir", "test_cmd", "vision", "work_root")
 

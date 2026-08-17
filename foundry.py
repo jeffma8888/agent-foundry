@@ -10789,18 +10789,20 @@ def pm_novelty_block(cfg: ProductConfig, stage: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# External agent-gap register -- read-only evidence feed (ZERO call site)
+# External agent-gap register -- read-only evidence feed (LIVE since iter 192)
 #
 # The foundry has always been able to answer "is this work CORRECT?" (the suite,
 # the reviewer, the pessimistic gate) but has only ever answered "is this work
 # WORTH DOING?" from the INSIDE, via the roadmap and the novelty brake. Iterations
 # 90-101 are the standing proof of what that costs: twelve consecutive `--json`
 # clones, every one of them correct. These three functions are the read-only seam
-# that can later put an EXTERNAL, evidence-ranked statement of what is broken in
-# this problem domain in front of the PM. Deliberately dormant: `build_prompt`
-# lives in the FROZEN `foundry.py` the running brain imported at launch, so a call
-# site added now could not take effect before a restart anyway, while the seam and
-# its tests can be verified today.
+# that puts an EXTERNAL, evidence-ranked statement of what is broken in this
+# problem domain in front of the PM. WIRED in iter 192: `build_prompt` calls
+# `pm_gap_block` for every stage, and the seam itself decides that only `pm` gets
+# text -- so a product that has not set `gap_register` still gets a BYTE-IDENTICAL
+# prompt, and the feature only becomes visible where a config opts in. (A call
+# site takes effect on the next dispatcher restart, since the running brain
+# imported a FROZEN `foundry.py` at launch; the seam and its tests verify today.)
 #
 # The register is read as PLAIN LOCAL JSON -- no subprocess, no `uv`, no PATH
 # lookup, no third-party import. Measured against the provider's bytes: `radar` is
@@ -10966,8 +10968,9 @@ def pm_gap_block(cfg: ProductConfig, stage: str) -> str:
     Defensive: ANY exception degrades to "" (== the pre-feed prompt) so a missing,
     unreadable or malformed register can NEVER crash the PM stage. Writes nothing.
 
-    DORMANT this iteration -- no run-path caller. Wiring it into `build_prompt` is
-    a later bite, and could not take effect without a dispatcher restart regardless.
+    Its one run-path caller is `build_prompt`, which calls it unconditionally for
+    EVERY stage: the stage gate lives here, inside the seam, so the call site has
+    no branch to get wrong and a monkeypatched seam is reached from every stage.
     """
     if stage != "pm":
         return ""
@@ -17063,6 +17066,15 @@ def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
     # It returns "" for every non-pm stage (those prompts stay byte-identical)
     # and is called by bare name so monkeypatch bites; the novelty PRIMITIVES
     # stay encapsulated behind this one seam (keeps the iter-105 b10 test green).
+    # PM-stage EXTERNAL evidence feed (iter 192): pm_gap_block injects the
+    # agent-gap register's top open records into the PM lead's prompt, so the
+    # "is this work WORTH DOING?" question is answered with an OUTSIDE statement
+    # of what is broken and not only from the roadmap + novelty brake (iterations
+    # 90-101 are what the inside-only view costs). Same seam contract as the
+    # novelty block above: "" for every non-pm stage (so those prompts stay
+    # byte-identical), "" for a product that has not set `gap_register`, and ""
+    # on ANY exception -- so this feed can never crash or move a prompt it does
+    # not own. Called by bare name so `monkeypatch.setattr(foundry, ...)` bites.
     return (
         f"You are the {stage.upper()} in iteration {iteration} of the "
         f"autonomous product team building the product '{cfg.name}'.\n\n"
@@ -17081,6 +17093,7 @@ def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
         f"{cfg.learnings}\n"
         f"{PROMPT_LEARNINGS_LABEL}\n{digest}\n"
         f"{pm_novelty_block(cfg, stage)}"
+        f"{pm_gap_block(cfg, stage)}"
         f"- Iteration number for file naming: {iteration:02d}\n"
         f"- YOUR REQUIRED OUTPUT FILE: {out_file} -- you MUST write it before "
         f"finishing, even on failure (state what failed and why).\n\n"
