@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-196
+    lenses: performance-and-throughput, narrative-and-docs
+    - A1 -- an expired session gets its own failure kind, checked BEFORE the `timeout` needle
+    - A2 -- stop buying attempts 2-4 for a failure no retry can heal
+    - A3 -- `retry-value`: price every ladder rung by what it has ever rescued
+    - Candidate A1 -- ARCHITECTURE.md credits the live final gate to iteration 194, which never shipped
+    - Candidate B1 -- the roadmap's own STATUS line is stale by two shipped iterations
+    - Candidate C1 -- the index lists item (k) as STILL OPEN and, 50 lines later, as DE-LISTED
+    winner: A1
+    ship: pending (not yet decided)
   iter-195
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- collapse the `exit_code` x4 identical Company roll-up bodies onto one shared body
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate A1 -- audit the write-early OUTCOME, not the card: the contract holds everywhere except the remediation stages
     - Candidate B1 -- price the digest payload every attempt pays for, and make digest_truncations > 0 visible
     winner: unknown
-    ship: pending (not yet decided)
+    ship: PUSHED e63e14b
   iter-194
     lenses: integration-and-adoption, simplification-and-deletion
     - A1 -- the PM card must ANSWER the gap feed it already receives (`GAP:` line, graded by the linter the card already runs)
@@ -917,4 +927,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-92 scouted iterations
+93 scouted iterations

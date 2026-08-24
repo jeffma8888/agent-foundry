@@ -27,7 +27,8 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 191): ledger and archive are current through 191.
+STATUS (iter 196): ledger and archive are current through 196 (193/194 never shipped, so neither
+owes a row).
 STILL OPEN:
 (c), (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
 NEXT UP, in value order: (a) Only the OPTIONAL 25-guard
@@ -298,6 +299,7 @@ in the archive.
 - iter 191 -- ARCHITECTURE.md records the verdict-ABSENCE rule + the DORMANT ship_decision successor; parity brake.
 - iter 192 -- gap-radar phase 2: build_prompt calls pm_gap_block and _platform opts in, so the PM feed goes LIVE.
 - iter 195 -- re-land iter 194: ship_decision wired at the live final gate; a cap-killed round RETRIES, not reverts.
+- iter 196 -- an expired session gets its own `auth` failure kind, ordered before `timeout` and priced identically.
 
 
 ### Migration notes (per §6 self-mod guardrail)

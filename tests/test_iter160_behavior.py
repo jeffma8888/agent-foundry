@@ -50,12 +50,15 @@ ARROW = "\u2192"  # U+2192, the docs' house style. This file stays pure ASCII.
 
 DOCS = ("ARCHITECTURE.md", "CONTINUOUS.md")
 
-# The five kinds the spec names as classified (Behavior 2 / the "Independently
-# re-verified" block of pm.md).
-SPEC_KINDS = ("timeout", "cli-error", "stalled", "service", "other")
+# The kinds the spec names as classified (Behavior 2 / the "Independently
+# re-verified" block of pm.md), plus `auth` from iter 196. This tuple is the
+# rendered-kind UNIVERSE for behavior 2, so a new classifier kind must be added
+# here or `test_b2_kinds_sharing_a_ladder_share_one_line_and_appear_exactly_once`
+# reds -- which is the guard working, not drift.
+SPEC_KINDS = ("timeout", "cli-error", "stalled", "service", "other", "auth")
 
 TODAYS_LINES = (
-    "timeout, cli-error: 1 -> 2 -> 4 min",
+    "timeout, cli-error, auth: 1 -> 2 -> 4 min",
     "stalled: 1 -> 5 -> 20 min",
     "service, other: 10 -> 20 -> 40 min",
 )
@@ -352,7 +355,9 @@ def test_b6_patching_backoffs_changes_the_default_line(monkeypatch):
 def test_b6_patching_fast_retry_kinds_regroups_the_lines(monkeypatch):
     monkeypatch.setattr(foundry, "FAST_RETRY_KINDS", ("timeout",))
     lines = foundry.retry_ladder_lines()
-    assert "timeout: 1 -> 2 -> 4 min" in lines, lines
+    # `auth` is priced by KIND_RETRY_LADDERS, which this patch does not touch, so
+    # it stays on the fast ladder and is rendered WITH the one remaining fast kind.
+    assert "timeout, auth: 1 -> 2 -> 4 min" in lines, lines
     # cli-error has left the fast ladder, so it must not be rendered with it
     assert not any(l.startswith("timeout, cli-error") for l in lines), lines
     joined = " | ".join(lines)

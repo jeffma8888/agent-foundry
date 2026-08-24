@@ -126,7 +126,7 @@ FAST_RETRY_KINDS = ("timeout", "cli-error")   # kinds that draw from the fast la
 # Per-kind retry ladders (iter 135). Consulted by `retry_delay` BEFORE the
 # fast/default choice above, so ONE kind can be re-priced without editing any of
 # the three ladders above (each of which is pinned by an existing test). Ships
-# with exactly one key.
+# with exactly two keys.
 #
 # MEASURED BASIS (live dispatcher.out, 2026-08-08): 16 `stalled` attempts across
 # 9 stage-runs, and 9 of 9 of those stage-runs are test-RUNNING stages (tester,
@@ -145,21 +145,69 @@ FAST_RETRY_KINDS = ("timeout", "cli-error")   # kinds that draw from the fast la
 # genuine network or system-sleep event -- the one scenario where retrying
 # cheaply is wrong. Holding attempt 3 at 20 min buys that mitigation for 0.68h of
 # the otherwise-available reclaim. Short at the front, long at the back.
-KIND_RETRY_LADDERS: dict[str, list[int]] = {"stalled": [60, 300, 1200]}
+#
+# `auth` (iter 196) IS A PRICE-PRESERVING ENTRY, NOT A RE-PRICING -- the opposite
+# of `stalled`, and the reason it must exist at all. An expired session used to
+# fall through the generic `timed out` needle and therefore drew TIMEOUT_BACKOFFS,
+# so giving it its own kind WITHOUT a ladder here would silently drop it to
+# BACKOFFS: 600/1200/2400 against 60/120/240, a TEN-FOLD cost regression on 8.5%
+# of every stage attempt this framework has ever made. This entry exists to make
+# that regression impossible. It is `list(TIMEOUT_BACKOFFS)` rather than a
+# duplicated literal so re-pricing the fast ladder IN SOURCE carries `auth` with
+# it and the two cannot drift apart.
+#
+# IT IS A SNAPSHOT, NOT A LIVE ALIAS, and the asymmetry is load-bearing rather
+# than incidental: the copy is taken at IMPORT, so `monkeypatch.setattr(foundry,
+# "TIMEOUT_BACKOFFS", ...)` re-prices `timeout`/`cli-error` and leaves `auth`
+# where it was. `tests/test_iter160_behavior.py`'s
+# `test_b6_patching_timeout_backoffs_changes_the_fast_line` asserts the patched
+# fast line reads exactly `timeout, cli-error`, which a live alias would widen to
+# include `auth` -- so a dynamic lookup would red that pin, and copying is the
+# behaviour the suite already specifies.
+#
+# WHY THE MAP AND NOT A THIRD MEMBER OF `FAST_RETRY_KINDS`: that tuple's element
+# set is pinned by exact-set assertions in TWO files
+# (tests/test_iter129_behavior.py:294, tests/test_iter135_behavior.py:174), while
+# this map is the documented seam for pricing exactly one kind. One pin update
+# instead of two, and deleting this one entry restores today's pricing exactly.
+KIND_RETRY_LADDERS: dict[str, list[int]] = {
+    "stalled": [60, 300, 1200],
+    "auth": list(TIMEOUT_BACKOFFS),
+}
 ATTEMPT_FAILURE_DEFAULT = "other"
 # Marker table for `classify_attempt_failure`, same shape and convention as
 # EVENT_KIND_RULES: lowercase substrings, FIRST rule wins, so ORDER IS
 # LOAD-BEARING and is deliberately CONSERVATIVE-FIRST. The two LONG-ladder kinds
-# (`service`, `stalled`) precede the two FAST ones, so a blob carrying markers
+# (`service`, `stalled`) precede the three FAST ones, so a blob carrying markers
 # for both -- in either textual order -- always lands on the long ladder.
 # Mis-pricing a struggling backend as a cap timeout is the only error here that
 # could hammer a service, so every ambiguity must resolve away from the fast
 # ladder. `service is busy` is the marker present in all 10 measured service
 # failures; `too many tokens` / `throttl` are defensive additions for other
 # known rate-limit wording.
+#
+# `auth` (iter 196) sits at INDEX 2 -- after both long-ladder kinds, before both
+# fast ones -- because an expired session is the one failure in this table that
+# NO retry and NO sleep can heal: only a human re-authenticating does, so the
+# label is the only signal an operator can act on. It MUST precede `timeout`
+# because the real blob ENDS in `authentication timed out`, so the generic
+# `timed out` needle claimed it first. It must NOT precede `stalled`: exactly 1
+# of the measured population also says `connection stalled`, and that blob keeps
+# its long ladder, which is what "conservative-first" means here.
+#
+# MEASURED BASIS (every `products/*/state/iter-*/*.attempt*.log` on the authoring
+# machine, 2026-08-24, 4,273 files): `credential refresh failed` matches 365 and
+# is the ONLY needle needed -- `session may have expired`, `authentication timed
+# out` and `loading credentials` each add ZERO further coverage, and the bare word
+# `credential` adds only agent PROSE about credentials, never a failure blob. 363
+# of the 365 classified `timeout` before this entry existed. The mislabel was
+# visible in a SHIPPED report: `stage-times` printed a `timeouts` population whose
+# median duration was 3 seconds, because a 3s instant-fail pooled with a 600s cap
+# kill -- and iteration 190's cap-saturation pricing reads that same label.
 ATTEMPT_FAILURE_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("service", ("service is busy", "too many tokens", "throttl")),
     ("stalled", ("connection stalled",)),
+    ("auth", ("credential refresh failed",)),
     ("cli-error", ("native shortcut did not match",)),
     ("timeout", ("timed out",)),
 )
@@ -13696,9 +13744,10 @@ class StageAttempt:
         (the observable no-output / timeout-or-fail signal in `dispatcher.out`).
       * `kind` -- WHY a no-output attempt produced nothing, as classified by
         `classify_attempt_failure` (`timeout` / `stalled` / `service` /
-        `cli-error` / `ATTEMPT_FAILURE_DEFAULT`). TRAILING and defaulted to `""`
-        so every pre-existing positional or keyword construction still works, and
-        `""` for a `produced` attempt because a success has no failure kind.
+        `cli-error` / `auth` / `ATTEMPT_FAILURE_DEFAULT`). TRAILING and defaulted
+        to `""` so every pre-existing positional or keyword construction still
+        works, and `""` for a `produced` attempt because a success has no failure
+        kind.
     """
     team: str
     iteration: int
@@ -17382,7 +17431,9 @@ def retry_ladder_lines() -> tuple[str, ...]:
     KIND UNIVERSE, in declaration order: the fast set, then the per-kind ladder map,
     then the classifier's marker kinds, then the default kind -- deduplicated,
     first appearance wins. Kinds INSIDE a line keep that order, so the fast line
-    reads ``timeout, cli-error`` exactly as ``FAST_RETRY_KINDS`` declares it.
+    OPENS with ``timeout, cli-error`` exactly as ``FAST_RETRY_KINDS`` declares it,
+    then carries any MAPPED kind sharing that ladder -- since iter 196 that is
+    ``auth``, rendering ``timeout, cli-error, auth`` from three separate sources.
 
     ORDER of the lines is deterministic and independent of dict iteration luck:
     ascending FIRST delay, then the alphabetically-first kind name sharing the
@@ -19518,7 +19569,7 @@ def main(argv: list[str] | None = None) -> int:
     # `losses` prints a read-only, offline per-CAUSE accounting of the stage attempts
     # that produced NO output file -- the work this framework actually destroyed --
     # classified with the shipped `classify_attempt_failure` labels (`timeout` /
-    # `stalled` / `cli-error` / `service` / `other`) over the same `iter-NN/
+    # `stalled` / `cli-error` / `service` / `auth` / `other`) over the same `iter-NN/
     # <stage>.attemptN.log` files #48 `rescues` reads. It exists because `rescues`
     # decides "lost" from ATTEMPT_KILL_TOKENS, ONE token, so it sees 9 of this
     # product's 64 no-output attempts (14.1%) and printed `[final] ... lost 0 rate
@@ -19526,7 +19577,8 @@ def main(argv: list[str] | None = None) -> int:
     # dead IPC endpoint: the ratio was right, the population was wrong. The SPLIT is
     # the point -- each kind has a different owner (`timeout` = shrink the bite,
     # `stalled` = a locally-silent command, `cli-error` = relaunch the agent app,
-    # `service` = wait) -- and one undifferentiated number can be assigned to nobody.
+    # `service` = wait, `auth` = a HUMAN must re-authenticate and no retry helps)
+    # -- and one undifferentiated number can be assigned to nobody.
     # `--limit N` scans only the most-recent N iterations. On-demand only: the
     # pipeline/dispatcher NEVER call it; it writes nothing and REPORTS only.
     # Exit 0 (nothing lost) / 1 (>=1 LOST attempt) / 2 (nothing to scan).

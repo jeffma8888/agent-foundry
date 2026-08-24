@@ -12,7 +12,10 @@ git, network or sleep, and nothing written outside `tmp_path`.
 
   retry_delay pricing (pure)
   1.  `KIND_RETRY_LADDERS` is a module-level dict whose keys are exactly
-      {"stalled"}, mapped to the measured ladder [60, 300, 1200].
+      {"stalled", "auth"} -- `stalled` mapped to the measured ladder
+      [60, 300, 1200] (iter 135) and `auth` added by iter 196, which PRESERVES
+      that kind's incumbent `timeout` pricing rather than re-pricing it.
+      NARROWED, not deleted: this census still forbids an UNDECLARED key.
   2.  the stalled ladder is USED: retry_delay("stalled", 1..3) -> 60/300/1200.
   3.  beyond the ladder clamps to the LAST entry (1200), like every other kind.
   4.  a bogus attempt number is total and returns the FIRST entry (60), never the
@@ -109,10 +112,13 @@ def _parametrize_values(fn, argname):
 # Behavior 1 -- the map exists and is minimal
 # ==========================================================================
 def test_b1_map_exists_and_is_minimal():
-    """One key only: `timeout`/`cli-error` already have a measured fast ladder and
-    `service` must keep the long one, so a second entry would be out of scope."""
+    """Declared keys only. `service` must keep the long ladder, so it is still out
+    of scope; iter 196 added `auth` for the OPPOSITE reason to `stalled` -- not to
+    re-price a kind but to stop a newly-classified kind falling from the fast
+    ladder to `BACKOFFS`. The census is NARROWED to the new value, never deleted,
+    so an undeclared third key still reds this build."""
     assert isinstance(foundry.KIND_RETRY_LADDERS, dict)
-    assert set(foundry.KIND_RETRY_LADDERS) == {"stalled"}
+    assert set(foundry.KIND_RETRY_LADDERS) == {"stalled", "auth"}
     assert foundry.KIND_RETRY_LADDERS["stalled"] == STALLED_LADDER
 
 
