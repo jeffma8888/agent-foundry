@@ -85,7 +85,7 @@ FIFTH_CFG = "products/agent-gap-radar/config.json"
 
 # Pinned HERE, never imported from the module under test.
 SECTION_RE = re.compile(r"^#\s+\d+\.", re.MULTILINE)
-LOSS_KINDS = ("cli-error", "other", "service", "stalled", "timeout")
+LOSS_KINDS = ("auth", "cli-error", "other", "service", "stalled", "timeout")
 CONTROL_PATH = ("run_stage", "run_iteration", "build_prompt", "postrelease_step")
 NEW_NAMES = ("gather_losses", "losses_cli", "attempt_loss_summary")
 LANDED_ITERS = (172, 173, 174)
