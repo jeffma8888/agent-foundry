@@ -73,6 +73,17 @@ STAGE_TIMEOUT = 1800            # 30 min hard cap per agent-run attempt (run_sta
 # "STAGE_SOFT_BUDGET", X)` in a test -- or a `--budget N` override -- bites.
 STAGE_SOFT_BUDGET = 420        # seconds; stage-times median WARN threshold
 MAX_ATTEMPTS = 4               # attempts per stage
+# Rounds the FINAL GATE may run in one iteration (iter 194). A round is one
+# `run_stage(..., "final", ...)` call plus one `ship_decision` verdict; a
+# `RETRY` verdict spends one. Deliberately NOT `MAX_ATTEMPTS`: that budget is
+# `run_stage`'s own no-output retry loop, whereas this one answers a stage that
+# DID produce a file and was killed before writing its verdict. 2 = one retry:
+# the harm being fixed is a single cap-kill, and every extra round costs a full
+# ~600s stage. The LAST round is passed `retries_remaining=False`, so the gate
+# provably terminates in SHIP or REVERT and can never spin. Read at CALL time
+# (a module global, never a default-arg value) so a `monkeypatch.setattr(
+# foundry, "FINAL_GATE_MAX_ROUNDS", 1)` re-decides a subsequent gate.
+FINAL_GATE_MAX_ROUNDS = 2      # final-gate rounds per iteration (1 retry)
 BACKOFFS = [600, 1200, 2400]    # 10 -> 20 -> 40 min between attempts
 COOLDOWNS = [1800, 3600, 7200, 14400]  # infra cooldown 30m -> 1h -> 2h -> 4h
 REPORT_EVERY = 5               # periodic status report cadence (iterations)
@@ -17191,6 +17202,108 @@ def classify_attempt_failure(blob: str) -> str:
     return ATTEMPT_FAILURE_DEFAULT
 
 
+def stage_attempt_killed(cfg: "ProductConfig", iteration: int, stage: str) -> bool:
+    """True iff the NEWEST attempt log for `stage` says the attempt was KILLED.
+
+    WHY it exists (iter 194): the final gate needs the kill fact to tell a stage
+    that was cut off mid-verification from one that ran to completion and refused
+    to ship. It reads that fact from the artifact `run_stage` ALREADY writes --
+    `<stage>.attempt<N>.log` -- rather than from a new return value, so there is
+    exactly ONE way to know it and `run_stage`'s signature is untouched.
+
+    WHY the LOG and not `run_stage`'s `except subprocess.TimeoutExpired`: that
+    branch is gated by `STAGE_TIMEOUT` (1800s) and its literal
+    `(stage attempt timed out)` occurs in 1 of the 4,203 attempt logs on disk,
+    while the REAL killer -- the agent CLI's own ~600s exit,
+    `agent run failed: agent run timed out after 600s` -- occurs in 1,368. Both
+    spellings contain `timed out`, so the EXISTING classifier already recognises
+    each; this is a READER of that classifier, not a second way to know the fact.
+
+    Selection is NUMERIC on the attempt suffix, so `attempt10` beats `attempt9`
+    (a lexicographic max would silently read a stale earlier attempt).
+    `classify_attempt_failure` is called by BARE module name so a
+    `monkeypatch.setattr(foundry, "classify_attempt_failure", ...)` bites.
+
+    TOTAL by construction: a missing state dir, a stage with no matching log, an
+    unreadable or non-UTF-8 log, a non-integer `iteration`, a `cfg` without a
+    `state`, and a raising monkeypatched classifier ALL return False. That
+    matters more here than anywhere else in the module -- this runs on the ship
+    path, where an exception abandons the gate and reads as a revert. False is
+    the fail-CLOSED answer: it yields exactly today's behaviour.
+
+    Performs at most ONE file read (plus one directory listing).
+    """
+    try:
+        it_dir = cfg.state / f"iter-{iteration:02d}"
+        prefix, suffix = f"{stage}.attempt", ".log"
+        newest, newest_num = None, -1
+        for path in it_dir.iterdir():
+            name = path.name
+            if not (name.startswith(prefix) and name.endswith(suffix)):
+                continue
+            digits = name[len(prefix):len(name) - len(suffix)]
+            # `isdecimal()` is exactly the set `int()` accepts for a bare digit
+            # run, so this filter makes the `int()` below unconditionally safe --
+            # and it rejects the round-scoped copies `save_final_gate_round`
+            # writes (`<stage>.round1.attempt2.log` fails the prefix test).
+            if not digits.isdecimal():
+                continue
+            num = int(digits)
+            if num > newest_num:
+                newest, newest_num = path, num
+        if newest is None:
+            return False
+        blob = newest.read_text(errors="replace")
+        return classify_attempt_failure(blob) == "timeout"
+    except Exception:
+        return False
+
+
+def save_final_gate_round(cfg: "ProductConfig", iteration: int,
+                          round_no: int) -> tuple[str, ...]:
+    """COPY one final-gate round's report + newest attempt log aside; return the names.
+
+    WHY COPY AND NEVER MOVE -- this is the whole design, and moving is the
+    tempting bug: re-calling `run_stage(cfg, iteration, "final", ...)` restarts
+    its internal attempt numbering at 1, so a retry round overwrites
+    `final.attempt1.log` and may overwrite `final.md`. Moving the partial report
+    aside so round 2 measures only its own work would mean a second kill leaves
+    NO output file, which makes `run_stage` return False -- and `run_iteration`
+    answers that with `revert_repo` + `{"status": "infra-fail"}`, which in
+    `run_continuous` increments `infra_streak` and at 2 triggers a COOLDOWN. So
+    moving would trade a lost iteration for a cooled loop. Leaving the stale
+    partial in place keeps the only reachable outcomes `shipped` / `no-ship`,
+    exactly as before this bite, and a COPY still preserves the forensics.
+
+    BEST-EFFORT AND SILENT BY CONTRACT: it returns the names it managed to copy
+    and swallows every error, because it runs AFTER the verdict is decided and
+    must never be able to change it. It is called by BARE module name from
+    `run_iteration` so a test can monkeypatch it.
+    """
+    saved: list[str] = []
+    try:
+        it_dir = cfg.state / f"iter-{iteration:02d}"
+        wanted = [it_dir / "final.md"]
+        prefix, suffix = "final.attempt", ".log"
+        logs = [(int(n.name[len(prefix):len(n.name) - len(suffix)]), n)
+                for n in it_dir.iterdir()
+                if n.name.startswith(prefix) and n.name.endswith(suffix)
+                and n.name[len(prefix):len(n.name) - len(suffix)].isdecimal()]
+        if logs:
+            wanted.append(max(logs)[1])
+        for path in wanted:
+            try:
+                dest = path.with_name(
+                    f"final.round{round_no}{path.name[len('final'):]}")
+                shutil.copyfile(path, dest)
+                saved.append(dest.name)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return tuple(saved)
+
+
 def retry_delay(kind: str, attempt: int) -> int:
     """Seconds to sleep before retrying a stage, given its failure ``kind``.
 
@@ -17525,13 +17638,52 @@ def run_iteration(cfg: ProductConfig, iteration: int | None = None) -> dict:
     if iteration_is_scouted(cfg, iteration):
         refresh_directions_file(cfg)
 
-    ok, final = run_stage(cfg, iteration, "final", "final.md", "final.md")
-    if not ok:
-        revert_repo(cfg, "final stage failed")
-        return {"status": "infra-fail", "stage": "final", "iteration": iteration}
+    # iter-194: the final gate is a BOUNDED ROUNDS LOOP whose verdict comes from
+    # `ship_decision` instead of the inline `PUSHED and head_moved` test that used
+    # to live here. WHY: a gate killed at the agent CLI's hard ~600s cap leaves a
+    # PARTIAL final.md with NO `ACTION:` line; `run_stage` reports success (its
+    # contract is output-file non-empty), the old inline test found no token, and
+    # `revert_repo` then destroyed a possibly-green tree. Measured over the 4,203
+    # attempt logs on disk, 8 rounds landed in exactly that cell. An absent verdict
+    # on a KILLED attempt is evidence about the MACHINE, so it now earns ONE more
+    # round; an explicit `ACTION: REVERTED` is evidence about the TREE and still
+    # reverts, and a corroborated `ACTION: PUSHED` still ships. `.retry` is the ONLY
+    # cell that differs from the pre-change rule.
+    #
+    # `action` deliberately keeps this call site's own SUBSTRING semantics via
+    # `contains`, NOT `parse_ship_action`: that parser additionally demands the
+    # token be the LAST NON-EMPTY LINE, so adopting it here would be a behaviour
+    # TIGHTENING that reverts iterations which ship today. Its own bite.
+    #
+    # Termination is structural, not conditional: the LAST round is passed
+    # `retries_remaining=False`, and `ship_decision` returns RETRY only when that
+    # flag is True, so the loop provably ends in SHIP or REVERT and can never spin.
+    rounds = max(1, FINAL_GATE_MAX_ROUNDS)   # module global, read at CALL time
+    for round_no in range(1, rounds + 1):
+        ok, final = run_stage(cfg, iteration, "final", "final.md", "final.md")
+        if not ok:
+            revert_repo(cfg, "final stage failed")
+            return {"status": "infra-fail", "stage": "final", "iteration": iteration}
 
-    new_head = head_of_branch(cfg)
-    if contains(final, "ACTION: PUSHED") and new_head != base:
+        new_head = head_of_branch(cfg)
+        action = ("PUSHED" if contains(final, "ACTION: PUSHED")
+                  else "REVERTED" if contains(final, "ACTION: REVERTED")
+                  else None)
+        decision = ship_decision(
+            action=action,
+            head_moved=new_head != base,
+            attempt_killed=stage_attempt_killed(cfg, iteration, "final"),
+            retries_remaining=round_no < rounds)
+        if decision.retry:
+            log(cfg, f"iter {iteration:02d} · final {decision.sentinel} "
+                     f"round {round_no}/{rounds}: {decision.detail}")
+            # Forensics only, and AFTER the verdict: best-effort, never raises,
+            # and a COPY so the stale report still satisfies `run_stage`'s
+            # output-file check on the next round (see the helper's docstring).
+            save_final_gate_round(cfg, iteration, round_no)
+            continue
+        if not decision.ship:
+            break
         log(cfg, f"iter {iteration:02d} SHIPPED — origin/{cfg.branch} now {new_head}")
         # Post-release: re-verify the PUSHED commit from a fresh clone. Additive
         # only -- a BROKEN verdict raises the hotfix flag but keeps status

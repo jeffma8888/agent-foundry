@@ -14,6 +14,10 @@ Spec under test (products/_platform/state/iter-189/pm.md), Expected Behaviors 1-
       EXACTLY the no-token + killed + retries-left cells
   11. dormancy, AST-verified: zero call sites, and the three live orchestrators plus
       dispatcher.py never even spell the new names
+      -- ITERATION 194 WIRED THE FEATURE, so the two assertions that froze the
+      DORMANT state are inverted IN PLACE to the exact wired values (one call site,
+      inside `run_iteration`; an exact per-orchestrator name table). The
+      dispatcher.py half is UNCHANGED and still green: that module is untouched.
 
 ISOLATION CONTRACT (HONORED): written from the iter-189 PM spec, the conventions of the
 existing `tests/test_iter18*_behavior.py` modules, and the product's OWN OBSERVABLE
@@ -301,11 +305,23 @@ def test_b11_the_call_matcher_is_not_vacuous():
     assert len(named) > 500, len(named)
 
 
-def test_b11_ship_decision_has_zero_call_sites_anywhere():
+def test_b11_ship_decision_has_exactly_one_call_site_inside_run_iteration():
+    """INVERTED at iteration 194, which WIRED the feature at the live final gate.
+
+    Behavior 11 froze this at ZERO call sites while the function was dormant.  That
+    literal MOVED when the dormancy legitimately ended, so it is re-pinned to the
+    EXACT expected value -- one call, in `run_iteration` -- rather than loosened to a
+    `>=` or a subset check, which would silently stop constraining anything (the
+    iteration-192 gate lesson: a frozen-literal test must move when what it freezes
+    grows, and the defect to hunt is an `==` becoming a weaker comparison).
+    """
     tree = ast.parse(_foundry_source())
+    parents = _parents(tree)
     calls = [n for n in ast.walk(tree)
              if isinstance(n, ast.Call) and _called_name(n) == "ship_decision"]
-    assert calls == [], ["line %d" % n.lineno for n in calls]
+    assert len(calls) == 1, ["line %d" % n.lineno for n in calls]
+    scopes = _enclosing_scopes(calls[0], parents)
+    assert "run_iteration" in scopes, scopes
 
 
 def test_b11_ship_decision_type_is_constructed_only_inside_its_own_feature():
@@ -334,7 +350,24 @@ def test_b11_ship_decision_type_is_constructed_only_inside_its_own_feature():
     assert internal, "no ShipDecision(...) construction found at all"
 
 
-def test_b11_live_orchestrators_do_not_spell_the_new_names():
+# INVERTED at iteration 194: `run_iteration` now spells three of the five feature
+# names, and the other two orchestrators still spell NONE.  Pinned as an EXACT
+# per-orchestrator tuple in `FEATURE_NAMES` order, so the surviving strength is
+# real: `ShipDecision` and `SHIP_DECISION_TOKENS` must stay OUT of every
+# orchestrator (the caller reads the verdict through the derived `.ship` / `.retry`
+# properties and never builds or enumerates the type), and `run_stage` /
+# `build_prompt` must stay byte-clean of the whole vocabulary.  Note
+# `"attempt_killed"` is matched as a SUBSTRING, so it is satisfied by both the
+# keyword argument and the `stage_attempt_killed` helper's name.
+ORCHESTRATOR_FEATURE_NAMES = {
+    "run_stage": (),
+    "build_prompt": (),
+    "run_iteration": ("ship_decision", "attempt_killed", "retries_remaining"),
+}
+
+
+def test_b11_live_orchestrators_spell_exactly_the_expected_feature_names():
+    assert tuple(sorted(ORCHESTRATOR_FEATURE_NAMES)) == tuple(sorted(LIVE_ORCHESTRATORS))
     src = _foundry_source()
     tree = ast.parse(src)
     checked = []
@@ -343,8 +376,8 @@ def test_b11_live_orchestrators_do_not_spell_the_new_names():
                 and node.name in LIVE_ORCHESTRATORS:
             segment = ast.get_source_segment(src, node) or ""
             assert segment, node.name
-            for name in FEATURE_NAMES:
-                assert name not in segment, (node.name, name)
+            spelled = tuple(name for name in FEATURE_NAMES if name in segment)
+            assert spelled == ORCHESTRATOR_FEATURE_NAMES[node.name], (node.name, spelled)
             checked.append(node.name)
     for want in LIVE_ORCHESTRATORS:
         assert want in checked, (want, checked)

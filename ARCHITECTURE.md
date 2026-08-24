@@ -38,20 +38,38 @@ plus the one mandated marker line `PROGRESS: CHECKPOINT` that distinguishes a
 tester round cut short from a genuinely red suite (stage 4b vs 4c); it never
 parses free-form prose for control flow.
 
-**When a sentinel is ABSENT.** `parse_ship_action` returns `None` both for "the gate has
-written no `ACTION:` line yet" and for a malformed one, and its caller treats that `None`
-exactly like `ACTION: REVERTED`. So a final gate killed at the hard per-stage cap
-mid-verification destroys an otherwise-green iteration -- which has happened nine times.
-The rule is right for a stage that RAN TO COMPLETION (no verdict is evidence about the
-artifact) and lossy for one that was KILLED (evidence about the machine). Iteration 189
-shipped the successor: the pure `ship_decision` + frozen `ShipDecision` pair, whose
-vocabulary `SHIP_DECISION_TOKENS` is `SHIP` / `RETRY` / `REVERT`, and whose one divergence
-from the live rule is that an absent verdict on a KILLED attempt with retries left
-resolves to `RETRY` instead of a revert. `ship_decision` is **DORMANT** -- nothing in
-`foundry.py` or `dispatcher.py` calls it, so the live rule above is unchanged, and the
-plumbing that carries the kill fact out of `run_stage` is a later bite. A suite brake
-(`sentinel_dormancy_gaps`) reds if this paragraph stops citing every member of
-`SHIP_DECISION_TOKENS`, or if that dormancy claim outlives the arrival of a call site.
+**When a sentinel is ABSENT.** An absent `ACTION:` line means two different things: "the
+gate has written no verdict yet" (it was cut off) and "the gate wrote a malformed one".
+Until iteration 194 the final gate collapsed both into the same answer as an explicit
+`ACTION: REVERTED`, so a gate killed at the hard per-stage cap mid-verification destroyed
+an otherwise-green iteration -- which happened nine times, and 8 rounds are still
+recoverable from the attempt logs on disk. That answer is right for a stage that RAN TO
+COMPLETION (no verdict is evidence about the artifact) and lossy for one that was KILLED
+(evidence about the machine). Iteration 189 shipped the successor: the pure
+`ship_decision` + frozen `ShipDecision` pair, whose vocabulary `SHIP_DECISION_TOKENS` is
+`SHIP` / `RETRY` / `REVERT`, and whose one divergence from the old rule is that an absent
+verdict on a KILLED attempt with retries left resolves to `RETRY` instead of a revert.
+
+**Iteration 194 WIRED it at the live final gate in `run_iteration`.** That gate is now a
+bounded rounds loop: at most `FINAL_GATE_MAX_ROUNDS` rounds, each one `run_stage(...,
+"final", ...)` plus one `ship_decision` verdict. The kill fact is read from the artifact
+`run_stage` already writes, by `stage_attempt_killed`, which classifies the newest
+`final.attempt<N>.log` through the existing `classify_attempt_failure` -- a READER of that
+classifier, not a second way to know the same thing, and `run_stage`'s signature is
+untouched. `action` is still sourced with `contains`, deliberately NOT with
+`parse_ship_action` (which additionally demands the token be the last non-empty line and
+would therefore revert iterations that ship today). The LAST round is passed
+`retries_remaining=False`, so the loop provably ends in a ship or a revert and cannot
+spin. `save_final_gate_round` COPIES a retried round's report and log aside for forensics
+and never moves them, because a moved report would leave the next round with no output
+file, which `run_iteration` answers with `infra-fail` -- and two of those cool the whole
+loop. Being a control-path change, it is INERT in any already-running brain until an
+operator restarts the dispatcher. `run_execution_plan`'s mirror release gate is
+deliberately NOT wired: it is unreachable today, because `derive_stage_sequence` equals
+`_default_stage_sequence()` for every configured product. A suite brake
+(`sentinel_dormancy_gaps`) reds if these paragraphs stop citing every member of
+`SHIP_DECISION_TOKENS`, or if a dormancy claim about `ship_decision` outlives its call
+site.
 
 Stage 6 runs **only after `ACTION: PUSHED`** (the ship branch); it is SKIPPED on a
 no-ship iteration. It is a deterministic inline step, not an agent-CLI run
