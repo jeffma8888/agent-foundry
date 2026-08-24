@@ -508,26 +508,81 @@ def test_b12_the_live_token_vocabulary_is_the_shipped_constant():
 def test_b12_live_brake_is_not_vacuous_stripping_the_citations_reds_it():
     """Two-sided proof against the SHIPPING document: remove every backtick and the same
     call returns three token gaps, so `()` above is earned by the prose, not by a check
-    that measures nothing (the trap the iter-149 quality-bar docstring names)."""
+    that measures nothing (the trap the iter-149 quality-bar docstring names).
+
+    ITERATION 194 re-pinned `call_sites`: it was hardcoded `0`, which was true only while
+    `ship_decision` was dormant.  Now that the document correctly does NOT claim dormancy,
+    a hardcoded `0` would add a `dormant-claim-missing` gap and this test would be
+    measuring the dormancy half by accident.  It is DERIVED from the two live module
+    sources instead -- the same honest source `test_b12_live_architecture_doc_is_clean...`
+    uses -- so the assertion stays EXACTLY the three token gaps and keeps isolating the
+    citation half, which is what "not vacuous" is about here.
+    """
     stripped = _read(_ARCH_NAME).replace("`", "")
+    call_sites = _derived_call_sites("ship_decision")
+    assert call_sites, ("the citation half is only isolated while a call site exists",
+                        call_sites)
     gaps = foundry.sentinel_dormancy_gaps(stripped,
                                           tokens=foundry.SHIP_DECISION_TOKENS,
-                                          symbol="ship_decision", call_sites=0)
+                                          symbol="ship_decision",
+                                          call_sites=call_sites)
     assert gaps == _token_gaps(foundry.SHIP_DECISION_TOKENS), gaps
 
 
 def test_b12_live_brake_reds_when_the_dormancy_claim_is_lower_cased():
-    """The other half of the two-sided proof: the dormancy branch also bites on the real
-    document, not just on synthetic fixtures."""
-    doc = _read(_ARCH_NAME).replace("DORMANT", "dormant")
+    """The other half of the two-sided proof: the dormancy branch is CASE-SENSITIVE on the
+    real document, not just on synthetic fixtures.
+
+    ITERATION 194 NOTE -- this test still PASSED unchanged after the wiring, but for the
+    WRONG REASON: the shipping document no longer claims dormancy about `ship_decision` at
+    all, so `.replace("DORMANT", "dormant")` became a no-op near the symbol and the
+    expected `dormant-claim-missing` arrived from the ABSENCE of a claim rather than from
+    its case.  A test that passes for a reason it does not name is exactly the fail-open
+    vacuity the iter-149 docstring warns about, so the claim is re-inserted first and the
+    lower-casing is then proved to be what flips the verdict -- with the `call_sites=0`
+    control asserted in the same call.
+    """
+    reinstated = _arch_with_dormancy_claim_reinstated()
+    assert foundry.sentinel_dormancy_gaps(
+        reinstated, tokens=foundry.SHIP_DECISION_TOKENS,
+        symbol="ship_decision", call_sites=0) == (), "control: the claim must be SEEN"
+    doc = reinstated.replace("DORMANT", "dormant")
+    assert doc != reinstated, "lower-casing was a no-op -- the proof would be vacuous"
     gaps = foundry.sentinel_dormancy_gaps(doc, tokens=foundry.SHIP_DECISION_TOKENS,
                                           symbol="ship_decision", call_sites=0)
     assert gaps == ("dormant-claim-missing",), gaps
 
 
+# The exact phrase iteration 194 REMOVED from ARCHITECTURE.md when it wired the gate.
+# Re-inserting it is how the two tests below keep proving the dormancy half of the brake
+# bites on the REAL shipping document rather than on a synthetic fixture.  Both tests
+# assert the mutation actually changed the text, so a later prose rewrite that makes this
+# phrase unfindable REDS them instead of silently making them vacuous.
+_RETIRED_DORMANCY_CLAIM = "`ship_decision` is **DORMANT** -- nothing calls it. "
+_ARCH_WIRED_ANCHOR = "**Iteration 194 WIRED it at the live final gate"
+
+
+def _arch_with_dormancy_claim_reinstated():
+    doc = _read(_ARCH_NAME)
+    assert doc.count(_ARCH_WIRED_ANCHOR) == 1, "the wired paragraph moved; re-anchor this"
+    mutated = doc.replace(_ARCH_WIRED_ANCHOR,
+                          _RETIRED_DORMANCY_CLAIM + _ARCH_WIRED_ANCHOR, 1)
+    assert mutated != doc, "mutation was a no-op -- the proof below would be vacuous"
+    return mutated
+
+
 def test_b12_live_brake_reds_if_a_call_site_arrives_without_a_prose_update():
-    """The forcing function the spec claims: same shipping document, one call site."""
-    gaps = foundry.sentinel_dormancy_gaps(_read(_ARCH_NAME),
+    """The forcing function the spec claims, INVERTED at iteration 194.
+
+    It used to read the shipping document as-is with `call_sites=1`, because the prose
+    still claimed dormancy.  Iteration 194 wired the gate AND updated the prose, so that
+    exact call is now correctly `()` -- pinned by
+    `test_b12_live_architecture_doc_is_clean_under_the_derived_call_count`.  The property
+    worth keeping is the FORCING one: if a dormancy claim about `ship_decision` ever
+    reappears next to a live call site, the brake must red.  So the claim is re-inserted
+    into the real document and the same exact verdict is demanded.
+    """
+    gaps = foundry.sentinel_dormancy_gaps(_arch_with_dormancy_claim_reinstated(),
                                           tokens=foundry.SHIP_DECISION_TOKENS,
                                           symbol="ship_decision", call_sites=1)
     assert gaps == ("stale-dormant-claim",), gaps

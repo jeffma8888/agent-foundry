@@ -1,6 +1,36 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-195
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- collapse the `exit_code` x4 identical Company roll-up bodies onto one shared body
+    - Candidate A2 -- collapse the `to_dict` x3 identical bodies -- the same win with no `property()` trick
+    - Candidate A3 -- retire the SECOND roadmap budget: two constants, two dataclasses, two verdicts become one
+    - Candidate C1 -- stage-times prices the post-checkpoint tail (wall clock burned after the deliverable's last write)
+    - Candidate A1 -- audit the write-early OUTCOME, not the card: the contract holds everywhere except the remediation stages
+    - Candidate B1 -- price the digest payload every attempt pays for, and make digest_truncations > 0 visible
+    winner: unknown
+    ship: pending (not yet decided)
+  iter-194
+    lenses: integration-and-adoption, simplification-and-deletion
+    - A1 -- the PM card must ANSWER the gap feed it already receives (`GAP:` line, graded by the linter the card already runs)
+    - A2 -- the committed decision log says `winner: unknown` for iterations that DID pick, and cannot tell that from "no contest"
+    - A3 -- the lag reporter that would ask the operator to restart has no caller, and its own iteration-scoped guard forbids one
+    - B1 -- collapse the 5 anchored-sentinel gate parsers onto one shared rule
+    - B2 -- the `Company*` `render` triplet, which no roadmap item owns
+    - B3 -- retire the 2 SPENT operator directives riding in every stage prompt
+    winner: B1
+    ship: REVERTED
+  iter-193
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- a pre-bulk-verb stray inventory: name every untracked+unignored path that `git add -A` would stage and `git clean -fd` would destroy
+    - Candidate B1 -- an atomic write seam, starting with the rescue patch that `revert_repo` writes seconds before it destroys the tree
+    - Candidate C1 -- a tested enumerator for the reviewer's BLOCKING findings, so the release gate stops hand-rolling the query
+    - Candidate B1 -- the PM must ANSWER the gap register it now reads, and the decision log records the answer
+    - Candidate B2 -- `foundry gaps [--config C] [--limit N] [--json]` plus a `doctor` gap-register line
+    - Candidate B3 -- feed the dispatcher's live-but-silent story meter, using the producer verb that already ships
+    winner: B1
+    ship: unknown
   iter-192
     lenses: new-capability, hardening/DX
     - Candidate A1 -- wire `pm_gap_block` into `build_prompt` and opt `_platform` in
@@ -10,7 +40,7 @@ foundry directions -- _platform
     - Candidate B2 -- a PROBE HYGIENE rule in all 8 role cards, enforced by a pure card audit + live brake
     - Candidate B3 -- close the tester-verdict helper pair's argument-type trap
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED de9d946
   iter-191
     lenses: narrative-and-docs, new-capability
     - Candidate A -- retire the 4 stale `foundry.py:NNNN` line pointers for symbol anchors, plus a brake
@@ -887,4 +917,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-89 scouted iterations
+92 scouted iterations

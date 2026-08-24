@@ -297,6 +297,7 @@ in the archive.
 - iter 190 -- stage-times prices cap SATURATION per group: total_s/cap_hits/cap_seconds + cap_share_pct + one rollup.
 - iter 191 -- ARCHITECTURE.md records the verdict-ABSENCE rule + the DORMANT ship_decision successor; parity brake.
 - iter 192 -- gap-radar phase 2: build_prompt calls pm_gap_block and _platform opts in, so the PM feed goes LIVE.
+- iter 195 -- re-land iter 194: ship_decision wired at the live final gate; a cap-killed round RETRIES, not reverts.
 
 
 ### Migration notes (per §6 self-mod guardrail)
