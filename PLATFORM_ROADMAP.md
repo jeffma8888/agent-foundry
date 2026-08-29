@@ -27,7 +27,7 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 196): ledger and archive are current through 196 (193/194 never shipped, so neither
+STATUS (iter 197): ledger and archive are current through 197 (193/194 never shipped, so neither
 owes a row).
 STILL OPEN:
 (c), (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
@@ -36,7 +36,7 @@ CONSOLIDATION remains, and it does NOT unblock strangler steps 2/3 (one guard st
 `dispatcher.py` and the meta-test requires it to); (c) repair a missing `tests/test_iterNN*.py` at the earliest
 repairable stage (both iterations that lacked one, 121 and 125, REVERTED); (d) relax `roles/tester.md`'s
 prose discipline around the two gate tokens, which iteration 127 makes safe but which MUST NOT ship in
-the same iteration as 127 itself (a live loop holds the pre-127 `foundry.py` in memory). (f) SHIPPED iter 133 -- record in the archive. (g) **candidates half SHIPPING iter 131; the rest still open.** Re-measured iter 131 over all 136 slates on disk: `parse_scout_candidates` accepted only `## Candidate `, so 32 slates rendered ZERO candidates and 6 of 27 COMMITTED `DIRECTIONS.md` blocks were incomplete (3 of them empty). Iter 131 makes it a UNION with an id-first rule (`## A1 --`), measured to admit 99 real candidate headings and ZERO of the 626 non-candidate `##` headings. STILL OPEN, in order: the `parse_triage_winner` half (21 `pm.md` files carry a `## Triage` heading and still yield `None`), then rendering "present but unparsed" distinctly from "absent". (i) **DE-LISTED by iteration 130's scout A -- do NOT re-propose:** detail in the archive. ALSO STILL OPEN: the iteration-121 RETRY (its 51,824-byte
+the same iteration as 127 itself (a live loop holds the pre-127 `foundry.py` in memory). (f) SHIPPED iter 133 -- record in the archive. (g) **candidates half SHIPPING iter 131; the rest still open.** STILL OPEN, in order: the `parse_triage_winner` half (21 `pm.md` files carry a `## Triage` heading and still yield `None`), then rendering "present but unparsed" distinctly from "absent". (i) **DE-LISTED by iteration 130's scout A -- do NOT re-propose:** detail in the archive. ALSO STILL OPEN: the iteration-121 RETRY (its 51,824-byte
 `products/_platform/state/iter-121/REVERTED_IMPLEMENTATION.patch` is preserved and its FINAL lesson
 authorises the retry, plus the dispatcher restart that lesson demands), then scout A's per-product
 `fast_test_cmd` for the build stages. DE-LISTED by iteration 126's spec on a measurement both its scouts
@@ -300,6 +300,7 @@ in the archive.
 - iter 192 -- gap-radar phase 2: build_prompt calls pm_gap_block and _platform opts in, so the PM feed goes LIVE.
 - iter 195 -- re-land iter 194: ship_decision wired at the live final gate; a cap-killed round RETRIES, not reverts.
 - iter 196 -- an expired session gets its own `auth` failure kind, ordered before `timeout` and priced identically.
+- iter 197 -- gap-radar phase 2's missing half: `roles/pm.md` now REQUIRES the `GAP:` line; dormant verdict core.
 
 
 ### Migration notes (per §6 self-mod guardrail)

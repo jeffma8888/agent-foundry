@@ -75,6 +75,14 @@ the same work checkpointed early survives the kill.
    has a record in NEITHER file -- deferring the record to a successor is what
    permanently lost iterations 64 and 122.
 4. Write the spec to your required output file, containing:
+   - `GAP:` — REQUIRED, one line, ANSWERING the external gap-register block your
+     prompt carries. Exactly one of the two forms the tracked integration spec
+     states, on its own line: `GAP: GAP-00N` (this feature closes or narrows that
+     register gap), or `GAP: none -- <reason>` (deliberate: roadmap item, hygiene,
+     or no gap fits). `none` WITH a reason is a perfectly good answer — the failure
+     mode to avoid is SILENCE. A line counts only when its stripped form STARTS
+     with `GAP:`, so the register block's own `- GAP-00N ...` record lines can
+     never be misread as your answer.
    - `## Feature` — one line
    - `## Why` — grounded in the vision/user
    - `## Expected Behaviors` — numbered, BLACK-BOX testable statements
