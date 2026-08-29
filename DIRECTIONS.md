@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-197
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- ARCHITECTURE.md credits iteration 194 twice for the gate wiring that shipped as 195
+    - Candidate A2 -- `docs/artifacts.md` calls itself "a running catalog" and reports 1 of 5 products, at 10 iterations
+    - Candidate A3 -- the invariants doc never names `preship`, the only step that can BLOCK a push, nor its asymmetric rule
+    - Candidate B1 -- `foundry unfailable-asserts [--json]`: give the 4th test-quality lens a CLI
+    - Candidate B2 -- `foundry gap-check --config <cfg> --spec <file> [--json]`: is a `GAP:` claim traceable?
+    - Candidate B3 -- a role-targeted operator directive channel with its own budget
+    winner: B2
+    ship: pending (not yet decided)
   iter-196
     lenses: performance-and-throughput, narrative-and-docs
     - A1 -- an expired session gets its own failure kind, checked BEFORE the `timeout` needle
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B1 -- the roadmap's own STATUS line is stale by two shipped iterations
     - Candidate C1 -- the index lists item (k) as STILL OPEN and, 50 lines later, as DE-LISTED
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED a72c8aa
   iter-195
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- collapse the `exit_code` x4 identical Company roll-up bodies onto one shared body
@@ -927,4 +937,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-93 scouted iterations
+94 scouted iterations

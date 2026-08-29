@@ -11040,6 +11040,305 @@ def pm_gap_block(cfg: ProductConfig, stage: str) -> str:
     return (block + "\n") if block else ""
 
 
+# --------------------------------------------------------------------------- #
+# The gap CLAIM -- the ANSWER half of the same feed (DORMANT, no call site)
+#
+# `pm_gap_block` above is the COST half of the tracked gap-radar integration's
+# phase 2 (`docs/INTEGRATION_AGENT_GAP_RADAR.md`): it has injected the register
+# into every PM prompt since iter 192. That phase has TWO halves, and the other
+# one -- `roles/pm.md` REQUIRING a `GAP:` line -- never landed, so the feed was
+# ANSWERED zero times across iterations 190-196 while being paid for on every
+# one of them. The card now states the obligation; this block is the
+# machine-checkable half: a parser for the line, a five-way verdict over it, and
+# a parity brake that fires when a LIVE prompt feed has no obligation behind it.
+#
+# WHY FIVE VERDICTS AND ONLY ONE OF THEM BLOCKING. This is the repo's own
+# killed-vs-refused asymmetry (`ship_decision`, iters 189/195) and `preship`'s
+# exit-1-vs-exit-2 rule applied to a new decision: evidence about the TREE
+# blocks, evidence about the INSTRUMENT never does. The only `ok` False verdict
+# is `malformed`, decidable from the claim TEXT ALONE with no register read at
+# all. A cited id merely ABSENT from this feed is `unverifiable`, never a false
+# claim, because `gather_gaps` filters by `GAP_DONE_STATUSES` and by
+# `cfg.gap_layers` -- absence from a FILTERED feed is not evidence of
+# nonexistence. And `answered` is kept SEPARATE from `ok` so a silent spec is
+# reportable without ever being ship-blocking, which is the tracked spec's
+# phase-3 contract verbatim: the gate "blocks a FALSE claim, never a missing
+# one". Same unblended-signals discipline the register itself uses for its
+# `priority` versus its `confidence`.
+#
+# DORMANT: zero call site on any run path -- no orchestrator, dispatcher, stage,
+# CLI verb or config field references any of these names, so an in-flight loop's
+# resume semantics and every stage prompt are byte-identical. The live brake
+# lives in the test suite, exactly like `foundry_cli_verbs`,
+# `bare_foundry_cli_findings` and `readme_verb_index_gaps`. A `gap-check` verb
+# and the final-gate traceability assertion are later, separate bites.
+# --------------------------------------------------------------------------- #
+GAP_CLAIM_PREFIX = "GAP:"        # the line prefix `roles/pm.md` duty 4 mandates
+
+# Every verdict `gap_claim_verdict` can return. Published as DATA so a consumer
+# (a report, a future verb, a test) never retypes a literal that could drift.
+GAP_CLAIM_VERDICTS: tuple[str, ...] = (
+    "absent", "declined", "resolved", "unverifiable", "malformed")
+
+# The verdicts that make `ok` False -- a SET, not an inline `== "malformed"`, so
+# promoting a verdict to ship-blocking later is a one-line data change at this
+# extension point instead of an edit to the record's derived property. Same
+# reason iter 196 extended the `KIND_RETRY_LADDERS` map rather than a kind set
+# that two test files pin exactly.
+GAP_CLAIM_BLOCKING_VERDICTS: frozenset[str] = frozenset({"malformed"})
+
+# A register id in CLAIM position: `GAP-` plus at least one digit, NOT followed
+# by a further word character or hyphen. That trailing guard is load-bearing --
+# it keeps typos like `GAP-3abc` and `GAP-003-x` OUT (so they read `malformed`,
+# which is decidable from the text) while admitting a real id that carries
+# trailing prose: `GAP-003`, `GAP-003 -- narrows it`, `GAP-003:`.
+_GAP_CLAIM_ID_RE = re.compile(r"gap-\d+(?![\w-])", re.IGNORECASE)
+
+# The declination `none` / `none -- <reason>`, as a WORD so `nonesuch` is not a
+# declination. Same trailing guard, same reason.
+_GAP_CLAIM_NONE_RE = re.compile(r"none(?![\w-])", re.IGNORECASE)
+
+# Punctuation that may separate `none` from its reason. Stripping a SET rather
+# than matching the exact `--` of the mandated form means `none -- x`, `none: x`
+# and `none, x` all yield the same reason, so a PM is never told its answer is
+# malformed over a dash style.
+_GAP_CLAIM_REASON_SEPARATORS = " \t-:,;."
+
+# The two mandated forms, as they must appear in the role card. Kept as separate
+# patterns because "states one form" and "states both" are different findings.
+_GAP_OBLIGATION_CITED_RE = re.compile(r"GAP:\s*GAP-")
+_GAP_OBLIGATION_NONE_RE = re.compile(r"GAP:\s*none", re.IGNORECASE)
+
+
+def parse_gap_claim(text: str | None) -> tuple[str, int]:
+    """Extract the PM's `GAP:` claim from a spec body (pure, total, never raises).
+
+    Returns `(claim, count)`: `claim` is the text after the first `GAP:` on the
+    FIRST line whose STRIPPED form starts with `GAP:`, itself stripped; `count`
+    is how many lines in the whole text qualify. No qualifying line, a non-`str`
+    argument or an empty one all return `("", 0)`.
+
+    A line qualifies ONLY when its stripped form STARTS with the prefix, and that
+    is the whole anti-ambiguity design: the block `pm_gap_block` injects renders
+    each record as `- GAP-003 [orchestration / ...] ...`, which starts with `-`
+    and can therefore never be misread as the PM's own answer. A mid-sentence
+    mention of `GAP:` in prose is ignored for the same reason.
+
+    `count` is returned rather than swallowed so two contradictory claims are
+    VISIBLE. The first still decides -- a reader needs one verdict, not a set --
+    but a spec that answers twice is a defect the caller can report.
+
+    The prefix match is case-SENSITIVE: the card mandates the literal `GAP:`, and
+    accepting `gap:` here would make the artifact's shape a matter of taste.
+    """
+    if not isinstance(text, str) or not text:
+        return ("", 0)
+    claim = ""
+    count = 0
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith(GAP_CLAIM_PREFIX):
+            continue
+        count += 1
+        if count == 1:
+            claim = stripped[len(GAP_CLAIM_PREFIX):].strip()
+    return (claim, count)
+
+
+def _gap_feed_ids(feed: object) -> dict[str, str]:
+    """Map lowercased record id -> the id as STORED, from a `gather_gaps` feed.
+
+    Total by construction: a non-mapping `feed`, a missing or non-iterable
+    `records`, a non-mapping record and a record with no usable `id` are all
+    treated as "contributes nothing" rather than as errors, because this feeds a
+    verdict that must never raise for any input. Lowercasing only the KEY keeps
+    the stored spelling available for the detail message, so the record reports
+    the register's own id rather than the PM's capitalisation of it.
+    """
+    try:
+        if not isinstance(feed, Mapping):
+            return {}
+        records = feed.get("records")
+        if isinstance(records, (str, bytes)) or not isinstance(records, Iterable):
+            return {}
+        out: dict[str, str] = {}
+        for rec in records:
+            if not isinstance(rec, Mapping):
+                continue
+            stored = str(rec.get("id", "") or "").strip()
+            if stored:
+                out.setdefault(stored.lower(), stored)
+        return out
+    except Exception:
+        return {}
+
+
+@dataclasses.dataclass(frozen=True)
+class GapClaimVerdict:
+    """One spec's answer to the gap question, as a comparable frozen record.
+
+    Frozen for the reason every audit record in this module is frozen: it makes
+    editing the verdict after the fact impossible and gives value equality for
+    free, so two `gap_claim_verdict` calls on equal inputs compare `==`, which is
+    what makes the purity claim testable.
+
+    Fields:
+      * `claim` -- the text after `GAP:` on the first qualifying line, stripped;
+        `""` when no line qualified.
+      * `claims_found` -- how many lines qualified. `> 1` means the spec answered
+        twice and the FIRST answer decided; surfaced rather than silently
+        resolved so the contradiction is reportable.
+      * `verdict` -- one of `GAP_CLAIM_VERDICTS`.
+      * `detail` -- why, in one human-readable line. For `declined` this is the
+        REASON TEXT and nothing else (`""` when the PM gave no reason), so a
+        caller can print the reason without re-parsing the claim.
+
+    `ok` and `answered` are PROPERTIES, not stored fields -- the deliberate
+    difference from `ReadmeVerbIndexAudit`, which stores its `ok`. Here they are
+    two INDEPENDENT readings of one verdict (`answered` = was the question
+    answered at all; `ok` = may this ship), and storing either would let a
+    hand-built record disagree with its own verdict. `to_dict()` therefore
+    cannot emit an `ok` that contradicts the `verdict` beside it.
+    """
+
+    claim: str
+    claims_found: int
+    verdict: str
+    detail: str
+
+    @property
+    def answered(self) -> bool:
+        """Did the spec answer the gap question at all? (A `GAP:` line exists.)
+
+        Derived from the ARTIFACT (`claims_found`), not from the verdict, because
+        "a line was written" is a fact about the file. It is equivalent by
+        construction -- `verdict == "absent"` iff `claims_found == 0` -- and
+        deriving it from the count keeps the property free of a verdict literal.
+        """
+        return self.claims_found > 0
+
+    @property
+    def ok(self) -> bool:
+        """May an iteration carrying this claim ship?
+
+        True for every verdict except the members of
+        `GAP_CLAIM_BLOCKING_VERDICTS`. Deliberately True for `absent` (the
+        tracked contract is that the gate blocks a FALSE claim, never a missing
+        one) and for `unverifiable` (a filtered feed's silence is not evidence).
+        """
+        return self.verdict not in GAP_CLAIM_BLOCKING_VERDICTS
+
+    def to_dict(self) -> dict[str, object]:
+        """A JSON-serialisable dict of every field PLUS `ok` and `answered`.
+
+        The derived pair is included precisely because it is derived: a consumer
+        reading the dict gets the same two booleans the record computes, so the
+        serialised form can never disagree with the object it came from.
+        """
+        data: dict[str, object] = dataclasses.asdict(self)
+        data["ok"] = self.ok
+        data["answered"] = self.answered
+        return data
+
+
+def gap_claim_verdict(text: str | None,
+                      feed: Mapping[str, object] | None = None) -> GapClaimVerdict:
+    """Judge a spec's `GAP:` claim against a `gather_gaps`-shaped feed.
+
+    Pure and total: TEXT plus an in-memory feed in, a record out. No filesystem,
+    subprocess, network or clock access, and no input can make it raise --
+    reading the register off disk is `gather_gaps`' job, which is what lets a
+    test drive every branch from scripted dicts.
+
+    The five verdicts, and the evidence each one is about:
+      * `absent` -- no `GAP:` line. `answered` False, `ok` TRUE.
+      * `declined` -- `none` or `none -- <reason>`; `detail` is the reason. A
+        reason-less `GAP: none` is still a declination, never `malformed`: the
+        tracked spec calls `none` with a reason "a perfectly good answer", and
+        punishing a missing reason would push a PM toward silence, which is the
+        one failure mode this whole feature exists to remove.
+      * `resolved` -- the claim's id is present among the feed's records.
+      * `unverifiable` -- the claim HAS a `GAP-<digits>` shape but the feed does
+        not carry it. `ok` TRUE, and `detail` names BOTH causes, because this
+        feed is FILTERED (`GAP_DONE_STATUSES`, `cfg.gap_layers`) and absence from
+        a filtered view is not evidence of nonexistence.
+      * `malformed` -- decidable from the TEXT ALONE as neither a declination nor
+        an id shape (`GAP: banana`, or a bare `GAP:` with nothing after it). The
+        ONLY `ok` False verdict, and the only one that needs no register.
+
+    A `feed` that is missing, `None` or not a mapping is treated as an EMPTY
+    register, so a caller with no feed still gets `declined` / `malformed` /
+    `unverifiable` correctly and never a crash. Id matching is
+    case-INSENSITIVE, and `detail` reports the register's stored spelling.
+    """
+    claim, count = parse_gap_claim(text)
+    if count == 0:
+        return GapClaimVerdict(
+            claim="", claims_found=0, verdict="absent",
+            detail="no `GAP:` line -- the spec did not answer the gap question")
+
+    none_match = _GAP_CLAIM_NONE_RE.match(claim)
+    if none_match is not None:
+        reason = claim[none_match.end():].lstrip(_GAP_CLAIM_REASON_SEPARATORS).strip()
+        return GapClaimVerdict(claim=claim, claims_found=count,
+                               verdict="declined", detail=reason)
+
+    id_match = _GAP_CLAIM_ID_RE.match(claim)
+    if id_match is not None:
+        cited = id_match.group(0)
+        stored = _gap_feed_ids(feed).get(cited.lower())
+        if stored is not None:
+            return GapClaimVerdict(
+                claim=claim, claims_found=count, verdict="resolved",
+                detail="cited %s matches a record in this feed" % (stored,))
+        return GapClaimVerdict(
+            claim=claim, claims_found=count, verdict="unverifiable",
+            detail="%s is not among this feed's records: either the record does "
+                   "not exist, or gather_gaps filtered it out by status or by "
+                   "gap_layers" % (cited,))
+
+    return GapClaimVerdict(
+        claim=claim, claims_found=count, verdict="malformed",
+        detail="claim %r is neither a `none` declination nor a `GAP-<digits>` id"
+               % (claim,))
+
+
+def gap_obligation_gaps(card_text: str | None, *, wired: bool) -> tuple[str, ...]:
+    """Report the PARITY defect this iteration exists to fix: a live feed with no
+    role-card obligation behind it (pure, total; `()` means no finding).
+
+    Findings, at most one:
+      * `("obligation-missing",)` -- the feed is wired and the card never
+        mentions `GAP:` at all. This is exactly the state iterations 190-196
+        shipped in: 1,459 chars of register injected into every PM prompt and
+        zero answers, because nothing asked for one.
+      * `("obligation-incomplete",)` -- the card mentions `GAP:` but does not
+        show BOTH mandated forms (`GAP: GAP-00N` and `GAP: none -- <reason>`). A
+        card that shows only the cited-id form reads as "cite a gap or say
+        nothing", which turns the register into a pressure to invent a claim.
+
+    `wired` is a required KEYWORD argument and MUST be derived by the caller from
+    `foundry.py` itself (does `build_prompt`'s body reference `pm_gap_block`?),
+    never hardcoded. That direction matters: `()` for an UNWIRED feed means
+    un-wiring the seam RELAXES this brake instead of leaving it asserting a
+    premise that is no longer true. Nothing is owed for a cost nobody is paying.
+
+    Total: a non-`str` `card_text` is read as empty (an unreadable card owes the
+    obligation, never a vacuous pass) and any truthy/falsy `wired` is accepted.
+
+    DORMANT: zero call site on any run path; the live brake is a test.
+    """
+    if not wired:
+        return ()
+    text = card_text if isinstance(card_text, str) else ""
+    if GAP_CLAIM_PREFIX not in text:
+        return ("obligation-missing",)
+    if not (_GAP_OBLIGATION_CITED_RE.search(text)
+            and _GAP_OBLIGATION_NONE_RE.search(text)):
+        return ("obligation-incomplete",)
+    return ()
+
+
 def parse_review_verdict(text: str) -> str | None:
     """Extract the reviewer VERDICT from a `reviewer.md` body (pure, total).
 
