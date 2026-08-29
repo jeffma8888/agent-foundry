@@ -1,6 +1,24 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-200
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- the watchdog's resurrection writes the `dispatcher.out` that four shipped surfaces read
+    - Candidate A2 -- `roles/pm.md` must answer the repetition brake, the way iter 197 made it answer `GAP:`
+    - Candidate A3 -- give `foundry agents` its first consumer, so house rules reach the repo fresh agents read
+    - Candidate B1 -- placeholder pending measurement
+    winner: A1
+    ship: pending (not yet decided)
+  iter-199
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- the brain scan stops reporting 3 dispatchers when ONE brain is running
+    - Candidate A2 -- a failed process scan must not license a second brain
+    - Candidate A3 -- the loop's own freeze brake gives two different answers in one iteration
+    - Candidate B1 -- grade the GAP: answer inside the linter the PM card ALREADY runs, instead of minting a verb
+    - Candidate B2 -- the mandated GAP: answer is recorded ONLY in a gitignored file
+    - Candidate B3 -- the layer filter every PM prompt is scoped by is unvalidated and was set against a 16-record register
+    winner: A1
+    ship: REVERTED
   iter-198
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `foundry gap-check`: print the gap-claim verdict for an iteration's spec
@@ -10,7 +28,7 @@ foundry directions -- _platform
     - Candidate B2 -- ship a TRACKED, repo-agnostic launcher under `scripts/` that fails CLOSED
     - Candidate B3 -- `preship` names the revision it verified and the uncommitted work it is blind to
     winner: B3
-    ship: pending (not yet decided)
+    ship: PUSHED d4172e9
   iter-197
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- ARCHITECTURE.md credits iteration 194 twice for the gate wiring that shipped as 195
@@ -947,4 +965,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-95 scouted iterations
+97 scouted iterations
