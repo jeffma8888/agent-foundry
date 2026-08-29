@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-198
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- `foundry gap-check`: print the gap-claim verdict for an iteration's spec
+    - Candidate A2 -- `foundry unfailable-asserts` (+ `--json`): give the 4th test-quality lens a surface
+    - Candidate A3 -- a committed `evals/` corpus + pure replay runner for the loop's own gate parsers
+    - Candidate B1 -- the brain scan stops reporting 3 dispatchers when ONE brain is running
+    - Candidate B2 -- ship a TRACKED, repo-agnostic launcher under `scripts/` that fails CLOSED
+    - Candidate B3 -- `preship` names the revision it verified and the uncommitted work it is blind to
+    winner: B3
+    ship: pending (not yet decided)
   iter-197
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- ARCHITECTURE.md credits iteration 194 twice for the gate wiring that shipped as 195
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry gap-check --config <cfg> --spec <file> [--json]`: is a `GAP:` claim traceable?
     - Candidate B3 -- a role-targeted operator directive channel with its own budget
     winner: B2
-    ship: pending (not yet decided)
+    ship: PUSHED 642ae0b
   iter-196
     lenses: performance-and-throughput, narrative-and-docs
     - A1 -- an expired session gets its own failure kind, checked BEFORE the `timeout` needle
@@ -937,4 +947,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-94 scouted iterations
+95 scouted iterations

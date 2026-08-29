@@ -9090,13 +9090,21 @@ class PreshipResult:
     them -- and both properties branch in the SAME order, so even a hand-built
     contradictory instance renders consistently.
 
-    `test_seconds` is DIAGNOSTIC ONLY (the clone suite's wall-time when it ran,
-    else `None`); it never affects the verdict.
+    `test_seconds`, `verified_sha` and `worktree_scope` are DIAGNOSTIC ONLY and
+    never affect the verdict: the clone suite's wall-time when it ran, the sha the
+    clone was verified AT, and a one-line description of how far the SOURCE
+    worktree has diverged from that sha. The last two exist because this gate
+    clones `cfg.repo` and so re-verifies HEAD ONLY -- a report that omits its own
+    scope reads as an answer to "is my work good?" when it answered "is HEAD
+    good?". Each is `None` when unknown, and `render()` prints `unknown` for it
+    rather than leaking a bare `None` into a human artifact.
     """
     verified: bool
     incomplete: bool
     detail: str
     test_seconds: float | None = None
+    verified_sha: str | None = None
+    worktree_scope: str | None = None
 
     @property
     def exit_code(self) -> int:
@@ -9121,11 +9129,15 @@ class PreshipResult:
         """
         seconds = ("n/a" if self.test_seconds is None
                    else f"{self.test_seconds:.2f}s")
+        sha = "unknown" if self.verified_sha is None else self.verified_sha
+        scope = "unknown" if self.worktree_scope is None else self.worktree_scope
         return "\n".join([
             "foundry preship (local-clone re-verification)",
             f"  verified:      {self.verified}",
             f"  incomplete:    {self.incomplete}",
             f"  suite wall:    {seconds}",
+            f"  verified sha:  {sha}",
+            f"  worktree:      {scope}",
             f"  detail:        {self.detail}",
             f"  exit code:     {self.exit_code}",
             self.sentinel,
@@ -9142,6 +9154,8 @@ class PreshipResult:
             "detail": self.detail,
             "sentinel": self.sentinel,
             "test_seconds": self.test_seconds,
+            "verified_sha": self.verified_sha,
+            "worktree_scope": self.worktree_scope,
         }
 
 
@@ -9216,13 +9230,103 @@ def _try_cleanup_clone(clone_dir) -> None:
         pass
 
 
+# Bound on the shortstat text echoed into a worktree-scope line. `git diff
+# --shortstat` is ONE short line, so anything longer came from somewhere
+# unexpected; truncating keeps a pathological value from bloating a report that
+# ships into logs and state artifacts.
+WORKTREE_SCOPE_MAX_STAT_CHARS = 120
+
+# Wall-clock ceiling for EACH of the two read-only `git` reads the worktree-scope
+# probe issues. A DIAGNOSTIC MAY NEVER OUTLIVE THE REPORT IT ANNOTATES: with no
+# explicit timeout a hung `git` pins the calling gate forever, which is strictly
+# worse than an unknown scope, and `run_cmd` folds a timeout into `ok is False`,
+# which the probe already reads as "scope unknown" (`None`). Small and FIXED
+# rather than derived from `PRESHIP_BUDGET_SECONDS`: the probe sits deliberately
+# OUTSIDE the verification budget, so borrowing that knob would imply a coupling
+# that does not exist.
+WORKTREE_SCOPE_TIMEOUT_SECONDS = 20
+
+
+def worktree_scope_line(porcelain: str, shortstat: str) -> str:
+    """Describe the SOURCE worktree's divergence from HEAD in one line (pure).
+
+    `verify_local_clone` clones `cfg.repo` and therefore re-verifies HEAD ONLY,
+    so the report has to state that scope ITSELF instead of relying on every
+    reader remembering the caveat -- a gate that answers "is HEAD good?" in
+    language that reads as "is my work good?" is what cost iteration 194 a green
+    iteration, blind to 1,215 uncommitted insertions.
+
+    Built ONLY from the porcelain NON-BLANK LINE COUNT plus the shortstat text,
+    never from a porcelain line's BODY, so no path, filename or branch name from
+    the scanned tree can reach the report (this repo's public-safety constraint
+    forbids machine paths in shipped output, and a filename could otherwise smuggle
+    the sentinel token in). The echoed half is bounded to its FIRST line and
+    `WORKTREE_SCOPE_MAX_STAT_CHARS` characters, and the gate's own `PRESHIP:`
+    token is neutralised inside it, because `render()` and the `--json` document
+    must each carry that token EXACTLY once for the verdict to stay greppable off
+    the tail. Neutralising is length-preserving, so the bound still holds and
+    truncation -- which only drops a suffix -- can never re-form the token.
+
+    Total: every `str` pair returns a `str`. An empty or whitespace-only porcelain
+    half is the clean answer for ANY shortstat half, because the file count is the
+    authority on whether anything diverged: `--shortstat` compares tracked content
+    only and says nothing about untracked files.
+    """
+    files = sum(1 for ln in (porcelain or "").splitlines() if ln.strip())
+    if not files:
+        return "clean -- no uncommitted changes vs HEAD"
+    head = (shortstat or "").splitlines()[:1]
+    # Whitespace-collapse first, then neutralise, then bound: see the docstring
+    # for why that order keeps the `PRESHIP:` invariant true by construction.
+    stat = " ".join(head[0].split()) if head else ""
+    stat = stat.replace("PRESHIP:", "PRESHIP ")
+    stat = stat[:WORKTREE_SCOPE_MAX_STAT_CHARS].strip()
+    tail = f"; {stat}" if stat else ""
+    return f"{files} file(s) uncommitted vs HEAD{tail}"
+
+
+def probe_worktree_scope(repo) -> str | None:
+    """Measure `repo`'s uncommitted divergence from HEAD, or `None` if unknown.
+
+    Read-only and INERT: two `git` reads issued through the `run_cmd` seam by
+    BARE module name (so `monkeypatch.setattr(foundry, "run_cmd", ...)` bites and
+    the whole path is offline-verifiable), both scoped with `-C <repo>` so the
+    probe never depends on the process cwd, and both carrying an EXPLICIT
+    `timeout=WORKTREE_SCOPE_TIMEOUT_SECONDS` so a hung `git` degrades to an
+    unknown scope instead of blocking the report forever.
+
+    Returns `None` -- never raising, for ANY input -- when the porcelain read did
+    not succeed or a seam misbehaved. `None` deliberately does NOT degrade to the
+    clean string: a scan that did not run must never be reported as a clean tree,
+    which is the same fail-SAFE asymmetry `preship_verdict` uses for its boundary
+    group. A failed shortstat alone is survivable, because the FILE COUNT is what
+    decides clean-vs-dirty and it is already in hand.
+    """
+    try:
+        porcelain = run_cmd(["git", "-C", str(repo), "status", "--porcelain"],
+                            timeout=WORKTREE_SCOPE_TIMEOUT_SECONDS)
+        shortstat = run_cmd(["git", "-C", str(repo), "diff", "HEAD",
+                             "--shortstat"],
+                            timeout=WORKTREE_SCOPE_TIMEOUT_SECONDS)
+        if not porcelain.ok:
+            return None
+        return worktree_scope_line(porcelain.out,
+                                   shortstat.out if shortstat.ok else "")
+    except Exception:
+        return None
+
+
 def verify_local_clone(cfg: "ProductConfig", expected_sha: str,
                        clone_dir) -> "PreshipResult":
     """Re-verify the LOCAL commit at `expected_sha` from a throwaway clone.
 
     Clones `str(cfg.repo)` -- the filesystem path of the product repo itself, so
     the ship commit is reachable BEFORE it is pushed and NO network command is
-    ever issued (there is deliberately no `git remote get-url` here). Steps:
+    ever issued (there is deliberately no `git remote get-url` here). That also
+    fixes the SCOPE: only `expected_sha` is re-verified, never the caller's
+    uncommitted work, so the verdict is reported alongside two inert diagnostics
+    (`verified_sha`, `worktree_scope`) that state that scope in the artifact
+    rather than leaving it to a prompt caveat. Steps:
     clone, `cfg.setup_cmd`, `cfg.test_cmd`, then a `rev-parse HEAD` sha check,
     each inside the clone, each routed through the `run_cmd` seam.
 
@@ -9313,9 +9417,20 @@ def verify_local_clone(cfg: "ProductConfig", expected_sha: str,
         result = preship_verdict(
             clone_ok=clone_ok, setup_ok=setup_ok, test_ok=test_ok,
             sha_ok=sha_ok, budget_exhausted=budget_exhausted)
-        # Thread the measured wall-time onto the PURE verdict without touching
-        # its decision logic (inert diagnostic; None when the suite never ran).
-        result = dataclasses.replace(result, test_seconds=test_seconds)
+        # Two INERT diagnostics threaded onto the PURE verdict only AFTER
+        # `preship_verdict` has returned, without touching its decision logic:
+        # the clone suite's wall-time (None when the suite never ran) and the sha
+        # this call was asked to verify. Placed here neither can move a flag nor
+        # be seen by `_remaining()`, whose guards all sit upstream of this point.
+        # `verified_sha` is a pure re-statement of this call's own argument, so it
+        # costs no command. The SOURCE worktree's scope is measured one layer OUT,
+        # in `preship_cli`, because this function issues a
+        # BUDGETED, pinned four-step sequence (clone, setup, test, sha) and adding
+        # an unbudgeted fifth and sixth command to it both breaks that contract and
+        # runs wasted work on a boundary path that has already declared it verified
+        # nothing. See `preship_cli` for the probe's threading.
+        result = dataclasses.replace(result, test_seconds=test_seconds,
+                                     verified_sha=expected_sha)
     except Exception as exc:  # fail-SAFE: cannot decide, so do not bless
         result = PreshipResult(
             False, True,
@@ -9349,6 +9464,20 @@ def preship_cli(cfg: ProductConfig, as_json: bool = False) -> int:
     else:
         result = verify_local_clone(cfg, expected_sha,
                                     cfg.state / "preship_clone")
+    # INERT scope diagnostic, threaded onto the FINISHED verdict. It lives here
+    # rather than inside `verify_local_clone` for two reasons. (1) Layering: this
+    # is already the layer that reads the SOURCE repo (the `rev-parse HEAD` above),
+    # while the verifier works only on the throwaway CLONE -- so the source
+    # worktree's divergence is this function's fact to report. (2) Isolation: the
+    # verifier's command sequence is a budgeted four-step contract, and a
+    # diagnostic that cannot appear in it cannot possibly perturb it. Guarded even
+    # though `probe_worktree_scope` is already total, because a broken DIAGNOSTIC
+    # must never change a verdict that has already been decided.
+    try:
+        scope = probe_worktree_scope(cfg.repo)
+    except Exception:
+        scope = None
+    result = dataclasses.replace(result, worktree_scope=scope)
     print(json.dumps(result.to_dict(), indent=2)
           if as_json else result.render())
     return result.exit_code

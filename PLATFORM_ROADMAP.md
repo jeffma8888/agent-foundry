@@ -301,6 +301,7 @@ in the archive.
 - iter 195 -- re-land iter 194: ship_decision wired at the live final gate; a cap-killed round RETRIES, not reverts.
 - iter 196 -- an expired session gets its own `auth` failure kind, ordered before `timeout` and priced identically.
 - iter 197 -- gap-radar phase 2's missing half: `roles/pm.md` now REQUIRES the `GAP:` line; dormant verdict core.
+- iter 198 -- preship discloses the sha it verified and the worktree it is blind to; report-only, verdict frozen.
 
 
 ### Migration notes (per §6 self-mod guardrail)
