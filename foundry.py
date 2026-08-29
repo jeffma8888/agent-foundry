@@ -876,35 +876,121 @@ def run_doctor_cli(cfg: ProductConfig) -> int:
 # decides). The process scan is funnelled through ONE monkeypatchable seam,
 # `running_dispatchers`, exactly like `doctor`'s `power_state`/`head_of_branch`.
 # --------------------------------------------------------------------------- #
-def running_dispatchers(pattern: str = "dispatcher.py") -> tuple[int, ...]:
-    """Return the PIDs of currently-running dispatcher processes.
+# Command-line rule for "this row is a dispatcher BRAIN". `python` optionally
+# followed by version characters (digits and dots) accepts `python`, `python3`,
+# `python3.13`, the macOS framework binary `Python` and `PYTHON`, and rejects `uv`
+# (the launch wrapper), `node`, `bash` and every other non-interpreter host. Matched
+# with `fullmatch`, so `pythonw` and `mypython3` cannot pass.
+_PY_INTERPRETER_RE = re.compile(r"python[0-9.]*", re.IGNORECASE)
 
-    The REAL scan seam behind `foundry single-brain`: it looks in the process
-    table for commands whose FULL command line contains `pattern` (default the
-    dispatcher entrypoint filename) and returns their PIDs, or an empty tuple
-    when none are running -- the SAFE case.
+
+def dispatcher_proc_match(command: str, *, pattern: str = "dispatcher.py") -> bool:
+    """Decide whether ONE process-table command line is a dispatcher BRAIN.
+
+    WHY this exists: the scan this replaces asked `pgrep -f "dispatcher.py"`, which
+    matches every process whose command line merely CONTAINS the string. Measured
+    live on a healthy machine running exactly ONE brain, that returned 3 PIDs and
+    then 5 -- the brain, the brain's own `uv run` launch WRAPPER, and unrelated
+    same-machine processes, one of them an agent stage matched on its PROMPT TEXT.
+    So `single-brain` printed CONFLICT on a machine behaving perfectly, and SAFE was
+    unreachable from inside an agent stage, which is what made the exit code
+    unusable as a launch gate (a launcher gating on it would refuse to launch on an
+    IDLE machine -- fail-SHUT).
+
+    The rule is two halves and BOTH are required:
+
+      (a) the command's FIRST whitespace-delimited token, taken as its `/`-basename,
+          is a python interpreter -- this is what drops the `uv run` wrapper so one
+          brain counts exactly ONCE, plus every non-interpreter bystander;
+      (b) some LATER token's `/`-basename is EXACTLY `pattern` -- exact, so
+          `predispatcher.py` and `dispatcher.pyc` are rejected while
+          `/a/b/dispatcher.py` is accepted.
+
+    Half (a) is the LOAD-BEARING half and must not be "simplified" away: half (b)
+    ALONE does not reject the measured agent bystander, whose prompt text happens to
+    contain `dispatcher.py` as a whitespace-delimited token. The residual fail-open
+    is stated rather than hidden -- an interpreter whose PATH contains spaces, or a
+    renamed interpreter binary, is missed, and a python process that merely mentions
+    the pattern in prose still matches.
+
+    PURE and TOTAL: no I/O, and it returns a `bool` for any `str` input (empty,
+    whitespace-only, non-ASCII, or very long) rather than raising, so no caller
+    needs a guard around it.
+    """
+    tokens = command.split()
+    if len(tokens) < 2:
+        return False  # a bare interpreter with no script token is not a brain
+    if not _PY_INTERPRETER_RE.fullmatch(tokens[0].rsplit("/", 1)[-1]):
+        return False
+    return any(tok.rsplit("/", 1)[-1] == pattern for tok in tokens[1:])
+
+
+def scan_process_rows() -> tuple[tuple[int, str], ...]:
+    """Return `(pid, command)` for every row of the process table -- the I/O seam.
+
+    WHY `pid` + `command` ONLY, never `comm`/`ucomm`: `comm` is TRUNCATED to 16
+    characters, so the real dispatcher renders as `/opt/homebrew/Ce` and no basename
+    is recoverable from it; `ucomm` is a FIXED-WIDTH 16-char column that can CONTAIN
+    SPACES (`Google Chrome He` was a live row), so splitting three whitespace fields
+    silently corrupts the command of every such row. `pid` is always digits with no
+    spaces, so `split(None, 1)` is unambiguous, and the remainder's FIRST token is
+    the full UNTRUNCATED executable path -- the very thing the truncated fields were
+    wanted for.
+
+    Blank and malformed lines are SKIPPED rather than raised on: the table is
+    ambient input (~1,200 rows live) and one odd row must not blind the single-brain
+    check. The command remainder is preserved VERBATIM -- `split(None, 1)` drops the
+    right-aligned pid padding and nothing else.
+
+    Contract preserved from the seam this feeds: an empty or wholly unparseable
+    table returns `()` ("nothing found", which maps to SAFE), while a scan that
+    could not be PERFORMED raises (missing `ps` -> `FileNotFoundError`, a hung `ps`
+    -> `TimeoutExpired`), which maps to UNKNOWN / exit 2. Those two facts must stay
+    distinguishable; that asymmetry is the whole point of the seam.
+    """
+    proc = subprocess.run(["ps", "-Ao", "pid=,command="],
+                          capture_output=True, text=True, timeout=15)
+    rows: list[tuple[int, str]] = []
+    for line in proc.stdout.splitlines():
+        fields = line.split(None, 1)
+        if len(fields) != 2 or not fields[0].isdigit():
+            continue
+        rows.append((int(fields[0]), fields[1]))
+    return tuple(rows)
+
+
+def running_dispatchers(pattern: str = "dispatcher.py") -> tuple[int, ...]:
+    """Return the PIDs of currently-running dispatcher BRAINS.
+
+    The REAL scan seam behind `foundry single-brain` / `foundry preflight`: it walks
+    the process table and keeps the rows `dispatcher_proc_match` classifies as a
+    brain -- a python INTERPRETER that was handed a script token whose basename is
+    `pattern` (default the dispatcher entrypoint filename). Counting mentions rather
+    than interpreters over-reported by 3-5x on a healthy machine, so the interpreter
+    requirement is load-bearing, not a nicety: it is what excludes a brain's own
+    `uv run` launch wrapper (one brain must count exactly ONCE) and every unrelated
+    process that merely names the pattern.
+
+    Known limitation, stated because it bounds the verdict: a same-machine agent
+    process running under a python interpreter can still match on PROMPT TEXT alone,
+    since the pattern appears there as a whitespace-delimited token. This scan
+    narrows the false-positive class; it does not eliminate it.
 
     WHY it is a single seam: like `check_uv`'s real `which` or `doctor`'s
-    `power_state`, its live subprocess behavior is out of offline scope; the
-    tester monkeypatches this function WHOLESALE so every `single_brain_cli`
-    branch is forced offline with zero real `pgrep`.
+    `power_state`, its live subprocess behavior is out of offline scope; the tester
+    monkeypatches this function WHOLESALE so every `single_brain_cli` branch is
+    forced offline with zero real process scan. Both collaborators are called by
+    BARE module name, so `monkeypatch.setattr(foundry, "scan_process_rows", ...)`
+    and the same for `dispatcher_proc_match` also bite.
 
-    Contract: a NON-match is NOT an error -- `pgrep` exits 1 with empty output
-    when nothing matches, which maps to the empty tuple. It RAISES only when the
-    scan itself cannot be performed (e.g. `pgrep` missing -> `FileNotFoundError`,
-    or `TimeoutExpired`), so the caller can tell "no dispatcher running" (empty
-    tuple, SAFE) apart from "I could not check" (raise, UNKNOWN). It does NOT
-    exclude the current process: the `"dispatcher.py"` pattern never matches the
-    `foundry.py single-brain` invocation, and `pgrep` already omits its own PID.
+    Contract: a NON-match is NOT an error -- an honest scan that finds no brain maps
+    to the empty tuple. It RAISES only when the scan itself cannot be performed
+    (`ps` missing -> `FileNotFoundError`, or `TimeoutExpired`), and that exception
+    propagates UNCHANGED, so the caller can tell "no dispatcher running" (empty
+    tuple, SAFE) apart from "I could not check" (raise, UNKNOWN).
     """
-    proc = subprocess.run(["pgrep", "-f", pattern],
-                          capture_output=True, text=True, timeout=15)
-    pids: list[int] = []
-    for line in proc.stdout.splitlines():
-        token = line.strip()
-        if token.isdigit():
-            pids.append(int(token))
-    return tuple(pids)
+    return tuple(pid for pid, command in scan_process_rows()
+                 if dispatcher_proc_match(command, pattern=pattern))
 
 
 @dataclasses.dataclass(frozen=True)

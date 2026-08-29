@@ -302,6 +302,7 @@ in the archive.
 - iter 196 -- an expired session gets its own `auth` failure kind, ordered before `timeout` and priced identically.
 - iter 197 -- gap-radar phase 2's missing half: `roles/pm.md` now REQUIRES the `GAP:` line; dormant verdict core.
 - iter 198 -- preship discloses the sha it verified and the worktree it is blind to; report-only, verdict frozen.
+- iter 200 -- re-land iter 199: `running_dispatchers` counts real python brains, not prompt-text mentions.
 
 
 ### Migration notes (per §6 self-mod guardrail)
