@@ -27,7 +27,7 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 197): ledger and archive are current through 197 (193/194 never shipped, so neither
+STATUS (iter 202): ledger and archive are current through 202 (193/194/199/201 never shipped, so none
 owes a row).
 STILL OPEN:
 (c), (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
@@ -79,8 +79,7 @@ legitimate `tmp_path` byte-walks must NOT be flagged. Calibrate two-sidedly, the
 (w) NEW (iter 165 scouts; FULL evidence in `products/_platform/state/iter-165/` + 165's archive bullet -- do NOT
 re-measure). The company verdict hoist is item (q) and its OBVIOUS shape is KNOWN-RED: 164's scout B measured that
 extending `CompanyRollupCounts` REDs an iter-153 pin, so only `exit_code = property(fn)` in the 4 class bodies is
-green. NEW CANDIDATE, needs its OWN iteration: the 5 gate parsers write ONE anchored-sentinel rule 5 times, but a
-false `None` there reads as REVERTED, so it wants a wide malformed-input matrix. THREE DE-LISTINGS: (k) is 0.8% of
+green. 3 of the 5 gate parsers collapsed at iter 202 (54-cell matrix; archive); the `ACTION:` pair remains. THREE DE-LISTINGS: (k) is 0.8% of
 an iteration (28.80s fresh-clone suite), so 2.74x buys ~18s -- it is NOT the throughput item; a digest share cap is
 NOT restart-free (the budget is code in the frozen `foundry.py`), fold into (u); one-scout-per-iteration is 23.8% of
 all agent time but sits behind (o).
@@ -89,8 +88,8 @@ Rank duplication by STATEMENTS, never lines. NEXT BITE, not bundled with 183 (sa
 on the three test-quality Summary classes -- 8 statements each differing in TWO string literals, uncovered by (q),
 guarded by 18 literal assertions, so golden-capture it. C1 (`_head_region`) is HOT-PATH: its own iteration.
 (y) NEW (iter 184 scout A; evidence + rejected alternatives in 184's archive bullet -- do NOT re-measure).
-NEXT BITE, not bundled with 184: put a recent-vs-all-time DELTA on the SAME stage-budget line, which is the
-only form that can prove a throughput fix worked. Then scout A's `deadtail` report (12.0 min/iteration of
+NEXT BITE RE-PRICED at 201 and DOWN-RANKED: the line ALREADY windows (`limit=20`) and WARNs naming the
+worst stage + headroom, so a delta adds direction of travel only. Then scout A's `deadtail` report (12.0 min/iteration of
 wall clock after the required artifact stops growing; 7.0 of it in prose-only stages). Item (i) already
 DE-LISTED the stop-when-stable EARLY EXIT -- report only, never a kill.
 (z) NEW (iter 186) -- DEFERRED reporting half of the 4th test-quality lens: the `unfailable-asserts` CLI
@@ -303,6 +302,7 @@ in the archive.
 - iter 197 -- gap-radar phase 2's missing half: `roles/pm.md` now REQUIRES the `GAP:` line; dormant verdict core.
 - iter 198 -- preship discloses the sha it verified and the worktree it is blind to; report-only, verdict frozen.
 - iter 200 -- re-land iter 199: `running_dispatchers` counts real python brains, not prompt-text mentions.
+- iter 202 -- the tree-snapshot guard stops blaming lint-config for a concurrent worker's .pyc; iter 201 re-lands.
 
 
 ### Migration notes (per §6 self-mod guardrail)

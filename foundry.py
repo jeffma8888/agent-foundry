@@ -9591,6 +9591,53 @@ def preship_cli(cfg: ProductConfig, as_json: bool = False) -> int:
 # operator seam that gathers the live signals through the EXISTING module-level
 # functions (so a `monkeypatch.setattr(foundry, ...)` bites) and prints them.
 # --------------------------------------------------------------------------- #
+def _sentinel_token(text: str | None, prefix: str,
+                    allowed: tuple[str, ...]) -> str | None:
+    """The anchored-sentinel rule the pessimistic gate runs on, written ONCE (pure, total).
+
+    Returns the token on the LAST non-empty line of `text` when that line,
+    stripped, STARTS WITH `prefix` and the remainder after `prefix`, stripped, is
+    a member of `allowed`; otherwise `None`. Blank and whitespace-only lines are
+    ignored so the last NON-empty line wins, the sentinel line may be indented,
+    the token may be padded on either side, and `prefix` need not be followed by
+    whitespace (`RESULT:PASS` -> `PASS`).
+
+    WHY one core: three gate artifacts (`postrelease.md`, `reviewer.md`,
+    `tester.md`) declare their verdict this way, and a false `None` from any of
+    them reads to the pessimistic gate as a MISSING verdict -- which reverts a
+    green iteration, the failure that has destroyed nine of them. Three copies of
+    that rule were three places a fix could be applied to two of. The three
+    callers keep their own names, docstrings and prefix/token pairs, so this
+    changes where the rule LIVES, never what it says.
+
+    WHY anchored to the LAST line rather than searched for: every one of these
+    artifacts emits its sentinel as its final non-empty line, so a stray earlier
+    mention of the word -- in prose, a quotation, or a checklist -- can never be
+    misread as the verdict. Prose AFTER the sentinel therefore yields `None` on
+    purpose: it means the artifact is in progress or malformed, and the gate must
+    treat that as no verdict rather than guess.
+
+    Returns `None` -- never raising for ANY `text`, including `None` -- for empty
+    or whitespace-only text; a last non-empty line that does not START with
+    `prefix` (a line merely CONTAINING it does not count); a bare `prefix` with
+    nothing after it; an unrecognized or wrongly-cased token; and a remainder
+    holding more than one token.
+
+    `allowed` is annotated `tuple[str, ...]` deliberately, NOT `Sequence[str]`: a
+    bare `str` satisfies the looser annotation and `token in "PASS"` is true for
+    every substring, so the loose form would return a confident wrong answer
+    instead of raising. Callers pass literal tuples.
+    """
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    if not lines:
+        return None
+    last = lines[-1]
+    if not last.startswith(prefix):
+        return None
+    token = last[len(prefix):].strip()
+    return token if token in allowed else None
+
+
 def parse_postrelease_verdict(text: str) -> str | None:
     """Extract the `POSTRELEASE:` verdict from a `postrelease.md` body (pure).
 
@@ -9608,15 +9655,7 @@ def parse_postrelease_verdict(text: str) -> str | None:
     artifact). Requiring the sentinel to be LAST matches how the artifact is
     emitted, so stray earlier mentions of the word can never be misread.
     """
-    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
-    if not lines:
-        return None
-    last = lines[-1]
-    prefix = "POSTRELEASE:"
-    if not last.startswith(prefix):
-        return None
-    token = last[len(prefix):].strip()
-    return token if token in ("HEALTHY", "BROKEN") else None
+    return _sentinel_token(text, "POSTRELEASE:", ("HEALTHY", "BROKEN"))
 
 
 @dataclasses.dataclass(frozen=True)
@@ -11573,15 +11612,7 @@ def parse_review_verdict(text: str) -> str | None:
     in-progress artifact). Requiring the sentinel to be LAST matches how the
     artifact is emitted, so a stray earlier mention can never be misread.
     """
-    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
-    if not lines:
-        return None
-    last = lines[-1]
-    prefix = "VERDICT:"
-    if not last.startswith(prefix):
-        return None
-    token = last[len(prefix):].strip()
-    return token if token in ("APPROVE", "CHANGES_REQUIRED") else None
+    return _sentinel_token(text, "VERDICT:", ("APPROVE", "CHANGES_REQUIRED"))
 
 
 def parse_tester_result(text: str) -> str | None:
@@ -11602,15 +11633,7 @@ def parse_tester_result(text: str) -> str | None:
     artifact). Requiring the sentinel to be LAST matches how the artifact is
     emitted, so a stray earlier mention can never be misread.
     """
-    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
-    if not lines:
-        return None
-    last = lines[-1]
-    prefix = "RESULT:"
-    if not last.startswith(prefix):
-        return None
-    token = last[len(prefix):].strip()
-    return token if token in ("PASS", "FAIL") else None
+    return _sentinel_token(text, "RESULT:", ("PASS", "FAIL"))
 
 
 # --------------------------------------------------------------------------- #

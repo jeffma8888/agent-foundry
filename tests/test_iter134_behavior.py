@@ -573,22 +573,54 @@ def test_b9_ConfigLint_schema_unchanged():
 # --------------------------------------------------------------------------
 # Behavior 10 -- still read-only
 # --------------------------------------------------------------------------
-def _tree_snapshot():
+def _is_volatile_snapshot_path(rel: str) -> bool:
+    """True when `rel` -- a repo-relative POSIX path string -- names a file some
+    OTHER process may create or rewrite while a snapshot is open, so its
+    appearance is no evidence about the code under test.  The rule: any path
+    carrying a `__pycache__` COMPONENT, or any basename ending `.pyc` / `.pyo`.
+    Pure -- same answer for the same input, reads and writes nothing.
+
+    WHY a path COMPONENT and never a substring: `tests/data/__pycache__notes.md`
+    is an ordinary tracked file that merely CONTAINS the token, and excluding it
+    would blind the snapshot to a real write -- the exclusion has to be as narrow
+    as the race it covers.
+
+    WHY it is needed at all: on a COLD clone no `.pyc` exists yet, so the first
+    xdist worker to import a module writes one DURING another worker's snapshot
+    window, and the appearing file is then attributed to the read-only command
+    under test.  Latent since this file shipped and invisible in a warm worktree,
+    it reverted a fully green iteration 201 by reporting `lint-config` as having
+    written `tests/__pycache__/test_iter154_behavior.cpython-313.pyc`."""
+    parts = rel.split("/")
+    return "__pycache__" in parts or parts[-1].endswith((".pyc", ".pyo"))
+
+
+def _tree_snapshot(root: Path = REPO_ROOT) -> dict[str, str]:
     """Bounded byte-snapshot of the tracked, non-volatile part of the repo tree:
     every file directly under the root plus everything under tests/ and roles/.
-    `.git`, `products/` (live loop state) and `work*/` are excluded because a
-    concurrently running loop legitimately writes there."""
+    `.git`, `products/` (live loop state), `work*/` and every path
+    `_is_volatile_snapshot_path` calls volatile are excluded because a
+    concurrently running loop -- or a concurrent test worker writing bytecode --
+    legitimately writes there.
+
+    `root` is injectable ONLY so the exclusion rule can be exercised against a
+    fixture tree offline; every call site passes nothing and snapshots the real
+    repository, so the iteration-134 guarantee this helper exists for is
+    unchanged."""
     items = {}
-    for path in sorted(REPO_ROOT.glob("*")):
-        if path.is_file():
+    for path in sorted(root.glob("*")):
+        if path.is_file() and not _is_volatile_snapshot_path(path.name):
             items[path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
     for sub in ("tests", "roles"):
-        base = REPO_ROOT / sub
+        base = root / sub
         if base.is_dir():
             for path in sorted(base.rglob("*")):
-                if path.is_file():
-                    items[str(path.relative_to(REPO_ROOT))] = \
-                        hashlib.sha256(path.read_bytes()).hexdigest()
+                if not path.is_file():
+                    continue
+                rel = path.relative_to(root).as_posix()
+                if _is_volatile_snapshot_path(rel):
+                    continue
+                items[rel] = hashlib.sha256(path.read_bytes()).hexdigest()
     return items
 
 
