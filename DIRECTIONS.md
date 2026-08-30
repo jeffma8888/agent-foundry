@@ -1,6 +1,26 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-202
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- move the gate's cold-clone verification earlier so a revert becomes a fix
+    - Candidate A2 -- retire dead chars from the pinned digest head
+    - Candidate A3 -- price and cut redundant full-suite runs per iteration
+    - Candidate B1 -- the roadmap STATUS line is 3 iterations stale, and its brake is a floor pinned to iteration 185
+    - Candidate B2 -- README says the CLI has 48 verbs; it has 50, and the existing figure brake cannot see the sentence
+    - Candidate B3 -- three artifacts name three different sets of "the invariants", and one of them is in every stage prompt
+    winner: B1
+    ship: pending (not yet decided)
+  iter-201
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- three byte-identical sentinel verdict parsers collapse onto one rule
+    - Candidate A2 -- one `company-*` subparser helper replaces 9 hand-copied flag declarations
+    - Candidate A3 -- retire the quadratic `company-*` preamble comments, which have already decayed into two contradictory claims
+    - Candidate A -- recent-vs-all-time DELTA on the `stage-budget:` line
+    - Candidate B -- a prose-only deadtail advisory in the stage prompt (dormant first bite)
+    - Candidate C -- put SECONDS on the lost-work accounting
+    winner: A1
+    ship: REVERTED
   iter-200
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- the watchdog's resurrection writes the `dispatcher.out` that four shipped surfaces read
@@ -8,7 +28,7 @@ foundry directions -- _platform
     - Candidate A3 -- give `foundry agents` its first consumer, so house rules reach the repo fresh agents read
     - Candidate B1 -- placeholder pending measurement
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 16857fe
   iter-199
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- the brain scan stops reporting 3 dispatchers when ONE brain is running
@@ -965,4 +985,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-97 scouted iterations
+99 scouted iterations
