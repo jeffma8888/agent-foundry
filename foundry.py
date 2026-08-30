@@ -17556,6 +17556,362 @@ def company_events_cli(dispatch_path: str, kind: str | None = None,
 
 
 # --------------------------------------------------------------------------- #
+# Company-wide STOP-sentinel roll-up (`company-stops`) -- iteration 203
+#
+# The RETIREMENT axis of fleet observability, and the one axis every existing
+# roll-up is structurally blind to. `company-status` (iter 30) derives a team's
+# health from the newest artifact that team ever WROTE, so a team that has been
+# deliberately retired stops changing its own health and keeps reporting the last
+# thing it said: measured on the live roster, a team whose `STOP` sentinel has sat
+# on disk since 2026-08-03 reports `verdict: "OK"`, `ok: true`,
+# `postrelease: "HEALTHY"`. That is the 2026-08-19 lesson in this repo's own
+# tree -- a freshness check over an AGGREGATE cannot detect a dead COMPONENT.
+#
+# The two sentinels are the dispatcher's own contract: `<foundry>/STOP` stops the
+# whole company and `<work_root>/STOP` retires one team. Before this verb their
+# ONLY readers in this module were `global_stop()` and `stopping(cfg)`, neither of
+# which any verb calls, so the only way to learn a team was retired was to `ls`
+# two paths by hand -- and these files carry a REASON and usually a reactivation
+# condition an operator must read before deleting one, which is why this verb
+# surfaces the text and not just the boolean.
+# --------------------------------------------------------------------------- #
+# The reason line is BOUNDED because it is operator-authored free text landing in
+# a fixed-width fleet report: an unbounded first line (a pasted paragraph, a
+# minified blob) would push the rest of the row off screen. Module-level and read
+# at call time so a test can narrow it without touching the parser.
+STOP_REASON_MAX_CHARS = 160
+
+# The reason recorded when a sentinel EXISTS but its text cannot be turned into
+# one: non-empty on purpose, because an empty reason on a stopped row is
+# indistinguishable from a sentinel that simply carries no text (`touch STOP`),
+# and those two need different operator responses.
+STOP_REASON_UNREADABLE = "(sentinel present; text could not be read)"
+
+
+def stop_reason(text: str | None) -> str:
+    """The one-line operator-facing REASON carried by a STOP sentinel's text.
+
+    PURE and TOTAL: no filesystem, subprocess, network or clock access, no
+    mutation of its argument, and equal inputs give `==` results. Reading the
+    sentinel off disk is deliberately the CALLER's job (`gather_stop`), which is
+    what lets a test drive every branch from in-memory strings.
+
+    Returns the first line that carries a non-whitespace character, with internal
+    runs of whitespace collapsed to single spaces, ends stripped, and the result
+    truncated to at most `STOP_REASON_MAX_CHARS` characters. Collapsing is what
+    makes the value safe to embed in a one-line report row: a sentinel written
+    with a tab-indented or hard-wrapped first line would otherwise inject
+    whitespace the row's alignment cannot survive.
+
+    A LEADING BLANK LINE IS SKIPPED rather than treated as the answer. That is
+    the only reading under which both halves of the contract hold at once -- a
+    whitespace-only document must yield `""` (there is no reason in it), while a
+    document whose first line is blank plainly does carry one on the next line --
+    and it matches how these files are actually written by hand.
+
+    TOTAL: raises for NO input. `None`, a non-`str`, `""`, and a whitespace-only
+    string each return `""`. Totality is the point rather than politeness: the
+    sole caller reports on a file whose bytes an operator controls, and a raise
+    there would turn "this team is stopped" into a traceback.
+
+    DORMANT: zero call site in the running pipeline -- no orchestrator,
+    dispatcher, stage, final gate or config field references it -- so resume
+    semantics for an in-flight loop are byte-identical.
+    """
+    if not isinstance(text, str):
+        return ""
+    for line in text.splitlines():
+        collapsed = " ".join(line.split())
+        if collapsed:
+            return collapsed[:STOP_REASON_MAX_CHARS]
+    return ""
+
+
+@dataclasses.dataclass(frozen=True)
+class StopRow:
+    """One team's STOP-sentinel state -- the per-product row of `company-stops`.
+
+    Frozen so a gathered row cannot be mutated after the fact (value equality for
+    free, matching every other pure core in this module).
+
+    Fields:
+      * `product` -- the team name, echoed into `render()`.
+      * `sentinel` -- the path whose EXISTENCE decided this row: the global
+        sentinel when `scope == "global"`, otherwise this team's own
+        `<work_root>/STOP`. Reported even when nothing is stopped, so a reader
+        can see WHICH path was checked rather than trusting that one was.
+      * `stopped` -- whether a sentinel in effect covers this team.
+      * `scope` -- `"global"` (the whole company is stopped) / `"team"` (only
+        this team is) / `"none"`.
+      * `reason` -- `stop_reason` of the deciding sentinel's text, or
+        `STOP_REASON_UNREADABLE` when the file exists but could not be read;
+        `""` when nothing is stopped (and also when the sentinel is empty, which
+        is what plain `touch STOP` produces).
+    """
+    product: str
+    sentinel: str
+    stopped: bool
+    scope: str
+    reason: str
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe row for machine consumers -- every value is
+        JSON-native, so it round-trips through `json.loads(json.dumps(...))`.
+        Pure: touches no filesystem."""
+        return {
+            "product": self.product,
+            "sentinel": self.sentinel,
+            "stopped": self.stopped,
+            "scope": self.scope,
+            "reason": self.reason,
+        }
+
+
+def gather_stop(cfg: ProductConfig) -> StopRow:
+    """Read the STOP sentinels in effect for ONE team into a frozen `StopRow`.
+
+    The ONE filesystem seam of this verb (the pure decision core is
+    `stop_reason`). The global sentinel is read through the EXISTING
+    `global_stop()` seam, called by BARE module name so a
+    `monkeypatch.setattr(foundry, "global_stop", ...)` bites here too rather than
+    needing a second patch point for the same fact.
+
+    GLOBAL SCOPE IS CHECKED FIRST and folded into the ROW, not reported once at
+    company level. Both halves are deliberate. Checking global first means that
+    when both sentinels exist the GLOBAL reason wins, because global scope is
+    strictly broader -- the company-wide reason is the one an operator must read
+    before deleting anything. Folding it into the row means a company-wide stop
+    can never leave every row reading `stopped: false` while nothing runs, which
+    is the same fail-open this verb exists to close.
+
+    EXISTENCE DECIDES THE STOP; TEXT ONLY DECIDES THE REASON. An undecodable or
+    unreadable sentinel still yields `stopped=True` with the non-empty
+    `STOP_REASON_UNREADABLE` marker, never an error row -- the alternative would
+    fail OPEN on exactly the file whose bytes went bad, reporting a stopped team
+    as running because its reason could not be parsed.
+
+    Read-only: writes NOTHING to disk and creates no directory (unlike
+    `load_config`, whose `mkdir` is the shared roll-up body's business, not this
+    seam's). Raises nothing for a missing path, a directory in place of the file,
+    or undecodable bytes.
+
+    DORMANT: zero call site in the running pipeline -- no orchestrator,
+    dispatcher, stage or final gate references it."""
+    team_sentinel = cfg.stop_file
+    if global_stop():
+        # `global_stop()` owns WHERE the company sentinel lives; naming the path
+        # here would duplicate that knowledge and could drift from it.
+        deciding, scope = FOUNDRY / "STOP", "global"
+    elif team_sentinel.exists():
+        deciding, scope = team_sentinel, "team"
+    else:
+        return StopRow(product=cfg.name, sentinel=str(team_sentinel),
+                       stopped=False, scope="none", reason="")
+    try:
+        reason = stop_reason(deciding.read_text())
+    except (OSError, UnicodeDecodeError, ValueError):
+        # A sentinel we can see but not read is still a stop -- record the
+        # marker so the row is never silently reason-less.
+        reason = STOP_REASON_UNREADABLE
+    return StopRow(product=cfg.name, sentinel=str(deciding),
+                   stopped=True, scope=scope, reason=reason)
+
+
+@dataclasses.dataclass(frozen=True)
+class CompanyStops(CompanyRollupCounts):
+    """A one-shot COMPANY-wide STOP-sentinel roll-up across a dispatch config.
+
+    Frozen so a computed roll-up can't be mutated after the fact (value equality
+    for free, matching the other pure cores). Every derived value is a pure
+    property over the stored fields, so the whole verdict -- including the
+    scriptable exit code -- follows deterministically from what was gathered, and
+    the JSON payload / render text can never disagree with the exit code.
+
+    Mixes in `CompanyRollupCounts` for `n_products` / `n_disabled` / `n_errors`
+    and declares NO field beyond the family's four, so `dataclasses.fields()`
+    names/order and the generated `__init__` match every sibling roll-up.
+
+    Fields:
+      * `dispatch_path` -- the dispatch config path, echoed into `render()`.
+      * `products` -- the per-team `StopRow` snapshots successfully gathered, IN
+        dispatch-file order (an enabled team that failed to load/gather is NOT
+        here -- it lands in `errors`).
+      * `disabled` -- names of work items with `enabled=False` (never loaded).
+      * `errors` -- `(product, message)` 2-tuples for enabled items that raised
+        while loading/gathering (the sole caller guarantees each is a 2-tuple).
+
+    DOCUMENTED LIMIT: a global sentinel with ZERO enabled work items reports
+    `NOTHING-TO-REPORT`, because there is no team to report on. Stated rather
+    than silent -- the roster, not this verb, is where that is visible.
+    """
+    dispatch_path: str
+    products: tuple[StopRow, ...]
+    disabled: tuple[str, ...]
+    errors: tuple[tuple[str, str], ...]
+
+    @property
+    def n_stopped(self) -> int:
+        """Count of gathered teams a sentinel in effect covers."""
+        return sum(1 for row in self.products if row.stopped)
+
+    @property
+    def n_running(self) -> int:
+        """Count of gathered teams no sentinel covers."""
+        return self.n_products - self.n_stopped
+
+    @property
+    def attention(self) -> bool:
+        """True iff SOMETHING an operator should see is here: any team stopped,
+        OR any enabled team failed to load/gather. Disabled items are deliberate
+        and never raise attention (matching `CompanyStatus`)."""
+        return self.n_stopped > 0 or bool(self.errors)
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable verdict, attention-first: `1` when a team is stopped OR a
+        team errored, else `2` when NO teams were gathered (every item disabled
+        or `work_items` empty), else `0` -- nothing stopped."""
+        if self.attention:
+            return 1
+        if self.n_products == 0:
+            return 2
+        return 0
+
+    @property
+    def verdict(self) -> str:
+        """The single human token for the current state -- ONE source of truth
+        for both `render()`'s last line and the JSON `verdict` key, so the text
+        and the machine payload can never drift from each other or from
+        `exit_code`.
+
+        WHY THIS IS NOT A LOOKUP ON `exit_code` like `CompanyStatus`'s is: exit
+        `1` is reached two ways here, and they are not the same news. A roll-up
+        where nothing is stopped but a team FAILED TO LOAD has learned nothing
+        about stops, so labelling it `STOPPED` would report a stop this verb
+        never observed -- the mislabel class this whole feature exists to close.
+        `ERRORS` is therefore its own token. Consistency with `exit_code` is
+        preserved by construction: `STOPPED` and `ERRORS` both mean `1`,
+        `RUNNING` means `0`, `NOTHING-TO-REPORT` means `2`."""
+        if self.n_stopped > 0:
+            return "STOPPED"
+        if self.errors:
+            return "ERRORS"
+        if self.n_products == 0:
+            return "NOTHING-TO-REPORT"
+        return "RUNNING"
+
+    def render(self) -> str:
+        """A deterministic multi-line company report (the CLI's black-box contract).
+
+        Contains, as substrings: the `dispatch_path`; a counts line reporting the
+        number of GATHERED teams, the stopped count, the running count, the
+        DISABLED count and the error count (so a disabled work item is never
+        silently absent from the fleet picture); ONE line per gathered team with
+        its name, `stopped`/`running`, its `scope`, the sentinel path and -- for a
+        stopped team -- its `reason`; one line per disabled item with its name and
+        `disabled`; one line per error with its name, `ERROR`, and the message;
+        and a final `verdict:` line whose token EQUALS `verdict`.
+
+        Detail-then-sentinel: every detail line sits ABOVE the final `verdict:`
+        line, so "last non-empty line is the verdict" always holds."""
+        lines = [
+            "foundry company-stops",
+            f"  dispatch config: {self.dispatch_path}",
+            f"  teams: {self.n_products} gathered "
+            f"({self.n_stopped} stopped, {self.n_running} running), "
+            f"{self.n_disabled} disabled, {self.n_errors} error(s)",
+        ]
+        for row in self.products:
+            if row.stopped:
+                line = (f"  - {row.product}: stopped [{row.scope}] "
+                        f"{row.sentinel}")
+                if row.reason:
+                    line += f" -- {row.reason}"
+            else:
+                line = (f"  - {row.product}: running [{row.scope}] "
+                        f"{row.sentinel}")
+            lines.append(line)
+        for name in self.disabled:
+            lines.append(f"  - {name}: disabled")
+        for name, message in self.errors:
+            lines.append(f"  - {name}: ERROR {message}")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe company roll-up for machine consumers -- a dashboard
+        / cron alert / the reporter. Every derived value REUSES the frozen
+        properties, so the payload can never disagree with `render()` or the exit
+        code, and every value is JSON-native, so it round-trips through
+        `json.loads(json.dumps(...))`. Pure: touches no filesystem."""
+        return {
+            "dispatch_config": self.dispatch_path,
+            "products": [row.to_dict() for row in self.products],
+            "disabled": list(self.disabled),
+            "errors": [{"product": name, "message": message}
+                       for name, message in self.errors],
+            "n_products": self.n_products,
+            "n_stopped": self.n_stopped,
+            "n_running": self.n_running,
+            "n_disabled": self.n_disabled,
+            "n_errors": self.n_errors,
+            "attention": self.attention,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+        }
+
+
+def summarize_stops(*, dispatch_path: str,
+                    products: tuple[StopRow, ...],
+                    disabled: tuple[str, ...],
+                    errors: tuple[tuple[str, str], ...]) -> CompanyStops:
+    """Pure keyword-only constructor for a `CompanyStops` roll-up.
+
+    A thin, total wrapper that packs the gathered rows into the frozen roll-up --
+    keyword-only so a caller can never transpose the fields by position, and it
+    never raises for well-formed inputs (each `errors` entry is a
+    `(product, message)` 2-tuple, which the sole caller `company_stops_cli`
+    guarantees via `_company_rollup_cli`; documenting the precondition keeps the
+    "never raises" contract airtight). Kept separate from `company_stops_cli` so
+    the decision core stays a pure function the tester can drive without any
+    filesystem."""
+    return CompanyStops(
+        dispatch_path=dispatch_path,
+        products=tuple(products),
+        disabled=tuple(disabled),
+        errors=tuple((name, message) for name, message in errors))
+
+
+def company_stops_cli(dispatch_path: str, as_json: bool = False) -> int:
+    """On-demand CLI: name every STOP sentinel in effect across the whole fleet.
+
+    Reads the DISPATCH config at `dispatch_path` (`foundry.config.json`, NOT a
+    product config), then for each ENABLED work item substitutes a `{FOUNDRY}`
+    token in its config path to the foundry root and loads + gathers that team's
+    sentinel state via the `load_config` / `gather_stop` seams (both called by
+    BARE name so a `monkeypatch.setattr(foundry, ...)` bites). A DISABLED item is
+    recorded in `disabled` and never loaded.
+
+    Resilient exactly as its nine siblings are, because it IS their shared body:
+    a missing / malformed dispatch config prints a report carrying ONE synthetic
+    error and returns exit 1 with no traceback, and a single work item whose
+    `load_config` or `gather_stop` raises is recorded in `errors` while the
+    roll-up CONTINUES over the remaining teams.
+
+    With `as_json=True` stdout is exactly ONE `json.dumps(to_dict(), indent=2)`
+    document; either way the RETURN value is the same `CompanyStops.exit_code`
+    (0 nothing stopped / 1 a team is stopped or a team errored / 2 nothing to
+    report). Writes NOTHING to disk -- a read-only report; with `load_config`
+    monkeypatched the filesystem is untouched.
+
+    DORMANT: on-demand only. The pipeline, the final gate and `dispatcher.py`
+    never call it, so a loop in flight resumes byte-identically."""
+    # Seams resolved HERE, by BARE name at CALL time, so a monkeypatch bites.
+    return _company_rollup_cli(dispatch_path, as_json,
+                               gather_stop, summarize_stops)
+
+
+# --------------------------------------------------------------------------- #
 # Prompt + stage runner
 # --------------------------------------------------------------------------- #
 def product_config_path(cfg: ProductConfig) -> str | None:
@@ -20324,6 +20680,27 @@ def main(argv: list[str] | None = None) -> int:
                      help="emit the company roll-up as one JSON document "
                           "(machine-readable) instead of the human report; "
                           "same 0/1/2 exit code")
+    # `company-stops` reads the two STOP sentinels the dispatcher itself runs on
+    # -- `<foundry>/STOP` (whole company) and `<work_root>/STOP` (one team) --
+    # and names, per ENABLED team, whether one is in effect, its SCOPE, and the
+    # REASON written inside it. It is the RETIREMENT axis `company-status` is
+    # structurally blind to: health is derived from the newest artifact a team
+    # ever wrote, so a retired team keeps reporting OK forever. Its `--config`
+    # points at the DISPATCH config (`foundry.config.json`), NOT a product
+    # config, and it does its own per-work-item `load_config` internally -- so,
+    # like `company-status`/`single-brain`/`lint-spec`, it is dispatched BEFORE
+    # the `load_config(args.config)` call below. Read-only + on-demand: the
+    # pipeline/dispatcher NEVER call it; it writes nothing. Exit 0 nothing
+    # stopped / 1 a team is stopped or a team errored / 2 nothing to report.
+    csp = sub.add_parser("company-stops")
+    csp.add_argument("--config", default=str(FOUNDRY / "foundry.config.json"),
+                     help="path to the DISPATCH config (foundry.config.json), "
+                          "NOT a product config (default: the repo's "
+                          "foundry.config.json)")
+    csp.add_argument("--json", action="store_true",
+                     help="emit the company roll-up as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code")
     # `company-history` rolls up EVERY enabled dispatch team's iter-17
     # ship LEDGER into ONE company-wide view (total iterations / shipped /
     # reverted / broken summed across all teams). Its `--config` points at the
@@ -20572,6 +20949,8 @@ def main(argv: list[str] | None = None) -> int:
         return single_brain_cli(pattern=args.pattern, as_json=args.json)
     if args.cmd == "company-status":
         return company_status_cli(args.config, as_json=args.json)
+    if args.cmd == "company-stops":
+        return company_stops_cli(args.config, as_json=args.json)
     if args.cmd == "company-history":
         return company_history_cli(args.config, limit=args.limit,
                                    as_json=args.json)

@@ -273,8 +273,8 @@ def test_b09a_archive_carries_the_retired_body_under_a_new_final_heading():
     archive = ARCHIVE.read_text(encoding="utf-8")
     heads = _archive_headings(archive)
     assert heads, "the archive has no `## ` headings at all"
-    assert heads[-1] == ARCHIVE_HEADING, (
-        f"the iter-{THIS_ITER} heading must be the FINAL one; last is {heads[-1]!r}"
+    assert ARCHIVE_HEADING in heads, (
+        f"the iter-{THIS_ITER} heading is MISSING from the archive; headings are {heads!r}"
     )
     assert heads.count(ARCHIVE_HEADING) == 1, "the new heading is duplicated"
     body = _archive_section(archive, ARCHIVE_HEADING)
@@ -303,7 +303,13 @@ def test_b09c_pre_existing_heading_order_is_unchanged():
              for m in (re.search(r"by iter (\d+)\s*$", h) for h in heads) if m]
     assert len(iters) >= 5, f"too few compaction headings to check ordering: {iters!r}"
     assert iters == sorted(iters), f"compaction headings are out of order: {iters!r}"
-    assert iters[-1] == THIS_ITER, f"iter {THIS_ITER} is not the newest compaction: {iters!r}"
+    assert iters[-1] >= THIS_ITER, (
+        f"a compaction heading OLDER than iter {THIS_ITER} is the newest: {iters!r}"
+    )
+    assert THIS_ITER in iters, (
+        f"iter {THIS_ITER}'s own compaction heading is GONE, which would retire this test "
+        f"silently: {iters!r}"
+    )
 
 
 # ============================================================== behavior 10

@@ -441,7 +441,13 @@ def test_b6_status_line_names_202_and_the_never_shipped_exceptions():
     idx, _ = _roadmaps()
     status = [ln for ln in idx.splitlines() if ln.startswith("STATUS (iter ")]
     assert len(status) == 1, status
-    assert status[0].startswith("STATUS (iter 202)"), status[0]
+    # ITERATION-RELATIVE, not an equality pin.  The index convention REQUIRES every later
+    # iteration to advance this line, so `== 202` fails BY CONSTRUCTION from iter 203 onward.
+    # This is the identical defect class iter185's b13a documents in-tree as already
+    # "repaired at the iter-186 engineer stage".  Durable intent: the line is never STALE.
+    named = status[0].split("STATUS (iter ", 1)[1].split(")", 1)[0]
+    assert named.isdigit(), status[0]
+    assert int(named) >= 202, ("the STATUS line is STALE", status[0])
     for missing in ("193", "194", "199", "201"):
         assert missing in status[0], (missing, status[0])
 

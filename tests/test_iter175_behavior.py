@@ -189,9 +189,17 @@ def test_b2_a_non_integer_entry_never_raises_from_a_later_check():
 
 # =========================================================== 3. growth is ACCEPTED
 
-@pytest.mark.parametrize("extra", [["52"], ["52", "53", "54"], [str(n) for n in range(52, 70)]])
-def test_b3_appending_new_sections_stays_clean(extra):
-    numbers = _readme_numbers() + extra
+# Parametrized on a COUNT, never on literal numbers: the appended block is derived from
+# the LIVE maximum at call time.  The literals (`["52"], ["52","53","54"], range(52, 70)`)
+# pinned the maximum at 51, so iteration 203's legitimate README `# 52.` collided with the
+# fixture and reddened this test -- which is precisely the dependency ON THE MAXIMUM that
+# behavior 3 forbids ("no result may depend on the LENGTH of the list or on its maximum").
+# Cardinalities are preserved exactly: 1, 3 and 18 (== len(range(52, 70))).
+@pytest.mark.parametrize("count", [1, 3, 18])
+def test_b3_appending_new_sections_stays_clean(count):
+    live = _readme_numbers()
+    start = max(int(n) for n in live) + 1
+    numbers = live + [str(n) for n in range(start, start + count)]
     assert foundry.readme_index_number_violations(numbers) == ()
     assert foundry.readme_index_number_violations(numbers, **STRICT) == ()
 
@@ -200,7 +208,8 @@ def test_b3_no_result_depends_on_the_length_or_the_maximum():
     """The defect this iteration retires is 'the last section when I was written is last forever'.
     So growing the list must not change the verdict, in either the clean or the dirty direction."""
     live = _readme_numbers()
-    grown = live + [str(n) for n in range(52, 60)]
+    start = max(int(n) for n in live) + 1          # derived, never a pinned literal
+    grown = live + [str(n) for n in range(start, start + 8)]
     assert foundry.readme_index_number_violations(live) \
         == foundry.readme_index_number_violations(grown) == ()
     dirty_live = [n for n in live if n != "50"]

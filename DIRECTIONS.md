@@ -1,6 +1,26 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-204
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- `foundry behavior-trace`: report which numbered spec behaviors shipped with no test that names them
+    - Candidate A2 -- `foundry retry-debt`: name the preserved-but-unlanded work, because today only a human remembers it
+    - Candidate A3 -- `foundry shifts`: read the dispatcher's own ledger, which 658 shifts later nothing has ever read
+    - Candidate B1 -- a meta-brake on "newest-ness" pins in tests/, keyed on LAST/MAX claims rather than on iteration literals
+    - Candidate B2 -- the outcomes ledger stops recording a cap-killed checkpoint as a red suite
+    - Candidate B3 -- enforce the one rule roles/reviewer.md already states: no CHANGES_REQUIRED without a BLOCKING finding
+    winner: A1
+    ship: pending (not yet decided)
+  iter-203
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- commit the canonical dispatcher launch, and make the docs stop teaching the invocation that killed a 68-shift brain
+    - Candidate A2 -- make the invariant SET derived, so "five hard-won invariants" cannot disagree with the six bullets it points at
+    - Candidate A3 -- `docs/artifacts.md` claims to be a running catalog; it has one entry and has never been updated
+    - Candidate B1 -- classify the SHIP DIFF's added lines, the escalation bite the code itself names as next
+    - Candidate B2 -- `foundry stops`: name every halt sentinel, its age, and the reason inside it
+    - Candidate B3 -- `foundry relands`: a ledger of preserved rescue patches and which still apply
+    winner: B2
+    ship: REVERTED
   iter-202
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- move the gate's cold-clone verification earlier so a revert becomes a fix
@@ -10,7 +30,7 @@ foundry directions -- _platform
     - Candidate B2 -- README says the CLI has 48 verbs; it has 50, and the existing figure brake cannot see the sentence
     - Candidate B3 -- three artifacts name three different sets of "the invariants", and one of them is in every stage prompt
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 890d4cf
   iter-201
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- three byte-identical sentinel verdict parsers collapse onto one rule
@@ -985,4 +1005,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-99 scouted iterations
+101 scouted iterations
