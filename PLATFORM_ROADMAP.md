@@ -321,6 +321,7 @@ in the archive.
 - iter 204 -- re-land 203's company-stops; the frozen newest-ness pin class that reverted it is retired.
 - iter 206 -- authoritative_tester_report REFUSES a bare str/bytes instead of silently answering "no report present".
 - iter 207 -- the exit_code x4 hand-copy in the Company* roll-ups collapses onto ONE shared fn; item (q) next bite.
+- iter 208 -- README 38/40 stop denying call sites run_iteration/build_prompt HAVE; dormancy_claim_gaps brake.
 
 
 ### Migration notes (per §6 self-mod guardrail)
@@ -540,3 +541,7 @@ not die because its terminal did.
 - [ ] All dispatcher/foundry control-path console writes go through the helper; a dead
       stdout mid-session cannot terminate the loop (regression test simulates it).
 - [ ] Shutdown summary reaches the log file even with a dead console; `tests/` green.
+
+## Item 24 -- docs/code status-drift brakes
+
+Moved to the archive by iter 208.
