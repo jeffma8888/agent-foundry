@@ -27,7 +27,7 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 204): ledger and archive are current through 204 (193/194/199/201/203 never shipped, so none
+STATUS (iter 206): ledger and archive are current through 206 (193/194/199/201/203/205 never shipped, so none
 owes a row).
 STILL OPEN:
 (c), (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
@@ -304,6 +304,7 @@ in the archive.
 - iter 200 -- re-land iter 199: `running_dispatchers` counts real python brains, not prompt-text mentions.
 - iter 202 -- the tree-snapshot guard stops blaming lint-config for a concurrent worker's .pyc; iter 201 re-lands.
 - iter 204 -- re-land 203's company-stops; the frozen newest-ness pin class that reverted it is retired.
+- iter 206 -- authoritative_tester_report REFUSES a bare str/bytes instead of silently answering "no report present".
 
 
 ### Migration notes (per §6 self-mod guardrail)

@@ -30,6 +30,11 @@ while holding a placeholder verdict.
    `foundry.read_authoritative_tester_result` parses its verdict. Do not re-derive it by
    hand: an early `tester.md` ending `RESULT: FAIL` is usually a cap-killed checkpoint a
    later round already superseded, and taking it would revert a green iteration.
+   CALL SHAPE matters, because the wrong one used to answer `None` and `None` here reads as
+   "no tester report is present": hand `authoritative_tester_report` the NAMES that are
+   present (a list, e.g. `['tester.md', 'tester2.md']`) -- a bare directory-path string is
+   now REFUSED with a `TypeError` -- or pass the state dir as a `pathlib.Path` to
+   `read_authoritative_tester_result`.
 3. You independently run the quality-check command from Context -- full suite green.
 4. `git -C <repo> status` shows only intended changes (no stray files, no
    state/log files, no caches).

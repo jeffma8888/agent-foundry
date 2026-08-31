@@ -11818,10 +11818,38 @@ def authoritative_tester_report(present: Iterable[str] | None) -> str | None:
     does not count. Unrelated names are IGNORED, so a sibling `reviewer.md` /
     `final.md` / `tester.attempt1.log` / `testerp.md` can never be selected.
 
-    TOTAL and filesystem-free: an empty iterable, `None`, a generator and an
-    iterable with duplicates are all accepted without raising, and nothing here
-    touches disk -- the caller decides what "present" means.
+    Filesystem-free, and TOTAL over every shape a caller SHOULD pass: an empty
+    iterable, `None`, a generator and an iterable with duplicates are all
+    accepted without raising, and nothing here touches disk -- the caller
+    decides what "present" means.
+
+    RAISES `TypeError` for a bare `str` / `bytes` / `bytearray`, which is the ONE
+    refusal this function makes. WHY it cannot simply answer: those types satisfy
+    `Iterable[str]` STRUCTURALLY, so a static type checker passes them, and they
+    iterate ELEMENT-WISE -- `set("/state/iter-204")` is a set of single
+    CHARACTERS -- so no member could ever match a report name and the answer
+    would be `None`. `None` here is not "no answer" but the positive reading "no
+    tester report is present", which is what a pessimistic release gate turns
+    into `ACTION: REVERTED`. A loud refusal costs a traceback; the silent answer
+    costs already-green work. The filesystem sibling
+    `read_authoritative_tester_result` already raises on a `str`, so the family
+    now refuses the wrong shape consistently.
     """
+    if isinstance(present, (str, bytes, bytearray)):
+        # Checked BEFORE the `or ()` falsiness fallback on purpose, so the rule
+        # is purely type-shaped: `""` refuses too, and there is no exception for
+        # a caller to remember. The message names the received type AND the
+        # expected shape so a stage agent can repair the call from the traceback
+        # alone, without reading this module.
+        raise TypeError(
+            "authoritative_tester_report() expects an iterable of tester report "
+            "NAMES (e.g. ['tester.md']) or None, not a bare "
+            f"{type(present).__name__}. A {type(present).__name__} iterates "
+            "element-wise, so it would match no report name and answer None -- "
+            "which reads as 'no tester report is present'. Pass the names that "
+            "are present, or pass a pathlib.Path to "
+            "read_authoritative_tester_result() to probe a directory."
+        )
     have = set(present or ())
     for name in reversed(tester_report_names()):
         if name in have:
