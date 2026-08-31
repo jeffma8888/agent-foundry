@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-207
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- collapse the `exit_code` x4 hand-copy onto one module-level function
+    - Candidate A2 -- one anchored-sentinel TOKENIZER retires the last 2 of the 5 gate parsers
+    - Candidate A3 -- collapse the `to_dict` x3 duplicate (the largest single deletion available)
+    - Candidate B1 -- the prompt pays 8,000 chars for 10 truncated lessons when 9,615 buys 7 whole ones under the SAME budget
+    - Candidate B2 -- stage-times splits cap-saturated seconds into dead tail vs destroyed-at-the-wall
+    - Candidate B3 -- optional per-product fast stage check command, dormant, full suite reserved for the isolated tester and the gate
+    winner: A1
+    ship: pending (not yet decided)
   iter-206
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- the public-safety scan gains a consumer BEFORE the gate
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B -- collapse the `render` triplet on the three test-quality Summary classes (item (x)'s named next bite)
     - Candidate C -- extract the shared `ACTION:` prologue, and do NOT reuse the sentinel core
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 6752dcb
   iter-205
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- the gate's tester-verdict helper answers "no tester report" when handed a directory path
@@ -1025,4 +1035,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-103 scouted iterations
+104 scouted iterations

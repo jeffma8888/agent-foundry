@@ -27,7 +27,7 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 206): ledger and archive are current through 206 (193/194/199/201/203/205 never shipped, so none
+STATUS (iter 207): ledger and archive are current through 207 (193/194/199/201/203/205 never shipped, so none
 owes a row).
 STILL OPEN:
 (c), (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
@@ -94,6 +94,21 @@ wall clock after the required artifact stops growing; 7.0 of it in prose-only st
 DE-LISTED the stop-when-stable EARLY EXIT -- report only, never a kill.
 (z) NEW (iter 186) -- DEFERRED reporting half of the 4th test-quality lens: the `unfailable-asserts` CLI
 trio, then the fold into the FROZEN 3-lens `TestQualitySummary`. Detail in the archive.
+(aa) NEW (iter 207, from scout B's B1 plus the PM's own verification; the OBVIOUS shape is KNOWN-RED, do NOT
+re-propose it as a one-iteration bite). The prompt learnings tail is MIS-TUNED and it is measured: the live window's
+10 lessons run 874/991/1484/1299/1483/1286/1127/979/1415/2026 chars, so `PROMPT_LEARNINGS_LESSON_CHARS` (800) binds on
+10 of 10 and cuts every one mid-clause, the tail spends 8,000 of its 10,000 chars, and
+`PROMPT_LEARNINGS_BUDGET_CHARS` (10,000) is therefore STRUCTURALLY UNREACHABLE on the live path (recent=10 x 800 =
+8,000 < 10,000) -- one of the two declared bounds can never fire. Whole-lesson admission newest-first fits 7 COMPLETE
+lessons in 9,615 chars under the UNCHANGED budget. WHY IT IS NOT A SMALL BITE, measured at 207: six assertions of the
+form `len(ln) <= lesson_chars` in `tests/test_iter104_behavior.py` red any whole-lesson admission by construction, and
+both escapes are pinned shut too -- `tests/test_iter118_behavior.py` freezes the exact fully-bounded call as appearing
+VERBATIM in the pm prompt, and `tests/test_iter144_behavior.py`'s spy asserts `lesson_chars` IS passed
+(`seen.get("lesson_chars") == 77`). So every route that changes what the prompt path receives must edit prior tests on
+the fleet-wide path `build_prompt` runs for every stage of every team. Also do NOT simply drop `lesson_chars` from the
+two call sites: with no per-lesson cap a single lesson longer than the budget admits NOTHING, emitting
+`## Recent lessons (last 0 of N)`, and `len(d) <= HB + MB + 300` still passes -- a fail-open the suite cannot see. Any
+future attempt needs a documented LAST-RESORT truncation and its own iteration.
 INDEX BUDGET (a scheduling item, never a competitive candidate): the binding wall is now ONE constant,
 `ROADMAP_INDEX_HARD_CHARS` (54,000) -- NOT the 60,000 `ROADMAP_SIZE_WARN_CHARS` -- and the two live tests that
 read this file derive it from that constant, so crossing it turns the suite RED and REVERTS the iteration for a
@@ -305,6 +320,7 @@ in the archive.
 - iter 202 -- the tree-snapshot guard stops blaming lint-config for a concurrent worker's .pyc; iter 201 re-lands.
 - iter 204 -- re-land 203's company-stops; the frozen newest-ness pin class that reverted it is retired.
 - iter 206 -- authoritative_tester_report REFUSES a bare str/bytes instead of silently answering "no report present".
+- iter 207 -- the exit_code x4 hand-copy in the Company* roll-ups collapses onto ONE shared fn; item (q) next bite.
 
 
 ### Migration notes (per §6 self-mod guardrail)
