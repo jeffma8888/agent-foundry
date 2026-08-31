@@ -15505,29 +15505,227 @@ def git_ship_commits(repo_dir: "str | pathlib.Path") -> tuple[tuple[int, float],
     return tuple(pairs)
 
 
-def live_lag_line(cfg: "ProductConfig",
-                  log_path: "str | pathlib.Path | None" = None) -> str:
-    """ONE human line: is every shipped iteration actually live in the brain?
+# --------------------------------------------------------------------------- #
+# The live-lag VERDICT as a VALUE (iter 209) -- one source of truth for the
+# sentence, the exit code and the machine payload.
+#
+# `live_lag_line` (iter 130) computed the three facts (`launch`, `stamp`,
+# `inert`) structurally and then threw all three away at render time, returning
+# only English. So both consumers of the verdict had to RECOVER it from that
+# prose with `LIVE_LAG_WARN in line` -- and `LIVE_LAG_WARN` is the bare
+# 4-character token `WARN`, while the UNKNOWN branch interpolates `{exc!r}`.
+# MEASURED, with `parse_brain_launch` raising `ValueError("WARNING: git
+# unreachable")`: `live_lag_cli` printed an UNKNOWN line and returned 2 ("a
+# restart is owed"), and `dispatch_restart_line` returned that line and RAISED
+# the operator restart flag. Both are the exact opposite of their own documented
+# contracts ("UNKNOWN exits 0"; "an unusable report is NOT evidence of lag"), so
+# a watchdog gating on either was told to restart the brain because a diagnostic
+# broke.
+#
+# The fix is STRUCTURAL rather than a better substring test: keep the facts in a
+# frozen `LiveLagStatus`, DERIVE the verdict / exit code / payload from its
+# stored fields, and make the human sentence a RENDER of that status. The prose
+# then has exactly one producer, and `live_lag_verdict` recovers the verdict from
+# the FIXED POSITION `render()` writes it in -- never by containment -- so the
+# one consumer that must keep composing `live_lag_line` by bare name (the
+# iter-141 flag reporter, whose tests script that seam) cannot be fooled by a
+# `WARN` appearing inside an exception repr.
+#
+# Additive and OFF the control path: `run_iteration` / `run_continuous` /
+# `run_stage` / `build_prompt` / `postrelease_step` reference none of these
+# names, `dispatcher.py` neither mentions nor exposes them, the exit-code
+# MAPPING is unchanged (WARN 2, OK 0, UNKNOWN 0), and the operator sentence is
+# byte-identical in all four of its shapes -- it is embedded verbatim in the
+# iter-141 restart flag and pinned across 8 test modules, so this iteration
+# changes only WHICH verdict is computed, never how it reads or what it costs.
+# --------------------------------------------------------------------------- #
+LIVE_LAG_OK = "OK"
+LIVE_LAG_UNKNOWN = "UNKNOWN"
 
-    The single source of truth for both `foundry live-lag` and the new `doctor`
-    line, so the verb and the preflight can never disagree. Composes
-    `parse_brain_launch`, `git_ship_commits` and `inert_iterations` by their BARE
-    module names (reading the module globals INSIDE the body) so a
-    `monkeypatch.setattr(foundry, ...)` on any of them bites here.
+# Rendered after `UNKNOWN -- ` when a caller builds an unknown status by hand
+# without saying why. `live_lag_status` ALWAYS supplies its own reason, so this
+# default is unreachable from the CLI and cannot affect the four pinned shapes.
+LIVE_LAG_UNKNOWN_REASON = "brain launch instant unknown"
 
-    Three OUTCOMES, deliberately distinct because they demand different actions:
-      * UNKNOWN -- no datable banner (or an unreadable log). Says so, and never
-        claims the brain is up to date; carries no WARN, because "I cannot tell"
-        is not evidence of a problem.
-      * OK -- a known launch instant with nothing committed after it.
-      * WARN -- N iterations shipped after launch, listed by number, with the
-        restart the operator owes. This is the only branch carrying
-        `LIVE_LAG_WARN`, which is what `live_lag_cli` reads its exit code from.
 
-    ALWAYS returns a non-empty `str`, never `None`, and NEVER raises -- even when
-    a composed seam raises, a log is missing, or `cfg` has no usable `repo`. A
-    diagnostic that can crash the preflight it decorates is worse than no
-    diagnostic, so every failure degrades to an UNKNOWN line.
+@dataclasses.dataclass(frozen=True)
+class LiveLagStatus:
+    """Is every SHIPPED iteration actually LIVE in the running brain? (item 43)
+
+    Frozen so a computed verdict cannot be mutated after the fact (value equality
+    for free, matching `SingleBrainStatus` and the other pure cores). Exactly
+    THREE stored fields; every verdict signal below -- `unknown`, `lagging`,
+    `up_to_date`, `stamp`, `verdict`, `exit_code`, `render()` and `to_dict()` --
+    is a PURE derivation of them, so the operator sentence, the scriptable exit
+    code and the JSON payload follow deterministically and can never disagree.
+
+    Fields:
+      * `launch_epoch` -- local-time epoch of the LAST `dispatcher up` banner, or
+        `None` when the launch instant is unknown. `None` forces UNKNOWN: without
+        a launch instant nothing can be PROVEN inert, which is `inert_iterations`'
+        own rule, so a missing instant must never nag the operator.
+      * `inert` -- the iterations git reports as shipped AFTER that instant, in
+        the order `inert_iterations` produced them (ascending, de-duplicated).
+      * `unknown_reason` -- `None` on a usable report; otherwise the reason clause
+        rendered verbatim after `UNKNOWN -- `. A report that could not be produced
+        is NOT evidence of lag, so it can never reach WARN.
+    """
+    launch_epoch: float | None
+    inert: tuple[int, ...]
+    unknown_reason: str | None
+
+    @property
+    def unknown(self) -> bool:
+        """True iff NO verdict can be proven -- the report failed
+        (`unknown_reason` set) or the launch instant is unknown. DOMINATES a
+        non-empty `inert`: an unknown launch instant cannot prove any iteration
+        inert, so "I could not tell" must never become "restart the brain"."""
+        return self.unknown_reason is not None or self.launch_epoch is None
+
+    @property
+    def lagging(self) -> bool:
+        """True iff the launch instant IS known and >=1 shipped iteration landed
+        after it -- the ONLY state that owes the operator a restart. Never True
+        when `unknown`."""
+        return not self.unknown and len(self.inert) >= 1
+
+    @property
+    def up_to_date(self) -> bool:
+        """True iff the launch instant IS known and nothing shipped after it.
+        Never True when `unknown`; whenever `unknown` is False EXACTLY one of
+        `up_to_date`/`lagging` holds (they partition `len(inert) == 0`)."""
+        return not self.unknown and len(self.inert) == 0
+
+    @property
+    def verdict(self) -> str:
+        """The single rendered token: UNKNOWN first (it dominates), else WARN,
+        else OK. ONE source of truth for `render()`, `exit_code` and `to_dict()`,
+        so they can never drift. `LIVE_LAG_WARN` is read as a module GLOBAL at
+        call time rather than captured at def time, so patching the token
+        redirects the whole family exactly as iter 130 documented."""
+        if self.unknown:
+            return LIVE_LAG_UNKNOWN
+        return LIVE_LAG_WARN if self.lagging else LIVE_LAG_OK
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable code, iter 130's mapping UNCHANGED: `2` WARN, `0` OK, `0`
+        UNKNOWN. 2 is the shipped `timing`/`directions` "there is something to
+        report" convention, never a failure, so this verb still cannot gate a
+        build; UNKNOWN exits 0 because "I cannot tell" is not a finding. Derived
+        from `lagging`, which is False whenever `unknown`, so a broken diagnostic
+        can no longer return the "a restart is owed" code."""
+        return 2 if self.lagging else 0
+
+    @property
+    def stamp(self) -> str:
+        """`launch_epoch` as the shared `_TS_FMT` human stamp; `""` when there is
+        nothing datable. DEFENSIVE rather than reachable: `live_lag_status`
+        already formats the stamp inside its own guard, so an unformattable epoch
+        becomes an UNKNOWN status there -- this only keeps `render()` total for a
+        status a caller hand-built with an absurd epoch."""
+        try:
+            return dt.datetime.fromtimestamp(
+                float(self.launch_epoch)).strftime(_TS_FMT)   # type: ignore[arg-type]
+        except Exception:
+            return ""
+
+    def render(self) -> str:
+        """The ONE operator sentence -- byte-identical to iter 130's four shapes.
+
+        Never raises and never returns an empty string. WARN is the only branch
+        carrying `LIVE_LAG_WARN`, and the verdict token is always the FIRST
+        whitespace-delimited token after `LIVE_LAG_PREFIX`, which is the fixed
+        position `live_lag_verdict` reads back -- so the text a human sees and
+        the verdict a script acts on are the same value, not two derivations.
+        """
+        if self.unknown:
+            reason = self.unknown_reason or LIVE_LAG_UNKNOWN_REASON
+            return f"{LIVE_LAG_PREFIX} {LIVE_LAG_UNKNOWN} -- {reason}"
+        if not self.inert:
+            return (f"{LIVE_LAG_PREFIX} {LIVE_LAG_OK} -- brain launched "
+                    f"{self.stamp}; up to date, every shipped iteration is live "
+                    f"(0 committed since launch)")
+        listed = ", ".join(str(n) for n in self.inert)
+        return (f"{LIVE_LAG_PREFIX} {LIVE_LAG_WARN} -- {len(self.inert)} "
+                f"iteration(s) shipped but NOT LIVE in the running brain "
+                f"(committed after launch {self.stamp}): {listed} -- restart the "
+                f"dispatcher to activate")
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe liveness verdict for machine consumers -- a watchdog,
+        a cron liveness probe or a dashboard (roadmap item 10's "machine-readable
+        status"), mirroring `SingleBrainStatus.to_dict()` and the other read-only
+        probes.
+
+        EXACTLY 10 keys in a fixed order: the three STORED fields first
+        (`launch_epoch`, `inert` as a JSON ARRAY so the payload round-trips
+        through `json.loads(json.dumps(...))` where a tuple would not, and
+        `unknown_reason` verbatim), then six DERIVED values each REUSING the
+        frozen properties (`unknown`/`lagging`/`up_to_date`/`stamp`/`verdict`/
+        `exit_code`), then `line` -- the rendered sentence itself, so the payload
+        cannot disagree with what an operator reads even in principle. Every
+        value is JSON-native (float|None / list[int] / str|None / bool / int), so
+        `json.dumps(...)` never raises. Pure: no filesystem, no mutation."""
+        return {
+            "launch_epoch": self.launch_epoch,
+            "inert": list(self.inert),
+            "unknown_reason": self.unknown_reason,
+            "unknown": self.unknown,
+            "lagging": self.lagging,
+            "up_to_date": self.up_to_date,
+            "stamp": self.stamp,
+            "verdict": self.verdict,
+            "exit_code": self.exit_code,
+            "line": self.render(),
+        }
+
+
+def summarize_live_lag(launch_epoch: float | None = None,
+                       inert: Iterable[object] = (),
+                       unknown_reason: str | None = None) -> LiveLagStatus:
+    """Pure constructor for a `LiveLagStatus` -- the decision core, no I/O.
+
+    Kept separate from `live_lag_status` so the whole verdict lattice is drivable
+    with zero filesystem/subprocess/git: `summarize_live_lag(1000.0, (188, 190))`
+    -> WARN / exit 2; `summarize_live_lag(1000.0)` -> OK / exit 0;
+    `summarize_live_lag(unknown_reason="git unreachable")` -> UNKNOWN / exit 0.
+
+    `inert` is normalised to a tuple of ints from ANY iterable, PRESERVING order
+    (the sentence lists them in it) and skipping anything that is not an
+    iteration: a `bool` (which is an `int` in Python, but never a ship) and
+    anything `int()` refuses. That tolerance mirrors `inert_iterations`, so one
+    malformed element can never sink a whole report. Never raises."""
+    clean: list[int] = []
+    for item in inert or ():
+        if isinstance(item, bool):
+            continue                  # `True` is an int in Python; not a ship
+        try:
+            clean.append(int(item))   # type: ignore[call-overload]
+        except Exception:
+            continue
+    return LiveLagStatus(launch_epoch=launch_epoch, inert=tuple(clean),
+                         unknown_reason=unknown_reason)
+
+
+def live_lag_status(cfg: "ProductConfig",
+                    log_path: "str | pathlib.Path | None" = None
+                    ) -> LiveLagStatus:
+    """Gather the live-lag facts into a frozen verdict -- the ONE I/O frame.
+
+    Holds everything iter 130's `live_lag_line` did EXCEPT the wording: read the
+    dispatcher log, date the LAST `dispatcher up` banner, ask git which
+    iterations shipped after it. Composes `parse_brain_launch`,
+    `git_ship_commits` and `inert_iterations` by their BARE module names (globals
+    read INSIDE the body) so a `monkeypatch.setattr(foundry, ...)` on any of them
+    still bites here, which is what keeps the whole report verifiable offline.
+
+    TOTAL: never raises, never returns `None`. A missing or unreadable log, a
+    bannerless log, a raising seam, a `cfg` with no usable `repo`, and an epoch
+    `_TS_FMT` cannot even format all degrade to an UNKNOWN status whose
+    `unknown_reason` says which. Because UNKNOWN can never reach WARN, no failure
+    in here can invent a restart -- which is the whole point of returning the
+    verdict as a value instead of as a sentence somebody has to re-read.
     """
     try:
         log = (pathlib.Path(log_path) if log_path
@@ -15538,42 +15736,122 @@ def live_lag_line(cfg: "ProductConfig",
             text = ""            # missing / unreadable log -> UNKNOWN, not WARN
         launch = parse_brain_launch(text, year=dt.datetime.now().year)
         if launch is None:
-            return (f"{LIVE_LAG_PREFIX} UNKNOWN -- brain launch instant unknown "
-                    f"(no datable `dispatcher up` banner in {log.name}); "
-                    f"cannot compare shipped against live")
-        stamp = dt.datetime.fromtimestamp(launch).strftime(_TS_FMT)
-        inert = inert_iterations(launch, git_ship_commits(getattr(cfg, "repo", "")))
-        if not inert:
-            return (f"{LIVE_LAG_PREFIX} OK -- brain launched {stamp}; up to date, "
-                    f"every shipped iteration is live (0 committed since launch)")
-        listed = ", ".join(str(n) for n in inert)
-        return (f"{LIVE_LAG_PREFIX} {LIVE_LAG_WARN} -- {len(inert)} iteration(s) "
-                f"shipped but NOT LIVE in the running brain (committed after "
-                f"launch {stamp}): {listed} -- restart the dispatcher to activate")
+            return summarize_live_lag(unknown_reason=(
+                f"brain launch instant unknown (no datable `dispatcher up` "
+                f"banner in {log.name}); cannot compare shipped against live"))
+        # Prove the human stamp is renderable INSIDE this guard, in iter 130's
+        # original order (stamp before ship-truth) so the UNKNOWN text for a
+        # double failure is unchanged. An epoch `_TS_FMT` cannot format is a
+        # BROKEN REPORT, not a lag verdict, so it must degrade to UNKNOWN here
+        # rather than reach `render()`, whose total `stamp` would otherwise emit
+        # a sentence with no launch instant in it.
+        dt.datetime.fromtimestamp(launch).strftime(_TS_FMT)
+        inert = inert_iterations(launch,
+                                 git_ship_commits(getattr(cfg, "repo", "")))
+        return summarize_live_lag(launch_epoch=launch, inert=inert)
     except Exception as exc:
-        return (f"{LIVE_LAG_PREFIX} UNKNOWN -- live-lag report unavailable "
-                f"({exc!r})")
+        return summarize_live_lag(
+            unknown_reason=f"live-lag report unavailable ({exc!r})")
+
+
+def live_lag_verdict(line: object) -> str:
+    """Recover the verdict token from a rendered live-lag line, BY POSITION.
+
+    `render()` always writes the verdict as the FIRST whitespace-delimited token
+    after `LIVE_LAG_PREFIX`, so that is where this reads it -- NEVER by substring
+    containment, which is the defect this iteration removes: the UNKNOWN branch
+    interpolates `{exc!r}`, so an exception whose text merely CONTAINS the
+    4-character `LIVE_LAG_WARN` token used to read as lag.
+
+    Returns EXACTLY one of `LIVE_LAG_WARN` / `LIVE_LAG_OK` / `LIVE_LAG_UNKNOWN`,
+    or `""` when that position carries no recognised verdict -- a foreign line,
+    an empty string, a non-`str`, or a line where the prefix appears somewhere
+    other than the start. `""` rather than the raw word is deliberate: an
+    unrecognised token must never compare equal to a verdict, so `WARNING` cannot
+    be mistaken for `WARN`.
+
+    Pure and total. The INVARIANT this exists to hold, which the tester pins for
+    every shape: `live_lag_verdict(status.render()) == status.verdict`."""
+    if not isinstance(line, str):
+        return ""
+    head, sep, tail = line.partition(f"{LIVE_LAG_PREFIX} ")
+    if not sep or head.strip():
+        return ""            # the prefix must OPEN the line, not sit inside it
+    parts = tail.split()
+    token = parts[0] if parts else ""
+    return token if token in (LIVE_LAG_WARN, LIVE_LAG_OK, LIVE_LAG_UNKNOWN) else ""
+
+
+def live_lag_line(cfg: "ProductConfig",
+                  log_path: "str | pathlib.Path | None" = None) -> str:
+    """ONE human line: is every shipped iteration actually live in the brain?
+
+    The single source of truth for both `foundry live-lag` and the `doctor` drift
+    line, so the verb and the preflight can never disagree. Since iter 209 it is
+    a pure RENDER of the frozen `live_lag_status` verdict -- the facts are
+    computed once and kept, instead of being re-derived from this sentence by
+    whoever reads it -- and the seams are still composed by their BARE module
+    names one frame down, so a `monkeypatch.setattr(foundry, ...)` on
+    `parse_brain_launch` / `git_ship_commits` / `inert_iterations` bites exactly
+    as before.
+
+    Three OUTCOMES, deliberately distinct because they demand different actions:
+      * UNKNOWN -- no datable banner (or an unreadable log, or a raising seam).
+        Says so, and never claims the brain is up to date; carries no
+        `LIVE_LAG_WARN` IN THE VERDICT POSITION, because "I cannot tell" is not
+        evidence of a problem.
+      * OK -- a known launch instant with nothing committed after it.
+      * WARN -- N iterations shipped after launch, listed by number, with the
+        restart the operator owes.
+
+    ALWAYS returns a non-empty `str`, never `None`, and NEVER raises -- even when
+    a composed seam raises, a log is missing, or `cfg` has no usable `repo`. A
+    diagnostic that can crash the preflight it decorates is worse than no
+    diagnostic, so every failure degrades to an UNKNOWN line.
+    """
+    try:
+        status = (live_lag_status(cfg) if log_path is None
+                  else live_lag_status(cfg, log_path=log_path))
+        return status.render()
+    except Exception as exc:
+        # `live_lag_status` is already total, so this is reachable only if the
+        # seam itself was replaced by something that raises. Keep the contract.
+        return summarize_live_lag(
+            unknown_reason=f"live-lag report unavailable ({exc!r})").render()
 
 
 def live_lag_cli(cfg: "ProductConfig",
-                 log_path: "str | pathlib.Path | None" = None) -> int:
+                 log_path: "str | pathlib.Path | None" = None,
+                 as_json: bool = False) -> int:
     """On-demand CLI: print the live-lag line, exit 0 (nothing to do) / 2 (lag).
 
-    The exit code is read back off the printed line via the `LIVE_LAG_WARN` token
-    (read as a module global at call time), so the operator-visible text and the
-    scriptable code can never disagree. 2 follows the shipped `timing` /
-    `directions` convention -- "there is something to report", NOT a failure -- so
-    this verb never gates a build; UNKNOWN exits 0 for the same reason
-    `inert_iterations` reports nothing on an unknown launch instant.
+    Since iter 209 the exit code is `status.exit_code`, NOT a substring test on
+    the text this function just printed: reading it back off the prose meant an
+    UNKNOWN line whose exception repr happened to contain `WARN` returned 2, the
+    "a restart is owed" code, on a report that had proven nothing. The verdict
+    and the sentence are now the same value, so the operator-visible text and the
+    scriptable code cannot disagree by construction rather than by care.
 
-    Writes NOTHING to disk. `live_lag_line` is called with `cfg` ALONE unless a
+    2 follows the shipped `timing`/`directions` convention -- "there is something
+    to report", NOT a failure -- so this verb never gates a build; UNKNOWN exits 0
+    for the same reason `inert_iterations` reports nothing on an unknown launch
+    instant.
+
+    With `as_json=True` the whole stdout is ONE `json.dumps(status.to_dict(),
+    indent=2)` document -- the machine contract a watchdog parses for the *why*
+    (which iterations are inert, or why the report is unusable) without brittly
+    reading English; the default `as_json=False` is byte-for-byte the iter-130
+    human line. Either way the RETURN value is the same `status.exit_code`, so
+    `--json` only ADDS a payload and changes no verdict.
+
+    Writes NOTHING to disk. `live_lag_status` is called with `cfg` ALONE unless a
     `--log` override was supplied, so the default call shape stays the one-arg
     shape a test's monkeypatched stand-in is most likely to accept.
     """
-    line = (live_lag_line(cfg) if log_path is None
-            else live_lag_line(cfg, log_path=log_path))
-    print(line)
-    return 2 if LIVE_LAG_WARN in line else 0
+    status = (live_lag_status(cfg) if log_path is None
+              else live_lag_status(cfg, log_path=log_path))
+    print(json.dumps(status.to_dict(), indent=2) if as_json else status.render())
+    return status.exit_code
 
 
 # --------------------------------------------------------------------------- #
@@ -15683,8 +15961,15 @@ def dispatch_restart_line(cfg: ProductConfig) -> str | None:
       * a failing CLEAR is swallowed -- a stale flag is a nuisance, an exception
         out of the shift loop is an outage.
     Adds NO counting or wording logic of its own: `live_lag_line` stays the
-    single source of the sentence and of the `LIVE_LAG_WARN` token, so this verb,
-    `foundry live-lag` and `doctor` can never disagree.
+    single source of the sentence, so this verb, `foundry live-lag` and `doctor`
+    can never disagree. Since iter 209 the WARN test is `live_lag_verdict(line)`,
+    which reads the verdict token in the FIXED POSITION the renderer writes it,
+    instead of asking whether the 4-character `LIVE_LAG_WARN` token appears
+    ANYWHERE in the line -- an UNKNOWN line embedding `{exc!r}` used to raise the
+    flag whenever the exception text happened to contain `WARN`, which is the
+    "unusable report is NOT evidence of lag" clause above violating itself. The
+    seam is still `live_lag_line` by BARE name, so a scripted stand-in returning
+    a hand-written line is classified by the same rule the real renderer obeys.
     """
     try:
         line = live_lag_line(cfg)
@@ -15692,7 +15977,7 @@ def dispatch_restart_line(cfg: ProductConfig) -> str | None:
         # A broken diagnostic is not a lag verdict -- degrade to "nothing to
         # report" rather than raising a flag nobody can act on.
         return None
-    if LIVE_LAG_WARN not in line:
+    if live_lag_verdict(line) != LIVE_LAG_WARN:
         try:
             clear_restart_flag(cfg)
         except Exception:
@@ -20720,6 +21005,10 @@ def main(argv: list[str] | None = None) -> int:
     llg.add_argument("--log", default=None,
                      help="path to the dispatcher log holding the `dispatcher up` "
                           "banner (default: the foundry checkout dispatcher.out)")
+    llg.add_argument("--json", action="store_true",
+                     help="emit the liveness verdict as one JSON document "
+                          "(machine-readable) instead of the human line; "
+                          "same 0/2 exit code, honours --log")
     wkt = sub.add_parser("weak-tests")
     wkt.add_argument("--config", required=True,
                      help="path to product JSON config")
@@ -21192,7 +21481,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "losses":
         return losses_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "live-lag":
-        return live_lag_cli(cfg, log_path=args.log)
+        return live_lag_cli(cfg, log_path=args.log,
+                            as_json=args.json)
     if args.cmd == "weak-tests":
         return weak_tests_cli(cfg, files=args.files, as_json=args.json)
     if args.cmd == "constant-asserts":
