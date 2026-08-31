@@ -9929,6 +9929,50 @@ class CompanyRollupCounts:
         return len(self.errors)
 
 
+def _company_findings_exit_code(rollup: CompanyRollupCounts) -> int:
+    """The findings-first `exit_code` the four SCAN roll-ups share (item (q)).
+
+    ONE body for `CompanyWeakTests`, `CompanyConstantAsserts`,
+    `CompanySkippedTests` and `CompanyTestQuality`, each of which assigns it in
+    its OWN class body as `exit_code = property(_company_findings_exit_code)`.
+    It replaces four AST-identical hand-copies: four copies of one decision means
+    a fix can land in three of them and the drift is invisible, which is the same
+    reason iter 153 collapsed the three derived COUNTS onto `CompanyRollupCounts`.
+
+    The rule, findings-first UNLIKE the INFORMATIONAL history/timing/events
+    roll-ups: `1` when `errors` is non-empty (a structural gather failure) OR
+    `total_findings > 0` (a domain finding -- an assertion-free test, a constant
+    assert, an always-skipped test, or a `test-quality` finding of ANY category)
+    OR `total_parse_errors > 0` (an unparseable file) ANYWHERE -- all three gate,
+    mirroring the matching per-product verb's own exit code; else `2` when NO
+    products were gathered (every item disabled or `work_items` empty --
+    reachable only with `errors` empty and no findings); else `0` (clean).
+
+    A gathered product that scanned ZERO test files (so its OWN per-product
+    `exit_code == 2`) does NOT force company exit 2 -- it still counts in
+    `n_products`, so with no findings / parse errors / structural errors the
+    company exits 0, mirroring `company-timing` where a product with zero
+    measured timings does not force exit 2 either.
+
+    Stays a module-level function rather than becoming a fourth property on
+    `CompanyRollupCounts`: the base supplies `n_products` (hence the annotation)
+    but NOT the two summed totals this reads, and iter 153 pins the mixin's
+    property set to exactly the three counts plus a 3-long `__mro__` on every
+    member, so both a fifth mixin property and a second base are RED by design.
+    The three OTHER `exit_code` duplicate groups in this family have DIFFERENT
+    bodies (`CompanyHistory`/`CompanyTiming`/`CompanyEvents` gate on
+    `errors`+`n_products` only; the per-product `*Summary` triple gates on
+    `files_scanned`) -- this name says `findings` because consulting
+    `total_findings`/`total_parse_errors` is exactly what distinguishes it.
+    """
+    if (rollup.errors or rollup.total_findings > 0
+            or rollup.total_parse_errors > 0):
+        return 1
+    if rollup.n_products == 0:
+        return 2
+    return 0
+
+
 @dataclasses.dataclass(frozen=True)
 class CompanyStatus(CompanyRollupCounts):
     """A one-shot COMPANY-wide health roll-up across a dispatch config (item 30).
@@ -15830,26 +15874,7 @@ class CompanyWeakTests(CompanyRollupCounts):
         return sum(1 for p in self.products
                    if p.total_findings > 0 or p.parse_errors)
 
-    @property
-    def exit_code(self) -> int:
-        """Scriptable verdict, findings-first (UNLIKE informational
-        history/timing): `1` when `errors` is non-empty (a structural gather
-        failure) OR `total_findings > 0` (a worthless test) OR
-        `total_parse_errors > 0` (an unparseable file) ANYWHERE -- all three gate,
-        mirroring the per-product `weak-tests` exit code; else `2` when NO
-        products were gathered (every item disabled or `work_items` empty --
-        reachable only with `errors` empty and no findings); else `0` (clean).
-
-        A gathered product that scanned ZERO test files (its own
-        `WeakTestSummary.exit_code == 2`) does NOT force company exit 2 -- it
-        still counts in `n_products`, so with no findings/parse-errors/structural-
-        errors the company exits 0 (mirroring `company-timing`, where a product
-        with zero measured timings does not force exit 2)."""
-        if self.errors or self.total_findings > 0 or self.total_parse_errors > 0:
-            return 1
-        if self.n_products == 0:
-            return 2
-        return 0
+    exit_code = property(_company_findings_exit_code)
 
     @property
     def verdict(self) -> str:
@@ -16064,26 +16089,7 @@ class CompanyConstantAsserts(CompanyRollupCounts):
         return sum(1 for p in self.products
                    if p.total_findings > 0 or p.parse_errors)
 
-    @property
-    def exit_code(self) -> int:
-        """Scriptable verdict, findings-first (UNLIKE informational
-        history/timing/events): `1` when `errors` is non-empty (a structural
-        gather failure) OR `total_findings > 0` (a constant-assert test) OR
-        `total_parse_errors > 0` (an unparseable file) ANYWHERE -- all three
-        gate, mirroring the per-product `constant-asserts` exit code; else `2`
-        when NO products were gathered (every item disabled or `work_items` empty
-        -- reachable only with `errors` empty and no findings); else `0` (clean).
-
-        A gathered product that scanned ZERO test files (its own
-        `ConstantAssertSummary.exit_code == 2`) does NOT force company exit 2 --
-        it still counts in `n_products`, so with no findings/parse-errors/
-        structural-errors the company exits 0 (mirroring `company-weak-tests`,
-        where a product with zero scanned files does not force exit 2)."""
-        if self.errors or self.total_findings > 0 or self.total_parse_errors > 0:
-            return 1
-        if self.n_products == 0:
-            return 2
-        return 0
+    exit_code = property(_company_findings_exit_code)
 
     @property
     def verdict(self) -> str:
@@ -16316,27 +16322,7 @@ class CompanySkippedTests(CompanyRollupCounts):
         return sum(1 for p in self.products
                    if p.total_findings > 0 or p.parse_errors)
 
-    @property
-    def exit_code(self) -> int:
-        """Scriptable verdict, findings-first (UNLIKE informational
-        history/timing/events): `1` when `errors` is non-empty (a structural
-        gather failure) OR `total_findings > 0` (an always-skipped test) OR
-        `total_parse_errors > 0` (an unparseable file) ANYWHERE -- all three
-        gate, mirroring the per-product `skipped-tests` exit code; else `2`
-        when NO products were gathered (every item disabled or `work_items` empty
-        -- reachable only with `errors` empty and no findings); else `0` (clean).
-
-        A gathered product that scanned ZERO test files (its own
-        `SkippedTestSummary.exit_code == 2`) does NOT force company exit 2 --
-        it still counts in `n_products`, so with no findings/parse-errors/
-        structural-errors the company exits 0 (mirroring `company-constant-asserts`
-        / `company-weak-tests`, where a product with zero scanned files does not
-        force exit 2)."""
-        if self.errors or self.total_findings > 0 or self.total_parse_errors > 0:
-            return 1
-        if self.n_products == 0:
-            return 2
-        return 0
+    exit_code = property(_company_findings_exit_code)
 
     @property
     def verdict(self) -> str:
@@ -16618,26 +16604,7 @@ class CompanyTestQuality(CompanyRollupCounts):
         return sum(1 for p in self.products
                    if p.total_findings > 0 or p.parse_errors)
 
-    @property
-    def exit_code(self) -> int:
-        """Scriptable verdict, findings-first (UNLIKE informational
-        history/timing/events; mirroring `company-skipped-tests`): `1` when
-        `errors` is non-empty (a structural gather failure) OR `total_findings >
-        0` (a quality finding of ANY category) OR `total_parse_errors > 0` (an
-        unparseable file) ANYWHERE -- all three gate; else `2` when NO products
-        were gathered (every item disabled or `work_items` empty -- reachable only
-        with `errors` empty and no findings); else `0` (clean).
-
-        A gathered product that scanned ZERO test files (its own composite
-        `TestQualitySummary.exit_code == 2`) does NOT force company exit 2 -- it
-        still counts in `n_products`, so with no findings/parse-errors/structural-
-        errors the company exits 0 (mirroring `company-skipped-tests` /
-        `company-constant-asserts`)."""
-        if self.errors or self.total_findings > 0 or self.total_parse_errors > 0:
-            return 1
-        if self.n_products == 0:
-            return 2
-        return 0
+    exit_code = property(_company_findings_exit_code)
 
     @property
     def verdict(self) -> str:
