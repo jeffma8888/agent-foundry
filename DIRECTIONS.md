@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-209
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- the roadmap advertises a SHIPPED item as open work, and contradicts its own ledger doing it
+    - Candidate B1 -- a spec doc still headed "not yet implemented" after 2.5 of its 6 phases went live
+    - Candidate C1 -- five product-config fields exist only in code, including both knobs that switch on the gap feed
+    - Candidate B1 -- a structured live-lag verdict + `foundry live-lag --json`
+    - Candidate B2 -- `foundry unfailable-asserts [--json]`: the 4th test-quality lens, dormant since iter 186
+    - Candidate B3 -- a tri-state triage verdict: tell "no contest" apart from "winner unreadable"
+    winner: B1
+    ship: pending (not yet decided)
   iter-208
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- price the stalled-tester tax and make the declared test command non-silent
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B1 -- "the five invariants" has three rosters and no resolvable one
     - Candidate C1 -- a stale verb-count figure that every existing brake is blind to
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 7e8e6a5
   iter-207
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- collapse the `exit_code` x4 hand-copy onto one module-level function
@@ -1045,4 +1055,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-105 scouted iterations
+106 scouted iterations

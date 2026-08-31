@@ -322,6 +322,7 @@ in the archive.
 - iter 206 -- authoritative_tester_report REFUSES a bare str/bytes instead of silently answering "no report present".
 - iter 207 -- the exit_code x4 hand-copy in the Company* roll-ups collapses onto ONE shared fn; item (q) next bite.
 - iter 208 -- README 38/40 stop denying call sites run_iteration/build_prompt HAVE; dormancy_claim_gaps brake.
+- iter 209 -- live-lag's verdict becomes a frozen status + `--json`; exit code stops scanning its own printed line.
 
 
 ### Migration notes (per §6 self-mod guardrail)
@@ -371,24 +372,7 @@ skipped.
 
 ## Item 18 -- kickoff council: staffing manifest schema + trigger rubric (MEDIUM)
 
-**Problem.** ORG_DESIGN.md section 5 defines a kickoff council that emits a
-machine-checkable staffing manifest, but no schema or rubric exists in code.
-
-**What ships.**
-- A documented JSON schema for `products/<name>/staffing.json`: active roles
-  (subset of bench card names), sequence, gates, per-role model note,
-  done-criteria, iteration budget.
-- A `foundry.py lint-manifest` validator (offline, 0/1/2): schema-valid, every
-  named role has a bench card, the five core seats are present, budget is a
-  positive integer.
-- A committed trigger rubric doc (`docs/TRIGGER_RUBRIC.md`): product trait ->
-  bench role, mechanical and auditable (ships-a-UI -> designer; touches user
-  data -> legal; public API -> devrel_docs; dependency count >= N -> tpm).
-- An example manifest for repolens under `products/repolens/`.
-
-**Done when.**
-- [x] Schema + validator + rubric + example exist with tests; nothing in the
-      running pipeline consults the manifest yet (that is item 19).
+Moved VERBATIM to the archive by iter 209.
 
 ## Item 19 -- manifest-driven pipeline (MEDIUM, gated on 18)
 
@@ -507,11 +491,8 @@ the change is a pure delegation (no semantic change). If the library's API is mi
 something, prefer extending the LIBRARY (its own product team) over forking behavior here.
 
 ## Feature (added 2026-08-01): dual PM-scout candidate generation (optional, flag-gated)
-See `docs/DUAL_PM_SCOUT_SPEC.md` for the full spec. Add an
-optional two-scout pre-stage (config flag `dual_pm_scouts`, default off) before the PM
-lead: `pm_scout_a` (new-capability lens) + `pm_scout_b` (hardening/DX lens) run
-sequentially, then the PM lead triages both slates and picks one feature. Backward-
-compatible; the disabled path must be byte-identical to today. Add tests.
+
+Moved VERBATIM to the archive by iter 209.
 
 
 ---
