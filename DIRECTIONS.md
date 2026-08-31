@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-208
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- price the stalled-tester tax and make the declared test command non-silent
+    - Candidate A2 -- cap-saturation ranking replaces a WARN that fires on 9 of 10 stages
+    - Candidate A3 -- resumable tester evidence ledger (mirror the final gate's VERIFIED: ledger)
+    - Candidate A1 -- README's per-verb DORMANT status field misreports live call sites
+    - Candidate B1 -- "the five invariants" has three rosters and no resolvable one
+    - Candidate C1 -- a stale verb-count figure that every existing brake is blind to
+    winner: A1
+    ship: pending (not yet decided)
   iter-207
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- collapse the `exit_code` x4 hand-copy onto one module-level function
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- stage-times splits cap-saturated seconds into dead tail vs destroyed-at-the-wall
     - Candidate B3 -- optional per-product fast stage check command, dormant, full suite reserved for the isolated tester and the gate
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 8d66a1e
   iter-206
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- the public-safety scan gains a consumer BEFORE the gate
@@ -1035,4 +1045,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-104 scouted iterations
+105 scouted iterations

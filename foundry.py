@@ -12404,6 +12404,183 @@ def roadmap_verb_figure_gaps(
     return tuple(sorted(gaps))
 
 
+# The README CLI-verb entries whose DORMANT clause DENIED a call site that a live
+# orchestrator actually has, one row per audited entry:
+# `(readme_item, verb, live_core, orchestrator)`.
+#
+# SCOPE, and it is the one judgment call this table makes: UNCONDITIONAL call
+# sites only. Measured 2026-08-31 by an `ast` walk of each orchestrator's direct
+# callee set, then by READING each call site's guard -- `run_iteration` calls
+# `scout_phase_outcome` as a plain statement and `build_prompt` interpolates
+# `pm_novelty_block` inside the prompt f-string, so both run for every configured
+# product. README item 30 (`lint-manifest`) is deliberately ABSENT even though
+# `run_iteration` names `lint_manifest` at a real call site: that site is guarded
+# by `if sequence != _default_stage_sequence():`, and the only manifest in the
+# tree (`products/repolens/staffing.json`) derives EXACTLY the default sequence,
+# so the branch never executes. "Live" is therefore not a boolean -- a guarded
+# call site is a THIRD state -- and a brake that collapsed the two would flag
+# that verb forever until some later iteration silenced it. Deciding the guarded
+# state is a later bite (roadmap item 24a); it must be decided IN WRITING, not by
+# widening this tuple.
+DORMANCY_LIVE_SEAMS: tuple[tuple[int, str, str, str], ...] = (
+    (38, "scout-plan", "scout_phase_outcome", "run_iteration"),
+    (40, "novelty-check", "pm_novelty_block", "build_prompt"),
+)
+
+
+# The denial vocabulary `README.md` ACTUALLY uses, measured rather than invented:
+# an audit of all 19 `DORMANT` clauses in the CLI index found exactly three
+# phrasings -- `never call it` (items 14 and 27-38), `never consults it` (12, 21,
+# 23, 25) and `does not consult it yet` (8, 40). Stored lowercase and compared
+# against a lowercased entry, so a sentence-initial or shouted variant still
+# matches. Kept NARROW on purpose: a broad pattern such as `DORMANT` alone would
+# fire on an entry that correctly documents a dormant CLI verb whose core is
+# live, which is exactly the wording iteration 208 shipped, so the brake would
+# forbid its own fix -- the same fail-CLOSED trap `ROADMAP_VERB_FIGURE_RE`
+# records. The cost of narrowness is stated rather than hidden: a re-worded
+# denial escapes this list, so the tuple is DATA a later iteration extends.
+DORMANCY_DENIAL_PHRASES: tuple[str, ...] = (
+    "never call it",
+    "never calls it",
+    "never consults it",
+    "does not consult it",
+)
+
+
+# One README CLI-index entry heading, e.g. `# 40. Repetition brake: ...`. Used to
+# slice ONE entry out of the index: an entry runs from its own heading to the next
+# numbered heading, because entries are single long lines followed by their
+# example invocation and a blank line.
+DORMANCY_ITEM_HEADING_RE = re.compile(r"^# (\d+)\. ", re.MULTILINE)
+
+
+def dormancy_entry_text(readme_text: str, item: int) -> str:
+    """The `# <item>. ...` README entry body, or `""` when there is no such entry.
+
+    Split out of `dormancy_claim_gaps` so a test can pin the SLICE independently
+    of the verdict: a silently empty slice would make every row vacuously clean,
+    which is the fail-open shape this repo treats as no better than a wrong
+    answer. Pure and total -- text in, text out, no I/O -- and it reads
+    `DORMANCY_ITEM_HEADING_RE` by BARE MODULE NAME so `monkeypatch.setattr`
+    bites; a non-pattern replacement yields `""` rather than raising.
+    """
+    if not isinstance(readme_text, str) or not readme_text:
+        return ""
+    if isinstance(item, bool) or not isinstance(item, int):
+        return ""
+    try:
+        headings = list(DORMANCY_ITEM_HEADING_RE.finditer(readme_text))
+    except AttributeError:
+        return ""
+    for index, match in enumerate(headings):
+        if match.group(1) != str(item):
+            continue
+        end = (
+            headings[index + 1].start()
+            if index + 1 < len(headings)
+            else len(readme_text)
+        )
+        return readme_text[match.start():end]
+    return ""
+
+
+def dormancy_claim_gaps(
+    readme_text: str, live_callees: Iterable[str]
+) -> tuple[str, ...]:
+    """Every `DORMANCY_LIVE_SEAMS` row whose README entry denies a LIVE call site.
+
+    `()` means the README tells the truth about the audited rows. WHY this exists:
+    dormancy is the most load-bearing claim in these docs, because it is what
+    tells a future PM or engineer that touching a function cannot move a running
+    loop's semantics. A verb wrongly marked dormant invites precisely the edit the
+    quality bar forbids -- "never edit a currently-running loop's semantics in a
+    way that breaks resume" -- since the doc promises there is no call site to
+    break. It is README item 43's "SHIPPED IS NOT LIVE" inverted: live, documented
+    as not wired. Measured 2026-08-31: items 38 and 40 each denied a call site
+    `run_iteration` / `build_prompt` had already had for iterations.
+
+    A row emits a gap if and only if BOTH halves hold, and each half stops a
+    different wrong answer:
+      * the row's core name is a member of `live_callees` -- so a seam that is
+        genuinely not live is NOT a gap, and the brake can never be stricter than
+        the call graph it protects;
+      * the row's README entry contains a `DORMANCY_DENIAL_PHRASES` phrase -- so
+        an entry that documents a dormant CLI verb whose CORE is live (the wording
+        this iteration shipped) stays silent instead of being unfixable.
+
+    Deriving `live_callees` is deliberately the CALLER's job -- the same split as
+    `roadmap_verb_figure_gaps` and `foundry_cli_verbs`. That is what lets a test
+    plant a known-bad README fixture beside the clean live one and force BOTH
+    verdicts offline, which a bare `()` can never supply by itself.
+
+    Returns one-line `str` descriptions, SORTED ASCENDING BY README ITEM NUMBER
+    (not lexically -- item 8 must precede item 40), each naming the item, the
+    verb, the orchestrator and the core so a failure message is a repair
+    instruction rather than a hint.
+
+    SCOPE: this audits the rows in `DORMANCY_LIVE_SEAMS`, currently 2 of the 19
+    `DORMANT` clauses in the README index. The other 17 are UNAUDITED -- stated
+    here rather than implied away -- and one of them (item 30) is a known GUARDED
+    call site deliberately left out; see `DORMANCY_LIVE_SEAMS`.
+
+    Totality: a non-`str` or empty `readme_text`, a `live_callees` that is not
+    iterable (treated as EMPTY, so a caller that mis-derived the set gets a
+    vacuously clean answer it can catch with a floor, not a traceback), a
+    one-shot generator, duplicate members, non-`str` members, a malformed
+    `DORMANCY_LIVE_SEAMS` row, and a `DORMANCY_ITEM_HEADING_RE` patched to a
+    non-pattern each yield a value rather than raising. No filesystem,
+    subprocess, network or clock access, and no mutation of any argument.
+    `DORMANCY_LIVE_SEAMS`, `DORMANCY_DENIAL_PHRASES` and
+    `DORMANCY_ITEM_HEADING_RE` are all read by BARE MODULE NAME inside the
+    function, never captured at definition time.
+
+    DORMANT: zero call site in the running pipeline -- no orchestrator, gate,
+    dispatcher, stage, CLI verb or config field references it -- so resume
+    semantics for an in-flight loop are byte-identical and this iteration owes no
+    restart. The live brake lives in the test suite.
+    """
+    if not isinstance(readme_text, str) or not readme_text:
+        return ()
+
+    try:
+        live = {name for name in live_callees if isinstance(name, str) and name}
+    except TypeError:
+        return ()
+    if not live:
+        return ()
+
+    phrases = [
+        phrase.lower()
+        for phrase in DORMANCY_DENIAL_PHRASES
+        if isinstance(phrase, str) and phrase
+    ]
+    if not phrases:
+        return ()
+
+    found: list[tuple[int, str]] = []
+    for row in DORMANCY_LIVE_SEAMS:
+        if not isinstance(row, tuple) or len(row) != 4:
+            continue
+        item, verb, core, orchestrator = row
+        if isinstance(item, bool) or not isinstance(item, int):
+            continue
+        if not all(isinstance(name, str) and name for name in (verb, core, orchestrator)):
+            continue
+        if core not in live:
+            continue
+        entry = dormancy_entry_text(readme_text, item).lower()
+        if not entry or not any(phrase in entry for phrase in phrases):
+            continue
+        found.append((
+            item,
+            "README item %d (`%s`) denies a call site it HAS: %s calls %s -- "
+            "reword the entry, do not delete the brake"
+            % (item, verb, orchestrator, core),
+        ))
+
+    return tuple(message for _, message in sorted(found, key=lambda pair: pair[0]))
+
+
 def bare_foundry_cli_findings(text: str, verbs: Iterable[str]) -> list[str]:
     """Report every line of `text` that tells a reader to run a bare `foundry <verb>`.
 
