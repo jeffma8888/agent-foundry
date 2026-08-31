@@ -1,6 +1,26 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-206
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- the public-safety scan gains a consumer BEFORE the gate
+    - Candidate B1 -- doctor reports whether the committed leak-guard is actually armed
+    - Candidate C1 -- the release gate gets its first GAP: consumer (documented phase 3)
+    - Candidate A -- collapse the `exit_code` x4 roll-up group (roadmap item (q)'s named next bite)
+    - Candidate B -- collapse the `render` triplet on the three test-quality Summary classes (item (x)'s named next bite)
+    - Candidate C -- extract the shared `ACTION:` prologue, and do NOT reuse the sentinel core
+    winner: A1
+    ship: pending (not yet decided)
+  iter-205
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- the gate's tester-verdict helper answers "no tester report" when handed a directory path
+    - Candidate A2 -- a reviewer CHANGES_REQUIRED with no BLOCKING finding still buys a fix round
+    - Candidate A3 -- the repo-root read-only guard watches three files the running loop itself writes
+    - Candidate B1 -- every subparser gets a one-line `help=`, kept honest by a derived brake
+    - Candidate B2 -- `doctor --json`, so the one verb a role card runs every iteration stops being scraped
+    - Candidate B3 -- tester.md consumes the four test-quality detectors that exist to grade its own output
+    winner: A1
+    ship: REVERTED
   iter-204
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `foundry behavior-trace`: report which numbered spec behaviors shipped with no test that names them
@@ -10,7 +30,7 @@ foundry directions -- _platform
     - Candidate B2 -- the outcomes ledger stops recording a cap-killed checkpoint as a red suite
     - Candidate B3 -- enforce the one rule roles/reviewer.md already states: no CHANGES_REQUIRED without a BLOCKING finding
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 9a70305
   iter-203
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- commit the canonical dispatcher launch, and make the docs stop teaching the invocation that killed a 68-shift brain
@@ -1005,4 +1025,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-101 scouted iterations
+103 scouted iterations
