@@ -327,6 +327,7 @@ in the archive.
 - iter 211 -- roles/reviewer.md runs test-quality --files on the iteration's own test module, advisory [NIT] only.
 - iter 212 -- test_quality_cli composes via the gather_test_quality seam; the 2nd copy of that policy is deleted.
 - iter 213 -- run_stage persists the exact per-attempt prompt as <stage>.attemptN.prompt, written BEFORE the spawn.
+- iter 214 -- ONE brake leak-scans the whole `git add -A` shipping set, not just tests/*.py; pins the skip set.
 
 
 ### Migration notes (per §6 self-mod guardrail)
