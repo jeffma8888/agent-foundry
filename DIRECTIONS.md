@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-213
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- collapse the three code-identical test-quality summary dataclasses onto one shared base
+    - Candidate A2 -- the same collapse one rung up: the three `Company*` per-axis roll-up classes
+    - Candidate A3 -- TBD (measuring)
+    - Candidate B1 -- a per-product FAST test command for the non-tester stages
+    - Candidate B2 -- shrink the fresh-clone cost the final gate pays twice per iteration
+    - Candidate B3 -- TBD (measuring stalled-attempt waste)
+    winner: B1
+    ship: pending (not yet decided)
   iter-212
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- the release gate reads the `GAP:` claim that `roles/pm.md` already forces every PM to write
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- extract the 4x byte-identical iteration-window preamble into one `_iteration_window` seam
     - Candidate B3 -- retire the three per-axis company roll-up verbs in favour of the general `company-test-quality`
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 96f1f47
   iter-211
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- the only sanctioned dispatcher launcher is untracked, hidden in `.git/info/exclude`, while two tracked docs teach the invocation that killed a 68-shift brain
@@ -1085,4 +1095,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-109 scouted iterations
+110 scouted iterations

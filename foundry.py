@@ -18820,6 +18820,67 @@ def retry_ladder_lines() -> tuple[str, ...]:
     )
 
 
+def stage_prompt_name(stage: str, attempt: int) -> str:
+    """Filename of the persisted prompt artifact for ONE stage attempt.
+
+    WHY a helper rather than an inline f-string at the write site: the producer in
+    ``run_stage`` and every future reader must agree on ONE spelling, and a second
+    expression for the same name is exactly how a persisted artifact becomes
+    undiscoverable. Pairs 1:1 with the ``<stage>.attempt<N>.log`` ``run_stage``
+    already writes -- ``tester.attempt2.prompt`` sits beside
+    ``tester.attempt2.log`` -- so an operator finds the input that explains a log
+    by COLOCATION, and this bite needs no index and no reader verb.
+
+    ``.prompt`` rather than ``.md`` or ``.txt``: the content is not a document and
+    must never be rendered or re-flowed, and the suffix is unclaimed anywhere in
+    the repo, so it cannot collide with an existing glob (``ATTEMPT_LOG_GLOB``
+    matches ``*.attempt*.log`` and is unaffected).
+
+    PURE and TOTAL: no filesystem, subprocess, network or clock access, and it
+    raises for no input -- ``attempt`` is formatted, never range-checked, so a
+    caller's 0 reads exactly like a 1 and a bad number can never fail a stage.
+    """
+    return f"{stage}.attempt{attempt}.prompt"
+
+
+def save_stage_prompt(it_dir: pathlib.Path | str, stage: str, attempt: int,
+                      text: str) -> pathlib.Path:
+    """Write the EXACT prompt text one stage attempt was given; return its path.
+
+    WHY IT EXISTS: before this, only a stage's OUTPUTS survived an iteration
+    (``pm.md``, ``engineer.md``, ``<stage>.attempt<N>.log``,
+    ``IMPLEMENTATION.patch``, ``junit.xml``) -- the INPUT was built at
+    ``prompt = build_prompt(...)``, substituted into the agent argv, and then
+    discarded. That input is also provably UNRECONSTRUCTIBLE, which is the
+    load-bearing point rather than merely unsaved: ``build_prompt`` inlines three
+    sources read at CALL time and all three mutate -- the ``LEARNINGS.md`` digest
+    (append-only, and EVERY role appends EVERY iteration, so the newest-lessons
+    tail changes BETWEEN stages of one iteration), the external gap register, and
+    shipped-history novelty. So re-running ``build_prompt`` later cannot return
+    what a stage was actually given, and the dominant pathology -- a stage killed
+    at the agent CLI's own cap, which leaves a ~48-byte log -- has until now been
+    undiagnosable for want of its own input.
+
+    WHY THE GUARD LIVES AT THE SINGLE CALL SITE AND NOT IN HERE: persistence runs
+    on the live pipeline path, so it must never be able to change a stage verdict
+    -- but ONE ``except`` in ``run_stage`` already covers BOTH a real filesystem
+    error from this write AND a replaced-or-monkeypatched seam that raises, so a
+    second swallow in here would be unreachable. This function is therefore honest
+    about failing: it raises whatever the filesystem raises, and the caller owns
+    the best-effort contract. It is called by BARE module name so a
+    ``monkeypatch.setattr(foundry, "save_stage_prompt", ...)`` bites.
+
+    Explicit UTF-8, because the assembled prompt carries non-ASCII and the point
+    of the artifact is byte-fidelity to what the agent was handed; a
+    locale-dependent default encoding would corrupt exactly the bytes being
+    pinned. No truncation, bounding or redaction: the whole content of the gap
+    this closes is that the EXACT input is kept.
+    """
+    path = pathlib.Path(it_dir) / stage_prompt_name(stage, attempt)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
 def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
               out_name: str, extra: str = "") -> tuple[bool, pathlib.Path]:
     it_dir = cfg.state / f"iter-{iteration:02d}"
@@ -18832,10 +18893,27 @@ def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
             log(cfg, f"iter {iteration:02d} · {stage} STOP requested; abandoning")
             return False, out_file
         log(cfg, f"iter {iteration:02d} · **{stage}** attempt {attempt} started")
+        # iter-213: persist the EXACT text this attempt is about to be handed,
+        # BEFORE the spawn, so a stage killed mid-run still leaves behind the one
+        # input that explains its log -- checkpoint-first, the same discipline the
+        # role cards demand of a stage's own output file, applied to the artifact
+        # that makes a cap-killed stage replayable at all. `attempt_prompt` is
+        # computed ONCE and feeds BOTH the file and the argv below, so persisted
+        # bytes == sent bytes by construction rather than by a second expression
+        # that could drift (`retry_directive` returns "" on attempt 1, so attempt
+        # 1's argv is byte-identical to before this change). `save_stage_prompt`
+        # is called by BARE module name so a monkeypatch bites, and the statement
+        # is guarded because an observability artifact must never be able to fail
+        # a stage: any raise here leaves the verdict exactly as it was, still
+        # `out_file.exists() and st_size > 0`, and adds no new control-flow path.
+        attempt_prompt = prompt + retry_directive(attempt, stage, out_file)
+        try:
+            save_stage_prompt(it_dir, stage, attempt, attempt_prompt)
+        except Exception:
+            pass
         try:
             agent_cmd = [AGENT_BIN] + [
-                (prompt + retry_directive(attempt, stage, out_file)
-                 if a == "{prompt}" else a) for a in AGENT_RUN_ARGS]
+                (attempt_prompt if a == "{prompt}" else a) for a in AGENT_RUN_ARGS]
             # iter-114: self-heal the agent IPC endpoint PER ATTEMPT. The desktop
             # app rotates its per-process unix socket on restart, so an endpoint
             # captured at dispatcher launch goes dead afterwards and every stage
