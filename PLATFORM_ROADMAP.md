@@ -324,6 +324,7 @@ in the archive.
 - iter 208 -- README 38/40 stop denying call sites run_iteration/build_prompt HAVE; dormancy_claim_gaps brake.
 - iter 209 -- live-lag's verdict becomes a frozen status + `--json`; exit code stops scanning its own printed line.
 - iter 210 -- ONE brake leak-scans every *.py under tests/ ON DISK, armed matcher; per-module self-check had decayed.
+- iter 211 -- roles/reviewer.md runs test-quality --files on the iteration's own test module, advisory [NIT] only.
 
 
 ### Migration notes (per §6 self-mod guardrail)

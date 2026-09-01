@@ -24,6 +24,35 @@ the same work checkpointed early survives the kill.
 4. Safety — honor the product quality bar (e.g. no network at runtime/test time),
    no absolute user paths baked into shipped code, no secrets.
 
+## Advisory `test-quality` scan -- run it, do not eyeball it
+
+The foundry ships an offline composite scan for tests that cannot fail (assertion-free,
+constant/tautological assert, unconditionally skipped). Run it SCOPED to this iteration's
+own behavior-test module -- never repo-wide, where it reports pre-existing findings from
+code nobody touched this iteration:
+
+`python3 <checkout>/foundry.py test-quality --config <PRODUCT_CONFIG> --files <checkout>/tests/test_iterNN_behavior.py`
+
+- `<checkout>` is the PARENT of the `roles/` directory this card lives in; `<PRODUCT_CONFIG>`
+  is the path on the `- Product config` line of your prompt's `## Context` block -- take it
+  verbatim. Add `--json` for a machine-readable document (`clean`, `total_findings`,
+  per-lens counts); either way the exit code is the same.
+- PRECONDITION: if that file does not exist under `<checkout>/tests/` yet, SKIP the scan and
+  say so in your notes. A path the scanner cannot open is reported as a `parse errors:` line
+  and exits 1 -- a false alarm about the absent Tester deliverable this card already tells you
+  is not blocking. Keep `--files` ABSOLUTE: `run_stage` passes no `cwd=`, so a relative path
+  raises that identical ABSENT signature from any stage cwd and this SKIP would then hide a
+  scan that never ran.
+- Exit 0 (`verdict: clean`) means nothing to report. Exit 1 names each finding as
+  `[assertion-free]`, `[constant-assert]` or `[always-skipped]` with `<file> :: <test>`.
+- A finding here is ALWAYS a `[NIT]` -- never a `[BLOCKING]` finding, and never on its own
+  a reason for `VERDICT: CHANGES_REQUIRED`. A test whose signal is "this does not raise", or
+  whose assertion is delegated to a helper, carries no `assert` node and trips this scan while
+  being perfectly sound. It is a prompt to LOOK at that test, not a defect in itself.
+- What the scan CANNOT see is still yours to catch: a test that asserts, but only ever on
+  its fixture's good arm, scans clean and is exactly the vacuous control worth a real
+  finding. Fires-on-bad without silent-on-good is not a discriminating test.
+
 ## Output (`reviewer.md` in the state dir)
 - Numbered findings, each tagged `[BLOCKING]` or `[NIT]`, with file:line and a
   concrete fix.

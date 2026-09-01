@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-211
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- the only sanctioned dispatcher launcher is untracked, hidden in `.git/info/exclude`, while two tracked docs teach the invocation that killed a 68-shift brain
+    - Candidate A2 -- a year-less `strptime` makes the stage-duration digest silently empty on leap day, and Python 3.15 turns that into every day
+    - Candidate A3 -- `foundry doctor`, the one verb a role card runs every iteration, reports NOT READY from inside every stage, on a check no stage can satisfy
+    - Candidate B1 -- roles/reviewer.md runs the composite test-quality scan on this iteration's own new test file
+    - Candidate B2 -- roles/pm.md consults `live-lag --json`, so the stage that CHOOSES the next feature knows which surfaces are live
+    - Candidate B3 -- `save-work --json`: give the one verb the loop actually runs a machine-readable payload, and correct its stale adoption comment
+    winner: B1
+    ship: pending (not yet decided)
   iter-210
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `foundry recoverable`: which preserved never-shipped work can still be retried
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry doctor`'s roadmap-index advisory reports OK inside a 1,120-char band where the suite is already RED
     - Candidate B3 -- the record obligation has no operator surface at all: both oracles are consumed only by the suite
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 615b435
   iter-209
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- the roadmap advertises a SHIPPED item as open work, and contradicts its own ledger doing it
@@ -1065,4 +1075,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-107 scouted iterations
+108 scouted iterations
