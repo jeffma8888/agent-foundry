@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-210
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- `foundry recoverable`: which preserved never-shipped work can still be retried
+    - Candidate A2 -- `foundry unfailable-asserts`: the 4th test-quality lens gets a surface
+    - Candidate A3 -- `foundry deadtail`: name the wall clock spent after a stage's artifact stopped growing
+    - Candidate B1 -- a repo-wide public-safety brake over `tests/`, because the per-module self-check convention collapsed after iter 140
+    - Candidate B2 -- `foundry doctor`'s roadmap-index advisory reports OK inside a 1,120-char band where the suite is already RED
+    - Candidate B3 -- the record obligation has no operator surface at all: both oracles are consumed only by the suite
+    winner: B1
+    ship: pending (not yet decided)
   iter-209
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- the roadmap advertises a SHIPPED item as open work, and contradicts its own ledger doing it
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry unfailable-asserts [--json]`: the 4th test-quality lens, dormant since iter 186
     - Candidate B3 -- a tri-state triage verdict: tell "no contest" apart from "winner unreadable"
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED b30b00a
   iter-208
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- price the stalled-tester tax and make the declared test command non-silent
@@ -1055,4 +1065,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-106 scouted iterations
+107 scouted iterations
