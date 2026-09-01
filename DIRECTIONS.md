@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-214
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- extend the on-disk leak brake from `tests/**/*.py` to the whole shipping population
+    - Candidate A2 -- deliver a role-addressed operator directive only to the role it names
+    - Candidate A3 -- (placeholder, being measured) price the idle tail of a cap-killed stage
+    - Candidate B1 -- the pinned LEARNINGS head tells every stage that a LIVE product is retired
+    - Candidate B2 -- the pinned head's ARCHIVE boundary does not survive rendering, so 16 of the 19 bullets every stage reads are spent directives that look live
+    - Candidate B3 -- pin the README's negative-existence claims so the next artifact cannot silently falsify them
+    winner: A1
+    ship: pending (not yet decided)
   iter-213
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- collapse the three code-identical test-quality summary dataclasses onto one shared base
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- shrink the fresh-clone cost the final gate pays twice per iteration
     - Candidate B3 -- TBD (measuring stalled-attempt waste)
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 2678ad5
   iter-212
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- the release gate reads the `GAP:` claim that `roles/pm.md` already forces every PM to write
@@ -1095,4 +1105,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-110 scouted iterations
+111 scouted iterations
