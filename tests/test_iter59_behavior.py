@@ -934,13 +934,29 @@ def test_b9_new_symbols_absent_from_control_flow_and_siblings_and_dispatcher():
             assert sym not in names, \
                 f"{fn_name} references new symbol {sym!r} (must stay off the control path)"
         assert SUBCMD not in consts, f"{fn_name} embeds the {SUBCMD!r} subcommand literal"
-    # sibling CLIs must reference NONE of the 4 new symbols
+    # Sibling CLIs must reference NONE of the 4 new symbols -- with ONE pair
+    # deliberately RETIRED by iter 212, which de-duplicated the composite
+    # composition policy: `test_quality_cli` now composes THROUGH the
+    # `gather_test_quality` seam instead of carrying a second, DIVERGED copy of
+    # it (only the seam ever gained iter 159's resolve-once / shared
+    # TEST_TREE_CACHE speed-up). `gather_test_quality`'s own docstring had
+    # recorded that refactor as an owed "separate future bite" since iter 59, so
+    # this clause was a stale pin of iter 59's historical additive-dormancy, not
+    # a live invariant. It is retired as ONE (sibling, symbol) pair rather than
+    # by dropping the sibling: every OTHER pair stays forbidden, and the exempt
+    # pair is asserted POSITIVELY so the brake still pins the shipped design
+    # (a bare-name call is what keeps `monkeypatch.setattr(foundry, ...)` biting).
+    RETIRED_PAIRS = {("test_quality_cli", "gather_test_quality")}
     for fn_name in ("company_weak_tests_cli", "company_constant_asserts_cli",
                     "company_skipped_tests_cli", "test_quality_cli",
                     "weak_tests_cli", "constant_asserts_cli", "skipped_tests_cli"):
         if hasattr(foundry, fn_name):
             names, _ = _fn_names_consts(getattr(foundry, fn_name))
             for sym in NEW_SYMBOLS:
+                if (fn_name, sym) in RETIRED_PAIRS:
+                    assert sym in names, \
+                        f"{fn_name} must call {sym!r} by BARE name (iter 212)"
+                    continue
                 assert sym not in names, \
                     f"sibling {fn_name} references new symbol {sym!r}"
     # ONLY main() references company_test_quality_cli, which references the

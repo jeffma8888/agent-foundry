@@ -8617,9 +8617,10 @@ def gather_test_quality(cfg: ProductConfig, files=None) -> TestQualitySummary:
     called by BARE module name so a `monkeypatch.setattr(foundry, ...)` in a test
     bites, and each passed the SAME resolved paths so all three scan the identical
     set, then folds the three frozen sub-summaries into the pure composite via
-    `summarize_test_quality`. `test_quality_cli` keeps its OWN inline composition
-    (byte-unchanged this iter); a DRY refactor to share this seam is a separate
-    future bite. Writes NOTHING to disk (read-only).
+    `summarize_test_quality`. `test_quality_cli` COMPOSES THROUGH this seam as of
+    iter 212 instead of carrying a second copy of that policy, so the composition
+    -- and the speed-up below, which the CLI's copy had never gained -- lives in
+    exactly ONE place. Writes NOTHING to disk (read-only).
 
     OUTPUT-PRESERVING SPEED-UP (iter 159), two halves at this one call site:
 
@@ -8666,13 +8667,18 @@ def test_quality_cli(cfg: ProductConfig, files=None,
     0/1/2 exit code a shell `&&` would collapse into one undifferentiated
     non-zero -- this scans once and reports a per-CATEGORY breakdown.
 
-    Composes the three SHIPPED gather seams -- `gather_weak_tests`,
-    `gather_constant_asserts`, `gather_skipped_tests` (iters 42/48/56) -- each
-    called by BARE module name so a `monkeypatch.setattr(foundry, ...)` in a
-    test bites, and each passed the SAME `files` so all three scan the identical
-    set. It adds NO new I/O seam of its own (the iter-28/30 endorsed "compose
-    existing frozen cores" pattern). Prints the pure `TestQualitySummary` core
-    and returns its `exit_code` (0 clean / 1 quality-issues / 2 nothing to scan).
+    Composes NOTHING itself (iter 212): it delegates the entire scan to the
+    shipped `gather_test_quality(cfg, files)` seam, which OWNS the one
+    composition policy -- the three gather seams `gather_weak_tests`,
+    `gather_constant_asserts`, `gather_skipped_tests` (iters 42/48/56) called by
+    BARE module name over the SAME resolved paths -- so that policy is no longer
+    duplicated here and drifting (this CLI's own copy had never gained iter 159's
+    resolve-the-file-list-once / shared-`TEST_TREE_CACHE` speed-up). The seam too
+    is called by BARE module name, so `monkeypatch.setattr(foundry, ...)` bites on
+    the composite AND, through it, on each sub-gather. It adds NO new I/O seam of
+    its own (the iter-28/30 endorsed "compose existing frozen cores" pattern).
+    Prints the pure `TestQualitySummary` core and returns its `exit_code`
+    (0 clean / 1 quality-issues / 2 nothing to scan).
 
     With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
     indent=2)` document (embedding the three sub-docs); the default `as_json=
@@ -8681,12 +8687,7 @@ def test_quality_cli(cfg: ProductConfig, files=None,
     Writes NOTHING to disk. A thin printer that adds no decision logic of its
     own, so the printed figures always match the `TestQualitySummary` fields.
     DORMANT -- no control path calls it; only `main()`'s argparse dispatch."""
-    summary = summarize_test_quality(
-        product=cfg.name,
-        weak=gather_weak_tests(cfg, files),
-        constant=gather_constant_asserts(cfg, files),
-        skipped=gather_skipped_tests(cfg, files),
-    )
+    summary = gather_test_quality(cfg, files)
     # `--json` emits the pure snapshot as a single JSON document (stdout-only,
     # no decision logic added); the default stays the human report.
     print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
