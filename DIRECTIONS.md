@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-216
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- `foundry roster-lag`: teams registered in config the LIVE brain never loaded
+    - Candidate A2 -- `foundry company-losses`: fleet-wide lost work, by cause, one row per team
+    - Candidate A3 -- `foundry company-recoverable`: fleet view of whether preserved work still applies
+    - Candidate B1 -- anchor the unfinished-tester marker to a line START, not a bare substring
+    - Candidate B2 -- `foundry ledger-check`: the mandated two-tree roadmap-record oracle, as one verb
+    - Candidate B3 -- a brake tying every runtime-flag constant to real `git check-ignore` coverage
+    winner: B1
+    ship: pending (not yet decided)
   iter-215
     lenses: narrative-and-docs (iteration 215), new-capability (iteration 215)
     - Candidate A1 -- the roadmap STATUS line's freshness guard is a FROZEN FLOOR (>= 202) while the derivable rule sits in the same file
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry roadmap-record`: ask the record brakes BEFORE committing
     - Candidate B3 -- `foundry now`: distinguish an iteration IN FLIGHT from one that finished
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 100cf2f
   iter-214
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- extend the on-disk leak brake from `tests/**/*.py` to the whole shipping population
@@ -1115,4 +1125,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-112 scouted iterations
+113 scouted iterations

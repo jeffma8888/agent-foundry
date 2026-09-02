@@ -11708,6 +11708,42 @@ UNFINISHED_TEST_RETRY_PROMPT = (
 )
 
 
+def carries_unfinished_marker(text: str) -> bool:
+    """True when a LINE of `text` starts with `UNFINISHED_TEST_MARKER` (pure, total).
+
+    WHY line-anchored instead of a bare substring: `roles/tester.md` mandates "a line
+    reading exactly" the marker, and `classify_test_report`'s own docstring already
+    called it "the LINE roles/tester.md mandates" -- but the test it shipped with was
+    `MARKER in text`, so a report that merely DISCUSSES the marker bought the two
+    `UNFINISHED_TEST_RETRY_STAGES` rounds the checkpoint contract exists to grant, and
+    a genuinely red suite spent both of them with no engineering fix. Measured over 748
+    `tester*.md` artifacts in the fleet: 154 mention the marker, 145 carry it at a line
+    start, 9 in prose only -- the sharpest of the 9 says the marker "is correctly
+    ABSENT" and is read today as CARRYING it, the "a verdict token present is not a
+    verdict reached" inversion in the parser that buys the retry rounds.
+
+    WHY a prefix and not strict line EQUALITY: equality is the FAIL-OPEN rule here.
+    Re-classifying those same 748 artifacts, equality flips 9 UNFINISHED verdicts to
+    RED/NONE -- 6 `## PROGRESS: CHECKPOINT` headings and 3 with trailing prose -- i.e.
+    it destroys 9 real cap-killed checkpoints, while this prefix form is verdict-neutral
+    across the whole corpus. So leading list/heading decoration and trailing prose are
+    both tolerated; only a mid-line mention inside prose is refused.
+
+    Reads `UNFINISHED_TEST_MARKER` as a module global AT CALL TIME rather than capturing
+    it at def time, so a `monkeypatch.setattr` on the marker bites here too. The bare
+    form is tested alongside the decoration-stripped one because a marker may itself
+    begin with a decoration character, which stripping alone would swallow. Total by
+    construction: the only work is splitting and stripping strings, so no input raises
+    -- NUL bytes, CRLF, odd escapes and 100k bodies included.
+    """
+    marker = UNFINISHED_TEST_MARKER
+    for line in (text or "").splitlines():
+        bare = line.strip()
+        if bare.startswith(marker) or bare.lstrip(" \t#*`->").startswith(marker):
+            return True
+    return False
+
+
 def classify_test_report(text: str) -> str:
     """Classify a tester report body: PASS / UNFINISHED / RED / NONE (pure, total).
 
@@ -11724,8 +11760,9 @@ def classify_test_report(text: str) -> str:
       1. `"PASS"`       -- `parse_tester_result` reads an earned PASS sentinel.
          An earned PASS OUTRANKS a checkpoint claim, so a body that both passed
          and mentions the marker is PASS.
-      2. `"UNFINISHED"` -- the body contains `UNFINISHED_TEST_MARKER`, the line
-         `roles/tester.md` mandates for a round that was cut short.
+      2. `"UNFINISHED"` -- `carries_unfinished_marker` finds the marker STARTING a
+         line, the line `roles/tester.md` mandates for a round that was cut short.
+         A prose mention mid-line is not the claim, so it does not buy the rounds.
       3. `"RED"`        -- an anchored `RESULT: FAIL` with no marker: a genuine
          red suite, routed exactly as it is today.
       4. `"NONE"`       -- no recognizable verdict and no marker (empty text, an
@@ -11734,14 +11771,15 @@ def classify_test_report(text: str) -> str:
     Reuses the anchored `parse_tester_result` (which had no control-path caller
     until now) rather than a second substring scan, so "the sentinel must be the
     LAST non-empty line" keeps holding for the new decision too. Total by
-    construction: the only work is that call plus one substring test on
-    `text or ""`, so no string input raises -- NUL bytes, odd escapes and 100k
-    bodies included.
+    construction: the only work is that call plus `carries_unfinished_marker`,
+    itself total, so no string input raises -- NUL bytes, odd escapes and 100k
+    bodies included. Both are called by BARE module name, so either can be
+    monkeypatched to drive this classifier's verdict from a test.
     """
     verdict = parse_tester_result(text)
     if verdict == "PASS":
         return "PASS"
-    if UNFINISHED_TEST_MARKER in (text or ""):
+    if carries_unfinished_marker(text):
         return "UNFINISHED"
     if verdict == "FAIL":
         return "RED"
