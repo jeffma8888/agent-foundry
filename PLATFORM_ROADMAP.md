@@ -27,7 +27,7 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 217): ledger and archive are current through 217 (193/194/199/201/203/205 never shipped, so none
+STATUS (iter 218): ledger and archive are current through 218 (193/194/199/201/203/205 never shipped, so none
 owes a row).
 STILL OPEN:
 (c), (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
@@ -331,6 +331,7 @@ in the archive.
 - iter 215 -- `recoverable`: 3-state apply verdict (applies/three-way/blocked) per preserved patch, with the base.
 - iter 216 -- the UNFINISHED checkpoint marker must START a line; a report only DISCUSSING it stops buying 2 rounds.
 - iter 217 -- gather_status composes the live-lag verdict; status --json reports a stale brain, exit codes unmoved.
+- iter 218 -- pm_recoverable_block puts a recent abort's preserved patches in the PM prompt; report-only.
 
 
 ### Migration notes (per §6 self-mod guardrail)
