@@ -463,13 +463,66 @@ def test_ac_union_is_a_superset_of_the_old_rule_over_the_real_slate_corpus():
     assert gained > 0, "the union recovered nothing on the real corpus"
 
 
+def _is_write_early_checkpoint(text: str) -> bool:
+    """True when a scout file self-declares as an UNFINISHED write-early checkpoint.
+
+    Matched at a LINE START only (and case-sensitively, as the write-early
+    convention spells these markers in caps), so ordinary prose mentioning
+    progress mid-sentence can never exclude a finished slate. Pure and total.
+    """
+    for raw in text.splitlines():
+        line = raw.lstrip()
+        if line.startswith("STATUS:"):
+            line = line[len("STATUS:"):].lstrip()
+        if line.startswith("CHECKPOINT") or line.startswith("IN PROGRESS"):
+            return True
+    return False
+
+
 def test_ac_no_real_slate_parses_to_zero_candidates_when_it_has_id_headings():
+    """The parser must find candidates in every FINISHED slate on disk.
+
+    THE POPULATION EXCLUDES SELF-DECLARED WRITE-EARLY CHECKPOINTS, which is what
+    makes this brake measure the PARSER instead of the loop's cap-kill rate. A
+    scout stage killed under the ~600s cap leaves behind the checkpoint it wrote
+    first -- a file that says `STATUS: CHECKPOINT` / `IN PROGRESS` and carries no
+    candidate heading YET -- so grading it as a parse failure scores the kill, not
+    the parser, and the tally then grows with every future cap-kill in ANY
+    product. Counting them also made this test body disagree with its own NAME: an
+    unfinished placeholder has no id headings at all.
+
+    That is the frozen-count-over-gitignored-growing-state trap (OPERATOR
+    2026-08-11): `products/*/state/` is gitignored, so a fresh clone SKIPS here
+    while a long-lived checkout accumulates unfinished slates until a frozen
+    integer reds a correct iteration. Measured on this checkout: 937 slates, of
+    which 89 self-declare incomplete (86 of those still parse, having been refined
+    after their checkpoint) and exactly 3 are unfinished with zero candidates --
+    and over the 848 FINISHED slates the parser misses ZERO. Iteration 131's own
+    `<= 2` headroom is kept unchanged rather than retuned down to that 0.
+
+    The population FLOOR is the two-sided half: a filter that emptied the corpus
+    would satisfy the `<= 2` bound forever, so it must leave a real corpus behind.
+    """
     slates = sorted((_ROOT / "products").glob("*/state/iter-*/pm_scout_*.md"))
     if len(slates) < 10:
         pytest.skip("no meaningful slate corpus in this checkout")
-    zero = [p for p in slates if not foundry.parse_scout_candidates(
-        p.read_text(errors="replace"))]
-    assert len(zero) <= 2, f"{len(zero)} slates still parse to zero candidates"
+    finished, zero = [], []
+    for path in slates:
+        try:
+            text = path.read_text(errors="replace")
+        except OSError:
+            continue
+        if _is_write_early_checkpoint(text):
+            continue
+        finished.append(path)
+        if not foundry.parse_scout_candidates(text):
+            zero.append(path)
+    assert len(finished) >= 10, (
+        f"the checkpoint filter left only {len(finished)} of {len(slates)} slates"
+        " -- it would satisfy the bound below vacuously")
+    assert len(zero) <= 2, (
+        f"{len(zero)} FINISHED slates still parse to zero candidates: "
+        f"{[q.name for q in zero[:5]]}")
 
 
 def test_ac_docstring_states_both_shapes_and_the_depth_exclusion():

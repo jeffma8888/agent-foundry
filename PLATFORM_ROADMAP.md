@@ -27,7 +27,7 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 213): ledger and archive are current through 213 (193/194/199/201/203/205 never shipped, so none
+STATUS (iter 215): ledger and archive are current through 215 (193/194/199/201/203/205 never shipped, so none
 owes a row).
 STILL OPEN:
 (c), (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
@@ -328,6 +328,7 @@ in the archive.
 - iter 212 -- test_quality_cli composes via the gather_test_quality seam; the 2nd copy of that policy is deleted.
 - iter 213 -- run_stage persists the exact per-attempt prompt as <stage>.attemptN.prompt, written BEFORE the spawn.
 - iter 214 -- ONE brake leak-scans the whole `git add -A` shipping set, not just tests/*.py; pins the skip set.
+- iter 215 -- `recoverable`: 3-state apply verdict (applies/three-way/blocked) per preserved patch, with the base.
 
 
 ### Migration notes (per §6 self-mod guardrail)

@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-215
+    lenses: narrative-and-docs (iteration 215), new-capability (iteration 215)
+    - Candidate A1 -- the roadmap STATUS line's freshness guard is a FROZEN FLOOR (>= 202) while the derivable rule sits in the same file
+    - Candidate A2 -- README calls `company-constant-asserts` "the 6th and LAST company-* member"; three later README lines and the registry all contradict it
+    - Candidate A3 -- ARCHITECTURE.md presents `PROMPT_LEARNINGS_BUDGET_CHARS` as an active bound; it is arithmetically unreachable on the live path
+    - Candidate B1 -- `foundry recover`: does the work this loop PRESERVED still apply?
+    - Candidate B2 -- `foundry roadmap-record`: ask the record brakes BEFORE committing
+    - Candidate B3 -- `foundry now`: distinguish an iteration IN FLIGHT from one that finished
+    winner: B1
+    ship: pending (not yet decided)
   iter-214
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- extend the on-disk leak brake from `tests/**/*.py` to the whole shipping population
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the pinned head's ARCHIVE boundary does not survive rendering, so 16 of the 19 bullets every stage reads are spent directives that look live
     - Candidate B3 -- pin the README's negative-existence claims so the next artifact cannot silently falsify them
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 5624fac
   iter-213
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- collapse the three code-identical test-quality summary dataclasses onto one shared base
@@ -1105,4 +1115,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-111 scouted iterations
+112 scouted iterations
