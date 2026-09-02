@@ -20542,6 +20542,470 @@ def losses_cli(cfg: ProductConfig, limit: int | None = None,
     return _thin_gather_cli(gather_losses, cfg, limit, as_json)
 
 
+# --------------------------------------------------------------------------
+# iter 215 -- `recoverable`: does the work this loop PRESERVED still apply?
+# --------------------------------------------------------------------------
+
+#: The ONE exact basename the loop uses for the ROUTINE in-flight tree export
+#: beside a stage's logs. Classification keys on this single literal and nothing
+#: else, so a preservation filename shape nobody has invented yet reads as
+#: `preserved` -- the SAFE default, because an "unclassified" third kind would
+#: drop silently out of the verdict counts and print a healthy-looking report
+#: over work it never graded.
+RECOVERABLE_IN_FLIGHT_BASENAME = "IMPLEMENTATION.patch"
+
+#: The only filename suffix `gather_recoverable` treats as a patch. A SIBLING
+#: carrying another suffix is never a member even when its NAME contains the word
+#: patch -- a `.txt` note about a patch is not a patch, and probing one would
+#: report a blocked row for a file git was never asked to apply.
+RECOVERABLE_SUFFIX = ".patch"
+
+#: Stand-in reason for a probe that failed while naming no path at all (a corrupt
+#: patch, a `run_cmd` launch failure, an empty stderr). A non-`applies` row must
+#: NEVER render reasonless: "it does not apply and nothing says why" is itself
+#: the finding, and an empty tuple would render as silence.
+RECOVERABLE_UNPARSED_REASON = "unparsed: the probe named no path"
+
+# The two shapes `git apply --check` uses to name an offending path. Kept as two
+# separate patterns rather than one alternation because the second would other-
+# wise be mis-sliced by the first's non-greedy path group: `patch failed:` ends
+# in `:<line>` while `already exists` ends in fixed prose.
+_RECOVERABLE_PATCH_FAILED_RE = re.compile(
+    r"^error: patch failed: (?P<path>.+?):\d+\s*$", re.M)
+_RECOVERABLE_ALREADY_EXISTS_RE = re.compile(
+    r"^error: (?P<path>.+?): already exists in working directory\s*$", re.M)
+
+#: The THREE verdict tokens, named so a caller cannot typo one into a state that
+#: counts as neither blocked nor applying. Three states rather than a boolean is
+#: the FEATURE: measured on this product's own state dir, plain
+#: `git apply --check` rejects 13 of 14 preserved patches while
+#: `git apply --check --3way` accepts 12 of those 13, so a boolean verdict would
+#: report a FALSE LOSS on 12 real inputs -- a false negative pointing at the
+#: destructive remedy (abandoning work that is still recoverable).
+RECOVERABLE_VERDICT_APPLIES = "applies"
+RECOVERABLE_VERDICT_THREE_WAY = "three-way"
+RECOVERABLE_VERDICT_BLOCKED = "blocked"
+
+#: The two row kinds (see `RECOVERABLE_IN_FLIGHT_BASENAME` for why there are two
+#: and not three).
+RECOVERABLE_KIND_IN_FLIGHT = "in-flight"
+RECOVERABLE_KIND_PRESERVED = "preserved"
+
+
+def recoverable_reasons(out: str) -> tuple[str, ...]:
+    """The distinct offending paths a FAILING `git apply --check` output names.
+
+    PURE and TOTAL: text in, a sorted de-duplicated tuple out; no filesystem,
+    subprocess, network or clock access, and it never raises. A non-`str` or
+    empty output, or one naming no path in either shape, yields exactly
+    `(RECOVERABLE_UNPARSED_REASON,)` rather than `()` -- see that constant for
+    why a reasonless non-`applies` row is worse than an unparsed one.
+
+    Sorted + de-duplicated because the finding is about WHICH PATHS conflict, not
+    how many times git mentioned each: a patch touching one file emits both
+    `error: patch failed: <path>:<line>` and `error: <path>: patch does not
+    apply`, so an occurrence list would name the same path twice and imply two
+    conflicts where there is one.
+    """
+    if not isinstance(out, str) or not out:
+        return (RECOVERABLE_UNPARSED_REASON,)
+    found = set(_RECOVERABLE_PATCH_FAILED_RE.findall(out))
+    found |= set(_RECOVERABLE_ALREADY_EXISTS_RE.findall(out))
+    named = tuple(sorted({path.strip() for path in found if path.strip()}))
+    return named or (RECOVERABLE_UNPARSED_REASON,)
+
+
+@dataclasses.dataclass(frozen=True)
+class RecoverableRow:
+    """ONE patch under a product's state dir and whether it STILL APPLIES.
+
+    Frozen for the same reason as every other measurement record in this module:
+    a computed verdict must not be mutable after the fact, and value equality
+    comes free. `reasons` defaults to `()` because an `applies` row has nothing
+    to explain -- it is the only verdict for which emptiness is honest.
+
+    `path` is carried as a plain `str` (not a `pathlib.Path`) so `to_dict()` is
+    JSON-native with no conversion step and a row round-trips through
+    `json.loads(json.dumps(...))` to an EQUAL payload.
+    """
+    path: str
+    kind: str
+    verdict: str
+    reasons: tuple[str, ...] = ()
+
+    @property
+    def preserved(self) -> bool:
+        """True for a row the summariser's verdict counts range over.
+
+        Derived rather than stored so it can never disagree with `kind`."""
+        return self.kind == RECOVERABLE_KIND_PRESERVED
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of one row (all values JSON-native).
+
+        `reasons` becomes a LIST because JSON has no tuple -- which is also what
+        makes `json.loads(json.dumps(...))` round-trip to an EQUAL payload rather
+        than to a near-miss a machine consumer must normalise."""
+        return {"path": self.path, "kind": self.kind, "verdict": self.verdict,
+                "reasons": list(self.reasons)}
+
+
+def _recoverable_row(record: object) -> "RecoverableRow | None":
+    """Read ONE row off a `RecoverableRow`, a 3/4-sequence, or an attribute bag.
+
+    The `_loss_fields` sibling's contract, and the reason `recoverable_summary`
+    needs no fixture class: a test can drive the pure core from plain
+    `(path, kind, verdict)` / `(path, kind, verdict, reasons)` literals while
+    `gather_recoverable` hands it real rows. Anything of neither shape (a short
+    sequence, an int, `None`, a bare string) returns `None` so the summariser
+    SKIPS it -- a report that raises on one malformed row tells the operator less
+    than a report that omits it, the same contract as `parse_stage_attempts`.
+
+    Total -- never raises."""
+    if isinstance(record, RecoverableRow):
+        return record
+    if isinstance(record, (tuple, list)):
+        if len(record) < 3:
+            return None
+        path, kind, verdict = record[0], record[1], record[2]
+        reasons = record[3] if len(record) > 3 else ()
+    else:
+        verdict = getattr(record, "verdict", None)
+        if verdict is None:
+            return None
+        path = getattr(record, "path", "")
+        kind = getattr(record, "kind", RECOVERABLE_KIND_PRESERVED)
+        reasons = getattr(record, "reasons", ())
+    try:
+        reason_tuple = tuple(str(reason) for reason in reasons)
+    except TypeError:
+        # A non-iterable `reasons` is evidence of nothing, never a crash.
+        reason_tuple = ()
+    return RecoverableRow(path=str(path), kind=str(kind), verdict=str(verdict),
+                          reasons=reason_tuple)
+
+
+@dataclasses.dataclass(frozen=True)
+class RecoverableSummary:
+    """Whether the work this loop PRESERVED is still usable (the `recoverable` core).
+
+    THE DEFECT THIS ANSWERS: the abort path is the one place this framework
+    destroys work it can never recover, and it is careful -- `capture_abort_patch`
+    writes a patch BEFORE `revert_repo` runs. But the framework has a mature
+    PRODUCER of preserved work and, until this verb, NO READER at all: `rescues`
+    and `losses` read attempt LOGS, not patches, so of 51 CLI verbs none could
+    answer "can I still use what the loop saved?". Measured at `5624fac`: 14
+    preserved patches, 641,745 bytes, 13 of which plain `git apply --check`
+    rejects -- and a standing operator directive asserting one of them "applies
+    clean at 9a70305" that stopped being true nine commits ago, with no surface
+    able to say so.
+
+    `base` is STORED and rendered on its own line because a recoverability claim
+    is meaningless without the tree it was measured against: "applies clean at
+    <sha>" is checkable only when the report discloses the sha it probed.
+
+    Every count is DERIVED from `rows`, so the printed figures, the JSON payload
+    and the returned exit code can never disagree with one another.
+    """
+    base: str
+    rows: tuple[RecoverableRow, ...]
+
+    @property
+    def preserved_rows(self) -> tuple[RecoverableRow, ...]:
+        """Only the rows the verdict ranges over, in stored order.
+
+        The in-flight/preserved split is load-bearing, not cosmetic: an
+        `IMPLEMENTATION.patch` is a ROUTINE export of a tree that has since been
+        committed, so it is EXPECTED to stop applying and would otherwise drive
+        `exit_code` to 1 on every healthy product -- a gauge that reads BLOCKED
+        when nothing is wrong is the fail-open shape this repo keeps out."""
+        return tuple(row for row in self.rows if row.preserved)
+
+    @property
+    def preserved(self) -> int:
+        """How many PRESERVED patches were probed."""
+        return len(self.preserved_rows)
+
+    @property
+    def in_flight(self) -> int:
+        """Routine in-flight exports probed -- counted, never in the verdict."""
+        return len(self.rows) - self.preserved
+
+    @property
+    def applies(self) -> int:
+        """PRESERVED rows a plain `git apply --check` accepts."""
+        return sum(1 for row in self.preserved_rows
+                   if row.verdict == RECOVERABLE_VERDICT_APPLIES)
+
+    @property
+    def three_way(self) -> int:
+        """PRESERVED rows only `--3way` accepts -- STALE but still RECOVERABLE."""
+        return sum(1 for row in self.preserved_rows
+                   if row.verdict == RECOVERABLE_VERDICT_THREE_WAY)
+
+    @property
+    def blocked(self) -> int:
+        """PRESERVED rows NEITHER probe accepts -- the only genuinely lost work."""
+        return sum(1 for row in self.preserved_rows
+                   if row.verdict == RECOVERABLE_VERDICT_BLOCKED)
+
+    @property
+    def exit_code(self) -> int:
+        """0 preserved work is usable / 1 >=1 BLOCKED / 2 nothing to report.
+
+        `2` is tested FIRST and on `rows` rather than on `preserved_rows`, because
+        "no patch anywhere" is a different fact from "no preserved patch is
+        blocked", and collapsing them would let an empty state dir print the
+        all-clear. A `three-way` row is deliberately NOT a failure: it applies,
+        just not plainly, and calling it lost is exactly the false negative that
+        would talk a future PM out of an available re-land."""
+        if not self.rows:
+            return 2
+        return 1 if self.blocked else 0
+
+    @property
+    def verdict(self) -> str:
+        """The one-token summary word `render()` prints as its sentinel.
+
+        Derived from `exit_code`, so the text and the exit code can never drift.
+        No token is byte-identical to another verb's sentinel (`losses` prints
+        `no attempts` / `LOST WORK BY CAUSE`): two reports whose sentinels match
+        cannot be told apart by a grep or a log scrape, and this one ranges over a
+        different population entirely."""
+        return {0: "preserved work is recoverable",
+                1: "BLOCKED PRESERVED WORK",
+                2: "no patches"}[self.exit_code]
+
+    def render(self) -> str:
+        """A deterministic multi-line report carrying every gathered signal.
+
+        Contains, as substrings (the CLI's black-box contract): the literal
+        `foundry recoverable`; the apply `  base: <id>` on its OWN line, so a
+        claim of the form "applies clean at <sha>" is checkable against the tree
+        actually probed instead of taken on trust; a totals line
+        `  preserved N  applies N  three-way N  blocked N  in-flight N`; one
+        `  [<verdict>] <path>  reasons: <p1, p2>` line per NON-`applies`
+        preserved row in stored order; and a final `verdict:` token matching
+        `exit_code` as the LAST non-empty line (detail-then-sentinel, so "last
+        non-empty line == sentinel" holds however many rows there are).
+
+        `applies` rows print no per-row line on purpose: this report exists to
+        name what needs attention, and 14 lines saying "fine" would bury the one
+        saying otherwise. The COUNT still discloses them, so nothing is hidden.
+        Never raises."""
+        lines = ["foundry recoverable", f"  base: {self.base}"]
+        if not self.rows:
+            lines.append("  no patches")
+        else:
+            lines.append(f"  preserved {self.preserved}  applies {self.applies}  "
+                         f"three-way {self.three_way}  blocked {self.blocked}  "
+                         f"in-flight {self.in_flight}")
+            for row in self.preserved_rows:
+                if row.verdict == RECOVERABLE_VERDICT_APPLIES:
+                    continue
+                lines.append(f"  [{row.verdict}] {row.path}  "
+                             f"reasons: {', '.join(row.reasons)}")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of the whole digest for machine consumers.
+
+        Returns the stored `base`, then every DERIVED count / `exit_code` /
+        `verdict` READ FROM THE PROPERTIES (it re-derives nothing, so the payload
+        can never disagree with `render()` or with the returned exit code), then
+        `rows` -- ALL of them, in-flight included, in `self.rows` order -- as a
+        JSON array of each row's `to_dict()`. Every value is JSON-native (str /
+        int / list of dicts), so `json.dumps(...)` never raises and the dict
+        round-trips through `json.loads(json.dumps(...))`. Pure: touches no
+        filesystem."""
+        return {
+            "base": self.base,
+            "preserved": self.preserved,
+            "in_flight": self.in_flight,
+            "applies": self.applies,
+            "three_way": self.three_way,
+            "blocked": self.blocked,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+            "rows": [row.to_dict() for row in self.rows],
+        }
+
+
+def recoverable_summary(rows, base) -> RecoverableSummary:
+    """PURE recoverability summariser -- the `summarize_*` half of the verb.
+
+    TOTAL: it touches no filesystem, subprocess, git, network or clock, accepts
+    either `RecoverableRow` objects or plain `(path, kind, verdict[, reasons])`
+    sequences (see `_recoverable_row`), SKIPS any member of neither shape, and
+    treats a non-iterable `rows` as empty. Equal inputs give `==` results.
+
+    `base` is coerced to `str` and an empty / falsy one becomes the module's `"?"`
+    unreachable-sentinel, the same token `sha_matches` refuses to match: a report
+    that cannot name the tree it probed must say so, because a blank base line
+    reads as "probed against nothing" and an omitted one reads as "trust me".
+    """
+    try:
+        iterator = iter(rows)
+    except TypeError:
+        # A non-iterable `rows` means "nothing to report", never a crash.
+        iterator = iter(())
+    kept: list[RecoverableRow] = []
+    for record in iterator:
+        row = _recoverable_row(record)
+        if row is not None:
+            kept.append(row)
+    text = str(base) if base else ""
+    return RecoverableSummary(base=text or "?", rows=tuple(kept))
+
+
+def recoverable_base(repo) -> str:
+    """The apply BASE the probes run against -- `git rev-parse --short HEAD`.
+
+    A SEPARATE named seam rather than an inline `run_cmd` inside
+    `gather_recoverable` for two reasons. It keeps the "exactly ONE probe call
+    when probe 1 is ok" contract of `_recoverable_probe` measurable -- a test can
+    patch this out and then every `run_cmd` call it observes IS a probe -- and it
+    lets a caller script an unreachable git without scripting the probes.
+
+    `run_cmd` is called by BARE module name at CALL time (never captured at def
+    time) so a `monkeypatch.setattr(foundry, "run_cmd", ...)` bites. Read-only
+    and never raising: an unreachable git, a non-repo path or empty output all
+    degrade to `"?"`, because a base we could not read must not masquerade as one
+    we did."""
+    res = run_cmd(["git", "rev-parse", "--short", "HEAD"], cwd=repo)
+    text = res.out.strip() if res.ok and isinstance(res.out, str) else ""
+    return text.splitlines()[0].strip() if text else "?"
+
+
+def _recoverable_iteration(path, state) -> int:
+    """The iteration number of the `iter-NN` dir a patch sits under, else `-1`.
+
+    Walks the path's components RELATIVE to `state` and returns the first that
+    `iteration_numbers` (called by BARE name) recognises, so a patch nested one
+    level deeper than today's layout is still attributed to its iteration rather
+    than dropped. `-1` for a patch under no `iter-NN` dir at all -- the ordering
+    key negates the number, so `-1` sorts such a row LAST instead of ahead of the
+    newest iteration. Total -- never raises."""
+    try:
+        parts = path.relative_to(state).parts
+    except (ValueError, OSError):
+        parts = (path.parent.name,)
+    for part in parts:
+        numbers = iteration_numbers([part])
+        if numbers:
+            return numbers[0]
+    return -1
+
+
+def _recoverable_probe(path, repo) -> RecoverableRow:
+    """Probe ONE patch and build its row -- the two-probe verdict, read-only.
+
+    Probe 1 is `git apply --check <path>`; probe 2 is
+    `git apply --check --3way <path>` and is issued ONLY when probe 1 failed, so
+    a patch that applies plainly costs exactly ONE subprocess. Both go through
+    the `run_cmd` seam by BARE module name with `cwd=repo`, so a scripted seam
+    drives every branch offline.
+
+    EVERY invocation carries `--check`: this function is the only place the
+    module can issue `git apply` for this verb, and `--check` is what makes the
+    verb a REPORTER. A `recoverable` that could apply a stale patch over a live
+    tree would be a destructive tool wearing a reporting name.
+
+    `reasons` are parsed from the out of every probe that RAN and FAILED -- probe
+    1 alone on a `three-way` row, both on a `blocked` one -- because on a blocked
+    row the two probes fail for different reasons and reporting one of them would
+    understate the conflict."""
+    kind = (RECOVERABLE_KIND_IN_FLIGHT
+            if path.name == RECOVERABLE_IN_FLIGHT_BASENAME
+            else RECOVERABLE_KIND_PRESERVED)
+    plain = run_cmd(["git", "apply", "--check", str(path)], cwd=repo)
+    if plain.ok:
+        return RecoverableRow(path=str(path), kind=kind,
+                              verdict=RECOVERABLE_VERDICT_APPLIES, reasons=())
+    three = run_cmd(["git", "apply", "--check", "--3way", str(path)], cwd=repo)
+    if three.ok:
+        return RecoverableRow(path=str(path), kind=kind,
+                              verdict=RECOVERABLE_VERDICT_THREE_WAY,
+                              reasons=recoverable_reasons(plain.out))
+    both = f"{plain.out}\n{three.out}"
+    return RecoverableRow(path=str(path), kind=kind,
+                          verdict=RECOVERABLE_VERDICT_BLOCKED,
+                          reasons=recoverable_reasons(both))
+
+
+def gather_recoverable(cfg: ProductConfig,
+                       limit: int | None = None) -> RecoverableSummary:
+    """Probe every `*.patch` under `cfg.state` and summarise recoverability.
+
+    The ONLY I/O seam of this verb. Walks `cfg.state` RECURSIVELY for names
+    ending `RECOVERABLE_SUFFIX` (read at CALL time by bare name), classifies each
+    by exact basename, probes each through `_recoverable_probe`, reads the apply
+    base through `recoverable_base` (bare name, so a test can patch it) and folds
+    the rows into the pure `recoverable_summary`.
+
+    Ordering is NEWEST ITERATION DIR FIRST, then file name, then full path -- the
+    order an operator reads in, since the patch worth re-landing is almost always
+    the most recent one. The third key makes the order TOTAL rather than
+    filesystem-dependent, so two runs on the same tree render byte-identically.
+
+    A POSITIVE `limit` keeps only the newest `limit` iteration dirs (the ledger
+    verbs' `--limit` semantics, via the same `iteration_numbers` helper); `None`
+    or a non-positive value scans them all. READ-ONLY: it writes nothing, creates
+    no directory, applies nothing, and a missing or unreadable `cfg.state` yields
+    a summary with no rows and `exit_code == 2` rather than raising."""
+    state = cfg.state
+    try:
+        found = sorted(state.rglob("*" + RECOVERABLE_SUFFIX)) if state.exists() else []
+    except OSError:
+        # A read error on the state dir means "nothing to report", never a crash
+        # -- the same no-news contract as the other read-only lenses.
+        found = []
+    keep: set[int] | None = None
+    if isinstance(limit, int) and limit > 0:
+        try:
+            names = [entry.name for entry in state.iterdir()]
+        except OSError:
+            names = []
+        # `iteration_numbers` is ascending, so the most-recent N are the LAST N.
+        keep = set(iteration_numbers(names)[-limit:])
+    selected: list[tuple[int, str, str, object]] = []
+    for path in found:
+        # `rglob` already filters by suffix; re-assert it so a future glob change
+        # cannot silently widen the population past what Behavior 1 promises.
+        if not path.name.endswith(RECOVERABLE_SUFFIX):
+            continue
+        try:
+            if not path.is_file():
+                continue
+        except OSError:
+            continue
+        iteration = _recoverable_iteration(path, state)
+        if keep is not None and iteration not in keep:
+            continue
+        selected.append((-iteration, path.name, str(path), path))
+    selected.sort(key=lambda item: (item[0], item[1], item[2]))
+    rows = tuple(_recoverable_probe(path, cfg.repo) for _, _, _, path in selected)
+    return recoverable_summary(rows, recoverable_base(cfg.repo))
+
+
+def recoverable_cli(cfg: ProductConfig, limit: int | None = None,
+                    as_json: bool = False) -> int:
+    """On-demand CLI: print the recoverability report + return its exit code.
+
+    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
+    indent=2)` document (the stable machine contract for dashboards / cron); the
+    default `as_json=False` is the human `render()` text. Either way the RETURN
+    value is the same `summary.exit_code` (0 preserved work is recoverable / 1
+    >=1 BLOCKED preserved patch / 2 nothing to report) and `--limit` selection is
+    identical. Writes NOTHING to disk and applies NOTHING (read-only).
+    DORMANT -- no pipeline, gate or dispatcher path calls it; only `main()`'s
+    argparse dispatch."""
+    # Seam resolved HERE, by BARE name at CALL time, so a monkeypatch bites;
+    # `_thin_gather_cli` owns the shared print/JSON/exit-code contract.
+    return _thin_gather_cli(gather_recoverable, cfg, limit, as_json)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="agent-foundry product team runner")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -21018,6 +21482,32 @@ def main(argv: list[str] | None = None) -> int:
                      help="scan only the most-recent N iterations (default: all)")
     lss.add_argument("--json", action="store_true",
                      help="emit the accounting as one JSON document (machine-readable) "
+                          "instead of the human report; same 0/1/2 exit code, honours --limit")
+    # `recoverable` answers the question the abort path has never been able to
+    # answer: the loop PRESERVES a patch (`capture_abort_patch` / `save-work`)
+    # and then destroys the tree, but nothing in 51 verbs ever read one of those
+    # patches back -- `rescues` and `losses` read attempt LOGS, not patches. So
+    # "what did the loop save, and can I still use it?" had no answer from any
+    # surface. Measured at 5624fac: 14 preserved patches (641,745 bytes), 13 of
+    # which plain `git apply --check` REJECTS, and a standing directive claiming
+    # one of them "applies clean at 9a70305" nine commits after that stopped
+    # being true. The verdict is THREE-state from TWO probes (`applies` /
+    # `three-way` / `blocked`) because `--check --3way` accepts 12 of the 13 that
+    # plain `--check` rejects: a boolean would report a FALSE LOSS on 12 real
+    # inputs and talk a future PM out of an available re-land. Routine
+    # `IMPLEMENTATION.patch` exports are counted separately and can never move
+    # the verdict. REPORT-ONLY: every `git apply` it issues carries `--check`, it
+    # applies/stages/restores nothing, and it does NOT gate the abort path (that
+    # is a control-path change). `--limit N` probes only the most-recent N
+    # iterations. Exit 0 (recoverable) / 1 (>=1 BLOCKED preserved patch) /
+    # 2 (nothing to report).
+    rcv = sub.add_parser("recoverable")
+    rcv.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    rcv.add_argument("--limit", type=int, default=None,
+                     help="probe only the most-recent N iterations (default: all)")
+    rcv.add_argument("--json", action="store_true",
+                     help="emit the report as one JSON document (machine-readable) "
                           "instead of the human report; same 0/1/2 exit code, honours --limit")
     # `stage-times` prints a read-only, offline per-(team,stage) attempt-DURATION
     # digest parsed from the shared `dispatcher.out` -- count / median / max /
@@ -21559,6 +22049,8 @@ def main(argv: list[str] | None = None) -> int:
         return rescues_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "losses":
         return losses_cli(cfg, limit=args.limit, as_json=args.json)
+    if args.cmd == "recoverable":
+        return recoverable_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "live-lag":
         return live_lag_cli(cfg, log_path=args.log,
                             as_json=args.json)

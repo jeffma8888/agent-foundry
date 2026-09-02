@@ -713,7 +713,20 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # 75-assertion literal class are carried by the two sibling checks
                 # above (the byte-unchanged pins on iters 124/162 and
                 # `test_b15_the_benign_literals_still_stand`), which are untouched.
-                "tests/test_iter59_behavior.py"}
+                "tests/test_iter59_behavior.py",
+                # iter 215: repaired iter 131's scout-slate parse brake, which had
+                # gone RED on ambient gitignored state left by a CONCURRENT product's
+                # cap-killed scout stage -- nothing in iteration 215's own diff.
+                # Measured on this checkout: under HEAD's rule 3 slates parse to zero
+                # candidates against its `<= 2` bound, and all 3 self-declare as
+                # write-early checkpoints (2 of the 3 belong to other products), so
+                # REVERTING that edit leaves iter 131 red -- it is forced, not
+                # optional. Allow-listed rather than the assertion weakened, on the
+                # same evidence the iter-59 row above uses: `newest_ness_pin_sites`
+                # over that file is `()` at HEAD AND in the worktree, so no
+                # newest-ness pin was swept, converted or added, and the
+                # 75-assertion literal class keeps both sibling checks above.
+                "tests/test_iter131_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the
