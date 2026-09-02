@@ -329,6 +329,7 @@ in the archive.
 - iter 213 -- run_stage persists the exact per-attempt prompt as <stage>.attemptN.prompt, written BEFORE the spawn.
 - iter 214 -- ONE brake leak-scans the whole `git add -A` shipping set, not just tests/*.py; pins the skip set.
 - iter 215 -- `recoverable`: 3-state apply verdict (applies/three-way/blocked) per preserved patch, with the base.
+- iter 216 -- the UNFINISHED checkpoint marker must START a line; a report only DISCUSSING it stops buying 2 rounds.
 
 
 ### Migration notes (per §6 self-mod guardrail)
