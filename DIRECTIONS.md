@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-218
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- the shipped product-gate pre-check gets its first producer: `roles/pm.md`
+    - Candidate A2 -- `recoverable` gets its first consumer, on the retry path it was built for
+    - Candidate A3 -- the scout prompt gets the repetition brake only the PM lead has
+    - Candidate B1 -- collapse the weak/constant/skipped `render` triplet onto one renderer parameterised by its two literals
+    - Candidate B2 -- replace nine hand-written `Company*.verdict` label dicts with one general rule
+    - Candidate B3 -- retire the dominated second roadmap budget (two budgets become one)
+    winner: A2
+    ship: pending (not yet decided)
   iter-217
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- make the TWO live readers of `ACTION:` disclose when they disagree (report-only; do NOT tighten)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- re-scope the 26 dispatcher byte-freezes to an AST/symbol invariant (roadmap item (o))
     - Candidate B3 -- the `agents` renderer gets its first consumer: an AGENTS.md drift line
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 7a2bc85
   iter-216
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `foundry roster-lag`: teams registered in config the LIVE brain never loaded
@@ -1135,4 +1145,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-114 scouted iterations
+115 scouted iterations

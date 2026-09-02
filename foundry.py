@@ -11422,6 +11422,102 @@ def pm_gap_block(cfg: ProductConfig, stage: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# Preserved work from a recent abort -- read-only retry feed (LIVE since iter 218)
+#
+# The abort path is the one place this framework destroys work it cannot recover,
+# and it is careful: `capture_abort_patch` writes a patch BEFORE `revert_repo`
+# runs. `recoverable` (README #53) has been able to say whether that patch still
+# applies since it shipped -- and NOTHING read it. Measured over the last 30
+# iterations, 5 reverted (194, 199, 201, 203, 205), so ~17% of iterations open on
+# a retry, and the retrying PM's real question is not "reuse or redo" but "which
+# of these still lands". Until this seam that question was answered only by a
+# HUMAN hand-typing an OPERATOR directive -- and `OPERATOR 2026-08-30` is the
+# standing proof that the manual answer goes stale: it asserted a patch "applies
+# clean at 9a70305" and that patch probes `three-way` today.
+#
+# Same seam contract as `pm_novelty_block` and `pm_gap_block` above, deliberately
+# reused verbatim rather than re-invented: "" for every non-`pm` stage so those
+# prompts stay BYTE-IDENTICAL, "" on ANY exception, bare-name calls so a
+# monkeypatch bites, and one trailing newline so the next prompt line keeps its
+# own line. REPORT-ONLY: the payload is injected, the verdict and the exit code
+# gate nothing. That is not caution for its own sake -- the verb's live exit code
+# on this tree is 1 (`BLOCKED PRESERVED WORK`) off iter-173 debris, so a consumer
+# reading the exit code would gate the loop on ancient patches.
+
+
+#: How many of the NEWEST iteration dirs `pm_recoverable_block` probes. A
+#: module-level positive `int`, read at CALL time by bare name so a test can
+#: retune the window with `monkeypatch.setattr`.
+#:
+#: WHY BOUNDED, AND WHY THIS SMALL. The scouting lesson behind this bite is that a
+#: CONSTANT verdict means a verb is UNINFORMATIVE, not merely unused -- and the
+#: unbounded verb is exactly that. Measured on this tree it reads `preserved 14
+#: applies 1  three-way 12  blocked 1  in-flight 45`, verdict `BLOCKED PRESERVED
+#: WORK`, in 4.96s, its oldest row 45 iterations stale: a near-constant wall of
+#: ancient debris on every PM prompt forever, which is the disease this feed is
+#: supposed to cure. The newest 3 dirs read `preserved 0 ... in-flight 1` in 0.61s
+#: and render NOTHING. So the block is SILENT when there is nothing to say and
+#: SPECIFIC when there is. 3 also spans the path it exists for: a revert is
+#: retried on the NEXT iteration, so the patch a retrying PM can still use is one
+#: or two dirs back, never forty. It is a constant and not a config field because
+#: a per-product knob would be a second thing to get wrong for zero known demand.
+PM_RECOVERABLE_LIMIT: int = 3
+
+#: The fixed lead-in `pm_recoverable_block` prints BEFORE the rendered report.
+#:
+#: A module-level constant rather than an inline literal so a test can pin the
+#: LABEL without pinning the whole block, and so the wording is editable without
+#: touching control flow. It says the two things the raw report cannot: that this
+#: is report-only (nothing has been applied), and that `three-way` means
+#: RECOVERABLE rather than lost -- the false-loss reading that would otherwise
+#: talk a retrying PM out of an available re-land on 12 of 13 real rows.
+PM_RECOVERABLE_LABEL: str = (
+    "- PRESERVED WORK FROM A RECENT ABORT (report-only, probed just now, "
+    "nothing applied). A `three-way` row is RECOVERABLE, not lost: "
+    "`git apply --3way` accepts it. Prefer re-landing the patch over "
+    "re-deriving the work, and cite the base line below rather than a "
+    "remembered sha -- a hand-carried one goes stale."
+)
+
+
+def pm_recoverable_block(cfg: ProductConfig, stage: str) -> str:
+    """Read-only injection seam: the PM-stage preserved-work feed for build_prompt.
+
+    Returns "" for every non-`pm` stage, so those prompts stay BYTE-IDENTICAL;
+    for `pm` returns the label plus `RecoverableSummary.render()` plus a single
+    trailing newline, and "" whenever the bounded window holds NO PRESERVED row.
+
+    THE EMPTY CASE IS THE COMMON ONE AND IT IS DELIBERATE. `preserved_rows` -- not
+    `rows` -- is the gate, because a routine `IMPLEMENTATION.patch` is an export of
+    a tree that has since been committed and is EXPECTED to stop applying: keying
+    on `rows` would print a stale-looking report on every healthy iteration, which
+    is the constant-verdict noise this feed exists to avoid. So on a normal
+    iteration the PM prompt is byte-identical to the pre-change prompt.
+
+    `gather_recoverable` and `PM_RECOVERABLE_LIMIT` are read by BARE module name so
+    a `monkeypatch.setattr(foundry, ...)` bites at call time, and the gather is
+    called EXACTLY ONCE per prompt (it shells out per patch, ~0.6s at limit 3 on a
+    600s-capped stage -- a second call would double a real cost for no new fact).
+    Defensive: ANY exception degrades to "" (== the pre-change prompt), so a
+    missing, unreadable or malformed state dir can NEVER crash or alter the PM
+    stage. Writes nothing, applies nothing, and gates nothing.
+
+    Its one run-path caller is `build_prompt`, which calls it unconditionally for
+    EVERY stage: the stage gate lives HERE, inside the seam, so the call site has
+    no branch to get wrong and a monkeypatched seam is reached from every stage.
+    """
+    if stage != "pm":
+        return ""
+    try:
+        summary = gather_recoverable(cfg, limit=PM_RECOVERABLE_LIMIT)
+        if not summary.preserved_rows:
+            return ""
+        return f"{PM_RECOVERABLE_LABEL}\n{summary.render()}\n"
+    except Exception:
+        return ""
+
+
+# --------------------------------------------------------------------------- #
 # The gap CLAIM -- the ANSWER half of the same feed (DORMANT, no call site)
 #
 # `pm_gap_block` above is the COST half of the tracked gap-radar integration's
@@ -18606,6 +18702,16 @@ def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
     # byte-identical), "" for a product that has not set `gap_register`, and ""
     # on ANY exception -- so this feed can never crash or move a prompt it does
     # not own. Called by bare name so `monkeypatch.setattr(foundry, ...)` bites.
+    # PM-stage PRESERVED-WORK feed (iter 218): pm_recoverable_block names the
+    # patches a recent abort preserved, with each one's 3-state apply verdict and
+    # the base it was probed against, so a retrying PM re-lands recoverable work
+    # instead of re-deriving it -- the answer a HUMAN was hand-typing into an
+    # OPERATOR directive, which `OPERATOR 2026-08-30` proves goes stale. Same
+    # contract again: "" for every non-pm stage, "" when the bounded window holds
+    # no PRESERVED row (the common case, so a healthy iteration's PM prompt is
+    # byte-identical too), "" on ANY exception, bare name so monkeypatch bites.
+    # REPORT-ONLY -- the payload is injected and no verdict or exit code gates
+    # anything, because the verb's live exit code is 1 off ancient debris.
     return (
         f"You are the {stage.upper()} in iteration {iteration} of the "
         f"autonomous product team building the product '{cfg.name}'.\n\n"
@@ -18625,6 +18731,7 @@ def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
         f"{PROMPT_LEARNINGS_LABEL}\n{digest}\n"
         f"{pm_novelty_block(cfg, stage)}"
         f"{pm_gap_block(cfg, stage)}"
+        f"{pm_recoverable_block(cfg, stage)}"
         f"- Iteration number for file naming: {iteration:02d}\n"
         f"- YOUR REQUIRED OUTPUT FILE: {out_file} -- you MUST write it before "
         f"finishing, even on failure (state what failed and why).\n\n"
