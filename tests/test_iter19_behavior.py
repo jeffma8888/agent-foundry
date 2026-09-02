@@ -35,9 +35,9 @@ import foundry  # noqa: E402
 # --------------------------------------------------------------------------
 STORED_KEYS = (
     "product", "repo", "branch", "latest_iter",
-    "postrelease", "hotfix", "speed_story", "prd_line",
+    "postrelease", "hotfix", "speed_story", "prd_line", "lag_line",
 )
-DERIVED_KEYS = ("attention", "ok", "exit_code", "verdict")
+DERIVED_KEYS = ("attention", "ok", "exit_code", "verdict", "lag_verdict")
 EXPECTED_KEY_ORDER = list(STORED_KEYS) + list(DERIVED_KEYS)   # Behavior 1
 
 
@@ -119,7 +119,7 @@ def test_b1_keys_exact_and_ordered():
         assert list(d.keys()) == EXPECTED_KEY_ORDER, (
             f"to_dict keys/order wrong.\n got: {list(d.keys())}\n"
             f"want: {EXPECTED_KEY_ORDER}")
-        assert len(d) == 12
+        assert len(d) == 14
 
 
 # ==========================================================================

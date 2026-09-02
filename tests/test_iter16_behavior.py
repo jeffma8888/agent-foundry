@@ -440,7 +440,19 @@ def test_b11_no_iterations_exit2(tmp_path):
     assert rc == 2, f"no iterations shipped yet must exit 2, got {rc}\n{out}"
     assert "latest iteration: none" in out, f"report must show 'latest iteration: none':\n{out}"
     assert "no iterations yet" in out, f"report must show verdict 'no iterations yet':\n{out}"
-    assert not re.search(r"\bOK\b", out) and "ATTENTION" not in out
+    # iter 217: `gather_status` now composes the report-only live-lag sentence,
+    # which carries its OWN verdict vocabulary (WARN/OK/UNKNOWN) behind a
+    # `live-lag:` prefix. This pin is about THIS report's verdict vocabulary, so
+    # it is SCOPED to the report's own lines rather than weakened -- and the
+    # scoping is also what makes it DETERMINISTIC: the composed line reads the
+    # ambient, UNTRACKED `dispatcher.out`, so it renders `OK` on a machine with a
+    # running brain and `UNKNOWN` in the throwaway fresh clone every ship is
+    # re-verified from -- an unscoped whole-output pin flips with local state.
+    lag = [ln for ln in out.splitlines() if ln.lstrip().startswith("live-lag:")]
+    assert len(lag) == 1, f"expected exactly ONE composed live-lag line:\n{out}"
+    own = "\n".join(ln for ln in out.splitlines()
+                    if not ln.lstrip().startswith("live-lag:"))
+    assert not re.search(r"\bOK\b", own) and "ATTENTION" not in own
     assert _snapshot_tree(tmp_path) == before, "status wrote a file (must be read-only)"
 
 

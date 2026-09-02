@@ -27,7 +27,7 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 215): ledger and archive are current through 215 (193/194/199/201/203/205 never shipped, so none
+STATUS (iter 217): ledger and archive are current through 217 (193/194/199/201/203/205 never shipped, so none
 owes a row).
 STILL OPEN:
 (c), (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
@@ -330,6 +330,7 @@ in the archive.
 - iter 214 -- ONE brake leak-scans the whole `git add -A` shipping set, not just tests/*.py; pins the skip set.
 - iter 215 -- `recoverable`: 3-state apply verdict (applies/three-way/blocked) per preserved patch, with the base.
 - iter 216 -- the UNFINISHED checkpoint marker must START a line; a report only DISCUSSING it stops buying 2 rounds.
+- iter 217 -- gather_status composes the live-lag verdict; status --json reports a stale brain, exit codes unmoved.
 
 
 ### Migration notes (per §6 self-mod guardrail)
