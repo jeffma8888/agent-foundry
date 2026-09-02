@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-217
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- make the TWO live readers of `ACTION:` disclose when they disagree (report-only; do NOT tighten)
+    - Candidate A2 -- `recoverable` proves a preserved patch APPLIES; make it also say whether it carries its own oracle
+    - Candidate A3 -- lint an artifact for colliding with the sentinels this product itself ships
+    - Candidate B1 -- `status` reads the liveness verdict, so `company-status` answers "is my brain behind its own code?"
+    - Candidate B2 -- re-scope the 26 dispatcher byte-freezes to an AST/symbol invariant (roadmap item (o))
+    - Candidate B3 -- the `agents` renderer gets its first consumer: an AGENTS.md drift line
+    winner: B1
+    ship: pending (not yet decided)
   iter-216
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `foundry roster-lag`: teams registered in config the LIVE brain never loaded
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry ledger-check`: the mandated two-tree roadmap-record oracle, as one verb
     - Candidate B3 -- a brake tying every runtime-flag constant to real `git check-ignore` coverage
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED d4c8aa8
   iter-215
     lenses: narrative-and-docs (iteration 215), new-capability (iteration 215)
     - Candidate A1 -- the roadmap STATUS line's freshness guard is a FROZEN FLOOR (>= 202) while the derivable rule sits in the same file
@@ -1125,4 +1135,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-113 scouted iterations
+114 scouted iterations

@@ -726,7 +726,30 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # over that file is `()` at HEAD AND in the worktree, so no
                 # newest-ness pin was swept, converted or added, and the
                 # 75-assertion literal class keeps both sibling checks above.
-                "tests/test_iter131_behavior.py"}
+                "tests/test_iter131_behavior.py",
+                # iter 217: `gather_status` composes the report-only live-lag
+                # sentence, so `StatusSummary.to_dict()` gains `lag_line` and
+                # `lag_verdict` (12 -> 14 keys) and `render()` gains one line.
+                # TWO shipped test files are FORCED to differ from HEAD by that:
+                #   * iter 19 owns the ONLY key-count/order pin on that payload
+                #     (`STORED_KEYS`/`DERIVED_KEYS`, `len(d) == 14`) -- the
+                #     3-line re-pin the spec requires;
+                #   * iter 16 `test_b11_no_iterations_exit2` carried a
+                #     WHOLE-OUTPUT `\bOK\b` negative pin that the composed
+                #     `live-lag: OK ...` line trips. It is SCOPED to the
+                #     report's own lines -- the composed line has its own
+                #     `live-lag:` verdict namespace -- NOT weakened, and the
+                #     scoping also removes a real machine-dependence:
+                #     `dispatcher.out` is UNTRACKED, so that line renders `OK`
+                #     on a machine with a live brain and `UNKNOWN` in the fresh
+                #     clone, which would have flipped this brake either way.
+                # Allow-listed rather than either assertion weakened, on the same
+                # evidence the two rows above use: `newest_ness_pin_sites` over
+                # BOTH files is `()` at HEAD AND in the worktree, so no
+                # newest-ness pin was swept, converted or added, and the
+                # 75-assertion literal class keeps both sibling checks above.
+                "tests/test_iter19_behavior.py",
+                "tests/test_iter16_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

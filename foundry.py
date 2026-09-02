@@ -9679,6 +9679,15 @@ class StatusSummary:
         raised (never affects `attention`/`exit_code` -- it is non-blocking).
       * `prd_line` -- the `dispatch_progress_line` text, or `None` when there is
         no `prd.json`.
+      * `lag_line` -- the item-43 live-lag sentence (`live_lag_status(cfg).render()`),
+        or `None` when the liveness probe could not be run. REPORT-ONLY: it is
+        the FOURTH operator signal in the `hotfix` / `speed_story` / `prd_line`
+        family, and deliberately the only one that feeds NEITHER `attention` nor
+        `exit_code` -- a brain that is behind its own shipped code is a restart
+        the human owes, not a broken product, so promoting it would make every
+        existing operator script alarm on a new condition. Positioned LAST with a
+        default so the eight-argument POSITIONAL construction the iter-16/19/30
+        tests use stays valid.
     """
     product: str
     repo: str
@@ -9688,6 +9697,7 @@ class StatusSummary:
     hotfix: bool
     speed_story: bool
     prd_line: str | None
+    lag_line: str | None = None
 
     @property
     def attention(self) -> bool:
@@ -9721,6 +9731,27 @@ class StatusSummary:
         the text and the machine payload can never drift."""
         return {0: "OK", 1: "ATTENTION", 2: "no iterations yet"}[self.exit_code]
 
+    @property
+    def lag_verdict(self) -> str:
+        """The live-lag verdict token recovered from `lag_line`, or `""`.
+
+        Delegates to module-global `live_lag_verdict`, read at CALL time rather
+        than captured at def time, so the iter-130 family stays ONE source of
+        truth -- patching that reader (or its `LIVE_LAG_*` tokens) redirects this
+        property too, and this snapshot can never disagree with what `foundry
+        live-lag` reports about the same line.
+
+        Returns exactly one of `WARN` / `OK` / `UNKNOWN`, or `""` when `lag_line`
+        is `None`, empty, not a `str`, or a foreign line -- `""` rather than a raw
+        word so an unrecognised token can never compare equal to a verdict. Pure
+        and TOTAL: guarded because a health snapshot is advisory, so a broken or
+        patched reader must degrade to "no verdict", never break `to_dict()` for
+        every product in the `company-status` roll-up."""
+        try:
+            return live_lag_verdict(self.lag_line)
+        except Exception:
+            return ""
+
     def render(self) -> str:
         """A deterministic multi-line report carrying every gathered signal.
 
@@ -9728,13 +9759,31 @@ class StatusSummary:
         name; `branch {branch}`; `latest iteration: N` (or `... none` when
         nothing shipped); `post-release: HEALTHY|BROKEN|unknown` (`unknown` when
         no verdict); `hotfix flag: RAISED|clear`; `speed-story flag:
-        RAISED|clear`; the `prd_line` verbatim or `no prd.json`; and a final
-        verdict token that MATCHES `exit_code` -- `OK` (0) / `ATTENTION` (1) /
-        `no iterations yet` (2)."""
+        RAISED|clear`; the `prd_line` verbatim or `no prd.json`; the `lag_line`
+        VERBATIM or `live-lag: unknown`; and a final verdict token that MATCHES
+        `exit_code` -- `OK` (0) / `ATTENTION` (1) / `no iterations yet` (2).
+
+        The lag line is emitted VERBATIM rather than re-worded so that it stays
+        byte-identical to the ONE operator sentence `foundry live-lag` prints and
+        the two surfaces cannot drift; that also makes
+        `live_lag_verdict(<that line>) == self.lag_verdict` hold on the rendered
+        text, not merely on the stored field. MEASURED, because the natural
+        assumption is wrong: `live_lag_verdict` tolerates LEADING WHITESPACE (it
+        rejects only a prefix with non-blank text before it), so the indented
+        `  live-lag: unknown` fallback reads back as `""` because its lowercase
+        `unknown` is not the recognised `UNKNOWN` token -- NOT because of the
+        indent. Either way the fallback carries no verdict, which is the correct
+        answer for a summary that has no lag sentence."""
         iter_line = (f"latest iteration: {self.latest_iter}"
                      if self.latest_iter > 0 else "latest iteration: none")
         pr = self.postrelease if self.postrelease is not None else "unknown"
         prd = self.prd_line if self.prd_line is not None else "no prd.json"
+        # A non-empty str is the real sentence and goes out verbatim; anything
+        # else (None, "", a non-str) has no verdict to report, so it degrades to
+        # the indented `unknown` line. `LIVE_LAG_PREFIX` is read as a module
+        # global at call time, matching how the rest of the family sources it.
+        lag = (self.lag_line if isinstance(self.lag_line, str) and self.lag_line
+               else f"  {LIVE_LAG_PREFIX} unknown")
         verdict = self.verdict
         return "\n".join([
             f"foundry status -- {self.product}",
@@ -9744,6 +9793,7 @@ class StatusSummary:
             f"  hotfix flag: {'RAISED' if self.hotfix else 'clear'}",
             f"  speed-story flag: {'RAISED' if self.speed_story else 'clear'}",
             f"  prd: {prd}",
+            lag,
             f"verdict: {verdict}",
         ])
 
@@ -9751,12 +9801,15 @@ class StatusSummary:
         """A pure, JSON-safe health snapshot for machine consumers -- dashboards
         / cron alerts / the reporter (roadmap item 10's "machine-readable status").
 
-        Returns EXACTLY 12 keys in a fixed order: the eight STORED fields
+        Returns EXACTLY 14 keys in a fixed order: the nine STORED fields
         verbatim (`product`/`repo`/`branch`/`latest_iter`/`postrelease`/`hotfix`/
-        `speed_story`/`prd_line`) followed by the four DERIVED values, each
-        REUSING the frozen properties -- `attention`/`ok`/`exit_code`/`verdict`
-        -- so the JSON payload can never disagree with what `render()` prints or
-        the exit code returns. Every value is JSON-native (str / int / bool /
+        `speed_story`/`prd_line`/`lag_line`) followed by the five DERIVED values,
+        each REUSING the frozen properties -- `attention`/`ok`/`exit_code`/
+        `verdict`/`lag_verdict` -- so the JSON payload can never disagree with
+        what `render()` prints or the exit code returns. `lag_verdict` is derived
+        and sits with the derived block, NOT next to `lag_line`, because a
+        consumer that wants the raw sentence and one that wants the token are
+        different consumers and the stored/derived split is the contract. Every value is JSON-native (str / int / bool /
         None), so `json.dumps(...)` never raises and the dict round-trips
         through `json.loads(json.dumps(...))`. Pure: touches no filesystem, only
         the already-gathered snapshot."""
@@ -9769,27 +9822,35 @@ class StatusSummary:
             "hotfix": self.hotfix,
             "speed_story": self.speed_story,
             "prd_line": self.prd_line,
+            "lag_line": self.lag_line,
             "attention": self.attention,
             "ok": self.ok,
             "exit_code": self.exit_code,
             "verdict": self.verdict,
+            "lag_verdict": self.lag_verdict,
         }
 
 
 def summarize_status(*, product: str, repo: str, branch: str, latest_iter: int,
                      postrelease: str | None, hotfix: bool, speed_story: bool,
-                     prd_line: str | None) -> StatusSummary:
+                     prd_line: str | None,
+                     lag_line: str | None = None) -> StatusSummary:
     """Pure keyword-only constructor for a `StatusSummary` (item 12).
 
     A thin, total wrapper that just packs the gathered signals into the frozen
-    snapshot -- keyword-only so a caller can never transpose the eight fields by
+    snapshot -- keyword-only so a caller can never transpose the nine fields by
     position, and it never raises. Kept separate from `status_cli` so the
     decision core stays a pure function the tester can drive without any
-    filesystem (Behavior 7)."""
+    filesystem (Behavior 7).
+
+    `lag_line` is DEFAULTED rather than required: it is the advisory item-43
+    liveness sentence, so every caller predating it (and every test building a
+    summary by keyword) keeps working and reads back `lag_line is None`, which
+    renders as `live-lag: unknown` and yields the empty `lag_verdict`."""
     return StatusSummary(
         product=product, repo=repo, branch=branch, latest_iter=latest_iter,
         postrelease=postrelease, hotfix=hotfix, speed_story=speed_story,
-        prd_line=prd_line)
+        prd_line=prd_line, lag_line=lag_line)
 
 
 def gather_status(cfg: ProductConfig) -> StatusSummary:
@@ -9810,7 +9871,17 @@ def gather_status(cfg: ProductConfig) -> StatusSummary:
         `None`, so a no-ship iteration reads as `unknown`, never an error);
       * the two flag files via `hotfix_flag_path(cfg).exists()` /
         `speed_story_flag_path(cfg).exists()`;
-      * the prd progress via `dispatch_progress_line(cfg)`.
+      * the prd progress via `dispatch_progress_line(cfg)`;
+      * the item-43 liveness sentence via `live_lag_status(cfg).render()` -- the
+        FOURTH operator signal, completing the family whose other three were
+        already composed here. It answers "is the running brain behind its own
+        shipped code?", which `doctor` has reported since iter 130 while the
+        surface an operator SCRIPTS said nothing: `live_lag_status` computed the
+        7-day inert window over iterations 188-192 correctly the whole time and
+        no consumer read it.
+    REPORT-ONLY: the lag sentence lands in `lag_line`/`lag_verdict` and touches
+    `attention`/`ok`/`exit_code`/`verdict` in NO way, so `status` and
+    `company-status` keep their published exit codes byte-for-byte.
     Returns a frozen `StatusSummary`; writes NOTHING to disk (read-only)."""
     latest_iter = next_iteration(cfg) - 1
     postrelease: str | None = None
@@ -9823,12 +9894,23 @@ def gather_status(cfg: ProductConfig) -> StatusSummary:
             # A read error on the artifact must degrade to "unknown", never
             # crash the probe -- no-news-is-good-news, only BROKEN/hotfix alarm.
             postrelease = None
+    lag_line: str | None = None
+    try:
+        lag_line = live_lag_status(cfg).render()
+    except Exception:
+        # `live_lag_status` is documented TOTAL, so this guard is belt-and-braces
+        # for a PATCHED or future seam: an advisory liveness probe must never sink
+        # the health snapshot, and `None` degrades to `live-lag: unknown` with an
+        # empty verdict -- the same no-news-is-good-news direction as the
+        # postrelease read above. Never UPGRADES to an alarm.
+        lag_line = None
     return summarize_status(
         product=cfg.name, repo=cfg.repo, branch=cfg.branch,
         latest_iter=latest_iter, postrelease=postrelease,
         hotfix=hotfix_flag_path(cfg).exists(),
         speed_story=speed_story_flag_path(cfg).exists(),
-        prd_line=dispatch_progress_line(cfg))
+        prd_line=dispatch_progress_line(cfg),
+        lag_line=lag_line)
 
 
 def status_cli(cfg: ProductConfig, as_json: bool = False) -> int:
