@@ -11876,13 +11876,33 @@ UNFINISHED_TEST_RETRY_STAGES: tuple[tuple[str, str], ...] = (
 # telling the retry round different stories. It is TRUTHFUL where the `fix-tests`
 # rerun prompt is not: nothing has been fixed, so "re-verify after an engineering
 # fix" would send the round hunting a regression that does not exist.
+#
+# iter-220: it now also CONSUMES the checkpoint the killed round wrote, closing the
+# reading half of this framework's own checkpoint-first contract. The writing half
+# has existed since iter 126 (WRITE-EARLY in every role card, UNFINISHED_TEST_MARKER
+# so a capped round classifies as a CHECKPOINT rather than a red suite,
+# UNFINISHED_TEST_RETRY_STAGES buying two more rounds) -- but this prompt used to say
+# "Start by CREATING this iteration's behavior-test file", so the ~600s rescue was
+# handed a blank sheet and re-derived work already recorded on disk (iteration 219:
+# the killed report already held "14 tests, scoped run 14 passed in 7.23s").
+# WHY the checkpoint is named by RULE and carries no report FILENAME: the round
+# numbering is derived from STAGE_OUTPUT_NAMES at call time precisely because a
+# hardcoded list goes stale the day a further round is wired, and this constant is
+# built at import time ~160 lines ABOVE the function that would derive it, so a
+# rendered variant would need the module reordered for wording that is already
+# round-agnostic. WHY "UNVERIFIED evidence" and not "a result to trust": the
+# pessimistic gate is an ARCHITECTURE.md invariant and wall clock is not, so a retry
+# may inherit an ARTIFACT but must never inherit a VERDICT.
 UNFINISHED_TEST_RETRY_PROMPT = (
     "The previous tester report is an UNFINISHED CHECKPOINT, not a red suite: "
     "that round was cut short by the per-stage time cap. NO failing test has "
     "been identified and NOTHING has been changed in the tree since, so do not "
-    "hunt for a regression. Start by CREATING this iteration's behavior-test "
-    "file with one real assertion, then refine it in place and earn your own "
-    "verdict."
+    "hunt for a regression. Before anything else, READ the newest tester "
+    "report already in this iteration's state dir -- that is the killed "
+    "round's checkpoint; treat everything it records as UNVERIFIED evidence to "
+    "re-check, never as a verdict to copy forward. Then KEEP the behavior-test "
+    "file that round already left in the tree and EXTEND it in place, CREATING "
+    "it only if it does not exist yet, and earn your own verdict."
 )
 
 

@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-220
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- stop re-reading and re-parsing the whole tree once per tree-wide brake
+    - Candidate A2 -- the stage prompt states this attempt's wall-clock deadline
+    - Candidate A3 -- the UNFINISHED tester retry resumes from its own checkpoint instead of restarting
+    - Candidate B1 -- two docs describe a reporter seat the live company has never run
+    - Candidate B2 -- the public catalog of what the foundry has built is frozen at day one
+    - Candidate B3 -- the PM card never states the id contract the committed decision log parses
+    winner: A3
+    ship: pending (not yet decided)
   iter-219
     lenses: simplification-and-deletion (iteration 219), performance-and-throughput
     - Candidate A1 -- collapse the ten near-duplicate company roll-up constructors onto one shared body
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- bound prompt assembly so a hung pre-launch probe cannot stall the fleet
     - Candidate B3 -- make the tester's machine-checkable verdict a checkpoint, not a gamble
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 490bf35
   iter-218
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- the shipped product-gate pre-check gets its first producer: `roles/pm.md`
@@ -1155,4 +1165,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-116 scouted iterations
+117 scouted iterations
