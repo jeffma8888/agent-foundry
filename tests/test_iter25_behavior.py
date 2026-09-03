@@ -29,6 +29,7 @@ bare name inside the child so no real dispatcher scan runs.
 """
 import io
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -408,31 +409,38 @@ def test_b10_process_exit_status_equals_return_code():
     assert d["verdict"] == "UNKNOWN" and "kaboom" in (d["scan_error"] or "")
 
 
-def test_b10_pattern_and_json_subprocess():
+def test_b10_pattern_and_json_subprocess(tmp_path):
     """`single-brain --pattern X --json` parses & dispatches (child patches seam
-    with a spy written to a file)."""
+    with a spy written to a file).
+
+    The spy artifact goes under the pytest-provided temp dir, NOT the repo root.
+    The child still runs with ``cwd=root`` because that is what makes `import
+    foundry` resolve, but it no longer CREATES a file there: an untracked file
+    that appears and then disappears in the shared repo root is a legitimate,
+    correctly-enumerated member of the whole-population leak brake, so under
+    ``-n auto`` another worker could enumerate it and then fail to read it. The
+    output path travels in the ENVIRONMENT rather than baked into the snippet, so
+    no absolute machine path becomes a literal in this file.
+    """
     root = str(pathlib.Path(foundry.__file__).resolve().parent)
+    spy_file = tmp_path / "spy.txt"
     snippet = (
-        "import foundry, sys, json, pathlib\n"
+        "import foundry, sys, json, os, pathlib\n"
         "seen = []\n"
         "def spy(pattern='dispatcher.py'):\n"
         "    seen.append(pattern); return ()\n"
         "foundry.running_dispatchers = spy\n"
         "rc = foundry.main(['single-brain', '--pattern', 'mine.py', '--json'])\n"
-        "pathlib.Path('spy.txt').write_text(json.dumps(seen))\n"
+        "pathlib.Path(os.environ['ITER25_SPY_OUT']).write_text(json.dumps(seen))\n"
         "sys.exit(rc)\n"
     )
-    proc = subprocess.run([sys.executable, "-c", snippet], cwd=root,
-                          capture_output=True, text=True)
+    proc = subprocess.run(
+        [sys.executable, "-c", snippet], cwd=root, capture_output=True,
+        text=True, env={**os.environ, "ITER25_SPY_OUT": str(spy_file)})
     assert proc.returncode == 0, (proc.stdout, proc.stderr)
     d = json.loads(proc.stdout)
     assert d["verdict"] == "SAFE"
-    spy_file = pathlib.Path(root) / "spy.txt"
-    try:
-        assert json.loads(spy_file.read_text()) == ["mine.py"]
-    finally:
-        if spy_file.exists():
-            spy_file.unlink()
+    assert json.loads(spy_file.read_text()) == ["mine.py"]
 
 
 def test_b10_help_advertises_json_flag():

@@ -749,7 +749,37 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # newest-ness pin was swept, converted or added, and the
                 # 75-assertion literal class keeps both sibling checks above.
                 "tests/test_iter19_behavior.py",
-                "tests/test_iter16_behavior.py"}
+                "tests/test_iter16_behavior.py",
+                # iter 219: repaired iter 214's whole-population leak brake,
+                # which had gone RED intermittently under a concurrent suite on
+                # an OVER-ASSERTION -- it pinned `missing == ()` while
+                # `scan_paths`' own docstring defines `missing` as a SOFT skip
+                # that does "NOT change the exit code". TWO shipped test files
+                # are FORCED to differ from HEAD by that repair:
+                #   * iter 214 owns the three whole-population brake sites;
+                #     each now routes `missing` through a PURE classifier that
+                #     reds on a TRACKED unreadable member (there the scan
+                #     really did cover less than the shipping tree) and
+                #     tolerates an UNTRACKED vanished one, whose existence is
+                #     not a stable property while another worker runs. The
+                #     brake is made to match the scanner's own documented
+                #     contract, NOT weakened: leak-detection strength is
+                #     untouched and the findings assertion still runs.
+                #   * iter 25 `test_b10_pattern_and_json_subprocess` was the
+                #     one observed writer of a transient artifact into the
+                #     SHARED repo root, i.e. the race's source. Its spy output
+                #     moves to the pytest temp dir and travels in the
+                #     environment, so no absolute machine path becomes a
+                #     literal here. Removing the writer alone would leave the
+                #     race open to any other transient untracked path, so both
+                #     halves are required.
+                # Allow-listed rather than either assertion weakened, on the
+                # same evidence the rows above use: `newest_ness_pin_sites`
+                # over BOTH files is `()` at HEAD AND in the worktree, so no
+                # newest-ness pin was swept, converted or added, and the
+                # 75-assertion literal class keeps both sibling checks above.
+                "tests/test_iter214_behavior.py",
+                "tests/test_iter25_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

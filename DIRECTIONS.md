@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-219
+    lenses: simplification-and-deletion (iteration 219), performance-and-throughput
+    - Candidate A1 -- collapse the ten near-duplicate company roll-up constructors onto one shared body
+    - Candidate B1 -- delete the roadmap tombstones the spent-block detector cannot see, and fix its inverted recall
+    - Candidate C1 -- evict the spent operator directives from the 10,000-char prompt head
+    - Candidate B1 -- stop the cross-worker repo-root race that turns the green suite red
+    - Candidate B2 -- bound prompt assembly so a hung pre-launch probe cannot stall the fleet
+    - Candidate B3 -- make the tester's machine-checkable verdict a checkpoint, not a gamble
+    winner: B1
+    ship: pending (not yet decided)
   iter-218
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- the shipped product-gate pre-check gets its first producer: `roles/pm.md`
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- replace nine hand-written `Company*.verdict` label dicts with one general rule
     - Candidate B3 -- retire the dominated second roadmap budget (two budgets become one)
     winner: A2
-    ship: pending (not yet decided)
+    ship: PUSHED b6792a7
   iter-217
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- make the TWO live readers of `ACTION:` disclose when they disagree (report-only; do NOT tighten)
@@ -1145,4 +1155,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-115 scouted iterations
+116 scouted iterations
