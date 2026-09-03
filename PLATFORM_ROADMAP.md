@@ -27,7 +27,7 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 219): ledger and archive are current through 219 (193/194/199/201/203/205 never shipped, so none
+STATUS (iter 220): ledger and archive are current through 220 (193/194/199/201/203/205 never shipped, so none
 owes a row).
 STILL OPEN:
 (c), (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
@@ -38,11 +38,9 @@ repairable stage (both iterations that lacked one, 121 and 125, REVERTED); (d) r
 prose discipline around the two gate tokens, which iteration 127 makes safe but which MUST NOT ship in
 the same iteration as 127 itself (a live loop holds the pre-127 `foundry.py` in memory). (f) SHIPPED iter 133 -- record in the archive. (g) **candidates half SHIPPING iter 131; the rest still open.** STILL OPEN, in order: the `parse_triage_winner` half (21 `pm.md` files carry a `## Triage` heading and still yield `None`), then rendering "present but unparsed" distinctly from "absent". (i) **DE-LISTED by iteration 130's scout A -- do NOT re-propose:** detail in the archive. ALSO STILL OPEN: the iteration-121 RETRY (its 51,824-byte
 `products/_platform/state/iter-121/REVERTED_IMPLEMENTATION.patch` is preserved and its FINAL lesson
-authorises the retry, plus the dispatcher restart that lesson demands), then scout A's per-product
-`fast_test_cmd` for the build stages. DE-LISTED by iteration 126's spec on a measurement both its scouts
-took independently: no product in the fleet has a slow suite (`_platform` 35.41 s, repolens 30.75 s) and
-no product is retired for slowness, so the premise that it unblocks a slow repo is stale -- iteration 119
-had already found the "repolens is retired with a 498 s suite" claim false.
+authorises the retry, plus the dispatcher restart that lesson demands). Scout A's per-product
+`fast_test_cmd` for the build stages was DE-LISTED by iteration 126's spec -- detail in the archive
+(iteration 126's bullet); do NOT re-propose.
 THREE NEW items measured by iteration 136's scouts; FULL evidence in `products/_platform/state/iter-136/`
 (`pm_scout_a.md`, `pm_scout_b.md`) -- read those before designing, do NOT re-measure. (j) ACTIVATE-ON-LAG,
 biggest number on either slate: the live brain holds an Aug-5 `foundry.py`, so 14 shipped iterations (incl.
@@ -333,6 +331,7 @@ in the archive.
 - iter 217 -- gather_status composes the live-lag verdict; status --json reports a stale brain, exit codes unmoved.
 - iter 218 -- pm_recoverable_block puts a recent abort's preserved patches in the PM prompt; report-only.
 - iter 219 -- the leak brake tells a vanished UNTRACKED population member from an unreadable tracked one.
+- iter 220 -- the UNFINISHED tester retry prompt READs the killed round's checkpoint and KEEPs its test file.
 
 
 ### Migration notes (per §6 self-mod guardrail)
