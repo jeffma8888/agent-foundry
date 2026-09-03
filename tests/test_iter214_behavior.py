@@ -42,6 +42,21 @@ DOES hold -- every non-ignored ``*.py`` under ``tests/`` is in this population -
 and explicitly tolerates an ignored one, because a file git ignores cannot ship
 and must never redden a suite.
 
+WHY AN UNREADABLE MEMBER IS CLASSIFIED RATHER THAN FATAL: ``scan_paths``
+documents `missing` as "a SOFT skip -- the caller notes them on STDERR but they
+do NOT change the exit code", yet this module hard-asserted ``missing == ()``,
+i.e. it was STRICTER than the scanner it wraps. That surplus strictness turns an
+INFRASTRUCTURE condition into a ship blocker: under ``-n auto`` another worker can
+unlink its own temporary artifact between this brake's enumeration and its read,
+the brake reds, an honest tester writes ``RESULT: FAIL`` -- an unconditional ship
+blocker -- and the gate REVERTS a green iteration. So the two cases are now told
+apart by TRACKED-NESS (``_classify_missing``): a tracked member that cannot be
+read means the scan silently covered LESS than the shipping tree and stays fatal;
+an untracked path that no longer exists can neither ship nor leak, so it is
+tolerated and DISCLOSED on stderr. The population itself is NOT narrowed --
+``-o --exclude-standard`` stays, because tracked + untracked-not-ignored is
+exactly what the final gate stages.
+
 SELF-COVERING: this module sits inside the population it scans, so it must
 itself be clean. Every banned needle is ASSEMBLED from fragments at runtime
 (``_home_prefix``); writing the needle into the rule that bans it is the
@@ -67,7 +82,7 @@ import socket
 import subprocess
 import sys
 import time
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import pytest
 
@@ -191,6 +206,24 @@ def _split_nul(raw: str) -> List[str]:
     return [entry for entry in raw.split("\0") if entry]
 
 
+def _enumerate_split(root: pathlib.Path) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:
+    """The shipping population's two halves at ROOT: ``(tracked, untracked)``.
+
+    Split out of ``_enumerate_population``, which already ran these two queries
+    SEPARATELY and then threw the provenance away. Nothing new is gathered: the
+    tracked half is what tells an infrastructure condition from a real coverage
+    hole when a member cannot be read (see ``_classify_missing``), and getting it
+    from the same enumeration means the two answers cannot disagree.
+
+    Both halves are repo-relative, sorted and de-duplicated; NEITHER is filtered,
+    so their union is byte-for-byte the population this module has always scanned.
+    """
+    tracked = _split_nul(_run_git_ls(["ls-files", "-z"], root=root))
+    untracked = _split_nul(
+        _run_git_ls(["ls-files", "-o", "--exclude-standard", "-z"], root=root))
+    return tuple(sorted(set(tracked))), tuple(sorted(set(untracked)))
+
+
 def _enumerate_population(root: pathlib.Path) -> Tuple[str, ...]:
     """Every repo-relative path ``git add -A`` would stage at ROOT, sorted.
 
@@ -198,11 +231,11 @@ def _enumerate_population(root: pathlib.Path) -> Tuple[str, ...]:
     final gate commits. Two separate queries rather than the single combined
     ``-c -o`` form on purpose: the combined form is then available to Behavior 1
     as an INDEPENDENT cross-check of this result, instead of the test re-running
-    the code it is checking.
+    the code it is checking. The split itself now lives in ``_enumerate_split``
+    because the tracked half has a second consumer; this function's result is
+    unchanged.
     """
-    tracked = _split_nul(_run_git_ls(["ls-files", "-z"], root=root))
-    untracked = _split_nul(
-        _run_git_ls(["ls-files", "-o", "--exclude-standard", "-z"], root=root))
+    tracked, untracked = _enumerate_split(root)
     return tuple(sorted(set(tracked) | set(untracked)))
 
 
@@ -223,6 +256,25 @@ def _population_or_skip(root: pathlib.Path) -> Tuple[str, ...]:
     return population
 
 
+def _population_and_tracked_or_skip(
+        root: pathlib.Path) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:
+    """``(population, tracked)`` from ONE enumeration, or SKIP.
+
+    Same skip-not-red contract as ``_population_or_skip`` and the same cost: one
+    pair of read-only git queries. Deliberately not two calls -- re-querying git
+    for the tracked half would open a window in which the two answers disagree,
+    which is the very race this brake now has to report accurately.
+    """
+    try:
+        tracked, untracked = _enumerate_split(root)
+    except (OSError, subprocess.SubprocessError) as exc:
+        pytest.skip(f"cannot enumerate the shipping population: {exc}")
+    population = tuple(sorted(set(tracked) | set(untracked)))
+    if not population:
+        pytest.skip("the shipping population is empty (not a git work tree?)")
+    return population, tracked
+
+
 def _scan_population(
     root: pathlib.Path,
     population: Sequence[str],
@@ -239,6 +291,102 @@ def _scan_population(
     absolute = [str(root / rel) for rel in population]
     findings, files_scanned, missing = guard.scan_paths(absolute, patterns)
     return findings, files_scanned, missing
+
+
+def _repo_relative(path: str, root: pathlib.Path) -> str:
+    """`path` spelled the way ``git ls-files`` spells it: repo-relative POSIX.
+
+    Pure string arithmetic, no filesystem call -- which is the point, since the
+    path being classified is one that is no longer THERE. An absolute path that is
+    not under `root` comes back unchanged: it can never match a repo-relative
+    entry, which is the correct answer for a path this repo cannot be tracking.
+    """
+    candidate = pathlib.PurePath(path)
+    if candidate.is_absolute():
+        try:
+            return candidate.relative_to(pathlib.PurePath(root)).as_posix()
+        except ValueError:
+            return candidate.as_posix()
+    return candidate.as_posix()
+
+
+def _classify_missing(
+    missing: Sequence[str],
+    tracked: Sequence[str],
+    *,
+    root: Optional[pathlib.Path] = None,
+) -> Tuple[Tuple[str, ...], Tuple[str, ...]]:
+    """Split unreadable population members into ``(fatal, vanished)``.
+
+    WHY: a tracked path is a committed, stable property of the tree, so a tracked
+    member that cannot be read means the leak scan silently covered LESS than the
+    shipping tree -- a real coverage hole, and precisely the fail-open shape this
+    module's skip-set pin exists to prevent. Untracked EXISTENCE is not stable
+    under a concurrent suite, and a file that no longer exists can neither ship
+    nor leak; reddening the suite for it destroys a green iteration for a
+    non-defect.
+
+    THE FAIL-OPEN LEG: `missing` arrives as the ABSOLUTE strings
+    ``_scan_population`` handed the scanner, while `tracked` is repo-relative, so
+    every member is normalised through ``_repo_relative`` FIRST. Comparing the two
+    spellings directly would classify EVERY missing path as vanished and fail open
+    on all of them.
+
+    PURE and total: no filesystem, subprocess, git, network or clock. Input order
+    is preserved within each bucket so a report reads in scan order, and paths are
+    returned AS PASSED so a message names exactly what the scanner was given.
+    `root` defaults to this repo's root, read INSIDE the call so a test may pass
+    its own.
+    """
+    base = _ROOT if root is None else root
+    tracked_set = frozenset(tracked)
+    fatal: List[str] = []
+    vanished: List[str] = []
+    for path in missing:
+        bucket = fatal if _repo_relative(path, base) in tracked_set else vanished
+        bucket.append(path)
+    return tuple(fatal), tuple(vanished)
+
+
+def _render_vanished(vanished: Sequence[str], root: pathlib.Path) -> str:
+    """One STDERR line disclosing every tolerated path, root-RELATIVE.
+
+    A tolerance nobody can see is indistinguishable from a scan that silently got
+    narrower, which is the fail-open shape this module exists to close. Paths are
+    relativised (basename as the fallback) for the same reason ``_render`` does it:
+    printing an absolute path would put this machine's own home directory into a
+    public log -- the shape the guard exists to keep out.
+    """
+    shown: List[str] = []
+    for path in vanished:
+        rel = pathlib.PurePath(_repo_relative(path, root))
+        shown.append(rel.name if rel.is_absolute() else rel.as_posix())
+    return ("leak brake: TOLERATED %d untracked population member(s) that could "
+            "not be read (untracked and no longer on disk, so they can neither "
+            "ship nor leak): %s" % (len(shown), ", ".join(shown)))
+
+
+def _assert_no_fatal_missing(
+    missing: Sequence[str],
+    tracked: Sequence[str],
+    root: pathlib.Path,
+) -> Tuple[str, ...]:
+    """Red on an unreadable TRACKED member; tolerate and DISCLOSE a vanished
+    untracked one. Returns the tolerated paths so a caller can reconcile counts.
+
+    One shared helper for all three whole-population brakes: the race is identical
+    at each of them, so fixing one site and leaving the others would just move the
+    false red to a different test name.
+    """
+    fatal, vanished = _classify_missing(missing, tracked, root=root)
+    if vanished:
+        print(_render_vanished(vanished, root), file=sys.stderr)
+    assert fatal == (), (
+        "unreadable TRACKED population member(s): "
+        f"{[pathlib.PurePath(m).name for m in fatal]}. A tracked path is a "
+        "committed, stable property of this tree, so the leak scan just covered "
+        "LESS than the shipping tree: that is a real coverage hole, not a race.")
+    return vanished
 
 
 def _render(findings, root: pathlib.Path) -> str:
@@ -338,15 +486,14 @@ def test_b1_the_population_is_the_git_add_all_set():
 def test_b2_the_whole_shipping_population_scans_clean():
     """The brake itself. On failure the message names every offending line, so
     an engineer fixes a named line instead of re-running a scan."""
-    population = _population_or_skip(_ROOT)
+    population, tracked = _population_and_tracked_or_skip(_ROOT)
     guard, patterns = _load_guard(_SCRIPTS_DIR)
     assert len(patterns) >= 1, "the committed denylist decoded to no patterns"
 
     findings, files_scanned, missing = _scan_population(
         _ROOT, population, guard, patterns)
 
-    assert missing == (), (
-        f"unreadable population member(s): {[pathlib.Path(m).name for m in missing]}")
+    _assert_no_fatal_missing(missing, tracked, _ROOT)
     assert files_scanned >= 1, "the brake scanned nothing at all"
     assert findings == (), (
         f"public-safety: {len(findings)} banned token(s) in the shipping "
@@ -401,7 +548,7 @@ def test_b3_coverage_strictly_exceeds_the_tests_only_population():
 def test_b4_the_silently_skipped_set_is_pinned_to_the_scanners_own_files():
     """Exactly the guard's two committed files are dropped, and the scan's own
     file count reconciles with that -- so no third file can vanish unnoticed."""
-    population = _population_or_skip(_ROOT)
+    population, tracked = _population_and_tracked_or_skip(_ROOT)
     guard, patterns = _load_guard(_SCRIPTS_DIR)
 
     skipped = _assert_skip_set_is_pinned(population, guard)
@@ -411,11 +558,16 @@ def test_b4_the_silently_skipped_set_is_pinned_to_the_scanners_own_files():
 
     _findings, files_scanned, missing = _scan_population(
         _ROOT, population, guard, patterns)
-    assert missing == ()
-    assert files_scanned == len(population) - len(skipped), (
+    vanished = _assert_no_fatal_missing(missing, tracked, _ROOT)
+    # The reconciliation subtracts the DISCLOSED tolerance rather than ignoring
+    # it: a member that vanished mid-scan is one fewer file read, so leaving it
+    # out of this arithmetic would recreate the same false red one line lower.
+    assert files_scanned == len(population) - len(skipped) - len(vanished), (
         f"{files_scanned} file(s) scanned of {len(population)} enumerated with "
-        f"{len(skipped)} pinned skip(s): the scanner dropped "
-        f"{len(population) - len(skipped) - files_scanned} file(s) silently")
+        f"{len(skipped)} pinned skip(s) and {len(vanished)} disclosed vanished: "
+        "the scanner dropped "
+        f"{len(population) - len(skipped) - len(vanished) - files_scanned} "
+        "file(s) silently")
 
 
 # ==========================================================================
@@ -434,7 +586,7 @@ def test_b5_widening_the_skip_list_cannot_silently_shrink_coverage(monkeypatch):
     victim = "foundry.py"
     assert victim in population, "fixture needs a real source file to hide"
     before_skipped = set(_skipped_members(population, guard))
-    _findings, before, _missing = _scan_population(
+    _findings, before, missing_before = _scan_population(
         _ROOT, population, guard, patterns)
 
     monkeypatch.setattr(
@@ -462,11 +614,19 @@ def test_b5_widening_the_skip_list_cannot_silently_shrink_coverage(monkeypatch):
     assert unnamed == [], (
         f"the pin hid {newly_hidden} but its message named none of {unnamed}")
 
-    _findings2, after, _missing2 = _scan_population(
+    _findings2, after, missing_after = _scan_population(
         _ROOT, population, guard, patterns)
-    assert after == before - len(newly_hidden), (
+    # The reconciliation is stated on the DELTA of UNREADABLE members, not on the
+    # assumption that it is zero: a member another worker unlinks between the two
+    # scans is one fewer file read for a reason that has nothing to do with the
+    # skip list, and `after == before - len(newly_hidden)` would red for it. A
+    # path that was unreadable first and is skipped second cancels correctly,
+    # because a skipped path never reaches the read and so never counts missing.
+    drift = len(missing_after) - len(missing_before)
+    assert after == before - len(newly_hidden) - drift, (
         f"expected the widened skip list to drop exactly {newly_hidden} from "
-        f"the scan; scanned {before} then {after}")
+        f"the scan; scanned {before} then {after} with an unreadable-member "
+        f"drift of {drift}")
 
 
 # ==========================================================================
@@ -560,12 +720,14 @@ def test_b8_the_scan_is_offline_bounded_and_the_control_path_imports(
     """Every process and socket seam is armed to RAISE for the duration of the
     SCAN, so "offline" is enforced rather than asserted in prose.
 
-    The population is enumerated and the guard loaded BEFORE the seams are armed:
-    the enumeration is legitimately read-only git plumbing, and loading a module
-    under a poisoned ``subprocess`` would fail for a reason that has nothing to
-    do with the brake.
+    The population AND its tracked half are enumerated, and the guard loaded,
+    BEFORE the seams are armed: the enumeration is legitimately read-only git
+    plumbing, and loading a module under a poisoned ``subprocess`` would fail for
+    a reason that has nothing to do with the brake. The tracked half is therefore
+    in hand before ``run_git`` is armed to raise, so classifying an unreadable
+    member costs the armed window no git call at all.
     """
-    population = _population_or_skip(_ROOT)
+    population, tracked = _population_and_tracked_or_skip(_ROOT)
     guard, patterns = _load_guard(_SCRIPTS_DIR)
 
     def _forbidden(*_args, **_kwargs):
@@ -582,7 +744,7 @@ def test_b8_the_scan_is_offline_bounded_and_the_control_path_imports(
         _ROOT, population, guard, patterns)
     elapsed = time.perf_counter() - started
 
-    assert missing == ()
+    _assert_no_fatal_missing(missing, tracked, _ROOT)
     assert files_scanned >= 1
     assert findings == (), _render(findings, _ROOT)
     assert elapsed < _SCAN_BUDGET_S, (
