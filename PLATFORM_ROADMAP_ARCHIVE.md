@@ -410,7 +410,7 @@ iter-140 ledger bullet below it.
 
 ## RESOLVED 2026-08-04 -- dual-PM-scout bite 3b-ii WIRED (operator sign-off received)
 
-Jinchen signed off 2026-08-04; the operator applied the wiring during a global-STOP
+The repo owner signed off 2026-08-04; the operator applied the wiring during a global-STOP
 quiescent window (dispatcher wound down gracefully, relaunched after). What changed:
 - `run_iteration` now calls the iter-84 composition helper `scout_phase_outcome(cfg,
   iteration, "pm_scout.md")` immediately before the PM stage (the single sanctioned
