@@ -27,7 +27,7 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 226): ledger and archive are current through 226 (193/194/199/201/203/205/221-225 never shipped, so
+STATUS (iter 228): ledger and archive are current through 228 (193/194/199/201/203/205/221-225 never shipped, so
 none owes a row).
 STILL OPEN:
 (c), (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
@@ -119,7 +119,7 @@ it replaces reproduced under none): the mean of the six per-ship deltas over ite
 or a frozen `- **iter N ` archive bullet; a move must DELETE the lines from this file, never copy them (iter
 140's `## Item 16` brake). The only safe paydown is moving COMPLETED item prose and spent STATUS paragraphs
 verbatim, and iter 166 UNBLOCKED it: behavior 8's `headings[-1]` pin is now an append-only PREFIX freeze, so a
-NEW `## Compacted from the index by iter NNN` archive heading is legal. PAYDOWN DONE at 167 CLOSED blocks (f)/(l)/(t)/(v).
+NEW `## Compacted from the index by iter NNN` archive heading is legal. PAYDOWN DONE at 167 CLOSED blocks (f)/(l)/(t)/(v). SECOND legal paydown (iter 228): DELETE a Done row the archive ALREADY covers and no test pins -- `roadmap_redundant_rows` names them, `pinned` is caller-supplied, and 28 of the 67 rows in 126-198 are pinned by a live behavior module, so the "an old row" rule above means a PINNED row.
 
 | # | Increment | Why | Done when |
 |---|---|---|---|
@@ -248,69 +248,31 @@ in the archive.
 - iter 119 -- reliability: ATTEMPT-AWARE RETRY -- the retry loop stops re-sending a byte-identical prompt (attacks th...
 - iter 122 -- roadmap index/archive split + `ROADMAP_SIZE_WARN_CHARS` + 2 pure suite-enforced brakes.
 - iter 124 -- third roadmap brake from GIT ship-truth; recovered the lost 64/122 records; PM self-records.
-- iter 126 -- test gate tells an UNFINISHED tester checkpoint from a RED suite; spends the repair round on the tester.
-- iter 127 -- anchored test-gate trigger: only an earned tester PASS skips the repair round (kills 6/19 false fires).
-- iter 128 -- product config fails CLOSED on an unknown key, naming the key and its nearest field.
-- iter 129 -- retry delay reads the failure KIND: a cap-timeout waits 60s, not 10min (~8.4h/93h reclaimed).
+- iters 126-198 -- 39 of the 67 Done rows in this span were archive-covered AND unpinned, so iter 228 COMPACTED them; full per-iteration detail is in `PLATFORM_ROADMAP_ARCHIVE.md`. The other 28 are pinned by a live behavior test and stay below.
 - iter 130 -- read-only live-lag report + doctor WARN: names shipped iterations the running brain cannot execute.
 - iter 131 -- decision log reads the id-first candidate headings scouts write; heals 5 of 27 committed blocks.
 - iter 132 -- freeze-guard meta-test selects by BEHAVIOR, not one name: 12 -> 26 guards policed, 4 pathspec sets.
 - iter 133 -- all 6 scout lenses DEFINED in the card, 3 docs de-hardcoded, suite brake on pool/card drift.
-- iter 134 -- lint-config emits a finding + exit 1 for a typo'd config key; missing/corrupt file still exits 2.
-- iter 135 -- per-kind retry ladder map: a "stalled" attempt waits 60/300/1200s, not 600/1200/2400 (-2.77h sleep).
-- iter 136 -- retired 4 SPENT operator directives from the prompt head (-6,468 chars); doctor WARNs an over-budget head.
 - iter 137 -- NEW `foundry new-product` scaffolder + immediate lint; fixes the `USAGE.md` cp on-ramp that exits 1.
-- iter 138 -- steering head emits VERBATIM when it fits its budget; truncate only on real overflow.
-- iter 139 -- both GATE cards carry their verify-first EXCEPTION; pure card audit + live suite brake stops drift.
 - iter 140 -- lint-config NAMES a dispatcher roster and exits 2, instead of advising the `_` prefix that empties it.
 - iter 141 -- RESTART_NEEDED.md flag + auto-clear, SHIPPED DORMANT: 26 freeze guards block the dispatcher call site.
 - iter 142 -- roles/pm.md gets a RUNNABLE lint-spec invocation; two-sided brake on bare `foundry <verb>` in any card.
 - iter 143 -- prd-init renders a schema-valid prd.json from EXPLICIT stories; producer for the live shift-loop meter.
-- iter 144 -- NEW read-only `foundry prompt`: the EXACT bytes a stage receives, + a two-sided digest drift guard.
 - iter 145 -- one roadmap-index wall constant + pure headroom verdict + a `doctor` WARN line.
-- iter 146 -- six byte-identical `company_*_cli` bodies collapse to ONE shared body + thin wrappers (-124 lines).
-- iter 147 -- both review gates route on the ANCHORED verdict; an APPROVE quoting the token no longer fires a fix pass.
-- iter 148 -- stage-times splits every no-output attempt by failure KIND; the field named `timeouts` was 2.00x.
-- iter 149 -- quality_bar cited 2 invariants with 0 hits in ARCHITECTURE.md; pure gap brake + live two-sided guard.
-- iter 151 -- revert_repo saves the doomed tree to ABORTED_IMPLEMENTATION.patch before its reset; the reset stays total.
-- iter 152 -- three extra-kwarg `company_*_cli` stragglers fold into the shared roll-up body; item (i) closed 9 of 9.
-- iter 153 -- one `CompanyRollupCounts` mixin retires 27 hand-copied n_* props across the 9 roll-up dataclasses.
 - iter 154 -- the read-only-CLI tree guard reads git-visible state, not 6574 files of bytes; 3.7s + a live flake gone.
-- iter 155 -- HOTFIX: the bounded-snapshot oracle builds its own tmp_path fixture; fresh-clone suite green again.
-- iter 156 -- `foundry preship` re-verifies the ship commit from a LOCAL clone between commit and push; exit 1 blocks.
 - iter 157 -- every stage prompt names this product's own config path, name-verified, so card --config verbs run.
 - iter 158 -- five spent blurbs + two tombstones leave the index (verbatim to archive); pure roadmap_spent_blocks.
-- iter 159 -- the composite test-quality scan walks the repo once and parses each test file once; output byte-identical.
-- iter 160 -- both docs price all THREE retry ladders, rendered by calling retry_delay; whole-line presence guard.
-- iter 162 -- new `save-work` verb saves uncommitted work to a patch from a FRESH process; real git index untouched.
-- iter 163 -- roles/engineer.md + roles/fix.md run `save-work`, so the iter-162 rescue fires; 20 reverts, 0 rescues.
 - iter 164 -- doctor's 4th drift line prices the worst stage median vs the HARD 600s cap; engineer sat at 0.0s.
-- iter 165 -- eight per-product --json CLI printers collapse onto ONE _thin_gather_cli body; seams stay call-time.
 - iter 166 -- iter-158's last-heading archive pin becomes an append-only PREFIX freeze; index paydown unblocked.
 - iter 167 -- the spent (l)/(t)/(v) bodies move VERBATIM to a new archive compaction; index drops below 52,000.
-- iter 168 -- new rescues verb splits 600s kills into RESCUED vs LOST per stage; stage-times saw 45 of 232.
 - iter 169 -- iter-167's three frozen index-size pins gain a derived per-row allowance; the brake had 8 chars left.
 - iter 170 -- weak-test scans scope to the repo's own tests/ dir; 195 of 345 gathered files were gitignored state.
 - iter 172 -- rescues rows gain kill_rate (kills/attempts); pm shows a 100% rescue rate while killed on 60 of 186.
 - iter 173 -- re-lands iter 172; new losses verb splits no-output attempts by CAUSE; rescues saw 9 of 64.
 - iter 174 -- lands the lost 172+173 patch; the README index pin drops POSITION; 5th team config ignored.
-- iter 175 -- README index-number rule moves into foundry.py; a tests/-wide guard bans snapshot pins in any file.
-- iter 176 -- roles/pm.md must quote doctor's measured `stage-budget:` line when sizing a bite; exit code is ADVISORY.
-- iter 177 -- suite runs -n auto by default via pyproject addopts; a brake pairs each plugin addopt with its dep.
-- iter 178 -- DIRECTIONS.md `ship:` takes git ship-truth as authority; a brake flags rows git proves shipped.
-- iter 179 -- re-lands 178's git ship-truth labels; the healed-row proof moves off the live artifact onto a fixture.
-- iter 180 -- outcomes reads the AUTHORITATIVE tester report (newest tester<N>.md), clearing 27 false FAIL rows.
-- iter 181 -- doctor's learnings-head WARN names the WORST-elided head bullet (label + chars), not just how many.
-- iter 182 -- agents refuses to clobber a hand-written AGENTS.md (exit 2, --force overrides); ignore line DEFERRED.
 - iter 183 -- three gather_* test-quality scanners collapse onto ONE shared body; 26 redundant statements gone.
-- iter 184 -- stage-times gains --limit N; doctor's mandatory stage-budget: line prices the RECENT window, not all-time.
 - iter 185 -- roadmap CLI-verb figure becomes DERIVED; two frozen 48-verb pins retire; spent (p) archived.
 - iter 186 -- 4th test-quality lens detects an assert that CANNOT fail; tests/ pinned at 0; iter-152 site repaired.
-- iter 188 -- gap-radar phase 1: gather_gaps/gap_advice/pm_gap_block read the register from local JSON; ZERO call site.
-- iter 189 -- ship_decision tells a CAP-KILLED final gate from an explicit REVERTED: SHIP/RETRY/REVERT, zero call site.
-- iter 190 -- stage-times prices cap SATURATION per group: total_s/cap_hits/cap_seconds + cap_share_pct + one rollup.
-- iter 191 -- ARCHITECTURE.md records the verdict-ABSENCE rule + the DORMANT ship_decision successor; parity brake.
-- iter 192 -- gap-radar phase 2: build_prompt calls pm_gap_block and _platform opts in, so the PM feed goes LIVE.
 - iter 195 -- re-land iter 194: ship_decision wired at the live final gate; a cap-killed round RETRIES, not reverts.
 - iter 196 -- an expired session gets its own `auth` failure kind, ordered before `timeout` and priced identically.
 - iter 197 -- gap-radar phase 2's missing half: `roles/pm.md` now REQUIRES the `GAP:` line; dormant verdict core.
@@ -335,6 +297,7 @@ in the archive.
 - iter 220 -- the UNFINISHED tester retry prompt READs the killed round's checkpoint and KEEPs its test file.
 - iter 226 -- the `auth` kind learns the agent CLI's current `auth failed` wording; the fast ladder it owns fires.
 - iter 227 -- `evals/gate/` ships 4 REAL `final.md` artifacts + a pure replay runner; the ship gate gets tracked inputs.
+- iter 228 -- pure `roadmap_redundant_rows`/`roadmap_rows_removed`; 39 archive-covered Done rows shed, +4,486 chars.
 
 
 ### Migration notes (per §6 self-mod guardrail)

@@ -3058,6 +3058,162 @@ def roadmap_spent_blocks(index_text: str, archive_text: str) -> tuple[RoadmapSpe
     return tuple(block for _, block in found)
 
 
+# --------------------------------------------------------------------------- #
+# Redundant Done-ledger ROWS (`roadmap_redundant_rows` / `roadmap_rows_removed`)
+# -- iter 228, the OTHER half of the paydown vocabulary.
+#
+# WHY a second detector next to `roadmap_spent_blocks`: that one finds spent
+# PROSE (item blurbs and tombstoned sections), which is the paydown lever iters
+# 167/181/182/184/185/204 all pulled. It cannot see the file's single biggest
+# block -- the Done ledger, 187 one-line rows -- because a row is not a block
+# with a body. Measured at iter 228's HEAD the index had 4,167 chars of headroom
+# against the 4,120 the live suite binds (`ABSOLUTE_INDEX_FLOOR + MAX_ROW_CHARS`
+# in `tests/test_iter185_behavior.py`), i.e. 47 chars, so iteration 228's own
+# MANDATORY ledger row (`roles/pm.md` duty 3, up to 120 chars) could not legally
+# be written and 229 had ZERO. The file's own contract prescribes the remedy
+# ("archive more; do not raise the constant"), and every ledger row's full detail
+# ALREADY lives in the archive as a `- **iter N ` bullet -- so deleting a COVERED
+# row loses nothing, which is exactly the licence `roadmap_ledger_gaps` grants in
+# its own docstring ("A record in EITHER file counts ... the goal is that history
+# is not LOST, not that it lives in one particular file").
+#
+# TWO safety rails, both fail-CLOSED (they can only ever report FEWER rows):
+#   1. archive coverage -- a row with no `- **iter N ` bullet is NEVER reported,
+#      because deleting it would destroy the only copy of that history.
+#   2. `pinned` is a REQUIRED parameter and is never derived, guessed or
+#      defaulted. Rows are pinned by LIVE TEST ASSERTIONS (iter 122's 98 frozen
+#      numbers, iter 124's recovered 122/124, and -- measured at iter 228 -- 27
+#      more behavior modules that assert their OWN row), and no pure function
+#      reading two strings can know that. A default of `()` would make the
+#      dangerous call the SHORT one; making the caller state its pin set makes
+#      the audit explicit at the call site.
+#
+# Both functions are PURE and TOTAL (text in, value out; no filesystem,
+# subprocess, network or clock; never raise for `str` input) and DORMANT on the
+# control path: nothing in `run_iteration` / `run_stage` / `build_prompt` /
+# `dispatcher.py` calls either, so a loop in flight resumes byte-identically and
+# no restart is owed. There is deliberately NO CLI verb -- `roadmap_spent_blocks`
+# is the precedent for a pure paydown detector that ships verb-less.
+# --------------------------------------------------------------------------- #
+@dataclasses.dataclass(frozen=True)
+class RoadmapLedgerRow:
+    """One `- iter N ` Done-ledger row whose detail the ARCHIVE already carries.
+
+    Frozen, matching `RoadmapSpentBlock` / `RoadmapIndexBudget` / `RoadmapSize`:
+    a computed record must not be mutable after the fact, and value-equality
+    comes free so two records over the same row compare `==`.
+
+    * `iteration` -- the number the row records, normalised through
+      `_iter_number`, so a zero-padded `- iter 07 ` row reports 7 and can be
+      matched against an archive bullet written either way.
+    * `row` -- the row text with NO trailing newline, so it is directly usable as
+      a `git grep` / `rg` needle and as a dict key.
+    * `chars` -- `len(row) + 1`, i.e. the row INCLUDING the newline it owns.
+      Counting the newline is not pedantry: it is the difference between a
+      correct and an off-by-one paydown budget. A row and its newline are what
+      `roadmap_rows_removed` actually deletes, so this is what a caller may add
+      to `roadmap_index_budget(...).headroom`, and iteration 228 measured that a
+      46-char row leaves headroom exactly at the floor while a 47-char row is one
+      char under it.
+    """
+    iteration: int
+    row: str
+    chars: int
+
+    def to_dict(self) -> dict[str, object]:
+        """JSON-serializable view -- primitives only, mirroring `RoadmapSpentBlock`.
+
+        Present so a future `--json` surface (or a test comparing a parsed
+        payload) never has to reach into the dataclass.
+        """
+        return {"iteration": self.iteration, "row": self.row, "chars": self.chars}
+
+
+def roadmap_redundant_rows(index_text: str, archive_text: str,
+                           pinned: Iterable[int]) -> tuple[RoadmapLedgerRow, ...]:
+    """Done-ledger rows the ARCHIVE already covers and no caller has pinned.
+
+    Returns one frozen `RoadmapLedgerRow` per deletable row in ASCENDING
+    ITERATION order -- not document order. The ledger is maintained in ascending
+    order by convention, so on a well-formed file the two agree; sorting by the
+    NUMBER is what makes the result stable if a row is ever appended out of
+    place, and it is the order a human reviewing a deletion list wants.
+
+    EXCLUSIONS, both fail-CLOSED (this function can only under-report, never
+    over-report, which is the safe direction for something whose output licenses
+    a delete):
+
+    * no `- **iter N ` bullet in `archive_text` -- the index holds the only copy
+      of that history, so the row is NOT deletable at any price;
+    * `iteration in pinned` -- a live assertion reads that specific row. `pinned`
+      is REQUIRED and is never derived here: pins live in `tests/`, which a pure
+      two-string function cannot see, and a defaulted empty pin set would make
+      the unsafe call the convenient one.
+
+    REUSES `_ROADMAP_LEDGER_ROW_RE` and `_roadmap_archive_records` so this
+    detector, `roadmap_archive_gaps` and `roadmap_ledger_gaps` can never disagree
+    about what a record looks like.
+
+    Pure and total: no filesystem, subprocess, network or clock, and empty or
+    malformed input yields `()` rather than an exception. Non-int (and `bool`,
+    which `isinstance` would otherwise admit) members of `pinned` are ignored,
+    matching `roadmap_ledger_gaps`'s handling of its own iterable.
+    """
+    archived = _roadmap_archive_records(archive_text)
+    keep_out = {n for n in (pinned or ())
+                if isinstance(n, int) and not isinstance(n, bool)}
+    rows: list[RoadmapLedgerRow] = []
+    for line in str(index_text or "").splitlines():
+        m = _ROADMAP_LEDGER_ROW_RE.match(line)
+        if not m:
+            continue
+        number = _iter_number(m.group(1))
+        if number is None or number not in archived or number in keep_out:
+            continue
+        rows.append(RoadmapLedgerRow(iteration=number, row=line, chars=len(line) + 1))
+    rows.sort(key=lambda r: r.iteration)
+    return tuple(rows)
+
+
+def roadmap_rows_removed(index_text: str, iterations: Iterable[int]) -> str:
+    """`index_text` with the `- iter N ` rows for `iterations` deleted (pure).
+
+    LINE-EXACT and byte-conservative: a removed row takes the newline it owns
+    with it and EVERY other byte of the file -- including a missing final
+    newline, CRLF line endings and any other line that merely mentions an
+    iteration -- survives unchanged. That is why this splits with
+    `splitlines(keepends=True)` and re-joins rather than running a regex over the
+    whole text: a `re.sub` with a `$` anchor silently normalises line endings.
+
+    An iteration with no row in the text is a silent NO-OP, deliberately. The
+    caller's list normally comes from `roadmap_redundant_rows` on this same text
+    (so every entry matches), but a caller re-applying a list to an
+    already-compacted file must get the same file back, not an error.
+
+    Only rows are eligible: the match is anchored with `_ROADMAP_LEDGER_ROW_RE`,
+    so an indented mention or prose containing "- iter 5 " mid-line is left
+    alone -- the same anchoring `roadmap_archive_gaps` relies on, and for the
+    same reason (a looser match here would DELETE more, which is the lossy
+    direction).
+
+    Pure and total: no filesystem, subprocess, network or clock, and never raises
+    for `str` input. Non-int members of `iterations` are ignored.
+    """
+    drop = {n for n in (iterations or ())
+            if isinstance(n, int) and not isinstance(n, bool)}
+    if not drop:
+        return str(index_text or "")
+    kept: list[str] = []
+    for line in str(index_text or "").splitlines(keepends=True):
+        m = _ROADMAP_LEDGER_ROW_RE.match(line)
+        if m:
+            number = _iter_number(m.group(1))
+            if number is not None and number in drop:
+                continue
+        kept.append(line)
+    return "".join(kept)
+
+
 def git_ship_subjects(repo_dir) -> tuple[str, ...]:
     """Commit subjects of `repo_dir` in git order -- the ONE new I/O seam.
 
