@@ -33,8 +33,7 @@ STILL OPEN:
 (c), (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
 NEXT UP, in value order: (a) Only the OPTIONAL 25-guard
 CONSOLIDATION remains, and it does NOT unblock strangler steps 2/3 (one guard still freezes
-`dispatcher.py` and the meta-test requires it to); (c) repair a missing `tests/test_iterNN*.py` at the earliest
-repairable stage (both iterations that lacked one, 121 and 125, REVERTED); (d) relax `roles/tester.md`'s
+`dispatcher.py` and the meta-test requires it to); (c) MEASUREMENT HALF SHIPPED iter 229 -- the invariant is 186/186 (every `(foundry iter N)` commit touches `tests/`), the naive "a module named for this iteration exists" form has a live false positive (206 re-landed 205's module), and `test_touch_line`/`probe_test_touch`/`test-touch` now state it from the WORKTREE porcelain. The CONSUMER half is what remains and 229 proved it has NO LEGAL SEAT today: the tester owns the deliverable but reading `git status` breaks TESTER ISOLATION (why iter 188 A3 lost), the reviewer runs BEFORE the tester (its own lines 66-67 say the absence is not a finding), and the final gate is pinned to "write the ACTION token by minute 6". Do NOT re-propose a card wiring without first naming a seat that survives all three; (d) relax `roles/tester.md`'s
 prose discipline around the two gate tokens, which iteration 127 makes safe but which MUST NOT ship in
 the same iteration as 127 itself (a live loop holds the pre-127 `foundry.py` in memory). (f) SHIPPED iter 133 -- record in the archive. (g) **candidates half SHIPPING iter 131; the rest still open.** STILL OPEN, in order: the `parse_triage_winner` half (21 `pm.md` files carry a `## Triage` heading and still yield `None`), then rendering "present but unparsed" distinctly from "absent". (i) **DE-LISTED by iteration 130's scout A -- do NOT re-propose:** detail in the archive. ALSO STILL OPEN: the iteration-121 RETRY (its 51,824-byte
 `products/_platform/state/iter-121/REVERTED_IMPLEMENTATION.patch` is preserved and its FINAL lesson
@@ -298,6 +297,7 @@ in the archive.
 - iter 226 -- the `auth` kind learns the agent CLI's current `auth failed` wording; the fast ladder it owns fires.
 - iter 227 -- `evals/gate/` ships 4 REAL `final.md` artifacts + a pure replay runner; the ship gate gets tracked inputs.
 - iter 228 -- pure `roadmap_redundant_rows`/`roadmap_rows_removed`; 39 archive-covered Done rows shed, +4,486 chars.
+- iter 229 -- pure `test_touch_line` + `probe_test_touch` + dormant `test-touch`: 186/186 test-touch is now code.
 
 
 ### Migration notes (per §6 self-mod guardrail)

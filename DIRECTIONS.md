@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-229
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- `foundry roadmap-rows`: derive the paydown's pin set from tests/, fail-closed
+    - Candidate A2 -- name a missing iteration behavior module at the earliest stage that can still fix it
+    - Candidate A3 -- report tests whose precondition is a COUNT of the ambient repo tree
+    - Candidate B1 -- the scouts write the decision log and are never allowed to read it: give `foundry directions` its first consumer
+    - Candidate B2 -- the `reporter` role has never run: reach its 4 mechanical sections through the ledgers that already ship
+    - Candidate B3 -- three shipped feeds are switched on for 1 of 5 teams: close the config-default gap
+    winner: A2
+    ship: pending (not yet decided)
   iter-228
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `foundry roadmap-rows`: name the ledger rows the archive already carries, and delete them
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `preship` preserves the clone's suite tail, so a BROKEN verdict names the failing tests
     - Candidate B3 -- `foundry ledger-check --config C --iter N`: the PM's mandatory bookkeeping gets a preflight
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 64c12d0
   iter-227
     lenses: narrative-and-docs (iteration 227), new-capability (iteration 227)
     - Candidate A1 -- the CLI-verb-figure brake has been VACUOUS since the commit that shipped it, and the one live figure it cannot see is stale by 4
@@ -1195,4 +1205,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-120 scouted iterations
+121 scouted iterations
