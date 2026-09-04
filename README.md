@@ -372,3 +372,13 @@ guard) and fails closed to the revert path on any non-zero exit.
 v0.1 — extracted and generalized from the `repolens` build (10 iterations, 9
 features shipped overnight, 590 tests, one deadline-triggered auto-revert).
 The platform team now improves the foundry itself; see `PLATFORM_ROADMAP.md`.
+
+## Part of a pipeline
+
+The foundry is the **consumer** of three sibling registers, and the **producer** of new incidents for one of them:
+
+- Pin [`agent-practice-index`](https://github.com/jeffma8888/agent-practice-index)'s bounded `practice digest` into an iteration, run `practice audit --target .` to see which practices this loop already follows, and hand `practice prd --practice PRC-NNN` to a build iteration to adopt one (first story = a failing demonstration of the gap).
+- Take the next thing to build from [`agent-gap-radar`](https://github.com/jeffma8888/agent-gap-radar)'s ranked gaps.
+- When an iteration fails in a new way, write it up in [`agent-failure-modes`](https://github.com/jeffma8888/agent-failure-modes); its `RULES.md` feeds back into the practice index, so the loop's failures raise the bar the loop is then audited against.
+
+Full data flow and commands: [ECOSYSTEM.md](https://github.com/jeffma8888/agent-practice-index/blob/main/ECOSYSTEM.md).
