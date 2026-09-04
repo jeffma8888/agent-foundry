@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-228
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- `foundry roadmap-rows`: name the ledger rows the archive already carries, and delete them
+    - Candidate A2 -- `foundry unfailable-asserts`: the 4th test-quality lens has no surface
+    - Candidate A3 -- (being measured; see refinement)
+    - Candidate B1 -- the index budget reports EFFECTIVE headroom, so `doctor` stops printing OK while the suite is already RED
+    - Candidate B2 -- `preship` preserves the clone's suite tail, so a BROKEN verdict names the failing tests
+    - Candidate B3 -- `foundry ledger-check --config C --iter N`: the PM's mandatory bookkeeping gets a preflight
+    winner: A1
+    ship: pending (not yet decided)
   iter-227
     lenses: narrative-and-docs (iteration 227), new-capability (iteration 227)
     - Candidate A1 -- the CLI-verb-figure brake has been VACUOUS since the commit that shipped it, and the one live figure it cannot see is stale by 4
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- a committed, redacted `evals/` corpus plus a pure replay runner for the loop's own gate parsers
     - Candidate B3 -- `foundry unfailable-asserts [--json]`: the 4th test-quality lens has never had a surface
     winner: B2
-    ship: pending (not yet decided)
+    ship: PUSHED 70ede7f
   iter-226
     lenses: performance-and-throughput (iteration 226), narrative-and-docs (iteration 226)
     - Candidate A1 -- teach the auth classifier the agent CLI's current wording
@@ -1185,4 +1195,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-119 scouted iterations
+120 scouted iterations
