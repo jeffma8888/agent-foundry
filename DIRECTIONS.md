@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-227
+    lenses: narrative-and-docs (iteration 227), new-capability (iteration 227)
+    - Candidate A1 -- the CLI-verb-figure brake has been VACUOUS since the commit that shipped it, and the one live figure it cannot see is stale by 4
+    - Candidate A2 -- the comment that claims to enumerate the dormancy-denial vocabulary is missing a phrase and 10 of the entries it fires on
+    - Candidate A3 -- two files each call themselves the canonical launch, and the one an operator must run is not in the repo
+    - Candidate B1 -- `foundry gap-check`: give the gap-claim verdict trio the operator surface it was explicitly split off to get
+    - Candidate B2 -- a committed, redacted `evals/` corpus plus a pure replay runner for the loop's own gate parsers
+    - Candidate B3 -- `foundry unfailable-asserts [--json]`: the 4th test-quality lens has never had a surface
+    winner: B2
+    ship: pending (not yet decided)
   iter-226
     lenses: performance-and-throughput (iteration 226), narrative-and-docs (iteration 226)
     - Candidate A1 -- teach the auth classifier the agent CLI's current wording
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry.py`'s own dormancy claims must agree with its call graph, checked by the helper already shipped to check them
     - Candidate B3 -- retract the false retirement claim in the pinned steering head, with a check that survives the file being untracked
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED b6bc521
   iter-220
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- stop re-reading and re-parsing the whole tree once per tree-wide brake
@@ -1175,4 +1185,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-118 scouted iterations
+119 scouted iterations
