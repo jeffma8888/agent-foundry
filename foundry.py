@@ -9558,6 +9558,144 @@ def worktree_scope_line(porcelain: str, shortstat: str) -> str:
     return f"{files} file(s) uncommitted vs HEAD{tail}"
 
 
+# Directory names whose FIRST path segment marks a file as a test artifact. A
+# TUPLE (immutable) and READ AT CALL TIME rather than captured at def-time, so
+# `monkeypatch.setattr(foundry, "TEST_TOUCH_DIR_NAMES", ...)` bites and the
+# framework stays repo-agnostic per VISION: this loop drives ANY repo via a JSON
+# config, and another product may name the directory `test` or `spec`. Kept as a
+# module constant instead of a config field because no product needs to override
+# it yet, and an unused config key is a maintenance cost with no reader.
+TEST_TOUCH_DIR_NAMES: tuple[str, ...] = ("tests",)
+
+# Wall-clock ceiling for the ONE read-only `git status --porcelain` the
+# test-touch probe issues. A DIAGNOSTIC MAY NEVER OUTLIVE THE REPORT IT
+# ANNOTATES: with no explicit timeout a hung `git` pins its caller forever, which
+# is strictly worse than an unknown answer, and `run_cmd` folds a timeout into
+# `ok is False`, which the probe already reads as "unknown" (`None`). A SIBLING of
+# `WORKTREE_SCOPE_TIMEOUT_SECONDS` rather than a reuse of it: the two probes are
+# independent diagnostics, so sharing one knob would imply a coupling that does
+# not exist and would let a future tune of one silently retime the other.
+TEST_TOUCH_TIMEOUT_SECONDS = 20
+
+
+def _test_touch_paths(porcelain: str) -> tuple[frozenset[str], frozenset[str]]:
+    """Split a porcelain text into (all distinct paths, those under a test dir).
+
+    Private because it returns PATH BODIES, which no report may ever echo (see
+    `test_touch_line`); it exists only so the counting rule is written once.
+
+    Parses the three porcelain shapes this repo actually produces, all measured:
+    an untracked `?? tests/x.py`, a staged-add-plus-unstaged-modification
+    `AM tests/x.py`, and a COLLAPSED untracked directory `?? tests/` whose sole
+    segment IS the directory name. `git status --porcelain` puts a 2-character
+    status field first, so the path body starts at index 3; a line too short to
+    hold that prefix contributes nothing rather than raising.
+
+    A rename/copy line (`R  old -> new`) contributes BOTH sides, because either
+    side landing under a test dir is a real touch -- a test module renamed OUT of
+    `tests/` has still touched it. git double-quotes any path containing a space
+    or a control character, so surrounding quotes are stripped before the segment
+    test, otherwise `"tests/a b.py"` would compare as `"tests` and be missed.
+
+    Distinctness is by PATH, so a file with both a staged and an unstaged entry
+    counts ONCE -- porcelain lists one line per file, but a rename plus a later
+    edit can name the same path twice, and double-counting would inflate every
+    ratio the report prints.
+    """
+    seen: set[str] = set()
+    touched: set[str] = set()
+    names = tuple(TEST_TOUCH_DIR_NAMES)  # read at CALL time -- see the constant
+    for raw in (porcelain or "").splitlines():
+        if not raw.strip():
+            continue
+        body = raw[3:] if len(raw) > 3 else ""
+        # Rename/copy: BOTH sides are real paths. Split on the porcelain arrow
+        # only, never on a bare `>`, so a filename containing `>` survives.
+        sides = body.split(" -> ") if " -> " in body else [body]
+        for side in sides:
+            path = side.strip()
+            if path.startswith('"') and path.endswith('"') and len(path) > 1:
+                path = path[1:-1]
+            if not path:
+                continue
+            seen.add(path)
+            first = path.split("/", 1)[0]
+            if first in names:
+                touched.add(path)
+    return frozenset(seen), frozenset(touched)
+
+
+def test_touch_line(porcelain: str) -> str:
+    """Say whether the IN-FLIGHT iteration has touched a test directory (pure).
+
+    Roadmap item (c): 186 of 186 shipped `(foundry iter N)` commits touched a file
+    under `tests/`, while the two iterations that shipped no behavior module at
+    all -- 121 and 125 -- were both REVERTED. So "this iteration's diff touches a
+    test dir" is an invariant this product has honoured without exception, and
+    nothing in the tree could state it.
+
+    KEYED ON THE TOUCH, NOT THE FILENAME, and that is the whole design. The naive
+    predicate "a module named `tests/test_iterNN*.py` exists" has a live false
+    positive on day one: iteration 206 shipped no module of its own, because it
+    re-landed 205's reverted work as `tests/test_iter205_behavior.py` (330 lines).
+    Keying on the touch is 186/186 true and still catches 121 and 125.
+
+    THE INPUT MUST BE `git status --porcelain`, and both obvious alternatives are
+    provably wrong here: `foundry preship` clones `cfg.repo` at HEAD and is
+    structurally blind to uncommitted work (it re-verified iteration 192 while
+    1,215 insertions sat in the tree), and `git ls-files -s` reports the EMPTY
+    blob for a path added with `git add -N`, which is how a 902-line worktree read
+    as empty in iterations 194/195. Porcelain is blind to neither: it lists a `??`
+    untracked file and an `AM` staged-add-plus-unstaged entry alike.
+
+    BUILT FROM COUNTS ONLY, never from a line BODY -- the same constraint
+    `worktree_scope_line` documents. No path, filename or branch name from the
+    scanned tree can reach the return value, which keeps this repo's public-safety
+    rule (no machine paths in shipped output) true by construction AND makes it
+    impossible for a crafted filename to smuggle a `PRESHIP:` or `ACTION:`
+    sentinel into a report that ships into logs and state artifacts.
+
+    Total: every `str` returns a `str` and nothing raises, for any input --
+    including a whitespace-only text, a line shorter than porcelain's 2-character
+    status prefix, a line that is only an arrow, or a single 10,000-character
+    line. An empty or whitespace-only text is the clean answer.
+    """
+    seen, touched = _test_touch_paths(porcelain)
+    total = len(seen)
+    if not total:
+        return "clean -- 0 uncommitted path(s), so no test-dir touch to report"
+    if touched:
+        return f"test-dir touched -- {len(touched)} of {total} uncommitted path(s)"
+    return f"NO-TEST-TOUCH -- 0 of {total} uncommitted path(s) are under a test dir"
+
+
+def probe_test_touch(repo) -> str | None:
+    """Read `repo`'s worktree and answer `test_touch_line`, or `None` if unknown.
+
+    Read-only and INERT: ONE `git` read issued through the `run_cmd` seam by BARE
+    module name (so `monkeypatch.setattr(foundry, "run_cmd", ...)` bites and the
+    whole path is verifiable offline, with no real subprocess, git or network),
+    scoped with `-C <repo>` so it never depends on the process cwd, and carrying
+    an EXPLICIT `timeout=TEST_TOUCH_TIMEOUT_SECONDS` so a hung `git` degrades to
+    an unknown answer instead of blocking its caller forever.
+
+    Returns `None` -- never raising, for ANY input -- when the read did not
+    succeed or the seam itself misbehaved. `None` deliberately does NOT degrade to
+    the CLEAN string: a scan that did not run must never be reported as a clean
+    tree, the same fail-SAFE asymmetry `probe_worktree_scope` and
+    `preship_verdict`'s boundary group use. Reporting "clean" off a failed read
+    would be a fail-OPEN gauge, which is worse than no gauge.
+    """
+    try:
+        porcelain = run_cmd(["git", "-C", str(repo), "status", "--porcelain"],
+                            timeout=TEST_TOUCH_TIMEOUT_SECONDS)
+        if not porcelain.ok:
+            return None
+        return test_touch_line(porcelain.out)
+    except Exception:
+        return None
+
+
 def probe_worktree_scope(repo) -> str | None:
     """Measure `repo`'s uncommitted divergence from HEAD, or `None` if unknown.
 
@@ -21543,6 +21681,36 @@ def gather_recoverable(cfg: ProductConfig,
     return recoverable_summary(rows, recoverable_base(cfg.repo))
 
 
+def test_touch_cli(cfg: ProductConfig) -> int:
+    """On-demand CLI: print the test-touch line for `cfg.repo`, ALWAYS exit 0.
+
+    REPORT-ONLY BY CONSTRUCTION, and the unconditional 0 is the feature. Roadmap
+    item (i) already de-listed stop-when-stable early exits, and the pinned
+    operator directive on the final gate is "SHIPPING OUTRANKS EXTRA
+    VERIFICATION" -- nine green iterations have been destroyed by a gate that
+    found one more thing to check. So this verb may inform a decision and may
+    never make one: no brake, no kill, no non-zero code, and it writes nothing.
+
+    DORMANT on purpose: nothing in `run_iteration`, `run_stage`, `build_prompt`,
+    the final gate or `dispatcher.py` reaches `test_touch_line` or
+    `probe_test_touch`; this function is their only caller. That is the
+    additive-dormant pattern `recoverable` (iter 215) shipped in before iter 218
+    found it a live reader, and it changes no resume semantics for a loop already
+    in flight. The OPERATOR is the consumer today; pm.md records why no STAGE can
+    be one yet (the tester owns the deliverable but reading the diff would break
+    TESTER ISOLATION, the reviewer runs before the tester, and the gate must not
+    grow checks).
+
+    An unknown read prints its own explicit sentence rather than the clean string,
+    for the reason `probe_test_touch` returns `None`: a scan that did not run must
+    never read as a clean tree.
+    """
+    body = probe_test_touch(cfg.repo)
+    print(f"test-touch: {body}" if body is not None
+          else "test-touch: unknown -- the worktree read did not succeed")
+    return 0
+
+
 def recoverable_cli(cfg: ProductConfig, limit: int | None = None,
                     as_json: bool = False) -> int:
     """On-demand CLI: print the recoverability report + return its exit code.
@@ -22055,6 +22223,22 @@ def main(argv: list[str] | None = None) -> int:
     # is a control-path change). `--limit N` probes only the most-recent N
     # iterations. Exit 0 (recoverable) / 1 (>=1 BLOCKED preserved patch) /
     # 2 (nothing to report).
+    # `test-touch` answers, from the WORKTREE, whether the iteration currently in
+    # flight has touched a test directory -- roadmap item (c). Measured: 186 of
+    # 186 shipped `(foundry iter N)` commits touched a file under `tests/`, while
+    # the only two iterations that shipped no behavior module (121, 125) were both
+    # REVERTED. Keyed on the TOUCH, not on a `tests/test_iterNN*.py` filename,
+    # because iteration 206 shipped no module of its own (it re-landed 205's work
+    # as `tests/test_iter205_behavior.py`), so the filename predicate has a live
+    # false positive. Reads `git status --porcelain` -- the one authority that sees
+    # BOTH an untracked `??` path and a `git add -N` staged-empty-blob path, the
+    # two blind spots that cost iterations 192 and 194/195. Built from COUNTS
+    # only, never a path body, so no machine path or smuggled sentinel can reach
+    # the output. REPORT-ONLY and DORMANT: the pipeline/gate/dispatcher never call
+    # it, it writes nothing, and it ALWAYS exits 0 -- never a brake.
+    ttc = sub.add_parser("test-touch")
+    ttc.add_argument("--config", required=True,
+                     help="path to product JSON config")
     rcv = sub.add_parser("recoverable")
     rcv.add_argument("--config", required=True,
                      help="path to product JSON config")
@@ -22605,6 +22789,8 @@ def main(argv: list[str] | None = None) -> int:
         return losses_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "recoverable":
         return recoverable_cli(cfg, limit=args.limit, as_json=args.json)
+    if args.cmd == "test-touch":
+        return test_touch_cli(cfg)
     if args.cmd == "live-lag":
         return live_lag_cli(cfg, log_path=args.log,
                             as_json=args.json)

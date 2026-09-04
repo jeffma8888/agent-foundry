@@ -811,7 +811,16 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # file is expected" intent cannot be expressed by the f-string
                 # for any later iteration. Nothing about the assertion or the
                 # 75-assertion literal class changes.
-                "tests/test_iter227_behavior.py"}
+                "tests/test_iter227_behavior.py",
+                # iter 229: this iteration's own new behavior test file, added for
+                # the same reason as the two rows above -- `THIS_ITER` is FROZEN at
+                # 204, so the head comment's "this iteration's OWN new test file is
+                # expected" intent cannot be expressed by the f-string for any later
+                # iteration, and the path is red ONLY inside the gate's staging
+                # window (`git diff HEAD` cannot see an UNTRACKED file at all).
+                # Nothing about the assertion or the 75-assertion literal class
+                # changes.
+                "tests/test_iter229_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the
