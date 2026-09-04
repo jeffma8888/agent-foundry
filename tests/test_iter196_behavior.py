@@ -344,8 +344,12 @@ def test_a_the_marker_table_gained_exactly_one_entry_and_kept_the_other_four():
     table = tuple((kind, tuple(needles)) for kind, needles in foundry.ATTEMPT_FAILURE_MARKERS)
     assert len(table) == len(PRE_196_ENTRIES) + 1
     assert tuple(e for e in table if e[0] != AUTH) == PRE_196_ENTRIES
-    assert dict(table)[AUTH] == (AUTH_NEEDLE,), (
-        "the new entry must carry exactly the one measured needle, got %r"
+    # Relaxed by iteration 226: the agent CLI changed its wording, so the `auth`
+    # entry now also carries `auth failed`. Iteration 196's real claim was that
+    # ITS measured needle is present and classifies `auth` (b1/b2 above), never
+    # that no later measurement may add a second one.
+    assert AUTH_NEEDLE in dict(table)[AUTH], (
+        "the entry must still carry iteration 196's measured needle, got %r"
         % (dict(table)[AUTH],))
 
 

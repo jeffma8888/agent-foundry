@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-226
+    lenses: performance-and-throughput (iteration 226), narrative-and-docs (iteration 226)
+    - Candidate A1 -- teach the auth classifier the agent CLI's current wording
+    - Candidate A2 -- a census verb that names recurring UNCLASSIFIED failure blobs
+    - Candidate A3 -- stop re-entering a product whose every attempt died of the same unhealable kind
+    - Candidate B1 -- the README dormancy brake audits two entries that no longer make the claim, and item 25 is now false
+    - Candidate B2 -- `foundry.py`'s own dormancy claims must agree with its call graph, checked by the helper already shipped to check them
+    - Candidate B3 -- retract the false retirement claim in the pinned steering head, with a check that survives the file being untracked
+    winner: A1
+    ship: pending (not yet decided)
   iter-220
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- stop re-reading and re-parsing the whole tree once per tree-wide brake
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the public catalog of what the foundry has built is frozen at day one
     - Candidate B3 -- the PM card never states the id contract the committed decision log parses
     winner: A3
-    ship: pending (not yet decided)
+    ship: PUSHED cd2ae64
   iter-219
     lenses: simplification-and-deletion (iteration 219), performance-and-throughput
     - Candidate A1 -- collapse the ten near-duplicate company roll-up constructors onto one shared body
@@ -1165,4 +1175,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-117 scouted iterations
+118 scouted iterations
