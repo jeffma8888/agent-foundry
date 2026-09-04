@@ -27,8 +27,8 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 220): ledger and archive are current through 220 (193/194/199/201/203/205 never shipped, so none
-owes a row).
+STATUS (iter 226): ledger and archive are current through 226 (193/194/199/201/203/205/221-225 never shipped, so
+none owes a row).
 STILL OPEN:
 (c), (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
 NEXT UP, in value order: (a) Only the OPTIONAL 25-guard
@@ -332,6 +332,7 @@ in the archive.
 - iter 218 -- pm_recoverable_block puts a recent abort's preserved patches in the PM prompt; report-only.
 - iter 219 -- the leak brake tells a vanished UNTRACKED population member from an unreadable tracked one.
 - iter 220 -- the UNFINISHED tester retry prompt READs the killed round's checkpoint and KEEPs its test file.
+- iter 226 -- the `auth` kind learns the agent CLI's current `auth failed` wording; the fast ladder it owns fires.
 
 
 ### Migration notes (per §6 self-mod guardrail)

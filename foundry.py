@@ -195,19 +195,48 @@ ATTEMPT_FAILURE_DEFAULT = "other"
 # of the measured population also says `connection stalled`, and that blob keeps
 # its long ladder, which is what "conservative-first" means here.
 #
-# MEASURED BASIS (every `products/*/state/iter-*/*.attempt*.log` on the authoring
-# machine, 2026-08-24, 4,273 files): `credential refresh failed` matches 365 and
-# is the ONLY needle needed -- `session may have expired`, `authentication timed
-# out` and `loading credentials` each add ZERO further coverage, and the bare word
-# `credential` adds only agent PROSE about credentials, never a failure blob. 363
-# of the 365 classified `timeout` before this entry existed. The mislabel was
-# visible in a SHIPPED report: `stage-times` printed a `timeouts` population whose
-# median duration was 3 seconds, because a 3s instant-fail pooled with a 600s cap
-# kill -- and iteration 190's cap-saturation pricing reads that same label.
+# MEASURED BASIS, part 1 -- iteration 196, 2026-08-24, 4,273 files matching
+# `products/*/state/iter-*/*.attempt*.log` on the authoring machine:
+# `credential refresh failed` matched 365 of them, 363 of which had classified
+# `timeout` before this entry existed. No other phrase added coverage
+# (`session may have expired`, `authentication timed out`, `loading
+# credentials` each added ZERO) and the bare word `credential` added only agent
+# PROSE about credentials, never a failure blob. The mislabel was visible in a
+# SHIPPED report: `stage-times` printed a `timeouts` population whose median
+# duration was 3 seconds, because a 3s instant-fail pooled with a 600s cap kill
+# -- and iteration 190's cap-saturation pricing reads that same label.
+#
+# MEASURED BASIS, part 2 -- iteration 226, RE-MEASURED 2026-09-04 over 5,155
+# files under the same glob, because a one-needle table whose needle is
+# SOMEBODY ELSE'S WORDING decays silently: the agent CLI now reports an expired
+# session as the bare 11-byte blob `auth failed`, and the shipped needle's
+# coverage of the September failure population is ZERO.
+#
+#     blob (lowercased)                        Jul   Aug   Sep
+#     `credential refresh failed`               18   347     2
+#     whole blob == `auth failed`                0     0    90
+#
+# BOTH needles stay, because both wordings are live and neither is redundant:
+# the two September `credential refresh failed` hits are PROSE inside SUCCESS
+# logs (agents narrating this very bug), while the newest genuine FAILURE blob
+# in the old wording is dated 2026-08-21. The 90 September attempts -- 23
+# exhausted stage-runs, five consecutive `_platform` iterations that produced
+# nothing -- every one of them fell through to ATTEMPT_FAILURE_DEFAULT, and
+# `other` prices every rung at exactly 10x this kind's, so they slept ~26h
+# in-process where `auth` costs ~2.6h, for the one condition in this table that
+# no amount of sleeping can heal.
+#
+# The needle is the exact measured phrase and deliberately NOT the bare word
+# `auth`: over the same 5,155 files `auth failed` occurs as a non-exact
+# substring exactly twice, both of them that same narrating prose, whereas bare
+# `auth` would fire on ordinary agent prose. The residual risk is bounded by
+# construction -- `auth`, `timeout` and `cli-error` share ONE ladder, so a
+# false positive stolen from either fast kind changes no delay at all, and the
+# two long-ladder kinds are protected by the conservative-first ordering above.
 ATTEMPT_FAILURE_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("service", ("service is busy", "too many tokens", "throttl")),
     ("stalled", ("connection stalled",)),
-    ("auth", ("credential refresh failed",)),
+    ("auth", ("credential refresh failed", "auth failed")),
     ("cli-error", ("native shortcut did not match",)),
     ("timeout", ("timed out",)),
 )
