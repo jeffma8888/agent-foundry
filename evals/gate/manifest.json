@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "about": "Real, byte-verbatim `final.md` artifacts replayed against the ship-action gate parser. Loaded by `load_gate_eval_corpus` and replayed by `replay_gate_evals` in foundry.py. `provenance` records where each artifact was captured from; those paths are gitignored runtime state, so no test asserts on them.",
+  "cases": [
+    {
+      "case_id": "pushed-plain",
+      "parser": "parse_ship_action",
+      "artifact": "ship_action/pushed-plain.md",
+      "expect": "PUSHED",
+      "source": "real",
+      "sha256": "8ba0956bae24a8087108b3e0bba2f728b6d6baccb4c5033c732c7aeafd4bce67",
+      "bytes": 1786,
+      "provenance": "products/repolens/state/iter-08/final.md",
+      "why": "the happy path: a well-formed `ACTION: PUSHED <sha>` sentinel"
+    },
+    {
+      "case_id": "reverted-plain",
+      "parser": "parse_ship_action",
+      "artifact": "ship_action/reverted-plain.md",
+      "expect": "REVERTED",
+      "source": "real",
+      "sha256": "c5cc21b1b058ffcfd1d7341628d91be9ac3431c54a7b8207906e2cbe32f7651e",
+      "bytes": 648,
+      "provenance": "products/_platform/state/iter-120/final.md",
+      "why": "an honest revert: `ACTION: REVERTED` as the last non-empty line"
+    },
+    {
+      "case_id": "none-unrecognized-token",
+      "parser": "parse_ship_action",
+      "artifact": "ship_action/none-unrecognized-token.md",
+      "expect": null,
+      "source": "real",
+      "sha256": "819ebf5e9bc7a3c5bbcf909870cae26631aec4d2309b88a8c5460c9c93b275ab",
+      "bytes": 1037,
+      "provenance": "products/_platform/state/iter-118/final.md",
+      "why": "GAP-006 in the wild: a real `ACTION: PENDING (...)` the pipeline reads as REVERTED"
+    },
+    {
+      "case_id": "none-no-action-line",
+      "parser": "parse_ship_action",
+      "artifact": "ship_action/none-no-action-line.md",
+      "expect": null,
+      "source": "real",
+      "sha256": "4fcda4668dc39ce384a0d3f9d4a0a56b0875474ef61297a98715109ccb5efe0d",
+      "bytes": 4435,
+      "provenance": "products/proactive-loop-agent/state/iter-164/final.md",
+      "why": "a cap-killed checkpoint with no sentinel line at all"
+    }
+  ]
+}

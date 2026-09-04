@@ -36,6 +36,7 @@ import ast
 import dataclasses
 import datetime as dt
 import difflib
+import hashlib
 import json
 import os
 import pathlib
@@ -10390,6 +10391,127 @@ def parse_ship_action(text: str) -> str | None:
         return None
     action = tokens[0]
     return action if action in ("PUSHED", "REVERTED") else None
+
+
+# --------------------------------------------------------------------------- #
+# A TRACKED corpus of REAL gate artifacts (item bb).
+#
+# `parse_ship_action` above decides whether an iteration's work is pushed or
+# destroyed, yet every input it has ever been tested against was an inline
+# string literal typed by a test author. Its REAL inputs -- the `final.md` files
+# the Final Reviewer writes -- live under `products/*/state/`, which `.gitignore`
+# excludes, so the throwaway fresh clone the final gate verifies from cannot see
+# one, and asserting over that ambient gitignored tree is forbidden outright
+# (a test that only passes on the machine that produced the state is not a test).
+#
+# So the corpus is COMMITTED instead: `evals/gate/` holds byte-verbatim captures
+# plus a manifest of the verdict each one must produce. The pair below is the
+# smallest thing that can replay it -- one I/O seam that loads and integrity-
+# checks, one PURE function that replays -- and both ship DORMANT (no call site
+# anywhere in this module), so no pipeline control path and no resume semantics
+# move. The value is that a future gate misread can be reproduced against the
+# exact bytes that caused it, offline, in any clone.
+# --------------------------------------------------------------------------- #
+
+# The parsers a corpus case may name. A manifest entry naming anything else is a
+# hard error rather than a skip: a silently-unrun case is a brake that has gone
+# vacuous, which is the failure mode this corpus exists to prevent.
+GATE_EVAL_PARSERS: Mapping[str, Callable[[str], str | None]] = {
+    "parse_ship_action": parse_ship_action,
+}
+
+
+@dataclasses.dataclass(frozen=True)
+class GateEvalCase:
+    """ONE real gate artifact plus the verdict its parser MUST produce.
+
+    `text` is carried on the record rather than re-read at replay time so that
+    `replay_gate_evals` can stay pure -- the only disk access happens once, in
+    the loader, and a hand-built case needs no `evals/` directory to exist.
+    `sha256` is the manifest's DECLARED digest, checked against the bytes on
+    disk by the loader, so an artifact edited without updating the manifest
+    cannot quietly change what the corpus asserts.
+    """
+    case_id: str
+    parser: str
+    artifact: str            # relative to `<root>/evals/gate/`
+    expect: str | None       # "PUSHED" | "REVERTED" | None
+    source: str              # "real" | "synthetic"
+    sha256: str
+    text: str
+
+
+@dataclasses.dataclass(frozen=True)
+class GateEvalResult:
+    """What one case's parser actually answered, and whether that was right."""
+    case_id: str
+    parser: str
+    expect: str | None
+    actual: str | None
+    ok: bool
+
+
+def load_gate_eval_corpus(root: str | pathlib.Path) -> tuple[GateEvalCase, ...]:
+    """Load `<root>/evals/gate/manifest.json` into frozen cases (the I/O seam).
+
+    Returns the cases sorted by `case_id` so the corpus has ONE canonical order
+    regardless of how the manifest happens to be written -- a reordered manifest
+    is not a different corpus, and a stable order keeps replay reports diffable.
+
+    Raises `ValueError` naming the offending `case_id` AND the bad value when an
+    entry names an unknown parser, or when its declared `sha256` disagrees with
+    the artifact's bytes on disk. Both are integrity failures of the corpus
+    itself: answering with a partial corpus would make the replay pass by simply
+    running fewer cases.
+    """
+    gate_dir = pathlib.Path(root) / "evals" / "gate"
+    manifest = json.loads((gate_dir / "manifest.json").read_text(encoding="utf-8"))
+    cases: list[GateEvalCase] = []
+    for entry in manifest.get("cases", []):
+        case_id = str(entry["case_id"])
+        parser = str(entry["parser"])
+        if parser not in GATE_EVAL_PARSERS:
+            raise ValueError(
+                f"gate eval case {case_id!r}: unknown parser {parser!r} "
+                f"(known: {', '.join(sorted(GATE_EVAL_PARSERS))})")
+        artifact = str(entry["artifact"])
+        raw = (gate_dir / artifact).read_bytes()
+        declared = str(entry["sha256"])
+        actual_sha = hashlib.sha256(raw).hexdigest()
+        if declared != actual_sha:
+            raise ValueError(
+                f"gate eval case {case_id!r}: artifact {artifact} has sha256 "
+                f"{actual_sha}, but the manifest declares {declared}")
+        cases.append(GateEvalCase(
+            case_id=case_id,
+            parser=parser,
+            artifact=artifact,
+            expect=entry.get("expect"),
+            source=str(entry.get("source", "real")),
+            sha256=declared,
+            text=raw.decode("utf-8"),
+        ))
+    return tuple(sorted(cases, key=lambda c: c.case_id))
+
+
+def replay_gate_evals(cases: Iterable[GateEvalCase]) -> tuple[GateEvalResult, ...]:
+    """Run each case's parser over its own text (PURE: no disk, clock or shell).
+
+    Preserves the ITERABLE's order rather than re-sorting, so a caller replaying
+    a hand-picked subset gets its results back in the order it asked for; the
+    canonical corpus order is the loader's job, not this function's.
+    """
+    results: list[GateEvalResult] = []
+    for case in cases:
+        actual = GATE_EVAL_PARSERS[case.parser](case.text)
+        results.append(GateEvalResult(
+            case_id=case.case_id,
+            parser=case.parser,
+            expect=case.expect,
+            actual=actual,
+            ok=actual == case.expect,
+        ))
+    return tuple(results)
 
 
 # --------------------------------------------------------------------------- #

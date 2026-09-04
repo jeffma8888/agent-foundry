@@ -58,7 +58,7 @@ bite 2 and (k). TEST-OWNED and the highest blast radius on this list (it re-scop
 over the running loop's control path), with `tests/test_control_path_freeze_scope.py` pinning a guard-count
 FLOOR of 26 plus `FORBIDDEN = ("README.md", "roles/")`, so it wants its OWN iteration and must NOT be bundled
 with a feature.
-(p) SHIPPED iters 169/174/175 -- README verb-index gap now DERIVED and measured 0; detail in the archive.
+(p) SHIPPED iters 169/174/175 -- detail in the archive.
 (q) NEW (iter 153, successor to A1): 235 more redundant declared lines remain in the 9 `Company*` roll-up classes,
 but each group covers a SUBSET (`exit_code` x4/x3, `to_dict` x3, `verdict` x5/x3, `n_flagged` x4, `files_scanned` x4,
 `total_findings` x4, `total_parse_errors` x3, `total` x3) and each is the roll-up's decision/serialisation contract --
@@ -107,6 +107,7 @@ the fleet-wide path `build_prompt` runs for every stage of every team. Also do N
 two call sites: with no per-lesson cap a single lesson longer than the budget admits NOTHING, emitting
 `## Recent lessons (last 0 of N)`, and `len(d) <= HB + MB + 300` still passes -- a fail-open the suite cannot see. Any
 future attempt needs a documented LAST-RESORT truncation and its own iteration.
+(bb) NEW (iter 227) -- DEFERRED bites of the gate-eval corpus; detail in the archive.
 INDEX BUDGET (a scheduling item, never a competitive candidate): the binding wall is now ONE constant,
 `ROADMAP_INDEX_HARD_CHARS` (54,000) -- NOT the 60,000 `ROADMAP_SIZE_WARN_CHARS` -- and the two live tests that
 read this file derive it from that constant, so crossing it turns the suite RED and REVERTS the iteration for a
@@ -123,18 +124,18 @@ NEW `## Compacted from the index by iter NNN` archive heading is legal. PAYDOWN 
 | # | Increment | Why | Done when |
 |---|---|---|---|
 | 1 | `prd.json`-style machine roadmap per product (id/title/criteria/passes) | Deterministic global stop + progress, vs parsing prose | dispatcher can report "N/M stories pass" via a jq-able file — **[iter 11, bite 1/3 = pure `prd_status(prd_text)` parser + frozen `PrdStatus` + on-demand `foundry prd --config <cfg>` CLI (dormant); iter 12, bite 2a/3 = wire `prd_status` into the dispatcher as a DIAGNOSTIC per-shift "N/M stories pass" log line via pure `dispatch_progress_line(cfg)` (dormant-until-data: no product has a `prd.json` yet); bite 2c = iter 143 ships the PRODUCER (`prd-init`), so the file is MAKEABLE; still unfed by design; bite 2b (future) = automatic global stop when a prd is complete → touches loop-termination/resume semantics, own iter + migration note → COMPLETES item 1]** |
-| 2 | Consolidate LEARNINGS into a pinned `## Patterns` head section | COMPLETED | SHIPPED iter 08 -- prose in the archive (`Compacted from the index by iter 204`) |
+| 2 | Consolidate LEARNINGS into a pinned `## Patterns` head section | COMPLETED | SHIPPED iter 08 -- prose in the archive (iter 204) |
 | 3 | Emit an `AGENTS.md` into each product repo from its learnings | Fresh agents auto-read house rules; less re-learning | product repo has an up-to-date AGENTS.md — **[shipping iter 09, bite 1/2 = pure `render_agents_md` helper + on-demand `foundry agents` CLI; bite 2 (future) = auto-refresh AGENTS.md at ship time]** |
 | 4 | Risk-split the final gate (test-only diff = light gate) | Cut gate latency ~half for coverage-only iterations | gate detects "no src/ change" and runs the light path — **[iter 15, bite 1/2 = pure `classify_gate_scope` + frozen `GateScope` + patchable `GATE_TEST_DIR_NAMES`/`GATE_DOC_SUFFIXES` + on-demand `foundry gate-scope` CLI (DORMANT; the final gate does NOT consult it, §3 full-suite-rerun invariant untouched); bite 2 (future) = wire the light path into the final gate while preserving the §3 invariant → COMPLETES item 4]** |
-| 5 | Task-size guard: PM must confirm a feature fits <50% context | COMPLETED | SHIPPED iter 10 -- prose in the archive (`Compacted from the index by iter 204`) |
+| 5 | Task-size guard: PM must confirm a feature fits <50% context | COMPLETED | SHIPPED iter 10 -- prose in the archive (iter 204) |
 | 6 | Mutation-testing gate (mutmut) as a deterministic weak-assertion check | Agents emit assertions that pass without validating behavior | gate can optionally run mutation testing |
-| 7 | Per-iteration suite wall-time in the log + auto-parallelize story when slow | COMPLETED | SHIPPED iter 14 -- prose in the archive (`Compacted from the index by iter 204`) |
+| 7 | Per-iteration suite wall-time in the log + auto-parallelize story when slow | COMPLETED | SHIPPED iter 14 -- prose in the archive (iter 204) |
 | 8 | `scheduled` watchdog that relaunches the dispatcher if PID gone & no STOP | Survive reboots / crashes truly 24/7 | a documented, tested watchdog exists — **[shipping iter 06]** |
 | 9 | `foundry.py doctor` preflight (AC power, agent CLI, uv, remote reachable) | Fail fast before burning a shift on a broken env | `doctor` subcommand returns actionable checks — **[shipping iter 01]** |
 | 10 | Structured JSON event log alongside the markdown NIGHT_LOG | Machine-readable status for dashboards / the reporter | events.jsonl written per stage — **[shipping iter 05]** (retry; iter 04 was reverted by an external public-release STOP, not a feature defect) |
 | 11 | **Post-release verification gate** (fresh-clone) + conventional revertable commit contract | The final gate checks the working TREE, never a clean-room checkout — this misses uncommitted files, lockfile drift, and dev-tree import leakage. For a project whose PRIMARY goal is trustworthy continuous release/deployment, a green working tree is not proof the release is deployable | a `postrelease` stage runs on every ship, clones `origin/<branch>` fresh, re-verifies, emits `POSTRELEASE: HEALTHY\|BROKEN`, and a BROKEN result raises a per-product hotfix flag the next PM must clear (see detailed spec below) — ✅ **SHIPPED (iter 02 bite 1/2 = config fields + dormant verify helper, `0fc54c1`; iter 03 bite 2/2 = wiring + `POSTRELEASE:` sentinel + hotfix-flag lifecycle + commit contract)** |
-| 12 | Read-only `foundry status` company-health probe | COMPLETED | SHIPPED iter 16 -- prose in the archive (`Compacted from the index by iter 204`) |
-| 13 | Read-only `foundry history` multi-iteration ship ledger | COMPLETED | SHIPPED iter 17 -- prose in the archive (`Compacted from the index by iter 204`) |
+| 12 | Read-only `foundry status` company-health probe | COMPLETED | SHIPPED iter 16 -- prose in the archive (iter 204) |
+| 13 | Read-only `foundry history` multi-iteration ship ledger | COMPLETED | SHIPPED iter 17 -- prose in the archive (iter 204) |
 | 14 | Single-brain launch preflight (`foundry single-brain`) | The #1 OBSERVED live failure is two dispatchers on one model-API account starving the shared token budget (LEARNINGS `[PM iter01]`, VISION single-brain constraint); `foundry doctor` cannot cover it (its 4-check contract is pinned by iter-01 tests) and the iter-06 watchdog only guards RESURRECTION, not an operator's manual launch | `foundry single-brain [--pattern P]` scans for a running dispatcher and exits 0 SAFE / 1 CONFLICT / 2 UNKNOWN so a launch wrapper can gate on it — **[shipping iter 24 = read-only `running_dispatchers` seam + frozen `SingleBrainStatus` + pure `summarize_single_brain` + on-demand `foundry single-brain` CLI (off the control path, reports only — never kills/force-anything); successor = `--json`]** |
 
 ## Ship order (PM re-orders by value each iteration)
@@ -333,6 +334,7 @@ in the archive.
 - iter 219 -- the leak brake tells a vanished UNTRACKED population member from an unreadable tracked one.
 - iter 220 -- the UNFINISHED tester retry prompt READs the killed round's checkpoint and KEEPs its test file.
 - iter 226 -- the `auth` kind learns the agent CLI's current `auth failed` wording; the fast ladder it owns fires.
+- iter 227 -- `evals/gate/` ships 4 REAL `final.md` artifacts + a pure replay runner; the ship gate gets tracked inputs.
 
 
 ### Migration notes (per §6 self-mod guardrail)
