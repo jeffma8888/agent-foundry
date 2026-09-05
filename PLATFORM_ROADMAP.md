@@ -301,6 +301,7 @@ in the archive.
 - iter 230 -- `doctor` grows a FIFTH drift line: iter 229's dormant test-touch measurement gets its first reader.
 - iter 231 -- pure `prose_stripped_source` disarms the self-referential count brake; iter 230's work re-lands.
 - iter 232 -- role-scoped lesson tail: 4 of the 10 digest slots go to the stage's OWN role's newest lessons.
+- iter 233 -- the pm/scout cards name `DIRECTIONS.md` an INPUT (bounded); new brake: a card's `foundry.py` verbs exist.
 
 
 ### Migration notes (per §6 self-mod guardrail)

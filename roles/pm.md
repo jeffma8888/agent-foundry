@@ -18,6 +18,9 @@ the same work checkpointed early survives the kill.
 - The repo itself (README, code layout, `git -C <repo> log --oneline`).
 - Prior iteration state dirs (skim the newest spec/review/test reports to avoid
   repeats and to learn what already shipped).
+- DIRECTIONS.md is an INPUT: the committed log of every candidate the scouts
+  proposed and which one you picked, newest first and bounded --
+  `python3 <checkout>/foundry.py directions --config PRODUCT_CONFIG --limit 12`.
 - Scout slates, WHEN PRESENT: `pm_scout_a.md` and `pm_scout_b.md` in THIS
   iteration's state dir. Each proposes 2-3 candidate features inside ONE assigned
   LENS, and the pair of lenses is ROTATED per iteration by `select_scout_lenses`

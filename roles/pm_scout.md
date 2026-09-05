@@ -56,6 +56,18 @@ scout's slate for that -- and a slate that wanders is graded down.
 - The product roadmap file and the repo (README, code layout, recent git log).
 - The foundry learnings digest inlined in your prompt.
 
+### DIRECTIONS.md is an INPUT, not just an output
+
+The heading contract below says how your file FEEDS that log; it also feeds
+YOU. `DIRECTIONS.md` records every candidate the loop already considered and
+what it picked, so a topic that lost once tends to lose again. Read the newest
+rows bounded, from any directory (`<checkout>` = the parent of this card's
+`roles/` dir; PRODUCT_CONFIG = your prompt's "Product config" path):
+
+`python3 <checkout>/foundry.py directions --config PRODUCT_CONFIG --limit 12`
+
+If a topic already appears, DROP that candidate or say what is DIFFERENT now.
+
 ## What to produce (your required output file)
 Write 2-3 candidate features. For EACH candidate include:
 - A one-line title.
