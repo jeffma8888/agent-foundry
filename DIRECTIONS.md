@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-233
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 (primary) -- the doc that explains what every stage reads is now wrong about what every stage reads
+    - Candidate A2 -- this framework has TWO stage walls, both observed firing in the live log, and no artifact says so
+    - Candidate A3 -- the two seats that decide what to build are never told the loop keeps a record of what it already considered
+    - Candidate B1 -- placeholder (being measured)
+    - Candidate B2 -- placeholder (being measured)
+    - Candidate B3 -- placeholder (being measured)
+    winner: A3
+    ship: pending (not yet decided)
   iter-232
     lenses: performance-and-throughput (iteration 232), narrative-and-docs (iteration 232)
     - Candidate A1 -- fleet-level auth circuit breaker: stop 21 shifts re-discovering one dead session
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- placeholder (measuring)
     - Candidate B3 -- placeholder (measuring)
     winner: A3
-    ship: pending (not yet decided)
+    ship: PUSHED 1ab677f
   iter-231
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- one reader for the ACTION line, and retire the guard that forbids it
@@ -1235,4 +1245,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-124 scouted iterations
+125 scouted iterations
