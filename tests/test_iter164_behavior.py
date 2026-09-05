@@ -770,9 +770,16 @@ def test_reg_all_four_drift_lines_print_exactly_once_each(monkeypatch, tmp_path)
 def test_ac_run_doctor_cli_docstring_announces_four_drift_lines():
     doc = foundry.run_doctor_cli.__doc__ or ""
     assert doc.strip(), "run_doctor_cli lost its docstring"
-    assert re.search(r"(?i)\bfour\b", doc), \
-        "docstring does not announce FOUR drift lines: %r" % doc[:200]
-    assert not re.search(r"(?i)\bthree\b", doc), \
-        "docstring still claims THREE drift lines: %r" % doc[:200]
+    # ADVANCED iter 230: doctor grew a FIFTH drift line, so the count word steps
+    # once -- and the two regexes are RE-SCOPED from the bare words to the
+    # PHRASES. Reason, and it is the whole point of this edit: the bare-word form
+    # would pass VACUOUSLY from now on, because the docstring keeps the sentence
+    # "Exit code is 0 iff all four checks pass" for a reason unrelated to drift
+    # lines. A brake that can no longer fail is a retired brake, so scoping to
+    # "<count> drift lines" is what keeps this pin meaningful at all.
+    assert re.search(r"(?i)\bfive drift lines\b", doc), \
+        "docstring does not announce FIVE drift lines: %r" % doc[:200]
+    assert not re.search(r"(?i)\bfour drift lines\b", doc), \
+        "docstring still claims FOUR drift lines: %r" % doc[:200]
     assert str(THIS_ITER) in doc, \
         "docstring does not attribute the fourth line to iter 164"

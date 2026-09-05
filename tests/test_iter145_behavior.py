@@ -575,10 +575,14 @@ def test_ac_readme_documents_the_third_line():
     # ADVANCED iter 164: doctor grew a FOURTH drift line, so the count word this
     # test pins moves with it. The invariant is unchanged -- the README announces
     # the CURRENT number of drift lines and never a stale one.
-    assert re.search(r"(?i)\bfour drift lines\b", txt), \
-        "README does not announce four drift lines"
-    assert not re.search(r"(?i)\bthree drift lines\b", txt), \
-        "README still claims there are three drift lines"
+    # ADVANCED iter 230: doctor grew a FIFTH drift line (the test-touch line), so
+    # both count words step once more. Same invariant, same two-sided shape: the
+    # positive pins the current count and the negative retires the previous one,
+    # which is what stops the README from carrying two counts at once.
+    assert re.search(r"(?i)\bfive drift lines\b", txt), \
+        "README does not announce five drift lines"
+    assert not re.search(r"(?i)\bfour drift lines\b", txt), \
+        "README still claims there are four drift lines"
     assert foundry.ROADMAP_INDEX_PREFIX.rstrip(":") in txt
     assert "ROADMAP_INDEX_HARD_CHARS" in txt
     assert re.search(r"(?i)drift line ever changes doctor.s own exit code", txt), \

@@ -48,6 +48,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tokenize
 import tomllib
 import warnings
 
@@ -837,19 +838,28 @@ def doctor_ok(checks: list[Check]) -> bool:
 
 
 def run_doctor_cli(cfg: ProductConfig) -> int:
-    """CLI entry: print one line per check, FOUR drift lines, and a summary.
+    """CLI entry: print one line per check, FIVE drift lines, and a summary.
 
     Exit code is 0 iff all four checks pass -- UNCHANGED by ANY drift line (the
     live-lag line, iter 130; the steering-head line, iter 136; the roadmap-index
-    line, iter 145; the stage-budget line, iter 164). None of the four is an
-    environment fault: a stale brain is a restart the operator owes, an
-    over-budget steering head is an edit the operator owes, a roadmap index near
-    its hard wall is an ARCHIVE the operator owes, and a stage median at the hard
-    per-stage cap is a SMALLER BITE the PM owes -- so all four WARN where they
-    will be seen (this is the surface run before every launch) without ever
-    blocking a run. `run_doctor` itself stays a 4-`Check` function, since its
-    shape is pinned by the iter-01 tests, which is exactly why these four
-    diagnostics live HERE and not as fifth through eighth checks.
+    line, iter 145; the stage-budget line, iter 164; the test-touch line,
+    iter 230). None of the five is an environment fault: a stale brain is a
+    restart the operator owes, an over-budget steering head is an edit the
+    operator owes, a roadmap index near its hard wall is an ARCHIVE the operator
+    owes, a stage median at the hard per-stage cap is a SMALLER BITE the PM owes,
+    and a diff that has touched no test directory is a BEHAVIOR MODULE this
+    iteration owes -- so all five WARN where they will be seen (this is the
+    surface run before every launch) without ever blocking a run. `run_doctor`
+    itself stays a 4-`Check` function, since its shape is pinned by the iter-01
+    tests, which is exactly why these five diagnostics live HERE and not as fifth
+    through ninth checks.
+
+    The newest line (iter 230) is a pure READER of the measurement iteration 229
+    shipped dormant: `test_touch_drift_line` carries `probe_test_touch`'s answer
+    VERBATIM, so it can never disagree with the `test-touch` verb that shares its
+    core, and an unreadable worktree degrades to UNKNOWN rather than to the clean
+    body. Every drift line that preceded it is byte-unchanged by that wiring, as
+    are `run_doctor`, `doctor_ok`, the summary line and this exit code.
 
     Since iter 184 the stage-budget line is priced over the most-recent
     `STAGE_BUDGET_RECENT_ITERATIONS` iterations, read from that module global
@@ -883,6 +893,10 @@ def run_doctor_cli(cfg: ProductConfig) -> int:
     except Exception as exc:  # pragma: no cover - contract-impossible belt
         print(f"{STAGE_BUDGET_PREFIX} UNKNOWN -- stage-budget line errored: "
               f"{exc!r}")
+    try:
+        print(test_touch_drift_line(cfg))
+    except Exception as exc:  # pragma: no cover - contract-impossible belt
+        print(f"{TEST_TOUCH_PREFIX} UNKNOWN -- test-touch line errored: {exc!r}")
     ok = doctor_ok(checks)
     passed = sum(1 for c in checks if c.ok)
     print(f"doctor: {passed}/{len(checks)} checks ok — "
@@ -9577,6 +9591,14 @@ TEST_TOUCH_DIR_NAMES: tuple[str, ...] = ("tests",)
 # not exist and would let a future tune of one silently retime the other.
 TEST_TOUCH_TIMEOUT_SECONDS = 20
 
+# Stable grep anchor for the ONE line iteration 230 wired into `doctor`, and
+# deliberately distinct from the four prefixes that precede it there
+# (`live-lag:`, `learnings-head:`, `roadmap-index:`, `stage-budget:`): an
+# operator -- and a future reader -- must be able to grep exactly one report out
+# of that stdout by PREFIX rather than by line position, which is what lets the
+# five lines be reordered or extended without breaking any consumer.
+TEST_TOUCH_PREFIX = "test-touch:"   # stable grep anchor for the one line
+
 
 def _test_touch_paths(porcelain: str) -> tuple[frozenset[str], frozenset[str]]:
     """Split a porcelain text into (all distinct paths, those under a test dir).
@@ -9694,6 +9716,130 @@ def probe_test_touch(repo) -> str | None:
         return test_touch_line(porcelain.out)
     except Exception:
         return None
+
+
+def test_touch_drift_line(cfg: "ProductConfig") -> str:
+    """ONE human line: has the iteration IN FLIGHT touched a test directory?
+
+    Shaped exactly like `roadmap_index_line` and the three drift lines before it,
+    because it answers the same class of question -- a drift the ITERATION owes a
+    fix for (a behavior module), not an environment fault -- and so it prints
+    where it will be seen (`doctor` is the surface run before every launch)
+    without ever blocking a run.
+
+    THE READER iteration 229's measurement lacked. `test_touch_line` and
+    `probe_test_touch` shipped with NO caller because every seat considered then
+    was illegal: the tester runs in isolation, the reviewer runs BEFORE the
+    tester, and the final gate is pinned to spend its minutes on shipping. A
+    measurement with no reader decays into the `stage-times` problem -- a report
+    that "ran only when a human remembered it existed". `doctor` is none of those
+    three seats, which is precisely why it is a legal one.
+
+    CARRIES THE PROBE'S ANSWER VERBATIM, deriving NO count of its own. The verb
+    `test-touch` and this line therefore cannot disagree, because there is exactly
+    one place that decides what the answer IS. The only transform applied is
+    whitespace collapse, which keeps every WORD (all three real bodies are
+    byte-identical through it) while making the single-line guarantee total even
+    for a misbehaving seam.
+
+    FAIL-SAFE, NEVER FAIL-OPEN: a probe that answers `None` (an unreadable
+    worktree, a hung or failed `git`) degrades to UNKNOWN, never to the CLEAN
+    body -- the asymmetry `probe_test_touch` documents, since reporting a clean
+    tree off a scan that did not run is a gauge that lies in the one direction
+    that matters. The UNKNOWN texts therefore avoid the verdict words the three
+    real bodies own, so no reader can mistake one state for another.
+
+    The exception branch names the exception CLASS and not its message, on the
+    same reasoning that makes `test_touch_line` counts-only: a string this
+    function did not author must never be able to smuggle a verdict word, a
+    machine path or a `PRESHIP:`/`ACTION:` sentinel into a report that ships into
+    logs and state artifacts.
+
+    `probe_test_touch` is called by its BARE module name (so
+    `monkeypatch.setattr(foundry, "probe_test_touch", ...)` bites and this whole
+    path is verifiable offline with no real subprocess, git or network), exactly
+    ONCE, and with `cfg.repo` -- never a hardcoded path and never the process cwd,
+    so this stays repo-agnostic per VISION: the loop drives ANY repo via a JSON
+    config.
+
+    ALWAYS returns a non-empty SINGLE-line `str` starting with
+    `TEST_TOUCH_PREFIX` (no embedded newline), never `None`, and NEVER raises: a
+    diagnostic that can crash the preflight it decorates is worse than none.
+    """
+    try:
+        # Read straight off the config and pass it through unchanged: the probe
+        # owns the `-C <repo>` scoping, so this function holds no path policy.
+        body = probe_test_touch(getattr(cfg, "repo", None))
+        if not isinstance(body, str) or not body.strip():
+            return (f"{TEST_TOUCH_PREFIX} UNKNOWN -- the worktree probe returned "
+                    f"no answer, so nothing is claimed about this iteration's "
+                    f"diff either way")
+        return f"{TEST_TOUCH_PREFIX} {' '.join(body.split())}"
+    except Exception as exc:  # pragma: no cover - contract-impossible belt
+        return (f"{TEST_TOUCH_PREFIX} UNKNOWN -- the worktree probe raised "
+                f"{type(exc).__name__}, so nothing is claimed about this "
+                f"iteration's diff either way")
+
+
+def prose_stripped_source(source: object) -> str:
+    """Blank every comment and string literal in a Python source, keeping shape.
+
+    WHY: a brake that greps its own RAW source for a numeral cannot tell a real
+    ambient-count precondition -- which is always CODE, e.g.
+    ``assert len(paths) == 6000`` -- from a historical iteration number sitting
+    in prose. So such a brake eventually forbids its own docstring from naming an
+    iteration, and reds for a NUMERIC COINCIDENCE: that is exactly how iteration
+    230's behavior-complete work was reverted (a docstring spelled the number
+    that the new test module made today's ``tests/**/*.py`` count). Searching
+    THIS output instead narrows the domain to code, which is faithful to such a
+    brake's stated intent rather than a weakening of it.
+
+    Prose is OVERWRITTEN with spaces, never removed, so ``len()`` and every
+    newline INDEX are preserved byte-for-byte and a line/column measured on the
+    result still points at the real source. Code spans come back untouched.
+
+    Pure and total: no I/O, no clock, no globals. FAIL-CLOSED in both
+    directions -- a non-``str`` (or empty) argument yields ``""``, and a ``str``
+    the tokenizer REJECTS is returned UNCHANGED, so a caller searching the result
+    can never see LESS than it would have seen without this helper. It raises for
+    no input.
+    """
+    if not isinstance(source, str) or not source:
+        return ""
+    # FSTRING_MIDDLE is the 3.12+ token carrying an f-string's literal text; on
+    # older tokenizers the whole f-string arrives as one STRING instead, so this
+    # is a capability probe, never a version test.
+    blankable = {tokenize.COMMENT, tokenize.STRING}
+    fstring_middle = getattr(tokenize, "FSTRING_MIDDLE", None)
+    if fstring_middle is not None:
+        blankable.add(fstring_middle)
+    # Split on "\n" ONLY -- str.splitlines would also break on \v, \f and
+    # U+2028, which Python's own tokenizer does not, and the row numbers below
+    # must index the same lines the tokenizer counted.
+    pieces = source.split("\n")
+    lines = [piece + "\n" for piece in pieces[:-1]]
+    if pieces[-1]:
+        lines.append(pieces[-1])
+    try:
+        tokens = list(tokenize.generate_tokens(iter(lines).__next__))
+    except Exception:
+        return source
+    grid: list[list[str]] = [list(line) for line in lines]
+    for token in tokens:
+        if token.type not in blankable:
+            continue
+        start_row, start_col = token.start
+        end_row, end_col = token.end
+        for row in range(start_row, end_row + 1):
+            if not 1 <= row <= len(grid):
+                continue
+            cells = grid[row - 1]
+            first = start_col if row == start_row else 0
+            last = end_col if row == end_row else len(cells)
+            for index in range(max(first, 0), min(last, len(cells))):
+                if cells[index] not in ("\n", "\r"):
+                    cells[index] = " "
+    return "".join("".join(cells) for cells in grid)
 
 
 def probe_worktree_scope(repo) -> str | None:

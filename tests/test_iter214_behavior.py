@@ -2,9 +2,10 @@
 population, plus a PIN on the scanner's silently-skipped set.
 
 WHY THIS EXISTS: the committed leak guard is the only ship check that has
-destroyed whole iterations TWICE -- iteration 199 (two denylisted tokens in a new
-test module) and iteration 205 (one absolute home-path literal, one line, whose
-work had to be re-landed by a later iteration). Each cost a full iteration.
+destroyed whole iterations TWICE -- once for two denylisted tokens in a new test
+module, and once (iteration 205) for a single absolute home-path literal on one
+line, whose work had to be re-landed by a later iteration. Each cost a full
+iteration; ``PLATFORM_ROADMAP_ARCHIVE.md`` carries both iteration numbers.
 Iteration 210 correctly moved that check earlier, but chose the population
 ``tests/**/*.py``. Measured against the tree this module was written on, that
 leaves 61 files of the 248 that ``git add -A`` would stage entirely UNSCANNED
@@ -783,11 +784,19 @@ def test_ac_the_brake_pins_no_ambient_file_count():
     once already: it holds in this working tree and fails in the throwaway clone
     the release gate verifies from. The counts are computed and searched for
     here, never spelled -- spelling one would BE the pin it forbids.
+
+    THE SEARCH IS OVER CODE ONLY (``foundry.prose_stripped_source``), because a
+    precondition can only live in code, while PROSE legitimately names iteration
+    numbers -- and one of those numbers eventually EQUALS an ambient count. That
+    coincidence reverted a whole behavior-complete iteration once, so the domain
+    of this brake, not the prose, was the defect. Stripping is fail-closed: an
+    untokenisable source comes back unchanged, so this can never search less.
     """
     population = _population_or_skip(_ROOT)
     on_disk = [path for path in _TESTS_DIR.rglob("*.py")
                if "__pycache__" not in path.parts]
-    source = pathlib.Path(__file__).read_text(encoding="utf-8")
+    source = foundry.prose_stripped_source(
+        pathlib.Path(__file__).read_text(encoding="utf-8"))
     for label, count in (("population size", len(population)),
                          ("tests/**/*.py count", len(on_disk))):
         assert re.search(r"\b" + str(count) + r"\b", source) is None, (
