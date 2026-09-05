@@ -27,7 +27,7 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 230): ledger and archive are current through 230 (193/194/199/201/203/205/221-225 never shipped, so
+STATUS (iter 232): ledger and archive are current through 232 (193/194/199/201/203/205/221-225 never shipped, so
 none owes a row).
 STILL OPEN:
 (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
@@ -300,6 +300,7 @@ in the archive.
 - iter 229 -- pure `test_touch_line` + `probe_test_touch` + dormant `test-touch`: 186/186 test-touch is now code.
 - iter 230 -- `doctor` grows a FIFTH drift line: iter 229's dormant test-touch measurement gets its first reader.
 - iter 231 -- pure `prose_stripped_source` disarms the self-referential count brake; iter 230's work re-lands.
+- iter 232 -- role-scoped lesson tail: 4 of the 10 digest slots go to the stage's OWN role's newest lessons.
 
 
 ### Migration notes (per §6 self-mod guardrail)
