@@ -1,6 +1,26 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-231
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- one reader for the ACTION line, and retire the guard that forbids it
+    - Candidate A2 -- hoist the byte-identical methods out of the three test-quality lens report types
+    - Candidate A3 -- collapse the ten `company-*` argparse registrations onto one helper
+    - Candidate A -- retire the quadratic `ast.get_source_segment` loop in the AST brakes
+    - Candidate B -- a per-test duration budget, so suite growth stops being invisible
+    - Candidate C -- stop re-buying the digest bytes a stage can never act on
+    winner: A1
+    ship: pending (not yet decided)
+  iter-230
+    lenses: integration-and-adoption (iteration 230), simplification-and-deletion (iteration 230)
+    - Candidate A1 -- doctor grows a fifth drift line so `test-touch` finally has a reader
+    - Candidate A2 -- `doctor --json`: a machine contract for the four "you owe" diagnostics
+    - Candidate A3 -- `new-product` scaffolds the VISION its own next-steps block tells you to point at
+    - Candidate B1 -- the last duplicated `ACTION:` sentinel rule collapses onto one token core
+    - Candidate B2 -- retire the superseded 60,000-char roadmap budget: one file, two walls, and the taller one can never fire
+    - Candidate B3 -- 27 hand-copied control-path freeze guards collapse onto one AST/symbol invariant (roadmap item (o))
+    winner: A1
+    ship: REVERTED
   iter-229
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- `foundry roadmap-rows`: derive the paydown's pin set from tests/, fail-closed
@@ -10,7 +30,7 @@ foundry directions -- _platform
     - Candidate B2 -- the `reporter` role has never run: reach its 4 mechanical sections through the ledgers that already ship
     - Candidate B3 -- three shipped feeds are switched on for 1 of 5 teams: close the config-default gap
     winner: A2
-    ship: pending (not yet decided)
+    ship: PUSHED 8e8f712
   iter-228
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `foundry roadmap-rows`: name the ledger rows the archive already carries, and delete them
@@ -1205,4 +1225,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-121 scouted iterations
+123 scouted iterations

@@ -820,7 +820,23 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # window (`git diff HEAD` cannot see an UNTRACKED file at all).
                 # Nothing about the assertion or the 75-assertion literal class
                 # changes.
-                "tests/test_iter229_behavior.py"}
+                "tests/test_iter229_behavior.py",
+                # iter 230: this iteration's OWN new behavior test file, for the
+                # identical reason as the iter-229 row above (`THIS_ITER` is
+                # FROZEN at 204, so the f-string cannot name a later iteration).
+                "tests/test_iter230_behavior.py",
+                # iter 230: FORCED count-word advance. doctor grew a FIFTH drift
+                # line, and iter 145 owns the only README pin on that count.
+                "tests/test_iter145_behavior.py",
+                # iter 230: FORCED count-word advance. Same fifth line; iter 164
+                # owns the only `run_doctor_cli.__doc__` pin on that count, and
+                # its two regexes are re-scoped from bare words to phrases so the
+                # brake cannot go vacuous. No assertion is weakened by either.
+                "tests/test_iter164_behavior.py",
+                # iter 231: this iteration's OWN new behavior test file, for the
+                # identical reason as the iter-229/230 rows above (`THIS_ITER` is
+                # FROZEN at 204, so the f-string cannot name a later iteration).
+                "tests/test_iter231_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

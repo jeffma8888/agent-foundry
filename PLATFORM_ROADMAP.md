@@ -27,13 +27,13 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 228): ledger and archive are current through 228 (193/194/199/201/203/205/221-225 never shipped, so
+STATUS (iter 230): ledger and archive are current through 230 (193/194/199/201/203/205/221-225 never shipped, so
 none owes a row).
 STILL OPEN:
-(c), (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
+(d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
 NEXT UP, in value order: (a) Only the OPTIONAL 25-guard
 CONSOLIDATION remains, and it does NOT unblock strangler steps 2/3 (one guard still freezes
-`dispatcher.py` and the meta-test requires it to); (c) MEASUREMENT HALF SHIPPED iter 229 -- the invariant is 186/186 (every `(foundry iter N)` commit touches `tests/`), the naive "a module named for this iteration exists" form has a live false positive (206 re-landed 205's module), and `test_touch_line`/`probe_test_touch`/`test-touch` now state it from the WORKTREE porcelain. The CONSUMER half is what remains and 229 proved it has NO LEGAL SEAT today: the tester owns the deliverable but reading `git status` breaks TESTER ISOLATION (why iter 188 A3 lost), the reviewer runs BEFORE the tester (its own lines 66-67 say the absence is not a finding), and the final gate is pinned to "write the ACTION token by minute 6". Do NOT re-propose a card wiring without first naming a seat that survives all three; (d) relax `roles/tester.md`'s
+`dispatcher.py` and the meta-test requires it to); (c) CLOSED -- MEASUREMENT HALF SHIPPED iter 229, CONSUMER HALF SHIPPED iter 230: `doctor` prints `probe_test_touch`'s answer as its fifth never-blocking drift line. The three objections that made every earlier seat illegal, and the seat that answers all three, are recorded VERBATIM in the archive's `- **iter 230` bullet -- read it before proposing any further wiring of this measurement; (d) relax `roles/tester.md`'s
 prose discipline around the two gate tokens, which iteration 127 makes safe but which MUST NOT ship in
 the same iteration as 127 itself (a live loop holds the pre-127 `foundry.py` in memory). (f) SHIPPED iter 133 -- record in the archive. (g) **candidates half SHIPPING iter 131; the rest still open.** STILL OPEN, in order: the `parse_triage_winner` half (21 `pm.md` files carry a `## Triage` heading and still yield `None`), then rendering "present but unparsed" distinctly from "absent". (i) **DE-LISTED by iteration 130's scout A -- do NOT re-propose:** detail in the archive. ALSO STILL OPEN: the iteration-121 RETRY (its 51,824-byte
 `products/_platform/state/iter-121/REVERTED_IMPLEMENTATION.patch` is preserved and its FINAL lesson
@@ -298,6 +298,8 @@ in the archive.
 - iter 227 -- `evals/gate/` ships 4 REAL `final.md` artifacts + a pure replay runner; the ship gate gets tracked inputs.
 - iter 228 -- pure `roadmap_redundant_rows`/`roadmap_rows_removed`; 39 archive-covered Done rows shed, +4,486 chars.
 - iter 229 -- pure `test_touch_line` + `probe_test_touch` + dormant `test-touch`: 186/186 test-touch is now code.
+- iter 230 -- `doctor` grows a FIFTH drift line: iter 229's dormant test-touch measurement gets its first reader.
+- iter 231 -- pure `prose_stripped_source` disarms the self-referential count brake; iter 230's work re-lands.
 
 
 ### Migration notes (per §6 self-mod guardrail)
