@@ -753,8 +753,33 @@ def test_ac_d_item_c_records_the_consumer_half_shipped() -> None:
 
 
 def test_ac_d_the_status_line_reads_this_iteration() -> None:
-    assert f"STATUS (iter {THIS_ITER})" in _roadmap()
+    """The STATUS line must name THIS iteration OR A LATER one.
+
+    Re-keyed by iter 232 (FORCED, not optional): the original form pinned the
+    literal `STATUS (iter 230)`, but that line's own contract is to name the
+    CURRENT iteration, so a frozen `==`-style literal makes it a brake that
+    FORBIDS its own subject from ever advancing again -- the same shape iteration
+    231 had to defuse in iter 214's count brake, which reverted 941 lines of
+    behavior-complete work. Iteration 232's PM legitimately advanced the line to
+    232 and the roadmap file is PM-owned, so the brake is the payable side.
+
+    It is not weakened: a REGRESSION below THIS_ITER still reds (proved by the
+    sibling test below), the STATUS line going missing still reds, and the
+    original 228 negative pin is kept verbatim.
+    """
+    m = re.search(r"STATUS \(iter (\d+)\)", _roadmap())
+    assert m, "the roadmap must carry a `STATUS (iter N)` line"
+    assert int(m.group(1)) >= THIS_ITER, \
+        f"STATUS names iter {m.group(1)}, older than {THIS_ITER}"
     assert "STATUS (iter 228)" not in _roadmap()
+
+
+def test_ac_d_the_status_line_oracle_can_still_fail() -> None:
+    """The re-keyed check above is only evidence if it is FAILABLE."""
+    stale = "STATUS (iter 229): stale\n"
+    m = re.search(r"STATUS \(iter (\d+)\)", stale)
+    assert m and int(m.group(1)) < THIS_ITER, \
+        "a STATUS line older than THIS_ITER must be rejected by the same oracle"
 
 
 def test_ac_d_the_archive_gains_no_new_heading() -> None:

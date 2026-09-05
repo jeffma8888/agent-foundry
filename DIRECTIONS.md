@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-232
+    lenses: performance-and-throughput (iteration 232), narrative-and-docs (iteration 232)
+    - Candidate A1 -- fleet-level auth circuit breaker: stop 21 shifts re-discovering one dead session
+    - Candidate A2 -- pay the stage's wall-clock deadline forward into its prompt
+    - Candidate A3 -- role-scope the learnings digest tail (88.4% of every prompt, 0% on-role)
+    - Candidate B1 -- placeholder (measuring)
+    - Candidate B2 -- placeholder (measuring)
+    - Candidate B3 -- placeholder (measuring)
+    winner: A3
+    ship: pending (not yet decided)
   iter-231
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- one reader for the ACTION line, and retire the guard that forbids it
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B -- a per-test duration budget, so suite growth stops being invisible
     - Candidate C -- stop re-buying the digest bytes a stage can never act on
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 8ff7ce1
   iter-230
     lenses: integration-and-adoption (iteration 230), simplification-and-deletion (iteration 230)
     - Candidate A1 -- doctor grows a fifth drift line so `test-touch` finally has a reader
@@ -1225,4 +1235,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-123 scouted iterations
+124 scouted iterations

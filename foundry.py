@@ -288,6 +288,21 @@ PROMPT_LEARNINGS_LESSON_CHARS = 800     # per-lesson truncation cap (prompt path
 PROMPT_LEARNINGS_BUDGET_CHARS = 10000   # total char cap on the lessons tail (prompt)
 LEARNINGS_TRUNCATION_MARKER = " [...]"  # ASCII ellipsis appended to a truncated line
 
+# How many of the PROMPT_LEARNINGS_RECENT tail slots a stage's OWN role may claim
+# (iter 232). The tail is otherwise a strict chronological window with no role
+# awareness, so a seat's lessons are crowded out at the rate OTHER seats happen to
+# write: measured on this product's log, the PM prompt of iteration 232 inlined 10
+# lessons of which ZERO carried a `[PM ` tag, against 280 `- [PM iter` lessons that
+# seat had never been shown (census FINAL 440 / TEST 431 / REV 359 / ENG 358 /
+# PM 280 / FIX 104 / PM_SCOUT_A 84 / PM_SCOUT_B 68 / SCOUT 26 / SCOUT_B 4 -- every
+# seat is a minority of its own steering channel). The reservation is
+# COUNT-PRESERVING, so no seat loses cross-role visibility it has today; only the
+# OLDEST few slots of the window change hands. `build_prompt` reads this and
+# `stage_role_tags` at CALL time from the module globals so a
+# `monkeypatch.setattr(foundry, ...)` bites. The pinned `## Patterns` head is
+# deliberately NOT filtered: it is where cross-role operator directives live.
+PROMPT_LEARNINGS_ROLE_RESERVE = 4   # of the 10 tail slots, reserved for own role
+
 # Character bounds for the PINNED `## Patterns` HEAD of the same prompt digest.
 # The lesson-tail bounds above left the head verbatim because it was "curated and
 # small" -- a premise that expired: operators append multi-paragraph directives to
@@ -1616,6 +1631,71 @@ def head_bullet_losses(
     return tuple(losses)
 
 
+# Role tag of a lesson line, and the tags a pipeline stage counts as ITS OWN
+# (iter 232). Both are PURE -- no filesystem, subprocess or network -- so the
+# role-scoped tail is fully offline-testable, and both are read by BARE module
+# name at their call sites so `monkeypatch.setattr(foundry, ...)` bites.
+#
+# The tag grammar is deliberately STRICT: `- [<TAG> iter<something>]` with TAG
+# drawn from `[A-Za-z0-9_]` only. Two consequences are intended, not accidental:
+# the historical hyphenated tags this log still carries (`SCOUT-A`, `SCOUT-B`,
+# `TESTER-RERUN` -- 222 of 2,376 lines, none newer than iteration 230) are
+# reported as UNTAGGED rather than silently folded into a modern tag, and the
+# `iter` token must be followed by a NON-SPACE, so the prose bullet
+# `- [no iter token]` cannot be mistaken for a lesson line.
+LESSON_ROLE_TAG_RE = re.compile(r"^\s*- \[([A-Za-z0-9_]+) +iter\S")
+
+# Stage -> the tags that stage counts as on-role. A scout stage claims BOTH its
+# own seat tag and the generic `SCOUT` tag, because both spellings are live in
+# the log. An UNKNOWN stage falls back to `(stage.upper(),)` rather than `()`:
+# a stage added later then scopes to its OWN tag instead of silently losing
+# scoping, which is the failure that would be invisible.
+STAGE_ROLE_TAGS: dict[str, tuple[str, ...]] = {
+    "pm": ("PM",),
+    "engineer": ("ENG",),
+    "reviewer": ("REV",),
+    "tester": ("TEST",),
+    "final": ("FINAL",),
+    "fix": ("FIX",),
+    "pm_scout_a": ("PM_SCOUT_A", "SCOUT"),
+    "pm_scout_b": ("PM_SCOUT_B", "SCOUT_B", "SCOUT"),
+}
+
+
+def lesson_role_tag(line: str) -> str | None:
+    """Return the UPPERCASED role tag of one lesson line, or `None`.
+
+    `"- [PM iter231] x"` -> `"PM"`; `"  - [pm_scout_a iter232] y"` ->
+    `"PM_SCOUT_A"`. `None` for anything that is not a `- [<TAG> iter...]` lesson
+    line -- a plain `- bullet`, a `## heading`, `""`, `"- [no iter token]"`, an
+    empty tag (`"- [ iter1] x"`) and any tag holding a character outside
+    `[A-Za-z0-9_]`. Total: never raises, for ANY input including `None`.
+
+    `None` means "not on-role", so every unparseable line is EXCLUDED from a role
+    reservation rather than admitted to it. That direction is the safe one: an
+    excluded lesson costs at most one reserve slot that is then refilled from the
+    any-role window, while an admitted wrong line would displace a newer lesson.
+    """
+    if not isinstance(line, str) or not line:
+        return None
+    m = LESSON_ROLE_TAG_RE.match(line)
+    return m.group(1).upper() if m else None
+
+
+def stage_role_tags(stage: str | None) -> tuple[str, ...]:
+    """Return the tuple of lesson tags a pipeline `stage` counts as ITS OWN.
+
+    `""` and `None` return `()` (which disables the reservation, so a caller that
+    cannot name its stage pays nothing). A stage absent from `STAGE_ROLE_TAGS`
+    falls back to `(stage.upper(),)` -- see the map's comment for why that beats
+    `()`. The map is read as a module global so a test can patch it.
+    """
+    if not isinstance(stage, str) or not stage:
+        return ()
+    mapped = STAGE_ROLE_TAGS.get(stage)
+    return mapped if mapped is not None else (stage.upper(),)
+
+
 def learnings_digest(
     text: str,
     recent: int = 12,
@@ -1623,6 +1703,9 @@ def learnings_digest(
     lesson_chars: int | None = None,
     head_bullet_chars: int | None = None,
     head_chars: int | None = None,
+    *,
+    role_tags: tuple[str, ...] | None = None,
+    role_reserve: int | None = None,
 ) -> str:
     """Reduce a role-tagged learnings log to a bounded, high-signal view.
 
@@ -1680,6 +1763,26 @@ def learnings_digest(
     ``## `` heading OR the first lesson line, whichever comes first -- robust even
     when a file omits the ``## Chronological lessons`` marker. With no ``## Patterns``
     section a two-line placeholder head is emitted so the output shape is stable.
+
+    Two further OPTIONAL, keyword-only parameters make the LESSON TAIL role-aware
+    (iter 232). The tail is otherwise strictly chronological, so a seat's own
+    lessons are crowded out at the rate OTHER seats happen to write -- measured on
+    this product's log, a PM prompt's 10 inlined lessons carried ZERO ``[PM `` tags
+    against 280 unseen ones. Both default to OFF, so every existing caller stays
+    byte-identical:
+
+    * ``role_tags`` -- the tags counted as ON-ROLE (see ``stage_role_tags``);
+      ``None`` or empty disables the reservation entirely. Annotated
+      ``tuple[str, ...]`` on purpose, per the ``parse_verdict_token`` note: a bare
+      ``str`` satisfies ``Sequence[str]`` and would iterate CHARACTERS.
+    * ``role_reserve`` -- ``None`` (the default) and ``0`` both mean OFF, matching
+      the opt-in shape of the four character bounds above. Otherwise: how many of
+      the ``recent`` slots the newest on-role
+      lessons from OUTSIDE the window may claim, replacing the OLDEST slots of it.
+      COUNT-PRESERVING (the emitted lesson count never changes) and duplicate-free
+      by construction, because the reserve is drawn only from indices before the
+      window; an unfillable slot simply stays with the any-role window, so a log
+      with no older on-role lesson pays exactly nothing.
     """
     lines = text.splitlines()
 
@@ -1706,9 +1809,35 @@ def learnings_digest(
             head.append(ln)
 
     # Bounded tail: every lesson line in document order, keep the last `recent`.
+    # Worked in INDICES so the optional role reservation below can draw from the
+    # lessons OUTSIDE the window without any membership bookkeeping.
     lessons = [ln for ln in lines if is_lesson(ln)]
     total = len(lessons)
-    window = lessons[max(0, total - recent):]
+    start = max(0, total - recent)
+    sel = list(range(start, total))     # today's window, ascending = doc order
+
+    # Optional role reservation (default OFF => this block does not execute, so
+    # the output is byte-identical for every existing caller). `older` is drawn
+    # only from `range(start)`, DISJOINT from the window by construction, so no
+    # lesson can appear twice and no duplicate test is needed. Count preservation
+    # is arithmetic, not a special case: `len(extra) + len(sel[len(extra):])` is
+    # `len(sel)`, so a seat can never lose more than `role_reserve` of the newest
+    # cross-role lessons, and an empty `extra` leaves `sel` untouched. Placed
+    # ABOVE the truncation/budget blocks so both still bound the composed tail.
+    reserve = role_reserve or 0     # `None` (the default) and `0` both mean OFF
+    if role_tags and reserve > 0 and sel:
+        # A bare `str` is normalised to one tag rather than iterated as
+        # characters: the loose form would silently match nothing.
+        raw = (role_tags,) if isinstance(role_tags, str) else role_tags
+        tags = {t.upper() for t in raw if isinstance(t, str) and t}
+        older = [i for i in range(start)
+                 if (lesson_role_tag(lessons[i]) or "") in tags]
+        # Clamped to the window size: a reserve wider than the window would
+        # otherwise emit MORE lessons than `recent` asked for.
+        extra = older[-min(reserve, len(sel)):] if older else []
+        if extra:
+            sel = sorted(extra + sel[len(extra):])
+    window = [lessons[i] for i in sel]
 
     # Optional per-lesson truncation (chars): applied BEFORE the budget so one
     # multi-KB lesson cannot dominate the tail. Default None => no truncation.
@@ -19290,6 +19419,12 @@ def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
     # it is 63% of the digest and the only region with an unbounded writer, so
     # leaving it exempt made the "bounded digest" claim false on the hot path.
     # Read as module globals so `monkeypatch.setattr(foundry, ...)` bites here.
+    # `role_tags` / `PROMPT_LEARNINGS_ROLE_RESERVE` give this stage's OWN role the
+    # oldest few of those slots (iter 232), so the freshest signal a seat reads is
+    # not crowded out by whichever OTHER seats happened to write last. It is
+    # COUNT-PRESERVING and pays nothing when the log holds no older on-role
+    # lesson. `stage_role_tags` is called by BARE NAME and the reserve is read as
+    # a module global, so `monkeypatch.setattr(foundry, ...)` bites on either.
     digest = learnings_digest(
         text,
         recent=PROMPT_LEARNINGS_RECENT,
@@ -19297,6 +19432,8 @@ def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
         lesson_chars=PROMPT_LEARNINGS_LESSON_CHARS,
         head_bullet_chars=PROMPT_LEARNINGS_HEAD_BULLET_CHARS,
         head_chars=PROMPT_LEARNINGS_HEAD_BUDGET_CHARS,
+        role_tags=stage_role_tags(stage),
+        role_reserve=PROMPT_LEARNINGS_ROLE_RESERVE,
     )
     # PM-stage repetition brake (discovery bite 3b): pm_novelty_block injects
     # the RUT/VARIED verdict + a shape-break directive into the PM lead's
