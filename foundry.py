@@ -13298,6 +13298,73 @@ def foundry_cli_verbs(source_text: str) -> tuple[str, ...]:
     return tuple(sorted(verbs))
 
 
+# The exact prefix that marks a module-level prompt-digest budget constant. Named
+# WITHOUT that prefix on purpose: a `PROMPT_LEARNINGS_PREFIX` global would satisfy
+# its own rule, so the documentation brake would demand that `ARCHITECTURE.md`
+# describe this extractor's implementation detail as if it were a budget.
+_LEARNINGS_CONSTANT_PREFIX = "PROMPT_LEARNINGS_"
+
+
+def prompt_learnings_constants(source_text: str) -> tuple[str, ...]:
+    """Every module-level `PROMPT_LEARNINGS_*` constant `source_text` declares, sorted.
+
+    Takes the SOURCE TEXT of `foundry.py`, never a path, so it is PURE and TOTAL
+    exactly like `foundry_cli_verbs` above: no filesystem, subprocess, network or
+    clock access, no mutation of its argument, and equal inputs give `==` results.
+    Reading the file off disk is deliberately the CALLER's job -- that is what lets
+    a test drive the scoping rules from small in-memory strings while the live
+    documentation brake points the same function at the real module.
+
+    WHY IT EXISTS: every product's quality bar sends every stage to
+    `ARCHITECTURE.md` section 5 to learn what the learnings digest it is reading is
+    bounded BY, and that account drifted -- iteration 232 shipped
+    `PROMPT_LEARNINGS_ROLE_RESERVE`, the constant deciding WHICH lessons a seat is
+    shown, and the design doc never named it. Deriving the set from the code turns
+    "is the doc complete?" from a habit into an assertion, so the next budget
+    constant anyone adds reds the suite until it is documented.
+
+    Walks `ast.parse(...).body` DIRECTLY rather than `ast.walk`, which is what makes
+    module-level scoping structural: a name bound inside a `def` or `class` body is
+    simply not in that list, so there is no scope test to maintain.
+    `ast.get_source_segment` is never called -- it re-splits the entire source per
+    node, the quadratic trap iteration 231 already paid for on a file this size.
+    Only `ast.Name` targets count, so tuple-unpacking assignment is deliberately
+    out of scope: no budget is declared that way, and honest under-reporting of an
+    exotic shape is safe here while a mis-parse of the ordinary one is not.
+
+    Honest when empty: `""`, a non-`str`, or source that does not parse yields `()`
+    rather than raising, which is what makes a non-vacuity floor ("at least N
+    names") expressible in the brake instead of a vacuous pass.
+
+    DORMANT: zero call site in the running pipeline -- no orchestrator, dispatcher,
+    stage, CLI verb or config field references it -- so resume semantics for an
+    in-flight loop are byte-identical.
+    """
+    if not isinstance(source_text, str) or not source_text:
+        return ()
+
+    try:
+        module = ast.parse(source_text)
+    except (SyntaxError, TypeError, ValueError):
+        return ()
+
+    names: set[str] = set()
+    for node in module.body:
+        if isinstance(node, ast.Assign):
+            targets: list[ast.expr] = list(node.targets)
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        else:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name) and target.id.startswith(
+                _LEARNINGS_CONSTANT_PREFIX
+            ):
+                names.add(target.id)
+
+    return tuple(sorted(names))
+
+
 # The ONE figure shape the roadmap index uses to advertise the CLI's size, read
 # by `roadmap_verb_figure_gaps`. The literal `CLI` is load-bearing SCOPE, not
 # decoration: `PLATFORM_ROADMAP_ARCHIVE.md` carries 15 historical `N verbs`

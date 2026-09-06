@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-238
+    lenses: performance-and-throughput -- iteration 238, narrative-and-docs -- iteration 238
+    - Candidate A1 -- placeholder (measuring)
+    - Candidate A2 -- placeholder (measuring)
+    - Candidate A3 -- placeholder (measuring)
+    - Candidate B1 -- the last ship inverted the liveness mechanism, and the command the operator doc still teaches answers 3-for-1 on this machine
+    - Candidate B2 -- two committed docs give the operator opposite instructions for the one action that can violate single-brain
+    - Candidate B3 -- the doc every stage prompt is sent to for the invariants names 5 of the 6 prompt budgets, and the one it omits is the newest
+    winner: A1
+    ship: pending (not yet decided)
   iter-237
     lenses: simplification-and-deletion (iteration 237), performance-and-throughput (iteration 237)
     - Candidate A1 -- watchdog.py is the last automated caller of the `pgrep` scan the repo already banned, and it fails SHUT
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the 8,069-test suite is bought 4-5 times per iteration, including by stages that are not the verifier
     - Candidate B3 -- the tester leg costs 24.5% of stage time with 12/15 attempts killed at the wall
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED c219b2b
   iter-236
     lenses: integration-and-adoption, simplification-and-deletion (iteration 236)
     - Candidate A1 -- the hardened launch path the whole framework depends on is machine-local, leak-dirty, and ships nowhere
@@ -1285,4 +1295,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-129 scouted iterations
+130 scouted iterations
