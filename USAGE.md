@@ -55,12 +55,25 @@ cautions for brownfield code (see the `ai-brownfield-practices` skill):
 cd ~/projects/agent-foundry
 cp foundry.config.example.json foundry.config.json
 #   enable/disable teams, set priority (lower = earlier each round).
-uv run python dispatcher.py --config foundry.config.json
+# Set your agent CLI FIRST — launch.sh has no default for FOUNDRY_AGENT_BIN and
+# refuses to start without it. FOUNDRY_AGENT_ARGS is the argv list it gets, with
+# a {prompt} placeholder.
+export FOUNDRY_AGENT_BIN=/path/to/your/agent-cli
+export FOUNDRY_AGENT_ARGS='["run", "--task", "{prompt}"]'
+./launch.sh
 ```
 
 The dispatcher runs the platform team (improves the foundry) and every enabled
 product team, one iteration at a time, until you `touch STOP`. This is the
 quota-safe way to have more than one team "always on."
+
+`./launch.sh` is the supported way in — do not run `dispatcher.py` in the
+foreground. It gates the launch on `foundry.py single-brain` (refusing on both
+CONFLICT and UNKNOWN, so a second brain can never starve the first of token
+budget), then detaches: no controlling terminal, stdin on `/dev/null`, and both
+output streams appended to `$FOUNDRY_LOG` (default: a file under `$TMPDIR`).
+That is what stops a reaped terminal killing a healthy run, which it once did
+after 68 shifts. Override `FOUNDRY_CONFIG` / `FOUNDRY_LOG` to move either path.
 
 ## Invoking from your agent, in plain language
 
@@ -76,6 +89,7 @@ Once this repo exists you can just say things like:
 
 | Want | Do |
 |---|---|
+| Launch the brain (detached) | `./launch.sh` (export `FOUNDRY_AGENT_BIN` first) |
 | Stop everything | `touch ~/projects/agent-foundry/STOP` |
 | Retire one team | `touch ~/projects/agent-foundry/products/<name>/STOP` |
 | One iteration only | `foundry.py once --config <cfg>` |

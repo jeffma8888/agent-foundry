@@ -304,6 +304,7 @@ in the archive.
 - iter 233 -- the pm/scout cards name `DIRECTIONS.md` an INPUT (bounded); new brake: a card's `foundry.py` verbs exist.
 - iter 234 -- pure `parse_log_stamp` seam: the shared stage-log parser stops silently losing every `02-29` row.
 - iter 235 -- item 23 bite 2: `foundry.log`'s two writes get `dlog`'s guards; a dead stdout can't kill a shift.
+- iter 236 -- the durable detached launcher SHIPS: tracked leak-clean `launch.sh` gates on `single-brain`; USAGE.md.
 
 
 ### Migration notes (per §6 self-mod guardrail)
