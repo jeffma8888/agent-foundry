@@ -154,12 +154,20 @@ Nothing is remembered in-context across stages. Durable memory is:
   --config <cfg> [--recent N]` renders a bounded digest (that head + the N most-recent
   lessons) so a fresh agent reads high-signal history without slurping the whole log.
   That same bounded digest (newest `PROMPT_LEARNINGS_RECENT` lessons) is ALSO inlined
-  into EVERY stage prompt by `build_prompt`, so each fresh agent receives it inline —
-  not just on demand via the CLI. Because the prompt path pays that cost on every
-  stage of every iteration, `build_prompt` — and ONLY `build_prompt` — also bounds the
-  digest by CHARACTERS: each lesson line is capped at `PROMPT_LEARNINGS_LESSON_CHARS`
-  and the tail admitted newest-first within `PROMPT_LEARNINGS_BUDGET_CHARS`, and the
-  pinned head is bounded the same way — each head BULLET BLOCK capped at
+  into EVERY stage prompt by `build_prompt` under the fixed banner
+  `PROMPT_LEARNINGS_LABEL`, so each fresh agent receives it inline — not just on demand
+  via the CLI. Of those tail slots, `PROMPT_LEARNINGS_ROLE_RESERVE` are reserved for the
+  newest lessons carrying the stage's OWN role tag (item 2 bite 3, iter 232): the window
+  is otherwise strictly chronological, so a seat was crowded out of its own steering
+  channel at whatever rate other seats happened to write. The reservation is
+  COUNT-PRESERVING — only the oldest few slots change hands, so no seat loses the
+  cross-role visibility it has today — and the pinned head is NOT role-filtered, because
+  that is where cross-role operator directives live. Because the prompt path pays that
+  cost on every stage of every iteration, `build_prompt` — and ONLY `build_prompt` —
+  also bounds the digest by CHARACTERS: each lesson line is capped at
+  `PROMPT_LEARNINGS_LESSON_CHARS` and the tail admitted newest-first within
+  `PROMPT_LEARNINGS_BUDGET_CHARS`, and the pinned head is bounded the same way —
+  each head BULLET BLOCK capped at
   `PROMPT_LEARNINGS_HEAD_BULLET_CHARS` and blocks admitted top-down (so the
   highest-precedence leading rules survive) within `PROMPT_LEARNINGS_HEAD_BUDGET_CHARS`.
   The head was originally exempt from that bound as "curated and small"; it grew to 63%
