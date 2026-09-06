@@ -305,6 +305,7 @@ in the archive.
 - iter 234 -- pure `parse_log_stamp` seam: the shared stage-log parser stops silently losing every `02-29` row.
 - iter 235 -- item 23 bite 2: `foundry.log`'s two writes get `dlog`'s guards; a dead stdout can't kill a shift.
 - iter 236 -- the durable detached launcher SHIPS: tracked leak-clean `launch.sh` gates on `single-brain`; USAGE.md.
+- iter 237 -- watchdog liveness delegates to `single-brain --json`: the last raw `pgrep -f` scan, fail-SHUT, is gone.
 
 
 ### Migration notes (per §6 self-mod guardrail)

@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-237
+    lenses: simplification-and-deletion (iteration 237), performance-and-throughput (iteration 237)
+    - Candidate A1 -- watchdog.py is the last automated caller of the `pgrep` scan the repo already banned, and it fails SHUT
+    - Candidate A2 -- the `Company*` test-quality report family: 6 byte-identical method groups across 5 classes
+    - Candidate A3 -- `main()` is 1,085 lines, and 83 of its 148 `add_argument` calls are two flags typed by hand
+    - Candidate B1 -- the PM leg is 37.6% of all stage time and its three seats re-measure the same numbers from scratch
+    - Candidate B2 -- the 8,069-test suite is bought 4-5 times per iteration, including by stages that are not the verifier
+    - Candidate B3 -- the tester leg costs 24.5% of stage time with 12/15 attempts killed at the wall
+    winner: A1
+    ship: pending (not yet decided)
   iter-236
     lenses: integration-and-adoption, simplification-and-deletion (iteration 236)
     - Candidate A1 -- the hardened launch path the whole framework depends on is machine-local, leak-dirty, and ships nowhere
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- 2,374 lines of byte-identical test helpers, and every new iteration adds more
     - Candidate B3 -- one WRITE-EARLY rule instead of 8 verbatim copies plus a 34-line audit whose only job is keeping the copies equal
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 5f95496
   iter-235
     lenses: hardening/DX -- iteration 235, integration-and-adoption -- iteration 235
     - Candidate B1 -- `foundry.log` is the one control-path writer with no guard, and it is the exact 08-03 incident that hardened its twin
@@ -1275,4 +1285,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-128 scouted iterations
+129 scouted iterations
