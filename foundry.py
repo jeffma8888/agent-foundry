@@ -15470,6 +15470,45 @@ _STAGE_NOOUTPUT_RE = re.compile(r"^(?P<stage>\S+)\s+no output file(?:\s|$)")
 
 _TS_FMT = "%m-%d %H:%M:%S"
 _ONE_DAY_S = 86400
+# A LEAP year, so a real `02-29` log stamp is a representable date. Deliberately
+# NOT `_TS_FMT`'s implicit 1900 (not a leap year) and NOT the current year (which
+# would make the parser's output depend on WHEN it runs, i.e. non-deterministic).
+_TS_LEAP_YEAR = 2024
+
+
+def parse_log_stamp(ts: str) -> "dt.datetime | None":
+    """Date a year-less `MM-DD HH:MM:SS` log stamp, or `None` if it is not a date.
+
+    WHY a synthetic LEAP year: `dispatcher.out` stamps carry no year, and
+    `dt.datetime.strptime` defaults a missing year to 1900, which is NOT a leap
+    year -- so `02-29 10:00:00` raised `ValueError` and every caller's per-line
+    robustness guard silently DROPPED the row. One calendar day every four years,
+    each of the five readers that share `parse_stage_attempts` (`stage-times`,
+    `status`/`live-lag`'s `stage-budget:` line, `timing`, the preflight digest)
+    would report as if nothing had run. Field-wise construction against
+    `_TS_LEAP_YEAR` is the same technique already used for the brain-up banner
+    (see `parse_brain_launch`) and keeps `02-29` valid while still rejecting an
+    impossible date such as `02-30` or `13-01`.
+
+    It also sidesteps a dated forward break: the `strptime` DeprecationWarning
+    this replaces says the default year "will change in Python 3.15 to either
+    always raise an exception or to use a different default year (TBD)", and a
+    raise there would blind EVERY stamp at once, not just the leap day.
+
+    PURE and TOTAL: reads no state, writes nothing, and NEVER raises for any
+    `str` input. Returns `None` -- never a partial or guessed datetime -- for
+    anything it cannot date (empty, malformed, out-of-range fields), which is
+    exactly the "skip this line" signal the old swallowed `ValueError` carried.
+    """
+    try:
+        date_part, time_part = str(ts).strip().split(" ", 1)
+        month, day = (int(x) for x in date_part.split("-", 1))
+        hour, minute, second = (int(x) for x in time_part.split(":", 2))
+        return dt.datetime(_TS_LEAP_YEAR, month, day, hour, minute, second)
+    except Exception:
+        # Out-of-range fields, a wrong field count, a non-int part, anything:
+        # unparsable is `None`, so the caller skips the line and stays total.
+        return None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -15543,7 +15582,12 @@ def parse_stage_attempts(text: str) -> list["StageAttempt"]:
                 continue
             team = m.group("team")
             iteration = int(m.group("iter"))
-            start_dt_ts = dt.datetime.strptime(m.group("ts"), _TS_FMT)
+            # Bare-name call so a monkeypatch of the stamp seam bites, and so a
+            # leap-day `02-29` row dates instead of raising into the guard below.
+            start_dt_ts = parse_log_stamp(m.group("ts"))
+            if start_dt_ts is None:
+                continue          # undateable stamp: the same skip the old
+                                  # swallowed `strptime` ValueError produced.
             rest = m.group("rest")
 
             ms = _STAGE_START_RE.match(rest)
@@ -16262,10 +16306,13 @@ def stage_budget_line(cfg: "ProductConfig",
                else (FOUNDRY / "dispatcher.out"))
         team = str(getattr(cfg, "name", "") or "")
         try:
-            # The shared `parse_stage_attempts` emits a strptime
-            # DeprecationWarning on this log's year-less stamps. Suppressed
-            # LOCALLY so a preflight run stays quiet without editing a parser
-            # four other readers share.
+            # HISTORICAL: `parse_stage_attempts` no longer emits a strptime
+            # DeprecationWarning -- it dates year-less stamps through
+            # `parse_log_stamp` (field-wise, synthetic leap year) instead of
+            # calling `strptime` at all. This suppressor is KEPT deliberately as
+            # INERT defense-in-depth: it costs nothing when nothing warns, and a
+            # preflight diagnostic that must NEVER raise or go noisy should not
+            # depend on a parser it does not own staying warning-free.
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", DeprecationWarning)
                 summary = gather_stage_times(log, team=team, limit=limit)

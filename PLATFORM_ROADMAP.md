@@ -302,6 +302,7 @@ in the archive.
 - iter 231 -- pure `prose_stripped_source` disarms the self-referential count brake; iter 230's work re-lands.
 - iter 232 -- role-scoped lesson tail: 4 of the 10 digest slots go to the stage's OWN role's newest lessons.
 - iter 233 -- the pm/scout cards name `DIRECTIONS.md` an INPUT (bounded); new brake: a card's `foundry.py` verbs exist.
+- iter 234 -- pure `parse_log_stamp` seam: the shared stage-log parser stops silently losing every `02-29` row.
 
 
 ### Migration notes (per §6 self-mod guardrail)
