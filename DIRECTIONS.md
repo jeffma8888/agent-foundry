@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-236
+    lenses: integration-and-adoption, simplification-and-deletion (iteration 236)
+    - Candidate A1 -- the hardened launch path the whole framework depends on is machine-local, leak-dirty, and ships nowhere
+    - Candidate A2 -- `foundry --help` is the front door for 53 verbs and describes none of them
+    - Candidate A3 -- 46 verbs publish `--json` and not one has a machine consumer; give the launch verdict its first reader
+    - Candidate B1 -- the print/JSON/exit-code contract has two "ONE shared body" owners and is still typed out 11 times
+    - Candidate B2 -- 2,374 lines of byte-identical test helpers, and every new iteration adds more
+    - Candidate B3 -- one WRITE-EARLY rule instead of 8 verbatim copies plus a 34-line audit whose only job is keeping the copies equal
+    winner: A1
+    ship: pending (not yet decided)
   iter-235
     lenses: hardening/DX -- iteration 235, integration-and-adoption -- iteration 235
     - Candidate B1 -- `foundry.log` is the one control-path writer with no guard, and it is the exact 08-03 incident that hardened its twin
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `scripts/launch_dispatcher.sh`: give `preflight`'s three-way launch verdict its first machine consumer
     - Candidate B3 -- (being measured)
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED b77f3f0
   iter-234
     lenses: new-capability (iteration 234), hardening/DX (iteration 234)
     - Candidate A1 -- give the operator's steering channel a machine expiry, so "which directive is spent" stops being a human judgement
@@ -1265,4 +1275,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-127 scouted iterations
+128 scouted iterations
