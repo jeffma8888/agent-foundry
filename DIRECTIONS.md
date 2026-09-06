@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-234
+    lenses: new-capability (iteration 234), hardening/DX (iteration 234)
+    - Candidate A1 -- give the operator's steering channel a machine expiry, so "which directive is spent" stops being a human judgement
+    - Candidate A2 -- the first NON-heuristic test-strength evidence: a stdlib-only, one-mutant probe (roadmap item 6, blocked since day one)
+    - Candidate A3 -- the decision log the scouts now read contains 10 rows that name no real candidate
+    - Candidate B1 -- the every-iteration hand-edit tax on the tests/ allow-list brake, retired by one flag
+    - Candidate B2 -- the shared stage-log parser silently drops every Feb-29 row, and rides a dated Python break
+    - Candidate B3 -- (being measured; see refinement below)
+    winner: B2
+    ship: pending (not yet decided)
   iter-233
     lenses: narrative-and-docs, new-capability
     - Candidate A1 (primary) -- the doc that explains what every stage reads is now wrong about what every stage reads
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- placeholder (being measured)
     - Candidate B3 -- placeholder (being measured)
     winner: A3
-    ship: pending (not yet decided)
+    ship: PUSHED 5447797
   iter-232
     lenses: performance-and-throughput (iteration 232), narrative-and-docs (iteration 232)
     - Candidate A1 -- fleet-level auth circuit breaker: stop 21 shifts re-discovering one dead session
@@ -1245,4 +1255,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-125 scouted iterations
+126 scouted iterations
