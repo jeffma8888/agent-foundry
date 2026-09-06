@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-235
+    lenses: hardening/DX -- iteration 235, integration-and-adoption -- iteration 235
+    - Candidate B1 -- `foundry.log` is the one control-path writer with no guard, and it is the exact 08-03 incident that hardened its twin
+    - Candidate B2 -- the reviewer's `[NIT]` channel is write-only: 34 findings in 9 iterations, zero readers
+    - Candidate B3 -- retire the per-iteration hand-edit tax on the tests/ allow-list brake (re-proposal; new evidence, same fix)
+    - Candidate B1 -- the repo's one AUTOMATED launcher still uses the raw `pgrep -f` scan that `dispatcher_proc_match` was built to replace (measured live: 3 pids for 1 brain), and it fails SHUT
+    - Candidate B2 -- `scripts/launch_dispatcher.sh`: give `preflight`'s three-way launch verdict its first machine consumer
+    - Candidate B3 -- (being measured)
+    winner: B1
+    ship: pending (not yet decided)
   iter-234
     lenses: new-capability (iteration 234), hardening/DX (iteration 234)
     - Candidate A1 -- give the operator's steering channel a machine expiry, so "which directive is spent" stops being a human judgement
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the shared stage-log parser silently drops every Feb-29 row, and rides a dated Python break
     - Candidate B3 -- (being measured; see refinement below)
     winner: B2
-    ship: pending (not yet decided)
+    ship: PUSHED f7dbc53
   iter-233
     lenses: narrative-and-docs, new-capability
     - Candidate A1 (primary) -- the doc that explains what every stage reads is now wrong about what every stage reads
@@ -1255,4 +1265,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-126 scouted iterations
+127 scouted iterations

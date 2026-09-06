@@ -601,10 +601,41 @@ def emit_event(events_path: pathlib.Path, event: str, /, **fields) -> None:
 
 
 def log(cfg: ProductConfig, msg: str) -> None:
+    """Append one night-log line and echo it to the console. NEVER raises.
+
+    This is the ONLY console writer on the control path: an AST census of
+    ``run_stage`` and ``run_iteration`` finds ZERO bare ``print`` calls in
+    either (they make 5 and 10 ``log()`` calls respectively), so every
+    stage-boundary line an operator sees comes through here. That is what makes
+    an exception escaping this function fatal to the whole company rather than
+    cosmetic: ``dispatcher.main`` calls ``foundry.run_iteration`` IN-PROCESS,
+    so the always-on brain shares fd 1 with the session that launched it, and
+    once that session goes away writing to the now-dead terminal raises
+    OSError(EIO) on macOS. The sibling ``dispatcher.dlog`` was hardened for
+    exactly that failure after it "terminated the whole company mid-shift";
+    this mirrors its two guards statement for statement.
+
+    The guards are INDEPENDENT rather than nested so that a failed durable
+    write still attempts the console line and a dead console still keeps the
+    durable one, and they are per-call rather than a first-failure "console
+    disabled for the session" latch: a module-level latch would order-couple a
+    shared pytest process (whichever test tripped it would silently mute every
+    later one) and would need a reset seam, while the cost of the shape below
+    is one re-attempted failing syscall per line, not a retry storm. They stay
+    narrow -- ``PermissionError`` and ``IsADirectoryError`` are ``OSError``
+    subclasses, so a blanket ``except Exception`` would only add the power to
+    hide real programming errors.
+    """
     line = f"- `{now()}` [{cfg.name}] {msg}"
-    with cfg.night_log.open("a") as f:
-        f.write(line + "\n")
-    print(line, flush=True)
+    try:
+        with cfg.night_log.open("a") as f:
+            f.write(line + "\n")
+    except OSError:
+        pass  # disk / permission trouble must not stop the loop
+    try:
+        print(line, flush=True)
+    except (OSError, ValueError):
+        pass  # dead or closed stdout must not stop the loop
     # Best-effort machine-readable mirror. The durable human NIGHT_LOG write
     # above runs FIRST and must never be blocked by the JSON mirror: a disk
     # error (or a monkeypatched-to-raise emit_event in tests) can never crash a

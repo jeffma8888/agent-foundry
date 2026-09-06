@@ -303,6 +303,7 @@ in the archive.
 - iter 232 -- role-scoped lesson tail: 4 of the 10 digest slots go to the stage's OWN role's newest lessons.
 - iter 233 -- the pm/scout cards name `DIRECTIONS.md` an INPUT (bounded); new brake: a card's `foundry.py` verbs exist.
 - iter 234 -- pure `parse_log_stamp` seam: the shared stage-log parser stops silently losing every `02-29` row.
+- iter 235 -- item 23 bite 2: `foundry.log`'s two writes get `dlog`'s guards; a dead stdout can't kill a shift.
 
 
 ### Migration notes (per §6 self-mod guardrail)
@@ -499,9 +500,24 @@ not die because its terminal did.
   (no per-line retry storm).
 
 **Done when.**
-- [ ] All dispatcher/foundry control-path console writes go through the helper; a dead
+- [x] All dispatcher/foundry control-path console writes go through the helper; a dead
       stdout mid-session cannot terminate the loop (regression test simulates it).
-- [ ] Shutdown summary reaches the log file even with a dead console; `tests/` green.
+      (dispatcher half 2026-08-03 via `dlog`; `foundry.py` half by iter 235 on `log()`.)
+- [x] Shutdown summary reaches the log file even with a dead console; `tests/` green.
+      (`dispatcher.py:149` writes it through `dlog`, which is file-first/console-second.)
+
+**CLOSED by iter 235 -- shipped shape differs from the prose above, deliberately.** The
+parenthetical "(and `foundry.py` if it prints on the control path)" was a conditional nobody
+re-evaluated after the dispatcher half landed, so this item read as a closed 2026-08-03 incident
+while half of it was still open. Iter 235 answered the conditional by AST census: `run_stage` and
+`run_iteration` contain ZERO bare `print` calls, so `log()` was the ONLY unguarded control-path
+console writer in `foundry.py` -- one function, not a sweep. TWO NARROWINGS, both on purpose:
+(1) no "helper" symbol and no module-level session latch -- `log()` got `dlog`'s per-call
+`except OSError` / `except (OSError, ValueError)` pair inline, because a global that latches on
+first failure is order-coupling in a shared pytest process and would need a reset seam; the
+per-line cost of re-attempting a failing write is one syscall, not the "retry storm" this item
+feared. (2) `dispatcher.py:85` and `:91` keep bare prints and are OUT of scope: both are pre-loop
+startup refusals that `return 1` immediately, so a dead stdout there cannot orphan a running loop.
 
 ## Item 24 -- docs/code status-drift brakes
 
