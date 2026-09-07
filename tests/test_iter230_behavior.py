@@ -689,8 +689,30 @@ def test_ac_b_readme_entry_54_keeps_the_still_true_dormancy_facts() -> None:
 
 
 def test_ac_b_readme_adds_no_new_numbered_entry_for_the_fifth_line() -> None:
-    """Deliberately out of scope: the capability already owns entry `# 54`."""
-    assert not re.search(r"(?m)^# 55\.", _readme())
+    """Deliberately out of scope: the capability already owns entry `# 54`.
+
+    RE-SCOPED in iteration 240 to what this criterion actually claims, and NOT
+    weakened. The original assertion was `not re.search(r"(?m)^# 55\\.",
+    _readme())`, which expressed iteration 230's scope claim -- "the fifth
+    doctor drift line adds no README entry of its own" -- as a permanent ban on
+    the README ever gaining a 55th numbered entry. The two are not the same
+    statement, and the difference bit the first later iteration to document a
+    genuinely NEW verb: iteration 240's `inflight` needs entry `# 55`, which has
+    nothing to do with doctor's fifth line. What iteration 230 promised is that
+    its capability got NO entry of its OWN, because `test-touch` already owned
+    `# 54`. That is asserted here directly, keyed to the sections that INVOKE
+    the verb instead of to the next free number, so it stays decidable while the
+    index grows and it can never pass vacuously (an empty owner list fails).
+    """
+    readme = _readme()
+    headings = list(re.finditer(r"(?m)^# (\d+)\.", readme))
+    owning = []
+    for index, heading in enumerate(headings):
+        end = (headings[index + 1].start() if index + 1 < len(headings)
+               else len(readme))
+        if "foundry.py test-touch" in readme[heading.start():end]:
+            owning.append(heading.group(1))
+    assert owning == ["54"], owning
 
 
 # ========================================================================== #

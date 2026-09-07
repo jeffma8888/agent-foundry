@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-240
+    lenses: new-capability, hardening/DX
+    - A1 -- the one stage attempt the operator actually cares about is the one no verb can see
+    - A2 -- the framework's most severe outcome has 192 recorded instances and no reader
+    - A3 -- the roadmap tells the PM which items are open, and it is stale and self-contradicting
+    - B1 -- the staging trap that cost two whole iterations is enforced only by a rotating prose bullet, and the one check that exists is hard-coded to one filename
+    - B2 -- on the machine that auto-pushes a PUBLIC repo, the leak guard in force is a 49-line untracked script, and the reviewed 397-line one is unarmed
+    - B3 -- the dispatcher classifies WHY an attempt died, then throws the word away one minute before it would change the retry's behavior
+    winner: A1
+    ship: pending (not yet decided)
   iter-239
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- the README map of the framework names 7 of the 8 role cards, and the one it drops is the seat that runs FIRST
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- placeholder (measuring)
     - Candidate B3 -- placeholder (measuring)
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED ed77e6b
   iter-238
     lenses: performance-and-throughput -- iteration 238, narrative-and-docs -- iteration 238
     - Candidate A1 -- placeholder (measuring)
@@ -1305,4 +1315,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-131 scouted iterations
+132 scouted iterations
