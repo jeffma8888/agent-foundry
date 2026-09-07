@@ -844,7 +844,19 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # window -- `git diff HEAD` cannot see an UNTRACKED file at all).
                 # Nothing about the assertion or the 75-assertion literal class
                 # changes.
-                "tests/test_iter232_behavior.py"}
+                "tests/test_iter232_behavior.py",
+                # iter 242: `RESULT: BLOCKED` became a first-class third tester
+                # disposition, so iter 201's module-level TESTER triple -- the
+                # (parser, prefix, token-pair) truth table -- had to advance from two
+                # tokens to three. Allow-listed rather than the assertion weakened,
+                # on the iter-212/215 precedent: the edit is provably OUTSIDE this
+                # brake's domain (`newest_ness_pin_sites` over that file is `()` at
+                # HEAD AND in the worktree, so no newest-ness pin was swept,
+                # converted or added), and it UPDATES the pair to the shipped truth
+                # instead of relaxing it -- the tuple-shape and distinct-pairs
+                # guarantees both still hold, now over three tokens. Red ONLY inside
+                # the pre-commit window; a fresh clone at the ship commit is clean.
+                "tests/test_iter201_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the
