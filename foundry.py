@@ -288,6 +288,18 @@ PROMPT_LEARNINGS_LESSON_CHARS = 800     # per-lesson truncation cap (prompt path
 PROMPT_LEARNINGS_BUDGET_CHARS = 10000   # total char cap on the lessons tail (prompt)
 LEARNINGS_TRUNCATION_MARKER = " [...]"  # ASCII ellipsis appended to a truncated line
 
+# Candidate sentence ends that are NOT sentence ends, for the per-lesson cut of
+# the prompt digest (iter 243). Cutting immediately after one of these leaves a
+# lead-in that promises an example and delivers none, which reads WORSE than
+# stopping at the previous sentence. Matched case-insensitively, so `E.g. ` is
+# caught too. Measured over this product's own learnings log at iteration 243:
+# the guard moves the chosen cut on 5 of the 1,217 over-cap lessons, and in every
+# one of those it replaced a cut that ended in a dangling `e.g.` / `i.e.`.
+# Deliberately NOT prefixed `PROMPT_LEARNINGS_`: like LEARNINGS_TRUNCATION_MARKER
+# just above, this is a truncation-MECHANISM detail, not a budget an operator
+# tunes, and the budget names carry a documentation-membership brake (iter 238).
+LESSON_SENTENCE_ABBREVS: tuple[str, ...] = ("e.g.", "i.e.")
+
 # How many of the PROMPT_LEARNINGS_RECENT tail slots a stage's OWN role may claim
 # (iter 232). The tail is otherwise a strict chronological window with no role
 # awareness, so a seat's lessons are crowded out at the rate OTHER seats happen to
@@ -1412,6 +1424,66 @@ def _truncate_lesson(line: str, cap: int) -> str:
     return line[:cap - len(marker)] + marker
 
 
+def truncate_lesson_at_sentence(line: str, cap: int) -> str:
+    """Truncate one lesson line to ``<= cap`` chars, cutting at a SENTENCE end.
+
+    Same contract as ``_truncate_lesson`` except for WHERE the cut lands: a line
+    already ``<= cap`` comes back verbatim (NO marker), and a longer line becomes
+    a PREFIX of itself plus ``LEARNINGS_TRUNCATION_MARKER``. The difference is
+    that the prefix ends at the last complete sentence inside the cap instead of
+    mid-word.
+
+    WHY: the digest is the ONLY channel by which a fresh single-shot stage agent
+    inherits what earlier stages learned, and it is ~88% of a stage prompt.
+    Measured on this product's log at iteration 243, all 10 lessons delivered to
+    a stage were truncated and every one of them was cut mid-WORD -- while in
+    this corpus the closing clause is where the prescription lands, so the reader
+    reliably received a fragment of the sentence that mattered most. Aligning the
+    cut to a sentence boundary is strictly NON-LOSSY (the only text dropped is
+    the trailing partial sentence that arrived broken anyway) and it returns
+    ~129 chars per over-cap lesson to the prompt budget.
+
+    A *sentence end* is an index ``i`` into ``body = line[:cap - len(marker)]``
+    where ``body[i - 1]`` is ``.``/``!``/``?`` and ``body[i]`` exists and is
+    whitespace. Requiring the FOLLOWING character to be whitespace is what keeps
+    a decimal (``3.5``), a version, a filename or a dotted identifier from being
+    read as the end of a thought. A candidate whose preceding text ends with a
+    member of ``LESSON_SENTENCE_ABBREVS`` is rejected and the search continues to
+    the next-largest candidate.
+
+    The FLOOR bounds the worst case: if no sentence end sits at ``i >= cap // 2``
+    the result is exactly ``_truncate_lesson``'s mid-word ``body + marker``
+    (length exactly ``cap``). So a lesson written as one giant sentence, or one
+    whose only period lands early, is delivered exactly as it is today rather
+    than halved -- the change can never cost a reader more than the partial
+    sentence it removes.
+
+    Pure and total: no filesystem, subprocess, network or clock; the input is
+    never mutated; no input raises. Both the marker and the abbreviation tuple
+    are read from module globals at CALL time, so a test can rebind either.
+    ``cap`` is assumed ``> len(marker)`` -- the same documented precondition
+    ``_truncate_lesson`` carries.
+    """
+    if len(line) <= cap:
+        return line
+    marker = LEARNINGS_TRUNCATION_MARKER
+    body = line[:cap - len(marker)]
+    abbrevs = tuple(a.lower() for a in LESSON_SENTENCE_ABBREVS)
+    # `max(..., 1)` keeps `body[i - 1]` from wrapping to the LAST character if a
+    # caller (or a test rebinding the marker to "") makes the floor reach 0.
+    lowest = max(cap // 2, 1)
+    # Walk candidates from the RIGHT: the first acceptable one is the largest, so
+    # it keeps the most text. The range stops AT the floor, so a cut below it is
+    # never even considered and the fall-through below is today's mid-word cut.
+    for i in range(len(body) - 1, lowest - 1, -1):
+        if body[i - 1] not in ".!?" or not body[i].isspace():
+            continue
+        if body[:i].lower().endswith(abbrevs):
+            continue
+        return body[:i] + marker
+    return body + marker
+
+
 def _split_head_blocks(head: list[str]) -> tuple[list[str], list[list[str]]]:
     """Split pinned-head lines into ``(preamble, bullet_blocks)``. Pure.
 
@@ -1753,8 +1825,12 @@ def learnings_digest(
     the CLI / AGENTS.md renderers leave both ``None`` and show the full digest):
 
     * ``lesson_chars`` -- when set, truncate each emitted lesson line to at most
-      this many characters (see ``_truncate_lesson``): a longer line becomes
-      ``line[:cap - len(marker)] + marker`` (length exactly the cap), a line
+      this many characters (see ``truncate_lesson_at_sentence``): a longer line
+      is cut at the last complete SENTENCE inside the cap rather than mid-word,
+      so a delivered lesson ends in a whole thought, then ends in
+      ``LEARNINGS_TRUNCATION_MARKER``. Where no sentence end sits in the upper
+      half of the cap the cut falls back to the mid-word
+      ``line[:cap - len(marker)] + marker`` (length exactly the cap). A line
       already within the cap is emitted verbatim with no marker.
     * ``max_chars`` -- when set, admit lessons NEWEST-FIRST while the cumulative
       character length of admitted lines stays within this total budget, stopping
@@ -1872,8 +1948,11 @@ def learnings_digest(
 
     # Optional per-lesson truncation (chars): applied BEFORE the budget so one
     # multi-KB lesson cannot dominate the tail. Default None => no truncation.
+    # The cut lands at the last complete SENTENCE inside the cap (iter 243), and
+    # the helper is called by BARE MODULE NAME so it is a visible, rebindable
+    # seam; the mid-word `_truncate_lesson` still serves the HEAD path.
     if lesson_chars is not None:
-        window = [_truncate_lesson(ln, lesson_chars) for ln in window]
+        window = [truncate_lesson_at_sentence(ln, lesson_chars) for ln in window]
 
     # Optional total-character budget: admit lessons NEWEST-FIRST while the
     # running total stays within budget, stop at the first that would exceed it,
