@@ -307,6 +307,7 @@ in the archive.
 - iter 236 -- the durable detached launcher SHIPS: tracked leak-clean `launch.sh` gates on `single-brain`; USAGE.md.
 - iter 237 -- watchdog liveness delegates to `single-brain --json`: the last raw `pgrep -f` scan, fail-SHUT, is gone.
 - iter 238 -- derived doc brake: every module-level `PROMPT_LEARNINGS_*` constant must be named in ARCHITECTURE.md.
+- iter 239 -- README's repo map names every tracked role card: derived membership brake, count words deleted.
 
 
 ### Migration notes (per §6 self-mod guardrail)
