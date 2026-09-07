@@ -27,8 +27,8 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 232): ledger and archive are current through 232 (193/194/199/201/203/205/221-225 never shipped, so
-none owes a row).
+STATUS (iter 240): ledger and archive are current through 240 (193/194/199/201/203/205/221-225 never shipped, so
+none owes a row; 230 never shipped either -- its work re-landed as 231 -- and keeps its row).
 STILL OPEN:
 (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
 NEXT UP, in value order: (a) Only the OPTIONAL 25-guard
@@ -308,6 +308,7 @@ in the archive.
 - iter 237 -- watchdog liveness delegates to `single-brain --json`: the last raw `pgrep -f` scan, fail-SHUT, is gone.
 - iter 238 -- derived doc brake: every module-level `PROMPT_LEARNINGS_*` constant must be named in ARCHITECTURE.md.
 - iter 239 -- README's repo map names every tracked role card: derived membership brake, count words deleted.
+- iter 240 -- `foundry inflight`: the PENDING stage attempt gets its first reader -- elapsed + headroom vs the 600s cap.
 
 
 ### Migration notes (per §6 self-mod guardrail)

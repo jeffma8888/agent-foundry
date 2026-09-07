@@ -16568,6 +16568,290 @@ def stage_budget_line(cfg: "ProductConfig",
 
 
 # --------------------------------------------------------------------------- #
+# THE ONE ATTEMPT NO LENS COULD SEE: `foundry inflight` -- iter 240.
+#
+# `run_stage` logs every attempt's START (`iter NN . **STAGE** attempt A
+# started`) and its terminal line (`STAGE produced ...` / `STAGE no output file
+# ...`), and `parse_stage_attempts` (iter 117) pairs the two into one COMPLETED
+# attempt. Its own docstring states the exclusion that follows: "a start with NO
+# following terminal (an in-flight final stage) yields none". Measured on this
+# checkout's live `dispatcher.out` while iteration 240 was speccing it: 4,903
+# START lines, 4,902 terminal lines, and the parser returns exactly 4,902
+# attempts -- so there is ALWAYS exactly one dangling start, it is always the
+# attempt running RIGHT NOW, and every lens built on that parser (`stage-times`,
+# `timing`, `losses`, `doctor`'s `stage-budget:` line) is structurally blind to
+# it. `events` prints the raw start line, which leaves the operator subtracting
+# stamps by hand against a cap they must remember.
+#
+# The data already existed and nothing read it: `parse_stage_attempts` keeps a
+# `pending: dict[(team,iteration,stage) -> (datetime, attempt)]` for its whole
+# walk, pops it on each terminal, and DISCARDS whatever remains at `return`.
+# This block is a SECOND READER of that same telemetry, never an edit to it --
+# `parse_stage_attempts`, `StageAttempt`, `summarize_stage_times`,
+# `gather_stage_times` and the `stage-times` verb are untouched -- so the walk
+# below is a deliberate sibling rather than a refactor of a parser five live
+# readers depend on. It shares that sibling's regexes and its `parse_log_stamp`
+# seam, and its elapsed rule mirrors the sibling's duration rule byte-for-byte
+# (whole seconds, `+_ONE_DAY_S` once on a midnight crossing, clamped
+# non-negative), so the two can never disagree about WHICH lines are starts or
+# about how long one of them has been running.
+#
+# NO LIVENESS JUDGEMENT, deliberately: a crashed dispatcher leaves its dangling
+# start in an append-only log forever, so reading "running" off a start line
+# would be a guess dressed as a fact. This verb reports PENDING, elapsed,
+# headroom and -- once elapsed reaches the cap -- `STALE`, which is arithmetic
+# against a documented constant and nothing more. Deciding whether a process is
+# alive stays `single-brain`'s job, because that needs a real process probe.
+#
+# Same on-demand, writes-NOTHING class as `doctor` / `timing` / `stage-times`,
+# and DORMANT: `run_iteration`, `run_stage`, `build_prompt` and `dispatcher.py`
+# name nothing below, so a loop in flight resumes byte-identically and no
+# restart is owed. It REPORTS; killing, restarting or resuming stays a human
+# decision.
+# --------------------------------------------------------------------------- #
+
+# Rendered tokens, module-level so the report has a stable grep anchor and a
+# test can patch them -- the same role `STAGE_BUDGET_PREFIX` (`stage-budget:`)
+# and `LIVE_LAG_PREFIX` (`live-lag:`) already play for their one-line reports.
+INFLIGHT_PREFIX = "inflight:"    # the report's FIRST line always starts here
+INFLIGHT_STALE = "STALE"         # ONLY a past-the-cap ROW ever carries it
+
+
+@dataclasses.dataclass(frozen=True)
+class PendingStage:
+    """One PENDING stage attempt: a START line in `dispatcher.out` with no terminal.
+
+    Frozen (value equality, no post-hoc mutation), the same contract
+    `StageAttempt` carries -- a measurement is a RECORD of one reading, so two
+    equal readings compare `==` and nothing can edit a verdict after the fact.
+    Fields, in declaration order:
+      * `team` -- the product name from the `[TEAM]` bracket of the log line.
+      * `iteration` -- the iteration number (int, from `iter NN`).
+      * `stage` -- the stage name (`pm`/`engineer`/`tester`/`final`/...).
+      * `attempt` -- the 1-based attempt number (int, from the START line). A
+        retry in flight reports the LATEST start's number, not the first.
+      * `elapsed_s` -- whole seconds from the START stamp to the caller's `now`
+        (ALWAYS >= 0; a run that crossed midnight adds `_ONE_DAY_S` once).
+      * `headroom_s` -- `cap - elapsed_s`, which MAY be negative: an attempt the
+        agent CLI should already have killed is exactly the interesting case, so
+        clamping it would erase the signal this record exists to carry.
+      * `stale` -- True iff `elapsed_s >= cap`, i.e. elapsed has reached the
+        hard per-stage cap. This is a statement about ARITHMETIC, never about
+        the process: see this block's header on why no liveness is asserted.
+    """
+    team: str
+    iteration: int
+    stage: str
+    attempt: int
+    elapsed_s: int
+    headroom_s: int
+    stale: bool
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of one pending attempt (every value is
+        JSON-native, so `json.dumps(...)` never raises and the dict round-trips)."""
+        return {
+            "team": self.team,
+            "iteration": self.iteration,
+            "stage": self.stage,
+            "attempt": self.attempt,
+            "elapsed_s": self.elapsed_s,
+            "headroom_s": self.headroom_s,
+            "stale": self.stale,
+        }
+
+
+def pending_stage_starts(text: str, now: str,
+                         *, cap: int | None = None) -> tuple["PendingStage", ...]:
+    """Parse a `dispatcher.out` body into its PENDING stage attempts (pure, total).
+
+    Walks the lines IN ORDER keeping a per-`(team,iteration,stage)` pending start
+    exactly as `parse_stage_attempts` does -- a START line records
+    `(stamp, attempt)` and overwrites any earlier start for that key (a retry in
+    flight), and EITHER terminal (`produced` or `no output file`) pops it. What
+    remains after the walk is what that sibling throws away: the attempts still
+    running. Each survivor becomes one `PendingStage`.
+
+    WHY `now` IS A LOG-STAMP STRING AND NOT A `dt.datetime`: `parse_log_stamp`
+    dates every year-less log stamp into the synthetic `_TS_LEAP_YEAR` (2024) so
+    a real `02-29` is representable. A `dt.datetime.now()` compared against such
+    a stamp would report a ~2-year elapsed -- a wrong number that still looks
+    plausible. Taking the family's own wire form (`MM-DD HH:MM:SS`) and dating it
+    through the SAME seam makes the two operands commensurable by construction,
+    and it keeps every case reproducible offline with no clock at all.
+
+    `elapsed_s` mirrors the sibling's duration rule byte-for-byte (whole seconds;
+    `+_ONE_DAY_S` once when `now` dates EARLIER than the start, i.e. a midnight
+    crossing; clamped at 0), so the two functions cannot disagree. `headroom_s`
+    is `cap - elapsed_s` and MAY be negative; `stale` is `elapsed_s >= cap`,
+    `>=` and not `>` because the CLI kills AT the wall. The effective cap is the
+    passed `cap` when not None, else the MODULE-LEVEL `STAGE_HARD_CAP_SECONDS`
+    READ AT CALL TIME -- the same idiom `summarize_stage_times` documents, so a
+    `monkeypatch.setattr(foundry, "STAGE_HARD_CAP_SECONDS", X)` moves the `stale`
+    verdict with no re-import.
+
+    Records come back DESCENDING by `elapsed_s`, ties broken ASCENDING by
+    `(team, iteration, stage)`, so the attempt closest to the wall reads first
+    and the order never depends on where the lines sat in the text.
+
+    PURE and TOTAL: no filesystem, subprocess, network or CLOCK access, and it
+    NEVER raises for any `str` input. An empty or undateable `now` returns `()`
+    for ANY text -- no clock means no measurement, never a record carrying a
+    guessed elapsed -- and a malformed stamp, a non-integer iteration or attempt
+    or a truncated line is SKIPPED while the well-formed remainder still
+    reports."""
+    # Anchor the clock FIRST: without a dateable `now` there is no measurement to
+    # make, so no amount of well-formed log text can produce a record.
+    now_dt = parse_log_stamp(now or "")
+    if now_dt is None:
+        return ()
+    effective_cap = STAGE_HARD_CAP_SECONDS if cap is None else cap
+    pending: dict[tuple[str, int, str], tuple[dt.datetime, int]] = {}
+    for raw in (text or "").splitlines():
+        try:
+            m = _STAGE_TS_RE.search(raw)
+            if not m:
+                continue
+            team = m.group("team")
+            iteration = int(m.group("iter"))
+            # Bare-name call so a monkeypatch of the stamp seam bites, and so a
+            # leap-day `02-29` row dates instead of raising into the guard below.
+            stamp = parse_log_stamp(m.group("ts"))
+            if stamp is None:
+                continue          # undateable stamp: skip the line, stay total.
+            rest = m.group("rest")
+
+            ms = _STAGE_START_RE.match(rest)
+            if ms:
+                pending[(team, iteration, ms.group("stage").strip())] = (
+                    stamp, int(ms.group("attempt")))
+                continue
+
+            # ANCHORED matches (`.match`, never `.search`), which is what makes a
+            # `no output file` line safe: it carries a repr of the agent's tail
+            # output that can itself contain START-shaped text, and only the real
+            # leading stage token can satisfy these patterns.
+            mt = _STAGE_PRODUCED_RE.match(rest) or _STAGE_NOOUTPUT_RE.match(rest)
+            if mt is None:
+                continue
+            # A terminal with no preceding start pops nothing -- `default=None`
+            # rather than a KeyError, the same tolerance the sibling shows.
+            pending.pop((team, iteration, mt.group("stage").strip()), None)
+        except Exception:
+            # Robustness contract: a single malformed line is skipped, never fatal.
+            continue
+    records: list[PendingStage] = []
+    for (team, iteration, stage), (stamp, attempt) in pending.items():
+        elapsed = int((now_dt - stamp).total_seconds())
+        if elapsed < 0:
+            elapsed += _ONE_DAY_S              # crossed midnight -> add one day
+        if elapsed < 0:
+            elapsed = 0                        # never negative (paranoia clamp)
+        records.append(PendingStage(
+            team=team, iteration=iteration, stage=stage, attempt=attempt,
+            elapsed_s=elapsed, headroom_s=effective_cap - elapsed,
+            stale=elapsed >= effective_cap))
+    # Closest to the wall first; the tie-break makes the order total, so equal
+    # elapsed values cannot render in text order (which is not a fact about the
+    # loop, only about where the lines landed).
+    return tuple(sorted(records,
+                        key=lambda r: (-r.elapsed_s, r.team, r.iteration, r.stage)))
+
+
+def gather_pending_stages(log_path, *, now: str | None = None,
+                          cap: int | None = None) -> tuple["PendingStage", ...]:
+    """Read a `dispatcher.out` path and return its PENDING stage attempts.
+
+    The ONE impure seam of this lens: it owns the file read AND the clock, so
+    `pending_stage_starts` can stay pure. Called by BARE module name from
+    `inflight_cli`, so a `monkeypatch.setattr(foundry, "gather_pending_stages",
+    ...)` reaches every exit-code branch with no file on disk, no subprocess and
+    no real clock.
+
+    `now=None` means "the real instant", formatted with the family's own
+    `_TS_FMT` so it re-dates through `parse_log_stamp` into the same synthetic
+    year the log's stamps do (see `pending_stage_starts` on why that matters). A
+    missing / unreadable / undecodable `log_path` degrades to EMPTY text and
+    therefore to no records -- the same no-news-is-good-news contract as the
+    other read-only lenses -- and NEVER raises."""
+    try:
+        text = pathlib.Path(log_path).expanduser().read_text()
+    except Exception:
+        # Missing / permission / decode error -> nothing pending, never crash.
+        text = ""
+    stamp = dt.datetime.now().strftime(_TS_FMT) if now is None else now
+    return pending_stage_starts(text, stamp, cap=cap)
+
+
+def _inflight_cap(records: "Sequence[PendingStage]") -> int:
+    """The effective cap the given records were measured against.
+
+    DERIVED from a record rather than re-read, because `headroom_s == cap -
+    elapsed_s` holds by construction: reconstructing the cap from any single row
+    is exact, so the head line can never contradict the rows it prints (even
+    when a test hands the printer records built with an explicit `cap=`). With
+    no records there is nothing to reconstruct from, so the answer is the
+    module-level `STAGE_HARD_CAP_SECONDS`, READ AT CALL TIME."""
+    for rec in records:
+        return rec.elapsed_s + rec.headroom_s
+    return STAGE_HARD_CAP_SECONDS
+
+
+def render_inflight(records: "Sequence[PendingStage]") -> str:
+    """Render the pending-attempt report: one head line plus one row per record.
+
+    Pure and total (no I/O, no clock) and ALWAYS non-empty: with no pending
+    record it still returns ONE line saying so, because an empty string is
+    indistinguishable from a report that failed to run. The head line starts
+    with `INFLIGHT_PREFIX` and names the effective cap; each row names the team,
+    iteration, stage, attempt, elapsed and headroom, and a STALE row -- and only
+    a stale row -- carries the `INFLIGHT_STALE` token, so `grep STALE` is a
+    decidable question about rows."""
+    cap = _inflight_cap(records)
+    if not records:
+        return (f"{INFLIGHT_PREFIX} no pending stage attempt in this log; nothing "
+                f"is in flight to price against the {cap}s hard per-stage cap")
+    stale = sum(1 for rec in records if rec.stale)
+    lines = [f"{INFLIGHT_PREFIX} {len(records)} pending stage attempt(s), "
+             f"{stale} past the {cap}s hard per-stage cap"]
+    for rec in records:
+        mark = f" {INFLIGHT_STALE}" if rec.stale else ""
+        lines.append(f"  [{rec.team}] iter {rec.iteration} {rec.stage} "
+                     f"attempt {rec.attempt} -- elapsed {rec.elapsed_s}s, "
+                     f"headroom {rec.headroom_s}s{mark}")
+    return "\n".join(lines)
+
+
+def inflight_cli(log_path, *, now: str | None = None,
+                 as_json: bool = False) -> int:
+    """On-demand CLI: print the PENDING stage attempts + an exit code.
+
+    Gathers via the `gather_pending_stages(...)` seam (BARE name so a
+    `monkeypatch.setattr(foundry, ...)` bites), then prints -- with
+    `as_json=True` a single `json.dumps(..., indent=2)` document whose
+    `exit_code` is the process exit code (the `live-lag` convention), else
+    `render_inflight`. Writes NOTHING to disk.
+
+    EXIT CODE, the `stage_times_cli` 0/1/2 shape: 2 nothing to report (no
+    pending attempt, including an unreadable log), 1 at least one attempt is
+    STALE (elapsed has reached the cap, so work is being lost right now), 0 at
+    least one pending attempt and all of them still have headroom."""
+    records = gather_pending_stages(log_path, now=now)
+    code = 2 if not records else (1 if any(rec.stale for rec in records) else 0)
+    if as_json:
+        print(json.dumps({
+            "cap_s": _inflight_cap(records),
+            "pending_count": len(records),
+            "stale_count": sum(1 for rec in records if rec.stale),
+            "pending": [rec.to_dict() for rec in records],
+            "exit_code": code,
+        }, indent=2))
+    else:
+        print(render_inflight(records))
+    return code
+
+
+# --------------------------------------------------------------------------- #
 # "SHIPPED" IS NOT "LIVE": the live-lag report (`foundry live-lag`) -- iter 130.
 #
 # `dispatcher.py` does a plain `import foundry` ONCE at launch and then calls
@@ -22845,6 +23129,30 @@ def main(argv: list[str] | None = None) -> int:
     stm.add_argument("--json", action="store_true",
                      help="emit the digest as one JSON document (machine-readable) "
                           "instead of the human report; same 0/1/2 exit code")
+    # `inflight` reports the PENDING stage attempt(s) -- a START line in
+    # `dispatcher.out` with no terminal yet -- with elapsed seconds and headroom
+    # against STAGE_HARD_CAP_SECONDS, marking a row STALE once elapsed reaches
+    # that cap. The one attempt an operator ever asks about is the only one #42
+    # `stage-times` and every other reader of `parse_stage_attempts` structurally
+    # CANNOT see (that parser emits only COMPLETED attempts, by design). Needs NO
+    # product `--config` -- `dispatcher.out` is a foundry-root artifact -- so it
+    # is dispatched BEFORE `load_config`, the `stage-times` precedent above. It
+    # asserts NO liveness (a crashed dispatcher leaves its start dangling
+    # forever); on-demand only, the pipeline/dispatcher NEVER call it and it
+    # writes NOTHING. Exit 0 pending with headroom / 1 >=1 STALE / 2 none pending.
+    ifl = sub.add_parser("inflight")
+    ifl.add_argument("--log", default=str(FOUNDRY / "dispatcher.out"),
+                     help="path to the dispatcher.out log (default: the "
+                          "foundry checkout dispatcher.out)")
+    ifl.add_argument("--now", default=None,
+                     help="treat this `MM-DD HH:MM:SS` log stamp as the current "
+                          "instant instead of the real clock (the log's own stamp "
+                          "form, so both operands date through one seam); an "
+                          "unparsable value reports nothing pending")
+    ifl.add_argument("--json", action="store_true",
+                     help="emit the report as one JSON document (machine-readable) "
+                          "instead of the human report; same 0/1/2 exit code, and "
+                          "the payload's `exit_code` is the process exit code")
     # `weak-tests` scans a product's test files for assertion-free `test*`
     # functions (a test with no assertion passes without validating anything --
     # a false green). DORMANT / on-demand only -- the pipeline/gate/dispatcher
@@ -23303,6 +23611,11 @@ def main(argv: list[str] | None = None) -> int:
         # `dispatcher.out` is a foundry-root artifact (read-only, writes nothing).
         return stage_times_cli(args.log, budget=args.budget, team=args.team,
                                limit=args.limit, as_json=args.json)
+    if args.cmd == "inflight":
+        # Dispatched BEFORE load_config for the same reason as `stage-times`
+        # above: no product `--config` is needed because `dispatcher.out` is a
+        # foundry-root artifact, and this verb only READS it.
+        return inflight_cli(args.log, now=args.now, as_json=args.json)
 
     cfg = load_config(args.config)
     if args.cmd == "doctor":
