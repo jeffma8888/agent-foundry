@@ -13859,6 +13859,131 @@ def readme_verb_index_gaps(readme_text: str, verbs: Iterable[str]) -> ReadmeVerb
 
 
 # --------------------------------------------------------------------------- #
+# The `roles/` INVENTORY, as a DERIVED claim instead of a count word in prose
+# --------------------------------------------------------------------------- #
+# `README.md`'s repo map is the first thing a reader -- or an agent asked to change
+# a seat's playbook -- uses to learn what the seats ARE, and it named 7 of the 8
+# tracked cards. The one it dropped was the SCOUT card, the seat that runs FIRST
+# (stage 0, twice) in every scouted iteration. Its neighbour row said "11
+# versioned role-cards" against 12 on disk. Correcting either sentence rots on the
+# next card, exactly as those two numbers rotted, so the pair below turns the
+# enumeration into a claim DERIVED from the shipping tree, and the count words are
+# DELETED rather than corrected -- no surviving number can go stale again.
+#
+# NOTE for whoever edits this prose: do NOT name a role card by its `.md` filename
+# here. Four every-suite dormancy guards byte-count the scout card's filename in
+# this module and require EXACTLY ONE occurrence -- `run_iteration`'s sanctioned
+# wiring call site -- so a filename in a comment reds the suite while changing no
+# behavior. The functions below take card names as DATA for exactly this reason.
+
+def top_level_role_card_names(paths: Iterable[str]) -> tuple[str, ...]:
+    """Basenames of the cards sitting DIRECTLY inside `roles/`, sorted and deduped.
+
+    Takes repo-relative path STRINGS -- typically the lines of
+    `git ls-files -- roles/` -- never a directory to walk, so it is PURE and
+    TOTAL: no filesystem, subprocess, network or clock access, no mutation of its
+    argument, and equal inputs give `==` results. Producing the path list is
+    deliberately the CALLER's job, which is what lets a test drive every branch
+    from in-memory strings while the live brake feeds it the real tracked tree.
+
+    WHY `git ls-files` rather than a `roles/*.md` glob at the call site: the
+    tracked index is exactly "what a fresh clone has", which is the surface every
+    ship is re-verified against, while a glob on this machine would also count an
+    untracked scratch file and quietly inflate the inventory (a test that passes
+    only on one machine is not a test).
+
+    THREE LITERAL TESTS, deliberately nothing more, so the bench exclusion is
+    STRUCTURAL rather than a maintained exception list -- a new `roles/bench/`
+    subdirectory needs no edit here:
+      * the path must start with the literal `"roles/"` prefix (case-sensitive:
+        `"ROLES/seat.md"` is out, because the tracked path is not that);
+      * what follows the prefix must contain NO further `"/"` (so
+        `"roles/bench/ceo.md"` and `"roles/bench/README.md"` are out);
+      * what follows must end in `".md"` (so `"roles/notes.txt"` is out).
+    A remainder that is ONLY the extension (`"roles/.md"`) therefore passes and is
+    reported as `".md"`. That is the honest consequence of three literal tests and
+    is left as-is on purpose: `git ls-files` cannot produce it, and inventing a
+    fourth rule for an impossible input buys nothing while widening the contract
+    the tester has to pin.
+
+    Totality details, each chosen so a mis-derived input yields an assertable
+    value instead of a traceback: an empty iterable, and an iterable whose every
+    member is excluded, both give `()`; the awkward members `"roles/"`, `"roles"`
+    and `""` are excluded by the rules above rather than special-cased; a `paths`
+    argument that is not iterable is treated as EMPTY; non-`str` members are
+    ignored. Note that passing a bare `str` iterates its CHARACTERS, none of which
+    can carry the prefix, so that mistake yields `()` and never a partial answer.
+
+    DORMANT: zero call site in the running pipeline -- no orchestrator,
+    dispatcher, stage, CLI verb or config field references it -- so resume
+    semantics for an in-flight loop are byte-identical. The live brake lives in
+    the test suite, exactly like `foundry_cli_verbs` and
+    `prompt_learnings_constants`.
+    """
+    prefix = "roles/"
+    names: set[str] = set()
+    try:
+        members = list(paths)
+    except TypeError:
+        return ()
+    for path in members:
+        if not isinstance(path, str) or not path.startswith(prefix):
+            continue
+        rest = path[len(prefix):]
+        if not rest or "/" in rest or not rest.endswith(".md"):
+            continue
+        names.add(rest)
+    return tuple(sorted(names))
+
+
+def role_card_doc_gaps(card_names: Iterable[str], doc_text: str) -> tuple[str, ...]:
+    """Card names NOT findable in `doc_text`, sorted and deduped; `()` means clean.
+
+    Takes the doc TEXT and a name set, never paths -- mirroring
+    `readme_verb_index_gaps`' contract -- so reading `README.md` off disk stays
+    the CALLER's job and this stays PURE and TOTAL: no filesystem, subprocess,
+    network or clock access, no mutation of its arguments, and equal inputs give
+    `==` results.
+
+    Matching is VERBATIM substring, case- and whitespace-SENSITIVE, with no
+    stemming and no stripping of an extension. That strictness is the point: the
+    drift being policed is a map that named seats by STEM (`pm`, `engineer`) while
+    the artifacts a reader must open are FILENAMES, so a fold that accepted a bare
+    stem for the longer filename beginning with it would pass on precisely the
+    sentence that misled everyone. Substring rather than word-boundary because the
+    names legitimately appear inside a path and inside backticks.
+
+    The GAP DIRECTION only: a name present in `doc_text` is absent from the
+    result, so `()` means every tracked card is named. Sorted and de-duplicated,
+    so a finding is about NAMES, not occurrences.
+
+    VACUITY RISK -- read this before trusting a green result. An empty
+    `card_names` also returns `()`, so `gaps == ()` alone is NOT evidence the doc
+    is honest: a derivation that silently produced nothing (a failed `git` call,
+    a renamed directory) reports zero gaps while auditing zero names. The caller
+    owns the floor -- assert the derived tuple is non-trivially large and contains
+    a name you know must be there BEFORE trusting the gaps.
+
+    Totality details: `()` for an empty `card_names` whatever `doc_text` is; the
+    FULL sorted tuple when `doc_text` is `""` or not a `str` (an unreadable doc is
+    maximal debt, never a vacuous pass); a `card_names` argument that is not
+    iterable is treated as EMPTY; non-`str` and empty members are ignored.
+
+    DORMANT: zero call site in the running pipeline, exactly as
+    `top_level_role_card_names` above.
+    """
+    try:
+        wanted = {name for name in card_names if isinstance(name, str) and name}
+    except TypeError:
+        return ()
+    if not wanted:
+        return ()
+    if not isinstance(doc_text, str) or not doc_text:
+        return tuple(sorted(wanted))
+    return tuple(sorted(name for name in wanted if name not in doc_text))
+
+
+# --------------------------------------------------------------------------- #
 # The README section-number CONTRACT, and the scanner for tests that FREEZE it
 # --------------------------------------------------------------------------- #
 # `readme_verb_index_gaps` above REQUIRES every CLI verb to own a numbered `# N.`

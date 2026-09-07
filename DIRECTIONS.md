@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-239
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- the README map of the framework names 7 of the 8 role cards, and the one it drops is the seat that runs FIRST
+    - Candidate A2 -- the two sentences iteration 238 shipped into the invariants doc overstate an opt-in UP-TO bound as exact, and deny a loss the code comment admits
+    - Candidate A3 -- CONTINUOUS.md still teaches the liveness command iteration 237 retired, and it answers 3-for-1 including the stage that runs it (queued by 238's PM; its blocking objection is answered here)
+    - Candidate B1 -- placeholder (measuring)
+    - Candidate B2 -- placeholder (measuring)
+    - Candidate B3 -- placeholder (measuring)
+    winner: A1
+    ship: pending (not yet decided)
   iter-238
     lenses: performance-and-throughput -- iteration 238, narrative-and-docs -- iteration 238
     - Candidate A1 -- placeholder (measuring)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- two committed docs give the operator opposite instructions for the one action that can violate single-brain
     - Candidate B3 -- the doc every stage prompt is sent to for the invariants names 5 of the 6 prompt budgets, and the one it omits is the newest
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 4cc876a
   iter-237
     lenses: simplification-and-deletion (iteration 237), performance-and-throughput (iteration 237)
     - Candidate A1 -- watchdog.py is the last automated caller of the `pgrep` scan the repo already banned, and it fails SHUT
@@ -1295,4 +1305,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-130 scouted iterations
+131 scouted iterations

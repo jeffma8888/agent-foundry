@@ -335,8 +335,8 @@ always-on operating contract (AC power, the single-brain rule, the STOP files).
 | `watchdog.py` | A `scheduled`/cron probe that resurrects the dispatcher if its process died and no STOP is set (single-brain + STOP-respecting). |
 | `scripts/leak_guard.py` | Committed, portable leak-guard: scan a git tree or file list against a base64-encoded denylist and exit non-zero on any leaked token. Runnable — `python3 scripts/leak_guard.py --ref HEAD` (scans `HEAD` by default) or `--files <path>...`. A standalone script off the pipeline control path (nothing imports it). |
 | `scripts/install_hooks.sh` | One-command installer that arms the committed leak-guard as a git `pre-push` hook (git does NOT clone hooks). Idempotent; backs up a foreign existing hook to `pre-push.backup` first. Run `sh scripts/install_hooks.sh` once per fresh clone. A standalone script off the pipeline control path (nothing imports it). |
-| `roles/` | The 7 project-agnostic role playbooks (pm, engineer, reviewer, tester, fix, final, reporter). |
-| `roles/bench/` | The full role bench: 11 versioned role-cards (mission, trigger, tenure, I/O contract, model note), most dormant. |
+| `roles/` | The project-agnostic role playbooks, one per pipeline seat, in run order: `pm_scout.md` (stage 0, runs twice), `pm.md`, `engineer.md`, `reviewer.md`, `fix.md`, `tester.md`, `final.md`, `reporter.md`. |
+| `roles/bench/` | The full role bench: versioned role-cards (mission, trigger, tenure, I/O contract, model note), most dormant. |
 | `docs/ORG_DESIGN.md` | The org blueprint: rich bench, lean core, kickoff council, tri-perspective gate, bounded re-staffing. |
 | `docs/research/` | Eight sourced research briefs the org design is derived from. |
 | `products/<name>/config.json` | One product's wiring (repo, vision, roadmap, quality bar, push target). |
