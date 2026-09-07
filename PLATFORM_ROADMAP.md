@@ -309,11 +309,13 @@ in the archive.
 - iter 238 -- derived doc brake: every module-level `PROMPT_LEARNINGS_*` constant must be named in ARCHITECTURE.md.
 - iter 239 -- README's repo map names every tracked role card: derived membership brake, count words deleted.
 - iter 240 -- `foundry inflight`: the PENDING stage attempt gets its first reader -- elapsed + headroom vs the 600s cap.
+- iter 242 -- `RESULT: BLOCKED`, a third tester disposition + the ship gate's record-only branch.
 
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
 - items 2, 5, 7, 12, 13 (COMPLETED table rows) — prose ARCHIVED verbatim by iter 204 under `## Compacted from the index by iter 204`; 4-column stubs remain.
+- iter-242 -- the `RESULT:` sentinel contract gains a THIRD token, `BLOCKED` (logged here because the guardrail below names that contract by name). ADDITIVE ONLY, so no migration step is owed and no restart: `RESULT: PASS` / `RESULT: FAIL` parse exactly as before, `TEST_GATE_REPAIR_DISPOSITIONS` is the unchanged `("UNFINISHED", "RED")`, and under the OLD module a `RESULT: BLOCKED` body already classified `NONE`, which is deliberately OUTSIDE that repair set -- so `needs_test_repair` is False before AND after and the routing at `foundry.py:5145` / `:20601` is byte-identical either way. The checkpoint marker OUTRANKS the new token, so a cap-killed round still buys its `UNFINISHED` retry rounds. Detail in `PLATFORM_ROADMAP_ARCHIVE.md`.
 
 ## Guardrails for self-modification
 - Never change iteration numbering, state layout, or the `VERDICT:`/`RESULT:`/

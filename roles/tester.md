@@ -46,9 +46,23 @@ the tool result behind every claim or cut the claim.
      -- the loop reads that marker to tell your unfinished checkpoint from a
      genuinely red suite and spends the repair round on ANOTHER tester round
      instead of a fix pass with nothing to fix. Say what is still missing.
-   - Final line, exactly one of: `RESULT: PASS` / `RESULT: FAIL` (a checkpoint
-     still ends with this sentinel -- `RESULT: FAIL` -- it is what triggers the
-     repair round at all)
+   - Final line, exactly one of: `RESULT: PASS` / `RESULT: FAIL` /
+     `RESULT: BLOCKED` (a checkpoint still ends with this sentinel --
+     `RESULT: FAIL` -- it is what triggers the repair round at all)
+   - USE RULE for `RESULT: BLOCKED`, the third token: emit it ONLY when all three
+     hold -- (1) NO Expected Behavior could be implemented AT ALL (the spec is
+     unimplementable as written, so there is nothing to test rather than
+     something that failed), (2) the FULL suite is GREEN, and (3) your round was
+     NOT cut short. A round that WAS cut short emits the `PROGRESS: CHECKPOINT`
+     marker instead and keeps `RESULT: FAIL`; the marker OUTRANKS BLOCKED, so a
+     marked report buys another tester round either way. When even one Expected
+     Behavior is testable and red, that is `RESULT: FAIL`, not BLOCKED. WHY the
+     token exists: `RESULT: FAIL` both grades the spec and gates the ship, so a
+     legitimately blocked iteration whose only product is a truthful RECORD used
+     to be indistinguishable from a broken one and its records were destroyed.
+     BLOCKED lets the ship gate keep those records under conditions STRICTLY
+     harder than a PASS faces (see `roles/final.md` item 2) -- so it is never a
+     softer FAIL, and it is never a way to avoid earning a verdict.
 
 ## Rules
 - If a spec behavior is ambiguous, test the most reasonable reading and note the

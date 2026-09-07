@@ -44,7 +44,9 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 # --------------------------------------------------------------------------
 POSTRELEASE = ("parse_postrelease_verdict", "POSTRELEASE:", ("HEALTHY", "BROKEN"))
 REVIEW = ("parse_review_verdict", "VERDICT:", ("APPROVE", "CHANGES_REQUIRED"))
-TESTER = ("parse_tester_result", "RESULT:", ("PASS", "FAIL"))
+# iter-242 UPDATE, not a weakening: `RESULT: BLOCKED` became a first-class third
+# tester disposition, so the truth this triple encodes is now three tokens.
+TESTER = ("parse_tester_result", "RESULT:", ("PASS", "FAIL", "BLOCKED"))
 TRIPLES = (POSTRELEASE, REVIEW, TESTER)
 
 CORE = "_sentinel_token"
@@ -324,10 +326,20 @@ def test_b6_crlf_line_endings_are_accepted(name, prefix, allowed):
 
 @pytest.mark.parametrize("name,prefix,allowed", TRIPLES)
 def test_b6_with_two_valid_sentinel_lines_the_last_one_wins(name, prefix, allowed):
-    t0, t1 = allowed
+    # iter-242: indexed rather than destructured, matching every other case in this
+    # module, because the tester channel now carries a THIRD token (`BLOCKED`). The
+    # claim under test is "the LAST valid sentinel wins", which needs any two valid
+    # tokens, not exactly two in the set -- so no assertion below changes, and the
+    # third token gets its own last-one-wins case immediately after.
+    t0, t1 = allowed[0], allowed[1]
     assert parser(name)(f"{prefix} {t1}\n{prefix} {t0}") == t0
     assert parser(name)(f"{prefix} {t0}\n{prefix} {t1}") == t1
     assert parser(name)(f"{prefix} {t0}\n\n{prefix} {t1}\n\n \n") == t1
+    # every token in the set, paired against the first, so a channel with three
+    # tokens is covered as exhaustively as the two-token ones already were.
+    for tok in allowed[1:]:
+        assert parser(name)(f"{prefix} {t0}\n{prefix} {tok}") == tok
+        assert parser(name)(f"{prefix} {tok}\n{prefix} {t0}") == t0
 
 
 # --------------------------------------------------------------------------
@@ -383,7 +395,11 @@ def test_b7_the_pair_is_a_tuple_of_str_not_a_bare_string(name, prefix, allowed, 
     assert len(seen) == 1
     assert isinstance(seen[0], tuple), f"{name} passed {type(seen[0]).__name__}, not a tuple"
     assert all(isinstance(x, str) for x in seen[0])
-    assert len(seen[0]) == 2
+    # iter-242: bound to THIS parser's own token count (the tester channel now has
+    # three), which is what the stated intent -- "not a bare string" -- needs; a bare
+    # `str` of length N would still be caught by the `isinstance(..., tuple)` above.
+    assert len(seen[0]) == len(allowed)
+    assert len(seen[0]) >= 2, f"{name} handed over a single-token set"
 
 
 def test_b7_the_three_channels_use_three_distinct_pairs(monkeypatch):
@@ -394,7 +410,9 @@ def test_b7_the_three_channels_use_three_distinct_pairs(monkeypatch):
     assert seen == {
         "POSTRELEASE:": ("HEALTHY", "BROKEN"),
         "VERDICT:": ("APPROVE", "CHANGES_REQUIRED"),
-        "RESULT:": ("PASS", "FAIL"),
+        # iter-242: the tester channel carries the third BLOCKED disposition; the
+        # other two channels deliberately did NOT gain it, which is what "distinct" means.
+        "RESULT:": ("PASS", "FAIL", "BLOCKED"),
     }
 
 

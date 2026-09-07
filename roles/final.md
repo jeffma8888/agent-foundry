@@ -35,6 +35,24 @@ while holding a placeholder verdict.
    present (a list, e.g. `['tester.md', 'tester2.md']`) -- a bare directory-path string is
    now REFUSED with a `TypeError` -- or pass the state dir as a `pathlib.Path` to
    `read_authoritative_tester_result`.
+   BLOCKED BRANCH (the ONE other verdict that can satisfy this item). A tester may end its
+   report `RESULT: BLOCKED`, which says the Expected Behaviors do NOT hold AND nothing is
+   broken: the spec was unimplementable as written, so the iteration's real product is a
+   truthful RECORD. `RESULT: BLOCKED` satisfies item 2 only when ALL FOUR of these hold,
+   and you must check them in this order:
+   (a) the AUTHORITATIVE report's sentinel -- the newest-round one the helpers above
+       select, not any earlier round -- is exactly `RESULT: BLOCKED`;
+   (b) item 1 still holds (reviewer APPROVE, or every BLOCKING item addressed);
+   (c) the full suite you run for item 3 below is GREEN;
+   (d) the change set is RECORD-ONLY: every path from `git -C <repo> diff HEAD --name-only`
+       AND from `git -C <repo> status --porcelain` is a Markdown file at the REPO ROOT --
+       no `.py`, nothing under `roles/` or `scripts/`, no `.gitignore`, no config file, no
+       path containing a `/`.
+   This is STRICTLY MORE demanding than a PASS, never a bypass: (d) is a check no other
+   verdict faces. A BLOCKED tree that FAILS any of (a)-(d) -- most importantly one that
+   carries a code or role-card edit, i.e. fails (d) -- is a gate FAILURE: item 2 is NOT
+   satisfied, so take the revert path below and name the failing condition. Do not repair
+   it yourself and do not ship the code half.
 3. You independently run the quality-check command from Context -- full suite green.
 4. `git -C <repo> status` shows only intended changes (no stray files, no
    state/log files, no caches).

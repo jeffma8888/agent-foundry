@@ -12593,21 +12593,38 @@ def parse_tester_result(text: str) -> str | None:
     """Extract the isolated tester RESULT from a `tester.md` body (pure, total).
 
     The result is the token on the LAST non-empty line when that line reads
-    `RESULT: PASS` (-> `"PASS"`) or `RESULT: FAIL` (-> `"FAIL"`) -- mirroring
-    `parse_ship_action` / `parse_postrelease_verdict` and the sentinel
-    `roles/tester.md` mandates as the artifact's final non-empty line. Trailing
-    blank lines are ignored (the last NON-empty line wins) and leading/trailing
-    whitespace on the sentinel line AND around the token is tolerated
-    (`  RESULT:  PASS  ` -> `"PASS"`).
+    `RESULT: PASS` (-> `"PASS"`), `RESULT: FAIL` (-> `"FAIL"`) or
+    `RESULT: BLOCKED` (-> `"BLOCKED"`) -- mirroring `parse_ship_action` /
+    `parse_postrelease_verdict` and the sentinel `roles/tester.md` mandates as
+    the artifact's final non-empty line. Trailing blank lines are ignored (the
+    last NON-empty line wins) and leading/trailing whitespace on the sentinel
+    line AND around the token is tolerated (`  RESULT:  PASS  ` -> `"PASS"`,
+    `RESULT:BLOCKED` -> `"BLOCKED"`).
+
+    WHY a THIRD token, and why only on THIS channel (iter-242): this one token
+    both GRADES THE SPEC ("do the Expected Behaviors hold?") and GATES THE SHIP
+    ("should this tree ship?"), and when the engineer is legitimately BLOCKED --
+    the spec is unimplementable as written, so the iteration's real product is a
+    truthful RECORD -- those two questions have OPPOSITE answers. `FAIL` can only
+    say the first, so the pessimistic gate reverted iteration 241 while its suite
+    was green at `8230 passed` with zero failing tests, and the same contract
+    permanently lost the records of iterations 64 and 122. BLOCKED lets the
+    tester say "the behaviors do NOT hold AND nothing is broken", which
+    `roles/final.md` gate item 2 then admits only under conditions STRICTLY
+    HARDER than a PASS faces (a record-only change set). The reviewer and
+    post-release channels keep their own two-token pairs: neither has this
+    overload, so widening them would only widen what a malformed artifact can be
+    read as.
 
     Returns `None` -- never raising for ANY string -- when there is no result:
-    empty / whitespace-only text; no `RESULT:` line; an unrecognized token
-    (`RESULT: MAYBE`, or a bare `RESULT:`); or a `RESULT:` line that is NOT the
-    last non-empty line (prose follows it -- a malformed or in-progress
-    artifact). Requiring the sentinel to be LAST matches how the artifact is
-    emitted, so a stray earlier mention can never be misread.
+    empty / whitespace-only text; no `RESULT:` line; an unrecognized or
+    wrongly-cased token (`RESULT: MAYBE`, `RESULT: blocked`, a bare `RESULT:`, or
+    a remainder holding more than one token such as `RESULT: BLOCKED extra`); or
+    a `RESULT:` line that is NOT the last non-empty line (prose follows it -- a
+    malformed or in-progress artifact). Requiring the sentinel to be LAST matches
+    how the artifact is emitted, so a stray earlier mention can never be misread.
     """
-    return _sentinel_token(text, "RESULT:", ("PASS", "FAIL"))
+    return _sentinel_token(text, "RESULT:", ("PASS", "FAIL", "BLOCKED"))
 
 
 # --------------------------------------------------------------------------- #
@@ -12694,7 +12711,7 @@ def carries_unfinished_marker(text: str) -> bool:
 
 
 def classify_test_report(text: str) -> str:
-    """Classify a tester report body: PASS / UNFINISHED / RED / NONE (pure, total).
+    """Classify a tester report body: PASS / UNFINISHED / BLOCKED / RED / NONE (pure, total).
 
     WHY this exists: `RESULT: FAIL` is a false alarm most of the time it fires.
     Measured over 194 tester artifacts in the fleet, 10 of the 12 FAIL verdicts
@@ -12712,10 +12729,22 @@ def classify_test_report(text: str) -> str:
       2. `"UNFINISHED"` -- `carries_unfinished_marker` finds the marker STARTING a
          line, the line `roles/tester.md` mandates for a round that was cut short.
          A prose mention mid-line is not the claim, so it does not buy the rounds.
-      3. `"RED"`        -- an anchored `RESULT: FAIL` with no marker: a genuine
+      3. `"BLOCKED"`   -- an anchored `RESULT: BLOCKED` with no marker: a
+         CONSIDERED block (iter-242). The marker deliberately OUTRANKS it: a
+         round cut short by the cap must keep buying its `UNFINISHED` retry
+         rounds, and reading a cap-kill as a considered block would spend the
+         iteration's records on an unfinished measurement.
+      4. `"RED"`        -- an anchored `RESULT: FAIL` with no marker: a genuine
          red suite, routed exactly as it is today.
-      4. `"NONE"`       -- no recognizable verdict and no marker (empty text, an
+      5. `"NONE"`       -- no recognizable verdict and no marker (empty text, an
          unknown token, or a `RESULT:` line that is not the last non-empty one).
+
+    `"BLOCKED"` earns NO repair round (it is absent from
+    `TEST_GATE_REPAIR_DISPOSITIONS`, like `"PASS"` and `"NONE"`): there is
+    nothing to fix by definition, so a repair round would hunt a failure that
+    does not exist. It is a report for the SHIP gate, not a routing trigger --
+    which is also why adding it changes no routing byte for any disposition that
+    existed before.
 
     Reuses the anchored `parse_tester_result` (which had no control-path caller
     until now) rather than a second substring scan, so "the sentinel must be the
@@ -12730,6 +12759,8 @@ def classify_test_report(text: str) -> str:
         return "PASS"
     if carries_unfinished_marker(text):
         return "UNFINISHED"
+    if verdict == "BLOCKED":
+        return "BLOCKED"
     if verdict == "FAIL":
         return "RED"
     return "NONE"
@@ -12740,6 +12771,7 @@ def read_test_disposition(path: pathlib.Path) -> str:
 
     Split from `classify_test_report` so the classifier stays pure and the
     pipeline has exactly ONE place that touches the filesystem for this decision.
+    It reports whatever the classifier reports, `"BLOCKED"` included (iter-242).
     An unreadable or missing path returns `"RED"`, deliberately DEGRADING to the
     behavior that shipped before this iteration (a `RESULT: FAIL` trigger whose
     file cannot be re-read still routes to the `fix-tests` pass), so a filesystem
@@ -12890,7 +12922,7 @@ def authoritative_tester_report(present: Iterable[str] | None) -> str | None:
 
 
 def read_authoritative_tester_result(iter_dir: pathlib.Path) -> str | None:
-    """One iteration dir's authoritative tester verdict: `"PASS"` / `"FAIL"` / `None`.
+    """One iteration dir's authoritative tester verdict: `"PASS"` / `"FAIL"` / `"BLOCKED"` / `None`.
 
     The ONLY filesystem seam of this family: probe each `tester_report_names()`
     candidate with `.is_file()`, hand what is PRESENT to
@@ -12954,7 +12986,13 @@ def needs_test_repair(disposition: str) -> bool:
     set -- every pre-127 routing driver writes an unscripted report as the empty
     string, which classifies `NONE`, so admitting it would turn a large body of
     existing tests red for no measured benefit (zero of the 198 artifacts
-    classify `NONE`).
+    classify `NONE`). `"BLOCKED"` (iter-242) is OUT for the opposite reason: a
+    considered block asserts there is NOTHING to fix, so a repair round would
+    burn one of this product's scarcest resources -- a ~600 s stage -- hunting a
+    failure that does not exist, the very waste this predicate was built to stop.
+    Adding a disposition to the CLASSIFIER therefore changed no routing byte:
+    this tuple is unchanged, so `needs_test_repair` answers True for exactly
+    `"UNFINISHED"` and `"RED"` before and after.
 
     Total by construction: one membership test against a tuple of strings, so it
     never raises for ANY `str` -- empty, unicode, or 100k chars. Named WITHOUT a

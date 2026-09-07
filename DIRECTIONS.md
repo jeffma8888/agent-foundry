@@ -1,6 +1,26 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-242
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- the seat that decides whether an iteration ships hand-writes Python for the two reads `foundry outcomes` already answers, and role cards name 4 of 51 verbs
+    - Candidate A2 -- `RESULT: BLOCKED`: the tester's two-value sentinel is a machine contract with 7 readers, and a legitimately blocked round has no token meaning "there was nothing to test"
+    - Candidate A3 -- the committed gate-eval corpus registers 1 of the 4 sentinel parsers, and its only consumer is the test that shipped it
+    - Candidate B1 -- 26 per-iteration acceptance tests froze `dispatcher.py`, `scripts/` and `.gitignore` for the rest of time, and the operator has been hand-committing past them
+    - Candidate B2 -- (measuring)
+    - Candidate B3 -- (measuring)
+    winner: A2
+    ship: pending (not yet decided)
+  iter-241
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- the leak guard's own `--files` mode fails OPEN: a directory or a typo'd path scans zero files and exits 0 "clean"
+    - Candidate A2 -- 46 of the last 196 ships edited a PREVIOUSLY-SHIPPED behavior module, the single most audit-worthy line in a diff, and no verb names it
+    - Candidate A3 -- the mechanism that makes a retried release gate resumable is in no role card, and 107 ledger lines on disk carry a key that is the hash of nothing
+    - Candidate B1 -- the watchdog resurrects the brain with a hand-rolled command that sends the stage log to /dev/null, so every timing verb (including yesterday's `inflight`) goes dark on the one path built for unattended survival
+    - Candidate B2 -- `USAGE.md` tells the operator to read a per-team status file that no code path can write under the recommended operating mode, and 5 teams and 560+ iterations have produced zero of them
+    - Candidate B3 -- `foundry inflight` ships a 1/0/2 exit-code contract that means "work is being lost right now", and the one process that could act on it never asks
+    winner: A1
+    ship: REVERTED
   iter-240
     lenses: new-capability, hardening/DX
     - A1 -- the one stage attempt the operator actually cares about is the one no verb can see
@@ -10,7 +30,7 @@ foundry directions -- _platform
     - B2 -- on the machine that auto-pushes a PUBLIC repo, the leak guard in force is a 49-line untracked script, and the reviewed 397-line one is unarmed
     - B3 -- the dispatcher classifies WHY an attempt died, then throws the word away one minute before it would change the retry's behavior
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 9c3cd4e
   iter-239
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- the README map of the framework names 7 of the 8 role cards, and the one it drops is the seat that runs FIRST
@@ -1315,4 +1335,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-132 scouted iterations
+134 scouted iterations
