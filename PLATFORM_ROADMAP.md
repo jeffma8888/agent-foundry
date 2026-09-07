@@ -132,10 +132,10 @@ NEW `## Compacted from the index by iter NNN` archive heading is legal. PAYDOWN 
 | 8 | `scheduled` watchdog that relaunches the dispatcher if PID gone & no STOP | Survive reboots / crashes truly 24/7 | a documented, tested watchdog exists — **[shipping iter 06]** |
 | 9 | `foundry.py doctor` preflight (AC power, agent CLI, uv, remote reachable) | Fail fast before burning a shift on a broken env | `doctor` subcommand returns actionable checks — **[shipping iter 01]** |
 | 10 | Structured JSON event log alongside the markdown NIGHT_LOG | Machine-readable status for dashboards / the reporter | events.jsonl written per stage — **[shipping iter 05]** (retry; iter 04 was reverted by an external public-release STOP, not a feature defect) |
-| 11 | **Post-release verification gate** (fresh-clone) + conventional revertable commit contract | The final gate checks the working TREE, never a clean-room checkout — this misses uncommitted files, lockfile drift, and dev-tree import leakage. For a project whose PRIMARY goal is trustworthy continuous release/deployment, a green working tree is not proof the release is deployable | a `postrelease` stage runs on every ship, clones `origin/<branch>` fresh, re-verifies, emits `POSTRELEASE: HEALTHY\|BROKEN`, and a BROKEN result raises a per-product hotfix flag the next PM must clear (see detailed spec below) — ✅ **SHIPPED (iter 02 bite 1/2 = config fields + dormant verify helper, `0fc54c1`; iter 03 bite 2/2 = wiring + `POSTRELEASE:` sentinel + hotfix-flag lifecycle + commit contract)** |
+| 11 | **Post-release verification gate** (fresh-clone) + conventional revertable commit contract | COMPLETED | SHIPPED iters 02+03 -- prose in the archive (iter 243) |
 | 12 | Read-only `foundry status` company-health probe | COMPLETED | SHIPPED iter 16 -- prose in the archive (iter 204) |
 | 13 | Read-only `foundry history` multi-iteration ship ledger | COMPLETED | SHIPPED iter 17 -- prose in the archive (iter 204) |
-| 14 | Single-brain launch preflight (`foundry single-brain`) | The #1 OBSERVED live failure is two dispatchers on one model-API account starving the shared token budget (LEARNINGS `[PM iter01]`, VISION single-brain constraint); `foundry doctor` cannot cover it (its 4-check contract is pinned by iter-01 tests) and the iter-06 watchdog only guards RESURRECTION, not an operator's manual launch | `foundry single-brain [--pattern P]` scans for a running dispatcher and exits 0 SAFE / 1 CONFLICT / 2 UNKNOWN so a launch wrapper can gate on it — **[shipping iter 24 = read-only `running_dispatchers` seam + frozen `SingleBrainStatus` + pure `summarize_single_brain` + on-demand `foundry single-brain` CLI (off the control path, reports only — never kills/force-anything); successor = `--json`]** |
+| 14 | Single-brain launch preflight (`foundry single-brain`) | COMPLETED | SHIPPED iter 24 -- prose in the archive (iter 243); successor `--json` open |
 
 ## Ship order (PM re-orders by value each iteration)
 
@@ -310,12 +310,14 @@ in the archive.
 - iter 239 -- README's repo map names every tracked role card: derived membership brake, count words deleted.
 - iter 240 -- `foundry inflight`: the PENDING stage attempt gets its first reader -- elapsed + headroom vs the 600s cap.
 - iter 242 -- `RESULT: BLOCKED`, a third tester disposition + the ship gate's record-only branch.
+- iter 243 -- inlined lesson tail cuts at the last full SENTENCE, not mid-word: -1,313 chars/prompt, 10/10 fixed.
 
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
 - items 2, 5, 7, 12, 13 (COMPLETED table rows) — prose ARCHIVED verbatim by iter 204 under `## Compacted from the index by iter 204`; 4-column stubs remain.
 - iter-242 -- the `RESULT:` sentinel contract gains a THIRD token, `BLOCKED` (logged here because the guardrail below names that contract by name). ADDITIVE ONLY, so no migration step is owed and no restart: `RESULT: PASS` / `RESULT: FAIL` parse exactly as before, `TEST_GATE_REPAIR_DISPOSITIONS` is the unchanged `("UNFINISHED", "RED")`, and under the OLD module a `RESULT: BLOCKED` body already classified `NONE`, which is deliberately OUTSIDE that repair set -- so `needs_test_repair` is False before AND after and the routing at `foundry.py:5145` / `:20601` is byte-identical either way. The checkpoint marker OUTRANKS the new token, so a cap-killed round still buys its `UNFINISHED` retry rounds. Detail in `PLATFORM_ROADMAP_ARCHIVE.md`.
+- iter-243 -- INDEX LAYOUT: items 11 and 14 (both COMPLETED) lose their prose to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 243`; 4-column stubs remain, per the iter-204 precedent for items 2/5/7/12/13. Done-ROW deletion is EXHAUSTED as a paydown: `tests/test_iter122_behavior.py`'s `FROZEN` needs exactly one row HERE for each of 98 iterations <= 119, so only 2 of the 163 rows are unpinned -- the next paydown must use a different mechanism (options in the archive section).
 
 ## Guardrails for self-modification
 - Never change iteration numbering, state layout, or the `VERDICT:`/`RESULT:`/

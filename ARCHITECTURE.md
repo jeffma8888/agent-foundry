@@ -165,7 +165,10 @@ Nothing is remembered in-context across stages. Durable memory is:
   that is where cross-role operator directives live. Because the prompt path pays that
   cost on every stage of every iteration, `build_prompt` — and ONLY `build_prompt` —
   also bounds the digest by CHARACTERS: each lesson line is capped at
-  `PROMPT_LEARNINGS_LESSON_CHARS` and the tail admitted newest-first within
+  `PROMPT_LEARNINGS_LESSON_CHARS`, cut at the last complete SENTENCE inside that cap
+  rather than mid-word (iter 243, `truncate_lesson_at_sentence`; a line with no
+  sentence end in the upper half of the cap still cuts mid-word, so the worst case is
+  what shipped before), and the tail admitted newest-first within
   `PROMPT_LEARNINGS_BUDGET_CHARS`, and the pinned head is bounded the same way —
   each head BULLET BLOCK capped at
   `PROMPT_LEARNINGS_HEAD_BULLET_CHARS` and blocks admitted top-down (so the

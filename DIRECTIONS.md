@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-243
+    lenses: simplification-and-deletion (iteration 243), performance-and-throughput (iteration 243)
+    - Candidate A1 -- (measuring)
+    - Candidate A2 -- (measuring)
+    - Candidate A3 -- (measuring)
+    - Candidate B1 -- the lesson tail buys 8,000 chars per prompt to deliver 2,210 chars of rule, and cuts all 10 mid-word
+    - Candidate B2 -- the digest HEAD has no role scoping, and 33% of what a seat reads is addressed to a different seat
+    - Candidate B3 -- the two most expensive stages in the pipeline are the two whose prompt no verb can price
+    winner: B1
+    ship: pending (not yet decided)
   iter-242
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- the seat that decides whether an iteration ships hand-writes Python for the two reads `foundry outcomes` already answers, and role cards name 4 of 51 verbs
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- (measuring)
     - Candidate B3 -- (measuring)
     winner: A2
-    ship: pending (not yet decided)
+    ship: PUSHED ddcc2d3
   iter-241
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- the leak guard's own `--files` mode fails OPEN: a directory or a typo'd path scans zero files and exits 0 "clean"
@@ -1335,4 +1345,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-134 scouted iterations
+135 scouted iterations
