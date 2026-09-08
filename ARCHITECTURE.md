@@ -26,17 +26,43 @@ reusable, repo-agnostic org.
 | 2 | Engineer | `engineer.md` | `engineer.md` | no |
 | 3 | Reviewer | `reviewer.md` | `reviewer.md` (`VERDICT:` line) | no |
 | 3b| Fix (if CHANGES_REQUIRED) | `fix.md` | `fix_review.md` | no |
-| 4 | Isolated Tester | `tester.md` | `tester.md` (`RESULT:` line) | no |
-| 4b| Fix + re-test (if RED: `RESULT: FAIL`, no checkpoint marker) | `fix.md` + `tester.md` | `fix_tests.md`, `tester2.md` | no |
-| 4c| Tester retry x2 max (if UNFINISHED: report carries `PROGRESS: CHECKPOINT`) | `tester.md` | `tester2.md`, `tester3.md` | no |
+| 4 | Isolated Tester | `tester.md` | `tester.md` (`RESULT:` line -- ONE OF FIVE dispositions, see below) | no |
+| 4b| Fix + re-test (only if `RED`: `RESULT: FAIL`, no checkpoint marker) | `fix.md` + `tester.md` | `fix_tests.md`, `tester2.md` | no |
+| 4c| Tester retry x2 max (only if `UNFINISHED`: report carries `PROGRESS: CHECKPOINT`) | `tester.md` | `tester2.md`, `tester3.md` | no |
 | 5 | Final Reviewer (gate) | `final.md` | `final.md` (`ACTION:` line) | **YES — only role** |
 | 6 | Post-release verify (deterministic; **not** an agent) | — (`postrelease_step`) | `state/iter-NN/postrelease.md` (`POSTRELEASE:` line) | no — read-only clone/verify |
 | — | Reporter (every 5 iters) | `reporter.md` | `reporter_done_NN.md` + STATUS_REPORT | no |
 
 The loop reads the `VERDICT:` / `RESULT:` / `ACTION:` sentinel lines to branch,
-plus the one mandated marker line `PROGRESS: CHECKPOINT` that distinguishes a
-tester round cut short from a genuinely red suite (stage 4b vs 4c); it never
-parses free-form prose for control flow.
+plus the one mandated marker line `PROGRESS: CHECKPOINT`, which separates a tester
+round cut short (`UNFINISHED`, stage 4c) from a genuinely red suite (`RED`, stage
+4b) -- two of the five dispositions below, not the whole space; it never parses
+free-form prose for control flow.
+
+**The tester's `RESULT:` line is FIVE-valued.** The pure `classify_test_report`
+decides it, first match wins, and the single I/O seam `read_test_disposition` is the
+only place the pipeline reads that verdict off disk: `PASS` (an earned sentinel, and
+it outranks a checkpoint claim), `UNFINISHED` (the mandated marker STARTING a line --
+deliberately ranked ABOVE the next one, so a round the hard per-stage cap cut short
+keeps buying its retries instead of being read as a considered block), `BLOCKED` (an
+anchored `RESULT: BLOCKED` with no marker), `RED` (an anchored `RESULT: FAIL` with no
+marker), and `NONE` (no recognizable verdict -- empty text, an unknown token, or a
+`RESULT:` line that is not the last non-empty one). Only the two members of
+`TEST_GATE_REPAIR_DISPOSITIONS` buy the iteration's one repair round -- `UNFINISHED`
+buys 4c, `RED` buys 4b -- so the other three route straight to the gate; naming a
+sixth disposition in the code without naming it here reds the suite.
+
+**`BLOCKED` is the one non-`PASS` disposition a ship may cross, and it is
+RECORD-ONLY.** It reports that the Expected Behaviors do NOT hold AND nothing is
+broken: the spec was unimplementable as written, so the iteration's honest product is
+a truthful record of that. `roles/final.md` admits it only under four CONJUNCTIVE
+conditions -- the AUTHORITATIVE newest-round sentinel is exactly `RESULT: BLOCKED`;
+the reviewer item still holds; the gate's own full-suite run is green; and every
+changed path is a Markdown file at the repo ROOT (no `.py`, nothing under `roles/` or
+`scripts/`, no `.gitignore`, no config file, no path containing a `/`). That last
+condition is one no other verdict faces, which makes the branch STRICTLY more
+demanding than a `PASS` rather than a bypass: a `BLOCKED` tree carrying a code or
+role-card edit is a gate FAILURE, not a ship.
 
 **When a sentinel is ABSENT.** An absent `ACTION:` line means two different things: "the
 gate has written no verdict yet" (it was cut off) and "the gate wrote a malformed one".

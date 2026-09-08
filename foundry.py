@@ -13482,6 +13482,108 @@ def prompt_learnings_constants(source_text: str) -> tuple[str, ...]:
     return tuple(sorted(names))
 
 
+# The ONE module-level `def` whose returned string literals ARE the tester
+# disposition vocabulary. A module constant rather than a parameter on purpose: a
+# caller free to choose the name could point the documentation brake at any
+# friendlier `def` in the file and satisfy the citation rule without documenting
+# the gate, which is the fail-OPEN shape this repo refuses.
+_TESTER_CLASSIFIER_NAME = "classify_test_report"
+
+
+def _returned_string_literals(node: ast.AST, into: set[str]) -> None:
+    """Collect every `return "<literal>"` reachable in ONE function's OWN body.
+
+    Descends through statement bodies (`if` / `try` / `with` / loops) because a
+    decision table returns from inside a branch, but STOPS at a nested `def`,
+    `async def` or `class`: a literal returned by a nested helper is that helper's
+    vocabulary, not the enclosing classifier's. That is exactly why this is an
+    explicit descent rather than `ast.walk`, which flattens the two into one bag.
+
+    Only `ast.Constant` holding a `str` counts, so `return 1`, `return b"x"`,
+    `return f"{x}"` (an `ast.JoinedStr`), `return x` and a bare `return` are all
+    skipped rather than raising -- honest under-reporting of a shape the real
+    classifier does not use is safe, a mis-parse of the ordinary one is not.
+    Mutates only the caller's `into` set; reads no file, clock, socket or process.
+    """
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if isinstance(child, ast.Return) and isinstance(child.value, ast.Constant):
+            value = child.value.value
+            if isinstance(value, str):
+                into.add(value)
+        _returned_string_literals(child, into)
+
+
+def tester_disposition_tokens(source_text: str) -> tuple[str, ...]:
+    """Every disposition `classify_test_report` can return, sorted and DERIVED.
+
+    Takes the SOURCE TEXT of `foundry.py`, never a path, so it is PURE and TOTAL
+    exactly like `prompt_learnings_constants` above: no filesystem, subprocess,
+    network or clock access, no mutation of its argument, and equal inputs give
+    `==` results. Reading the file off disk is deliberately the CALLER's job --
+    that is what lets a test drive the scoping rules from small in-memory strings
+    while the live documentation brake points the same function at the real module.
+
+    WHY IT EXISTS: every product's quality bar sends every seat to
+    `ARCHITECTURE.md` to learn the five inviolable invariants, one of which is the
+    independent pessimistic gate. The single most consequential question about that
+    gate -- "can a tree that did not earn a `PASS` ship?" -- was unanswerable from
+    the doc: it presented the tester disposition space as exactly two outcomes (a
+    red suite versus a round cut short) while the classifier had routed five for
+    two iterations, and the one it omitted, `BLOCKED`, is the only disposition by
+    which a non-`PASS` tree reaches a ship. Re-wording the prose alone rots again
+    on the next disposition, precisely as the README's card count and the
+    `PROMPT_LEARNINGS_*` roster rotted. Deriving the required vocabulary FROM the
+    classifier's own source turns "is the doc complete?" from a habit into an
+    assertion, so a sixth disposition reds the suite until it is documented.
+
+    Walks `ast.parse(...).body` DIRECTLY rather than `ast.walk`, which is what
+    makes the scoping structural: a `classify_test_report` defined inside a `class`
+    body or nested in another `def` is simply not in that list, so there is no
+    scope test to maintain and no way for a same-named helper to widen the
+    vocabulary. `ast.get_source_segment` is never called -- it re-splits the entire
+    source per node, the quadratic trap iteration 231 already paid for on a file
+    this size. `ast.AsyncFunctionDef` is accepted alongside `ast.FunctionDef` so
+    the rule is about SCOPE rather than about a coroutine keyword.
+
+    Honest when empty: `""`, a non-`str`, source that does not parse, or a module
+    with no matching `def` all yield `()` rather than raising, which is what makes
+    a non-vacuity floor ("at least 5 members, one of them `BLOCKED`") expressible
+    in the brake instead of a vacuous pass.
+
+    DORMANT: zero call site in the running pipeline -- no orchestrator, dispatcher,
+    stage, CLI verb or config field references it -- so resume semantics for an
+    in-flight loop are byte-identical. That fact is recorded HERE and deliberately
+    NOT in `ARCHITECTURE.md`: `sentinel_dormancy_gaps` would read a `DORMANT`
+    within `SENTINEL_DORMANCY_WINDOW_CHARS` of the classifier's name as a stale
+    claim about `classify_test_report`, which HAS a live call site.
+    """
+    if not isinstance(source_text, str) or not source_text:
+        return ()
+
+    try:
+        module = ast.parse(source_text)
+    except (SyntaxError, TypeError, ValueError, RecursionError):
+        return ()
+
+    tokens: set[str] = set()
+    for node in module.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if node.name != _TESTER_CLASSIFIER_NAME:
+            continue
+        try:
+            _returned_string_literals(node, tokens)
+        except RecursionError:
+            # Fail CLOSED on pathological nesting: `()` is the honest-when-empty
+            # answer the brake's non-vacuity floor catches, whereas a partial bag
+            # could silently satisfy the citation rule with fewer tokens.
+            return ()
+
+    return tuple(sorted(tokens))
+
+
 # The ONE figure shape the roadmap index uses to advertise the CLI's size, read
 # by `roadmap_verb_figure_gaps`. The literal `CLI` is load-bearing SCOPE, not
 # decoration: `PLATFORM_ROADMAP_ARCHIVE.md` carries 15 historical `N verbs`
