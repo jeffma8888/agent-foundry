@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-244
+    lenses: performance-and-throughput (iteration 244), narrative-and-docs (iteration 244)
+    - Candidate A1 -- the 8,921-char lesson tail is a 0.71-iteration window because APPEND ORDER, not role, decides who gets in
+    - Candidate A2 -- the head is 222 chars from a wall that has no near-wall band, unlike the roadmap wall next to it
+    - Candidate A3 -- one orphaned head fragment is 900 chars of every prompt and makes the only over-cap block
+    - Candidate B1 -- the invariants doc describes a two-outcome tester contract; the code has routed FIVE dispositions for two iterations, and the one it omits is the only one that lets a non-PASS tree ship
+    - Candidate B2 -- two committed docs tell an adopter to read a per-team status file that has never existed once in 826 iterations, because its only writer is unreachable on the recommended path
+    - Candidate B3 -- the roadmap's own "current through" figure says 240 while its ledger carries rows through 243, and the number is derivable from the file it lives in
+    winner: B1
+    ship: pending (not yet decided)
   iter-243
     lenses: simplification-and-deletion (iteration 243), performance-and-throughput (iteration 243)
     - Candidate A1 -- (measuring)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the digest HEAD has no role scoping, and 33% of what a seat reads is addressed to a different seat
     - Candidate B3 -- the two most expensive stages in the pipeline are the two whose prompt no verb can price
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 70ee5a8
   iter-242
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- the seat that decides whether an iteration ships hand-writes Python for the two reads `foundry outcomes` already answers, and role cards name 4 of 51 verbs
@@ -1345,4 +1355,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-135 scouted iterations
+136 scouted iterations
