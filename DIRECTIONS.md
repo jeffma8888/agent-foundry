@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-320
+    lenses: integration-and-adoption (iteration 320), simplification-and-deletion (iteration 320)
+    - Candidate A1 -- the dual-scout default is the path only the RETIRED product takes: flip it, blast radius zero
+    - Candidate A2 -- the machine that auto-pushes a PUBLIC repo is guarded by an untracked 49-line script; the reviewed 397-line guard has no consumer
+    - Candidate A3 -- give the two-sided roadmap-ledger flip a verb, because the seat that needs it is currently told to hand-write Python
+    - Candidate B1 -- retire the starved `prd.json` story meter's PRODUCER half
+    - Candidate B2 -- the README front door is 61.7% single-line essays
+    - Candidate B3 -- the `Company*` roll-up `exit_code` group (roadmap item (q))
+    winner: A1
+    ship: pending (not yet decided)
   iter-244
     lenses: performance-and-throughput (iteration 244), narrative-and-docs (iteration 244)
     - Candidate A1 -- the 8,921-char lesson tail is a 0.71-iteration window because APPEND ORDER, not role, decides who gets in
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- two committed docs tell an adopter to read a per-team status file that has never existed once in 826 iterations, because its only writer is unreachable on the recommended path
     - Candidate B3 -- the roadmap's own "current through" figure says 240 while its ledger carries rows through 243, and the number is derivable from the file it lives in
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 24224da
   iter-243
     lenses: simplification-and-deletion (iteration 243), performance-and-throughput (iteration 243)
     - Candidate A1 -- (measuring)
@@ -1355,4 +1365,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-136 scouted iterations
+137 scouted iterations

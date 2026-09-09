@@ -353,7 +353,7 @@ class ProductConfig:
     postrelease_enabled: bool = True   # run the fresh-clone verify (iter 03+)
     setup_cmd: str = "uv sync"          # how to install deps in the fresh clone
     smoke_cmd: str | None = None       # optional smoke command; None => skipped
-    dual_pm_scouts: bool = False       # dual-PM-scout opt-in (dormant; wired in a later bite)
+    dual_pm_scouts: bool = True        # two-scout PM pre-phase (False => single-PM lead only)
     # External agent-gap register (read-only evidence feed; dormant -- ZERO call
     # site this iteration). Both default OFF so every existing config loads
     # UNCHANGED and no product reads a register until one is set deliberately.

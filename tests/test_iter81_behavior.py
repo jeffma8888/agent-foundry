@@ -112,12 +112,14 @@ def _write_cfg(tmp_path, **over):
 
 
 # ==========================================================================
-# Behavior 1 -- default off; the three positional-required fields still work
+# Behavior 1 -- default ON; the three positional-required fields still work
+# (default inverted by iter 320; this section used to assert a fresh instance
+# defaulted to False, i.e. the superseded single-PM leg)
 # ==========================================================================
-def test_b01_default_off_on_fresh_instance():
+def test_b01_default_on_for_a_fresh_instance():
     cfg = foundry.ProductConfig(name="x", repo="/tmp/x", allowed_push_repo="x")
     assert hasattr(cfg, "dual_pm_scouts")
-    assert cfg.dual_pm_scouts is False
+    assert cfg.dual_pm_scouts is True
     # the existing positional-required fields are unchanged / still bind
     assert cfg.name == "x"
     assert cfg.repo == "/tmp/x"
@@ -139,18 +141,21 @@ def test_b02_declared_field_and_isinstance_bool():
 def test_b02_field_is_last_and_has_a_default():
     # a defaulted bool -- constructible with ONLY the three required positionals
     # (proves it carries a default and sits after the required fields).
+    # (default value inverted by iter 320; both assertions used to read False)
     cfg = foundry.ProductConfig(name="x", repo="/tmp/x", allowed_push_repo="x")
-    assert cfg.dual_pm_scouts is False
+    assert cfg.dual_pm_scouts is True
     fld = {f.name: f for f in dataclasses.fields(foundry.ProductConfig)}["dual_pm_scouts"]
-    assert fld.default is False
+    assert fld.default is True
 
 
 # ==========================================================================
-# Behavior 3 -- load_config OMITting the key yields False (old configs load)
+# Behavior 3 -- load_config OMITting the key yields True (old configs still
+# load; default inverted by iter 320, where this section used to assert an
+# omitted key yielded False)
 # ==========================================================================
-def test_b03_load_config_omit_defaults_false(tmp_path):
+def test_b03_load_config_omit_defaults_true(tmp_path):
     cfg = foundry.load_config(str(_write_cfg(tmp_path)))
-    assert cfg.dual_pm_scouts is False
+    assert cfg.dual_pm_scouts is True
 
 
 # ==========================================================================
@@ -208,12 +213,14 @@ def test_b07_resolve_preserves_the_bool():
     assert target.dual_pm_scouts is True, "resolve() altered the dormant bool"
 
 
-def test_b07_resolve_preserves_false_too():
+def test_b07_resolve_preserves_the_default_too():
+    # (default inverted by iter 320; this test used to build the SAME
+    # default-constructed config and assert resolve() kept it False)
     cfg = foundry.ProductConfig(
         name="x", repo="{FOUNDRY}/products/x/repo", allowed_push_repo="x")
     resolved = cfg.resolve()
     target = resolved if resolved is not None else cfg
-    assert target.dual_pm_scouts is False
+    assert target.dual_pm_scouts is True
 
 
 # ==========================================================================

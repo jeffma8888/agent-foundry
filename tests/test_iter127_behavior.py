@@ -108,6 +108,11 @@ def _write_cfg(tmp_path, **over):
         "allowed_push_repo": "demoprod",
         "vision": str(tmp_path / "VISION.md"),
         "work_root": str(tmp_path / "work"),
+        # iter 320 flipped ProductConfig.dual_pm_scouts to default TRUE. Every
+        # stage-sequence pin in this file is about the SINGLE-PM pipeline, so the
+        # fixture now DECLARES that leg instead of inheriting it from the default.
+        # `data.update(over)` below still lets a test opt back in.
+        "dual_pm_scouts": False,
     }
     data.update(over)
     n = len(list(tmp_path.glob("cfg_*.json")))
