@@ -856,7 +856,28 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # instead of relaxing it -- the tuple-shape and distinct-pairs
                 # guarantees both still hold, now over three tokens. Red ONLY inside
                 # the pre-commit window; a fresh clone at the ship commit is clean.
-                "tests/test_iter201_behavior.py"}
+                "tests/test_iter201_behavior.py",
+                # iter 320: `ProductConfig.dual_pm_scouts` flipped default False ->
+                # True, so a config that OMITS the key now runs the two scout
+                # stages. Two mechanical consequences, no assertion weakened:
+                #   * iter 81 PINS the old default -- five assertions INVERTED to
+                #     `is True` / `fld.default is True`, i.e. still an EXACT pin.
+                #   * the six files below pin the SINGLE-PM stage-label sequence via
+                #     a fixture that omitted the key; each `_write_cfg` now DECLARES
+                #     `"dual_pm_scouts": False`, so the pins keep their original
+                #     domain instead of silently acquiring two scout stages.
+                # Allow-listed on the iter-212/215/242 precedent, with evidence
+                # STRONGER than those rows: all seven contain NONE of DOC_TOKENS, so
+                # they cannot host a newest-ness claim about a live tracked doc at
+                # all -- `newest_ness_pin_sites` over each is `()` at HEAD AND in the
+                # worktree. Red ONLY inside the pre-commit window.
+                "tests/test_iter81_behavior.py",
+                "tests/test_iter68_behavior.py",
+                "tests/test_iter72_behavior.py",
+                "tests/test_iter116_behavior.py",
+                "tests/test_iter126_behavior.py",
+                "tests/test_iter127_behavior.py",
+                "tests/test_iter147_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

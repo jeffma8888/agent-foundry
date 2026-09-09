@@ -27,8 +27,8 @@ so existing single-PM products are unaffected:
 - Output-file success (each scout stage succeeds iff its output file exists, non-empty).
 - Sequential stages -> at most one agent-CLI call in flight (single-brain quota safety).
 - Anti-delegation clause in every scout prompt.
-- Fully backward-compatible: `dual_pm_scouts` defaults off; no behavior change for existing
-  products unless they opt in.
+- Backward-compatible field: a config that OMITS `dual_pm_scouts` still loads; since iteration
+  320 the omitted default runs the two scouts, and an explicit `false` is the single-PM opt-OUT.
 - Add tests: scout stages run in order when enabled; PM lead consumes both files;
   disabled path is byte-identical to today.
 
