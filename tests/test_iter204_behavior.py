@@ -904,7 +904,32 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # REQUIRE (so `git ls-files` can see the file) makes it visible --
                 # as does the gate's own `git add -A`. Nothing about the assertion
                 # or the 75-assertion literal class changes.
-                "tests/test_iter323_behavior.py"}
+                "tests/test_iter323_behavior.py",
+                # iter 325: this iteration's OWN new behavior test file, for the
+                # identical reason as the iter-226/227/229/230/231/232/323 rows
+                # above -- `THIS_ITER` is FROZEN at 204, so the f-string on the
+                # `expected` line CANNOT name a later iteration, and the head
+                # comment's "this iteration's OWN new test file is expected"
+                # intent therefore needs one explicit string per iteration. Red
+                # ONLY inside the staging window: `git diff HEAD` cannot see an
+                # UNTRACKED path at all, and the gate's own `git add -A` (or a
+                # `git add -N`) is what makes it visible. Nothing about the
+                # assertion or the 75-assertion literal class changes.
+                "tests/test_iter325_behavior.py",
+                # iter 325: FORCED brake amendment. Spec Behavior 10 REQUIRES the
+                # gate card `roles/final.md` to name the new `foundry.py leak-check`
+                # verb, and iteration 244's `test_b8_frozen_paths_are_byte_unchanged`
+                # -- that iteration's OWN "nothing else moves" scope check -- freezes
+                # `roles/` WHOLESALE with no allow-list, so the suite cannot be green
+                # with both. A narrow, documented `{"roles/final.md"}` allow-list was
+                # added there rather than the assertion weakened, on the
+                # iter-212/215/242/323 precedent and the same evidence those rows use:
+                # `newest_ness_pin_sites` over that file is `()` at HEAD AND in the
+                # worktree, so no newest-ness pin was swept, converted or added, and
+                # the 75-assertion literal class keeps both sibling checks above. The
+                # other four frozen paths stay frozen. Red ONLY inside the pre-commit
+                # window; a fresh clone at the ship commit is clean.
+                "tests/test_iter244_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

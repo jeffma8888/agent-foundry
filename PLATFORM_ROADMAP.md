@@ -302,7 +302,6 @@ in the archive.
 - iter 230 -- `doctor` grows a FIFTH drift line: iter 229's dormant test-touch measurement gets its first reader.
 - iter 231 -- pure `prose_stripped_source` disarms the self-referential count brake; iter 230's work re-lands.
 - iter 232 -- role-scoped lesson tail: 4 of the 10 digest slots go to the stage's OWN role's newest lessons.
-- iter 233 -- the pm/scout cards name `DIRECTIONS.md` an INPUT (bounded); new brake: a card's `foundry.py` verbs exist.
 - iter 234 -- pure `parse_log_stamp` seam: the shared stage-log parser stops silently losing every `02-29` row.
 - iter 235 -- item 23 bite 2: `foundry.log`'s two writes get `dlog`'s guards; a dead stdout can't kill a shift.
 - iter 236 -- the durable detached launcher SHIPS: tracked leak-clean `launch.sh` gates on `single-brain`; USAGE.md.
@@ -318,6 +317,7 @@ in the archive.
 - iter 322 -- the Resilience invariant's per-loop cooldown is SCOPED to `run_continuous`; supported path has none.
 - iter 323 -- `foundry unfailable-asserts`: the 4th test-quality detector gets its CLI after 137 dormant iterations.
 - iter 324 -- `parse_triage_winner` reads scout-qualified winner ids: 32 of 38 unparsed bodies heal, 0 regressions.
+- iter 325 -- `foundry leak-check`: the fail-CLOSED leak gate gets a machine-readable verdict, not shell exit plumbing.
 
 
 ### Migration notes (per §6 self-mod guardrail)

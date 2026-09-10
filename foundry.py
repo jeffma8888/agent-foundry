@@ -23293,6 +23293,170 @@ def recoverable_cli(cfg: ProductConfig, limit: int | None = None,
     return _thin_gather_cli(gather_recoverable, cfg, limit, as_json)
 
 
+def leak_guard_verdict(guard_present: bool, returncode: int | None,
+                       detail: str = "") -> tuple[str, int]:
+    """Pure, TOTAL public-safety verdict: `(verdict word, fail-CLOSED exit code)`.
+
+    This repo is PUBLIC and the dispatcher auto-pushes on every ship, so the
+    committed leak guard is the last line of defence -- and `roles/final.md`
+    grades it by EXIT CODE alone, which is shell plumbing the most time-pressured
+    seat hand-types. Iteration 324's gate proved that fragile: it piped the guard
+    through `tail` and read `${PIPESTATUS[0]}`, which is bash-only and expands to
+    the EMPTY STRING under zsh, so the verdict on a fail-closed gate was
+    unreadable while the scanner's own stdout (`0 finding(s) in ...`) still LOOKED
+    like a pass. This function is the decision half of a SECOND, un-loseable
+    channel: a verdict WORD that no shell mistake can turn into a clean read.
+
+    The mapping, and why each arm exists:
+      * `guard_present=False` -> `("ABSENT", 0)`. Most products carry no
+        `scripts/leak_guard.py`, and the card already says its absence is not a
+        gate failure. Checked FIRST, so `returncode` cannot matter at all when
+        there was nothing to run.
+      * `returncode == 0` -> `("CLEAN", 0)`; `returncode == 1` -> `("LEAKED", 1)`,
+        matching the guard's own documented 0-clean / 1-findings contract.
+      * EVERYTHING ELSE -> `("UNKNOWN", 2)`. This is the arm the feature is for:
+        the guard's own exit 2 (it could not complete), any other code, a signal
+        death (`-9`), and `None` for "the scan never produced a code" all get ONE
+        name of their own. "Could not decide" can therefore never collapse into
+        CLEAN, which is the failure the card warns about ("never let the guard be
+        defeated by making it error past").
+
+    So `("CLEAN", 0)` is returned ONLY for `guard_present=True` and
+    `returncode == 0`, and exit code `0` comes ONLY from `CLEAN` or `ABSENT`.
+
+    `detail` is accepted and DELIBERATELY IGNORED by the decision. The verdict is
+    derived from the two structural facts only, never from scanner TEXT, so no
+    finding body, git error message or crafted filename that reaches stdout can
+    ever influence the gate's verdict -- the same counts-not-bodies rule
+    `test_touch_line` (iter 54) follows. It is in the signature so one call site
+    can pass the whole seam result positionally and the printer can render the
+    detail beside the word it does not affect.
+
+    PURE and TOTAL: no I/O, no subprocess, no clock, no mutation, and no input
+    raises -- an unexpected `returncode` type simply fails both equality tests and
+    lands in the fail-closed arm."""
+    if not guard_present:
+        return ("ABSENT", 0)
+    if returncode == 0:
+        return ("CLEAN", 0)
+    if returncode == 1:
+        return ("LEAKED", 1)
+    return ("UNKNOWN", 2)
+
+
+def run_leak_guard(repo, ref: str = "HEAD",
+                   timeout: int = CMD_TIMEOUT) -> tuple[bool, int | None, str]:
+    """The ONE I/O seam behind `leak-check`: run a product's OWN committed guard.
+
+    Returns `(guard_present, returncode, detail)` -- the exact triple
+    `leak_guard_verdict` decides on. Repo-agnostic by construction: the guard is
+    looked up at `<repo>/scripts/leak_guard.py`, so a product that carries no
+    guard reports `(False, None, ...)` instead of an error, and the guard is
+    EXECUTED as a subprocess rather than imported, so this module never takes on
+    the scanner's globals, its denylist load or its `sys.modules` entry.
+
+    `scripts/` is a FROZEN control path, so this seam adapts to the guard's
+    shipped CLI and changes nothing about it: `--ref <ref> --repo <repo>`, the
+    same invocation `roles/final.md` has pinned since iteration 52.
+
+    FAILS CLOSED, never raising: a launch error or a timeout returns
+    `returncode=None` with the guard still reported PRESENT, which
+    `leak_guard_verdict` reads as `UNKNOWN`/2. A scan that could not run must
+    never be indistinguishable from a clean one.
+
+    PUBLIC-SAFETY on the detail line, which is the one string that leaves this
+    seam: it is the guard's own first output line (its STDERR summary, e.g.
+    `0 finding(s) in N file(s) scanned`, ahead of its STDOUT findings block),
+    whitespace-collapsed to ONE line, with every absolute-looking token replaced
+    by `<path>` and the whole thing capped -- so no machine path from this host
+    can ride a report into a public artifact, and no exception MESSAGE is quoted,
+    only its type.
+
+    Isolated as a module-level name and called by BARE name so a test can
+    `monkeypatch.setattr(foundry, "run_leak_guard", ...)` and drive every verdict
+    with zero real subprocess, git or network work."""
+    guard = pathlib.Path(repo) / "scripts" / "leak_guard.py"
+    if not guard.is_file():
+        return (False, None, "this product repo carries no scripts/leak_guard.py")
+    try:
+        proc = subprocess.run(
+            [sys.executable, str(guard), "--ref", ref, "--repo", str(repo)],
+            capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        # Type only, never the message: a launch/timeout error quotes the argv,
+        # which holds this machine's absolute repo path.
+        return (True, None, f"scan could not run ({type(exc).__name__})")
+    lines = [line.strip() for line
+             in ((proc.stderr or "") + "\n" + (proc.stdout or "")).splitlines()
+             if line.strip()]
+    raw = lines[0] if lines else f"guard exited {proc.returncode} with no output"
+    for label in ("leak-guard:", "leak_guard:"):
+        # The guard labels its own summary line; drop that prefix so the composed
+        # report carries `leak-guard: ` EXACTLY ONCE and a role card grepping for
+        # the label cannot match two places on one line.
+        if raw.lower().startswith(label):
+            raw = raw[len(label):].strip()
+            break
+    safe = " ".join("<path>" if word.startswith("/") else word
+                    for word in raw.split())
+    return (True, proc.returncode, safe[:200])
+
+
+def leak_check_cli(cfg: ProductConfig, ref: str = "HEAD",
+                   as_json: bool = False) -> int:
+    """On-demand CLI: publish ONE machine-readable leak-guard verdict + its code.
+
+    Prints exactly ONE line -- `leak-guard: CLEAN|LEAKED|UNKNOWN|ABSENT --
+    <detail>` -- and returns the fail-CLOSED code (0 clean-or-absent / 1 a leaked
+    token / 2 the scan could not be decided). With `as_json=True` that one line is
+    instead ONE `json.dumps` object carrying `product, ref, verdict, exit_code,
+    returncode, detail` (the stable contract for a dashboard or CI), and the human
+    line is NOT printed; the RETURN value is identical in both modes.
+
+    TWO CHANNELS, ONE DECISION: the word and the exit code come from the SAME
+    `leak_guard_verdict` call, so they can never disagree, and a gate that
+    mis-reads one still has the other. That is the whole point of the verb -- the
+    release gate's shell read an empty exit code off a clean-looking report last
+    iteration.
+
+    A RAISING SEAM IS `UNKNOWN`, NOT A CRASH, and it reports the guard as PRESENT
+    on purpose: if the seam itself blew up we do not know whether a guard exists,
+    and the fail-closed reading of "we do not know" is 2. The exception type and
+    its whitespace-collapsed message are quoted so an operator can debug from the
+    one line, and no traceback escapes into a gate's transcript.
+
+    Whitespace in `detail` is collapsed ONCE, here, for both channels: the
+    single-line contract is what makes this output greppable by a role card, so a
+    seam that returned an embedded newline must not be able to break it.
+
+    DORMANT -- `run_iteration`, `run_stage`, `build_prompt`, `postrelease_step`
+    and `dispatcher.py` never reach this verb or either helper; `main()`'s argparse
+    dispatch is the only caller, exactly as with `preship`. The gate reaches it
+    through its ROLE CARD, so a loop in flight resumes byte-identically. Read-only:
+    it writes nothing and creates no directories."""
+    try:
+        # Seam resolved HERE, by BARE name at CALL time, so a monkeypatch bites.
+        guard_present, returncode, detail = run_leak_guard(cfg.repo, ref=ref)
+    except Exception as exc:  # noqa: BLE001 -- fail CLOSED on ANY seam failure
+        guard_present, returncode = True, None
+        detail = (f"leak-guard seam raised {type(exc).__name__}: "
+                  + " ".join(str(exc).split())[:200])
+    detail = " ".join(str(detail).split())
+    verdict, code = leak_guard_verdict(guard_present, returncode, detail)
+    if as_json:
+        print(json.dumps({
+            "product": cfg.name,
+            "ref": ref,
+            "verdict": verdict,
+            "exit_code": code,
+            "returncode": returncode,
+            "detail": detail,
+        }))
+    else:
+        print(f"leak-guard: {verdict} -- {detail}")
+    return code
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="agent-foundry product team runner")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -23965,6 +24129,30 @@ def main(argv: list[str] | None = None) -> int:
     # pipeline/gate/dispatcher NEVER call it; it writes nothing. `--files` scans
     # EXACTLY those paths instead of walking `cfg.repo`. Exit 0 clean / 1
     # unfailable-or-unparseable / 2 nothing to scan.
+    # `leak-check` publishes the PUBLIC-SAFETY verdict of the product's OWN
+    # committed leak guard (`<repo>/scripts/leak_guard.py`) as a WORD on stdout --
+    # `leak-guard: CLEAN|LEAKED|UNKNOWN|ABSENT -- <detail>` -- as well as the
+    # fail-CLOSED exit code the release gate already grades. A SECOND, un-loseable
+    # channel: iteration 324's gate read that exit code through a bash-only
+    # `${PIPESTATUS[0]}` that expands to the empty string under zsh, leaving an
+    # unreadable verdict on the one gate standing between a PUBLIC auto-pushing
+    # repo and a leaked credential, while the scanner's own `0 finding(s)` line
+    # still looked like a pass. The undecidable scan therefore gets its OWN name,
+    # `UNKNOWN`, so "could not decide" can never collapse into CLEAN. Repo-agnostic:
+    # a product carrying no guard is `ABSENT`/0, which the card already says is not
+    # a gate failure. Runs the guard as a SUBPROCESS and never imports it; `scripts/`
+    # is a frozen control path and is untouched. DORMANT / on-demand only -- the
+    # pipeline/gate/dispatcher NEVER call it (the gate reaches it through its ROLE
+    # CARD, like `preship`); it writes nothing. Exit 0 clean-or-absent / 1 leaked
+    # token / 2 the scan could not be decided.
+    lkc = sub.add_parser("leak-check")
+    lkc.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    lkc.add_argument("--ref", default="HEAD",
+                     help="git ref/tree the guard scans (default: HEAD)")
+    lkc.add_argument("--json", action="store_true",
+                     help="emit the verdict as one JSON document (machine-readable) "
+                          "instead of the human `leak-guard: ` line; same 0/1/2 exit code")
     unf = sub.add_parser("unfailable-asserts")
     unf.add_argument("--config", required=True,
                      help="path to product JSON config")
@@ -24417,6 +24605,8 @@ def main(argv: list[str] | None = None) -> int:
         return skipped_tests_cli(cfg, files=args.files, as_json=args.json)
     if args.cmd == "unfailable-asserts":
         return unfailable_asserts_cli(cfg, files=args.files, as_json=args.json)
+    if args.cmd == "leak-check":
+        return leak_check_cli(cfg, ref=args.ref, as_json=args.json)
     if args.cmd == "test-quality":
         return test_quality_cli(cfg, files=args.files, as_json=args.json)
     if args.cmd == "events":

@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-325
+    lenses: hardening/DX, integration-and-adoption (iteration 325)
+    - Candidate A1 -- the fail-CLOSED public-repo leak gate is invoked by hand-typed shell in the one seat that pushes, and iteration 324's gate read its verdict as the empty string
+    - Candidate A2 -- two iterations running, the PM omitted the archive bullet and the ENGINEER found out from 14 red tests; the two-sided oracle those tests use has no CLI
+    - Candidate A3 -- the stage now sitting AT the 600 s cap is the only build stage with no checkpoint vocabulary, so 726 `engineer.md` artifacts are unclassifiable
+    - Candidate B1 -- (measuring)
+    - Candidate B2 -- (measuring)
+    - Candidate B3 -- (measuring)
+    winner: A1
+    ship: pending (not yet decided)
   iter-324
     lenses: new-capability, hardening/DX
     - Candidate A1 -- 25 attempts and 5 iteration numbers died on an expired session, and the framework has no flag that says "a human must re-authenticate"
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the leak guard reports "0 finding(s) in 1 file(s)" after silently dropping a whole directory from the scan, and exits 0
     - Candidate B3 -- the meta-test that keeps the permanent freezes NARROW cannot see a pathspec built from a constant, and one shipped guard is already in that blind spot
     winner: A2
-    ship: pending (not yet decided)
+    ship: PUSHED a88bcfd
   iter-323
     lenses: narrative-and-docs (iteration 323), new-capability
     - Candidate A1 -- iter 322's own archive section states a FORCED reason for a move that was optional, and the index it claims to have shrunk GREW 241 chars in the same commit
@@ -1405,4 +1415,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-141 scouted iterations
+142 scouted iterations
