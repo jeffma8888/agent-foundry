@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-323
+    lenses: narrative-and-docs (iteration 323), new-capability
+    - Candidate A1 -- iter 322's own archive section states a FORCED reason for a move that was optional, and the index it claims to have shrunk GREW 241 chars in the same commit
+    - Candidate A2 -- three committed docs say the always-on roster is "exactly five seats" and "the entire standing cost of a product team"; seven seats have run every iteration since 320, and I am one of the two they omit
+    - Candidate A3 -- the gap-radar integration spec is headed "Status: SPEC, not yet implemented" while foundry.py's own comments say phase 2 shipped 130 iterations ago and inject it into every PM prompt
+    - Candidate B1 -- the 4th test-quality detector shipped 137 iterations ago and is still the ONLY one with zero consumers: give `find_unfailable_assert_tests` its CLI
+    - Candidate B2 -- nothing in the framework measures a CONSECUTIVE no-output streak, so a 36.6-hour, 75-iteration outage happened with every read-only verb exiting 0
+    - Candidate B3 -- three read-only verbs and one brake collapse "the file was never written" into the same word as "the file exists but did not parse", and 75 outage rows are indistinguishable from the live iteration
+    winner: B1
+    ship: pending (not yet decided)
   iter-322
     lenses: performance-and-throughput (iteration 322), narrative-and-docs -- iteration 322
     - Candidate A1 -- (measuring)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- "the invariants" is enumerated four different ways in four shipped artifacts, and the section all four cite has SIX bullets
     - Candidate B3 -- ARCHITECTURE.md and README still sell the two-scout PM leg as OPT-IN and "default-off"; it has defaulted TRUE since iter 320
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 4465cbe
   iter-321
     lenses: simplification-and-deletion (iteration 321), performance-and-throughput (iteration 321)
     - Candidate A1 -- (measuring)
@@ -1385,4 +1395,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-139 scouted iterations
+140 scouted iterations

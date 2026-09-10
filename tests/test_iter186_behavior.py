@@ -551,13 +551,24 @@ def test_b13_both_modules_still_import():
 
 
 def test_b13_no_new_cli_surface_names_the_lens():
+    """CONTRACT INVERTED BY ITER 323, which shipped the lens its own verb.
+
+    Iteration 186 shipped the detector with NO CLI at all, so this test asserted
+    the token `unfailable` appeared in NO help text anywhere. Iteration 323 gave
+    it `foundry unfailable-asserts`, so the honest form of the same guard is
+    SCOPED rather than deleted: the lens may name EXACTLY ONE verb, and the four
+    SHIPPED sibling verbs whose bytes iter 186 promised not to disturb must still
+    never mention it. That keeps the original defect this test was written for --
+    the lens leaking into an existing surface -- an assertable failure.
+    """
     tokens = ("unfailable", "unfailable-asserts", "UnfailableAssert")
     code, top, _ = _capture(lambda: foundry.main(["--help"]))
     assert top, "top-level --help must still print (exit " + repr(code) + ")"
-    assert [t for t in tokens if t in top] == [], top
     for verb in ("weak-tests", "constant-asserts", "skipped-tests", "test-quality"):
         _, txt, _ = _capture(lambda v=verb: foundry.main([v, "--help"]))
         assert [t for t in tokens if t in txt] == [], (verb, txt)
+    _, own, _ = _capture(lambda: foundry.main(["unfailable-asserts", "--help"]))
+    assert "unfailable-asserts" in own, "the lens's own verb must document itself"
 
 
 def test_b13_the_dispatcher_namespace_and_product_config_do_not_name_the_lens():

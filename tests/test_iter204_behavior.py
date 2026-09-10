@@ -877,7 +877,34 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 "tests/test_iter116_behavior.py",
                 "tests/test_iter126_behavior.py",
                 "tests/test_iter127_behavior.py",
-                "tests/test_iter147_behavior.py"}
+                # iter 323: `foundry unfailable-asserts` shipped the CLI for the
+                # iter-186 detector, and iter 186 owns the ONLY pin asserting the
+                # token `unfailable` appears in NO help text ANYWHERE -- a guard on
+                # the absence of the very feature roadmap item (z) asked for, so
+                # advancing it is FORCED, not optional: the suite cannot be green
+                # with both. Allow-listed rather than the assertion weakened, on the
+                # iter-59/131/196/201 precedent and the same evidence those rows
+                # use: `newest_ness_pin_sites` over that file is `()` at HEAD AND in
+                # the worktree, so no newest-ness pin was swept, converted or added,
+                # and the 75-assertion literal class keeps both sibling checks above.
+                # The pin was SCOPED, not deleted -- the four SHIPPED sibling verbs
+                # must still never name the lens and the new verb must document
+                # itself -- so the defect it was written for stays assertable. Red
+                # ONLY inside the pre-commit window.
+                "tests/test_iter186_behavior.py",
+                "tests/test_iter147_behavior.py",
+                # iter 323: this iteration's OWN new behavior test file, for the
+                # identical reason as the iter-226/227/229/230/231/232 rows above --
+                # `THIS_ITER` is FROZEN at 204, so the f-string on the `expected`
+                # line CANNOT name a later iteration, and the head comment's
+                # "this iteration's OWN new test file is expected" intent therefore
+                # needs one explicit string per iteration. Red ONLY inside the
+                # staging window: `git diff HEAD` cannot see an UNTRACKED path at
+                # all, and the `git add -N` iteration 323's acceptance criteria
+                # REQUIRE (so `git ls-files` can see the file) makes it visible --
+                # as does the gate's own `git add -A`. Nothing about the assertion
+                # or the 75-assertion literal class changes.
+                "tests/test_iter323_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the
