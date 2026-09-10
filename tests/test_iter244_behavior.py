@@ -440,7 +440,24 @@ def test_b8_frozen_paths_are_byte_unchanged_against_head():
     if proc.returncode != 0:  # no git / no HEAD -- nothing to assert against
         pytest.skip("git unavailable in this environment")
     changed = [line for line in proc.stdout.splitlines() if line.strip()]
-    assert changed == [], f"frozen paths changed: {changed}"
+    # iter 325: `roles/final.md` is ALLOW-LISTED, on the iter-204/212/215/242/323
+    # precedent.  This brake is iteration 244's OWN "nothing else moves" scope check
+    # (Behavior 8 in the module docstring), so -- exactly like the iter-185 headroom
+    # ACHIEVEMENT pin retired at the 186 fix pass -- it fails BY CONSTRUCTION for any
+    # LATER iteration whose spec legitimately edits one of these five paths, and
+    # iteration 325's spec REQUIRES the gate card to name the new `foundry.py
+    # leak-check` verb (Behavior 10 + its acceptance criterion).  The edit is
+    # ADDITIVE: the raw `scripts/leak_guard.py --ref HEAD --repo <repo>` invocation
+    # iteration 52 pins is KEPT beside the verb, so `tests/test_iter52_behavior.py`
+    # and the card's other content brakes (pure ASCII, both gate paragraphs) all
+    # still hold -- verified green.  Red ONLY inside the pre-commit window: after the
+    # ship commit `git diff HEAD` is empty again, so the throwaway FRESH CLONE every
+    # ship is re-verified from sees no change at all.  The assertion is NOT weakened
+    # for anything else: `dispatcher.py`, `scripts/`, `.gitignore`, `launch.sh` and
+    # every OTHER card under `roles/` stay byte-frozen.
+    allowed = {"roles/final.md"}
+    unexpected = [p for p in changed if p not in allowed]
+    assert unexpected == [], f"frozen paths changed: {unexpected}"
 
 
 def test_b8_new_function_is_dormant_zero_call_sites():
