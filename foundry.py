@@ -14878,6 +14878,87 @@ def parse_scout_candidates(text: str) -> tuple[str, ...]:
     return tuple(out)
 
 
+# The lowercase words a WRITE-EARLY placeholder candidate title is built from --
+# and nothing else. Calibrated on real data, not guessed: under the rule "STUB iff
+# EVERY word of the title is in this set", exactly 59 of 3,375 candidate lines
+# across every product's scout artifacts flag (1.7%), and manual review of all 46
+# distinct flagged forms found zero false positives. Module-level so one shared set
+# is not rebuilt per call, and lowercase so the predicate's own `.lower()` is the
+# only case rule anywhere.
+_STUB_CANDIDATE_WORDS = frozenset({
+    "being", "draft", "file", "flight", "in", "later", "measure", "measured",
+    "measurement", "measuring", "na", "none", "pending", "placeholder",
+    "placeholders", "progress", "refined", "refining", "see", "soon", "stub",
+    "tbd", "todo", "unknown", "wip", "writing",
+})
+
+# The leading candidate ID to strip before judging a title: `A1`, `A 1`, `C`,
+# `B2/B3`. WIDER than `_CANDIDATE_ID_HEADING_RE` in the two ways real slates need:
+# the digits are OPTIONAL (a digit-less `Candidate C -- TBD`) and a slash-joined
+# multi-id is ONE unit (`Candidates B2/B3 -- IN PROGRESS`). The trailing `\b` is
+# load-bearing -- it is what stops the pattern eating `sl` out of the REAL title
+# `Candidate slate (new-capability lens)`.
+_STUB_CANDIDATE_ID_RE = re.compile(
+    r"^[A-Za-z]{1,2} ?\d{0,2}(\s*/\s*[A-Za-z]{0,2} ?\d{1,2})*\b")
+
+# The `Candidate` / `Candidates` prefix word, either case, on a word boundary so a
+# real title that merely STARTS with those letters is never truncated.
+_STUB_CANDIDATE_WORD_RE = re.compile(r"^candidates?\b", re.IGNORECASE)
+
+# The separators scouts put between an id and its title, and the punctuation /
+# quote characters that wrap a title. Named constants rather than two magic
+# literals inside the predicate, so the shapes it tolerates are readable as data.
+_STUB_CANDIDATE_SEPARATORS = "-\u2013\u2014: \t"
+_STUB_CANDIDATE_WRAPPERS = " \t()[]{}.,:;-\u2013\u2014'\"`"
+
+
+def scout_candidate_is_stub(candidate: object) -> bool:
+    """`True` when a scout candidate line is a WRITE-EARLY PLACEHOLDER (pure, total).
+
+    WHY this exists: the write-early contract (`roles/*.md`, `WRITE_EARLY_MARKER`)
+    tells a scout to checkpoint a skeleton slate FIRST so a cap-killed stage still
+    scores, which is correct and stays untouched. The side effect is that a killed
+    scout's `## Candidate A1 -- (measuring)` reaches the TRACKED `DIRECTIONS.md`
+    decision log rendering identically to a measured option, so the log reads as if
+    the loop weighed six candidates in an iteration where it weighed zero. That is
+    the exact defect `parse_scout_candidates`' docstring names, inverted:
+    under-counting the slate was fixed, over-counting was not. This predicate is
+    the LABEL for the over-count; it never drops a line and never gates anything.
+
+    The rule is "the title is NOTHING BUT placeholder words", never "contains one":
+    the real title `Candidate B3 -- the roadmap tells the PM which items are
+    pending, and it is stale` contains `pending` and must NOT flag.
+
+    Judged after normalizing away everything that is not the human title, so the
+    THREE spellings of one line agree -- the raw heading `## Candidate A1 --
+    (measuring)`, `parse_scout_candidates`' output `Candidate A1 -- (measuring)`
+    and the id-first `A1 -- (measuring)` all return the same verdict. The steps:
+    strip whitespace and any leading `#` run; drop a leading `Candidate` /
+    `Candidates` word; drop the leading id (:data:`_STUB_CANDIDATE_ID_RE`, ONE
+    substitution, so a short word can only be eaten in the ID position); drop the
+    separator run and the wrapping punctuation. Covers the shapes real scouts write:
+    parenthesised and bare, comma- and space-joined, ALL-CAPS, two-id (`B2/B3`) and
+    digit-less (`C`).
+
+    TOTAL: never raises for ANY input. A heading with no title at all
+    (`## Candidate A1`, `## A1`), `""`, `"   "`, `None` and any non-`str` all return
+    `True` -- no measured candidate is present in any of them, which is the honest
+    reading for a log whose job is to say what was actually weighed. Pure: no
+    filesystem, subprocess, clock or network access, and the input is unchanged."""
+    # A non-`str` (including `None`) normalizes to the empty title rather than
+    # raising, so every caller -- including a render path -- is safe by default.
+    title = candidate if isinstance(candidate, str) else ""
+    title = title.strip().lstrip("#").strip()
+    title = _STUB_CANDIDATE_WORD_RE.sub("", title, count=1).strip()
+    title = _STUB_CANDIDATE_ID_RE.sub("", title, count=1)
+    title = title.strip().lstrip(_STUB_CANDIDATE_SEPARATORS)
+    title = title.strip(_STUB_CANDIDATE_WRAPPERS)
+    words = re.findall(r"[A-Za-z]+", title.lower())
+    # `all(())` is `True`, which is the wanted verdict for a title that carries no
+    # letters at all -- one expression covers both the empty and the all-stub case.
+    return all(word in _STUB_CANDIDATE_WORDS for word in words)
+
+
 def parse_triage_winner(text: str) -> str | None:
     """Extract the PM lead's WINNER candidate id from a `pm.md` body (pure, total).
 
@@ -14951,6 +15032,21 @@ class DirectionsEntry:
     winner: str | None
     action: str | None
     sha: str | None
+
+    @property
+    def stub_candidates(self) -> tuple[str, ...]:
+        """The ordered subset of `.candidates` that are WRITE-EARLY placeholders.
+
+        A pure derivation like `DirectionsDigest.total`, so the label can never
+        disagree with the `candidates` it describes, and DELIBERATELY absent from
+        `to_dict()`: that payload is a pinned 6-key contract and this label's only
+        consumer is `render()`. Resolves `scout_candidate_is_stub` by its BARE
+        module name at CALL time, so a `monkeypatch.setattr(foundry,
+        "scout_candidate_is_stub", ...)` bites on this property and therefore on
+        the rendered bytes. Returns `()` both when every candidate was really
+        measured AND when there are no candidates at all, so `render()`'s
+        emit-only-when-non-empty rule can never print a `0 of 0` label."""
+        return tuple(c for c in self.candidates if scout_candidate_is_stub(c))
 
     def to_dict(self) -> dict:
         """A pure, JSON-safe serialization of one decision row for machine
@@ -15071,7 +15167,15 @@ class DirectionsDigest:
         for EACH entry (in stored order) a block carrying `iter-NN` (2-digit
         zero-pad), a `lenses: {L}` line (L = the lenses joined by `, ` in order,
         or the literal `unknown` when empty), ONE line per candidate with the
-        candidate string verbatim, a `winner: {W}` line (W = the winner id or
+        candidate string verbatim, then -- ONLY when `k >= 1` of that block's `n`
+        candidate lines are write-early placeholders per
+        `DirectionsEntry.stub_candidates` -- EXACTLY ONE
+        `stubs: {k} of {n} candidate line(s) are write-early placeholders, not
+        measured candidates` line, positioned AFTER that block's last candidate
+        line and BEFORE its `winner:` line (a `k == 0` block emits no such line
+        anywhere, so a fully-measured log contains no `stubs:` substring at all --
+        the label is additive and never rewrites a clean row), a `winner: {W}`
+        line (W = the winner id or
         the literal `unknown`), and a `ship: {S}` line (S from
         `directions_ship_label`, which is `_ship_label`'s output verbatim
         whenever `ship_subjects` is empty);
@@ -15094,6 +15198,16 @@ class DirectionsDigest:
             lines.append(f"    lenses: {lenses}")
             for cand in e.candidates:
                 lines.append(f"    - {cand}")
+            # The write-early LABEL, emitted only when at least one candidate is a
+            # placeholder, so a fully-measured slate renders byte-identically to the
+            # pre-label output. Read through the entry's own property, whose body
+            # resolves the predicate by bare module name -- so a monkeypatched
+            # predicate changes these bytes too.
+            stubs = e.stub_candidates
+            if stubs:
+                lines.append(
+                    f"    stubs: {len(stubs)} of {len(e.candidates)} candidate "
+                    "line(s) are write-early placeholders, not measured candidates")
             winner = e.winner if e.winner is not None else "unknown"
             lines.append(f"    winner: {winner}")
             # BARE module name so `monkeypatch.setattr(foundry,
