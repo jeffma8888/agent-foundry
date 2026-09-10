@@ -27,8 +27,9 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 244): ledger and archive are current through 244 (193/194/199/201/203/205/221-225 and 241 never
+STATUS (iter 322): ledger and archive are current through 322 (193/194/199/201/203/205/221-225 and 241 never
 shipped, so none owes a row; 230 never shipped either -- its work re-landed as 231 -- and keeps its row).
+ITERATIONS 245-319 NEVER RAN (a 36.6 h infra outage; no commit exists, so none owes a row) -- verbatim record in the archive.
 STILL OPEN:
 (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
 NEXT UP, in value order: (a) Only the OPTIONAL 25-guard
@@ -314,6 +315,7 @@ in the archive.
 - iter 244 -- `ARCHITECTURE.md` names all five tester dispositions, policed by derived `tester_disposition_tokens`.
 - iter 320 -- `dual_pm_scouts` defaults TRUE: a scaffolded product gets the two-scout PM leg with no hand edit.
 - iter 321 -- the decision log LABELS write-early placeholder candidates: `stubs: k of n`, not a silent over-count.
+- iter 322 -- the Resilience invariant's per-loop cooldown is SCOPED to `run_continuous`; supported path has none.
 
 
 ### Migration notes (per §6 self-mod guardrail)

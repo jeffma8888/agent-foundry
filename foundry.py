@@ -14202,6 +14202,147 @@ def role_card_doc_gaps(card_names: Iterable[str], doc_text: str) -> tuple[str, .
     return tuple(sorted(name for name in wanted if name not in doc_text))
 
 
+def infra_cooldown_owners(source_text: str) -> tuple[str, ...]:
+    """Module-level function names in `source_text` that USE the infra-cooldown ladder.
+
+    Answers the one question `ARCHITECTURE.md`'s Resilience invariant now scopes its
+    per-loop cooldown claim on: WHICH functions actually consult the `COOLDOWNS`
+    ladder. Over the shipping `foundry.py` the answer is the 1-tuple
+    `("run_continuous",)`; over `dispatcher.py` -- the module `launch.sh` actually
+    execs -- it is `()`. That asymmetry is precisely why those docs may no longer
+    state the per-loop ladder unconditionally, and why this exists at all.
+
+    Takes the source TEXT, never a path, mirroring `role_card_doc_gaps` above, so
+    reading the file stays the CALLER's job and this stays PURE and TOTAL: no
+    filesystem, subprocess, network or clock access, no mutation of its argument,
+    and equal inputs give `==` results.
+
+    Ownership is by NAME REFERENCE, never by text: only an `ast.Name` whose `id` is
+    the ladder symbol counts, so a docstring, a comment or a string literal that
+    merely SPELLS the symbol makes no function an owner. That is also why the symbol
+    is held below as a plain string literal rather than as a bare name -- a literal
+    is an `ast.Constant`, so this scanner can never report ITSELF -- and why no new
+    module-level constant is introduced for the doc-count brakes to trip over.
+
+    Scoping is STRUCTURAL over the module body, which is walked DIRECTLY rather than
+    with a top-level `ast.walk`: only a module-level `def`/`async def` can be an
+    owner, so a reference from a nested `def` or from a method in a `class` body is
+    attributed to its module-level ancestor and the inner name is never reported (a
+    method is not reachable as a module-level entry point, so naming it would answer
+    a different question). Each candidate's OWN subtree is then walked, so nesting
+    depth costs nothing extra and no per-node source segment is ever re-split.
+
+    Totality details: `()` for a non-`str` argument (`None`, an `int`, `bytes`), for
+    `""`, for source that does not parse, and for a module with no reference. Sorted
+    and de-duplicated, so a finding is about NAMES, not occurrences.
+
+    VACUITY RISK -- read this before trusting a `()`. Unparseable source and honestly
+    ladderless source BOTH return `()`, so an empty result alone is not evidence
+    about any doc. The caller owns the floor: assert this returns the known non-empty
+    tuple for the module believed to own the ladder BEFORE reading any gap result
+    derived from it.
+
+    DORMANT: zero call site in the running pipeline, exactly as `role_card_doc_gaps`
+    above. It changes no control flow and no resume semantics; it exists so a test
+    can pin a doc's scoping claim against the code that decides it.
+    """
+    symbol = "COOLDOWNS"
+    if not isinstance(source_text, str) or symbol not in source_text:
+        return ()
+    try:
+        module = ast.parse(source_text)
+    except (SyntaxError, ValueError, RecursionError):
+        return ()
+    owners: set[str] = set()
+    for node in module.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        for descendant in ast.walk(node):
+            if isinstance(descendant, ast.Name) and descendant.id == symbol:
+                owners.add(node.name)
+                break
+    return tuple(sorted(owners))
+
+
+def cooldown_claim_scope_gaps(owners: Iterable[str], doc_text: str, *,
+                              anchor: str) -> tuple[str, ...]:
+    """Owner names NOT named inside the doc LIST ITEM that makes the cooldown claim.
+
+    The companion to `infra_cooldown_owners` above: that one derives WHO owns the
+    ladder, this one asks whether the sentence claiming the ladder says so. Gap
+    direction only, so `()` means every owner is named right there in the claim.
+
+    Scope is the ITEM, not the file, because file-wide presence is the vacuous fold
+    that lets a claim stay unqualified while the name sits 90 lines away in an
+    unrelated bullet. The item containing the FIRST occurrence of `anchor` is: the
+    nearest line at or before the anchor's line whose STRIPPED form starts with
+    `- `, `* `, `+ ` or `<digits>. `, through the last following line that is
+    non-blank and does not itself start such a marker.
+
+    Takes doc TEXT and a name set, never paths -- `role_card_doc_gaps`' contract
+    verbatim -- so reading the file stays the CALLER's job and this stays PURE and
+    TOTAL: no filesystem, subprocess, network or clock access, no mutation of its
+    arguments, and equal inputs give `==` results. Matching is VERBATIM
+    case-sensitive substring, so a name legitimately inside backticks or after a
+    `foundry.` owner still counts; sorted and de-duplicated, so a finding is about
+    NAMES, not occurrences.
+
+    FAIL-CLOSED, never a vacuous pass: the FULL sorted `owners` tuple comes back
+    when `anchor` does not occur, when `doc_text` or `anchor` is `""` or not a `str`,
+    and when the anchor sits in no list item at all -- an unusable doc is maximal
+    debt. Never raises for any input.
+
+    VACUITY RISK -- read this before trusting a green result. An empty `owners` also
+    returns `()`, so `gaps == ()` alone is NOT evidence the doc is honest: a
+    derivation that silently produced nothing (unparseable source, a renamed symbol)
+    reports zero gaps while auditing zero names. The caller owns the floor -- assert
+    the derived owners tuple is non-empty and contains a name known to be there
+    BEFORE trusting the gaps.
+
+    DORMANT: zero call site in the running pipeline, like its companion above.
+    """
+    try:
+        wanted = {name for name in owners if isinstance(name, str) and name}
+    except TypeError:
+        return ()
+    if not wanted:
+        return ()
+    if not isinstance(doc_text, str) or not doc_text:
+        return tuple(sorted(wanted))
+    if not isinstance(anchor, str) or not anchor:
+        return tuple(sorted(wanted))
+    hit = doc_text.find(anchor)
+    if hit < 0:
+        return tuple(sorted(wanted))
+    lines = doc_text.splitlines()
+    if not lines:
+        return tuple(sorted(wanted))
+
+    def starts_item(stripped: str) -> bool:
+        """True if a stripped line opens a markdown list item (bullet or ordered)."""
+        if stripped[:2] in ("- ", "* ", "+ "):
+            return True
+        digits = stripped[: len(stripped) - len(stripped.lstrip("0123456789"))]
+        return bool(digits) and stripped[len(digits):len(digits) + 2] == ". "
+
+    anchor_line = min(doc_text.count("\n", 0, hit), len(lines) - 1)
+    start = None
+    for idx in range(anchor_line, -1, -1):
+        if starts_item(lines[idx].strip()):
+            start = idx
+            break
+    if start is None:
+        return tuple(sorted(wanted))
+    end = start
+    for idx in range(start + 1, len(lines)):
+        stripped = lines[idx].strip()
+        if not stripped or starts_item(stripped):
+            break
+        end = idx
+    item = "\n".join(lines[start:end + 1])
+    return tuple(sorted(name for name in wanted if name not in item))
+
+
 # --------------------------------------------------------------------------- #
 # The README section-number CONTRACT, and the scanner for tests that FREEZE it
 # --------------------------------------------------------------------------- #

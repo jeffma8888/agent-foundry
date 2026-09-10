@@ -150,7 +150,14 @@ core stages above byte-for-byte, so the default path is unchanged.
   rather than by attempt index alone (`foundry.retry_ladder_lines` renders these
   straight from `retry_delay`, so this prose cannot drift from the code):
   timeout, cli-error, auth: 1 → 2 → 4 min; stalled: 1 → 5 → 20 min; service, other: 10 → 20 → 40 min.
-  Per loop: after 2 consecutive infra-failing iterations, cool down 30m→1h→2h→4h. A STOP
+  Per loop, in `foundry.run_continuous` ONLY: after 2 consecutive infra-failing
+  iterations, cool down 30m→1h→2h→4h. The SUPPORTED entry point has NO such
+  ladder: `launch.sh` execs `dispatcher.py`, whose shift loop calls
+  `foundry.run_iteration` directly and keeps no infra streak, so a supported shift
+  retries per STAGE and never pauses between iterations
+  (`foundry.infra_cooldown_owners` derives the owning functions from the source, so
+  this scoping cannot drift from the code either). Giving the dispatcher a ladder is
+  a separate, operator-gated bite. A STOP
   sentinel is honored between every stage and during every sleep. An external
   `scheduled` watchdog (`watchdog.py`) closes the one gap this cannot: if the
   dispatcher PROCESS itself dies (crash/OOM/kill/restart), the watchdog
