@@ -27,14 +27,14 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 322): ledger and archive are current through 322 (193/194/199/201/203/205/221-225 and 241 never
+STATUS (iter 323): ledger and archive are current through 323 (193/194/199/201/203/205/221-225 and 241 never
 shipped, so none owes a row; 230 never shipped either -- its work re-landed as 231 -- and keeps its row).
 ITERATIONS 245-319 NEVER RAN (a 36.6 h infra outage; no commit exists, so none owes a row) -- verbatim record in the archive.
 STILL OPEN:
 (d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
 NEXT UP, in value order: (a) Only the OPTIONAL 25-guard
 CONSOLIDATION remains, and it does NOT unblock strangler steps 2/3 (one guard still freezes
-`dispatcher.py` and the meta-test requires it to); (c) CLOSED -- MEASUREMENT HALF SHIPPED iter 229, CONSUMER HALF SHIPPED iter 230: `doctor` prints `probe_test_touch`'s answer as its fifth never-blocking drift line. The three objections that made every earlier seat illegal, and the seat that answers all three, are recorded VERBATIM in the archive's `- **iter 230` bullet -- read it before proposing any further wiring of this measurement; (d) relax `roles/tester.md`'s
+`dispatcher.py` and the meta-test requires it to); (c) CLOSED -- CONSUMER HALF SHIPPED iter 230 (measurement half, 229): `doctor`'s fifth never-blocking drift line. Read the archive's `- **iter 230` bullet BEFORE proposing any further wiring of this measurement; (d) relax `roles/tester.md`'s
 prose discipline around the two gate tokens, which iteration 127 makes safe but which MUST NOT ship in
 the same iteration as 127 itself (a live loop holds the pre-127 `foundry.py` in memory). (f) SHIPPED iter 133 -- record in the archive. (g) **candidates half SHIPPING iter 131; the rest still open.** STILL OPEN, in order: the `parse_triage_winner` half (21 `pm.md` files carry a `## Triage` heading and still yield `None`), then rendering "present but unparsed" distinctly from "absent". (i) **DE-LISTED by iteration 130's scout A -- do NOT re-propose:** detail in the archive. ALSO STILL OPEN: the iteration-121 RETRY (its 51,824-byte
 `products/_platform/state/iter-121/REVERTED_IMPLEMENTATION.patch` is preserved and its FINAL lesson
@@ -90,8 +90,8 @@ NEXT BITE RE-PRICED at 201 and DOWN-RANKED: the line ALREADY windows (`limit=20`
 worst stage + headroom, so a delta adds direction of travel only. Then scout A's `deadtail` report (12.0 min/iteration of
 wall clock after the required artifact stops growing; 7.0 of it in prose-only stages). Item (i) already
 DE-LISTED the stop-when-stable EARLY EXIT -- report only, never a kill.
-(z) NEW (iter 186) -- DEFERRED reporting half of the 4th test-quality lens: the `unfailable-asserts` CLI
-trio, then the fold into the FROZEN 3-lens `TestQualitySummary`. Detail in the archive.
+(z) NEW (iter 186) -- 4th test-quality lens. CLI SHIPPED iter 323 (`unfailable-asserts`). STILL OPEN:
+the `TestQualitySummary` fold and a `company-unfailable-asserts` roll-up. Detail in the archive.
 (aa) NEW (iter 207, from scout B's B1 plus the PM's own verification; the OBVIOUS shape is KNOWN-RED, do NOT
 re-propose it as a one-iteration bite). The prompt learnings tail is MIS-TUNED and it is measured: the live window's
 10 lessons run 874/991/1484/1299/1483/1286/1127/979/1415/2026 chars, so `PROMPT_LEARNINGS_LESSON_CHARS` (800) binds on
@@ -316,6 +316,7 @@ in the archive.
 - iter 320 -- `dual_pm_scouts` defaults TRUE: a scaffolded product gets the two-scout PM leg with no hand edit.
 - iter 321 -- the decision log LABELS write-early placeholder candidates: `stubs: k of n`, not a silent over-count.
 - iter 322 -- the Resilience invariant's per-loop cooldown is SCOPED to `run_continuous`; supported path has none.
+- iter 323 -- `foundry unfailable-asserts`: the 4th test-quality detector gets its CLI after 137 dormant iterations.
 
 
 ### Migration notes (per §6 self-mod guardrail)

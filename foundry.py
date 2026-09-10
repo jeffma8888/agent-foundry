@@ -8038,8 +8038,12 @@ def find_unfailable_assert_tests(source: str | ast.AST) -> tuple[str, ...]:
     holding three unfailable asserts appears exactly once. That is a deliberate
     departure from the siblings' ascending-`lineno` order -- de-duplication needs
     a set, and a set cannot carry the line number that ordered them.
-    Never referenced on any run path (DORMANT, resume-safe): its brake lives in
-    the suite, exactly like `readme_verb_index_gaps` and `foundry_cli_verbs`.
+    Never referenced on any RUN path (DORMANT, resume-safe). Since iter 323 it
+    does have exactly ONE consumer -- `gather_unfailable_asserts`, reachable only
+    from the on-demand `foundry unfailable-asserts` verb via `main()`'s argparse
+    dispatch -- and no orchestrator, dispatcher, stage or config field calls
+    that, so an in-flight loop's resume semantics are byte-identical and the live
+    brake still lives in the suite.
     """
     flagged: set[str] = set()
     for func in _test_function_nodes(source):
@@ -8297,7 +8301,7 @@ def _gather_weak_test_files(repo: str) -> list[pathlib.Path]:
 def _gather_test_scan(cfg: ProductConfig, files: object,
                       detector: Callable[[ast.AST], tuple[str, ...]],
                       summarize: Callable[..., object]) -> object:
-    """The ONE shared body behind all three per-product test-quality scanners.
+    """The ONE shared body behind all four per-product test-quality scanners.
 
     `gather_weak_tests` (iter 42), `gather_constant_asserts` (iter 48) and
     `gather_skipped_tests` (iter 56) carried bodies identical up to EXACTLY TWO
@@ -8305,7 +8309,12 @@ def _gather_test_scan(cfg: ProductConfig, files: object,
     that builds the frozen core -- so ONE path-resolution + graceful-degradation
     contract lived in THREE places, every fix to it had to be made three times
     with nothing keeping the three in step, and a fourth detector would have
-    copied it a fourth time. They are now thin wrappers over this private helper:
+    copied it a fourth time. That fourth arrived as `gather_unfailable_asserts`
+    (iter 323) and paid ONE line instead, which is the extraction's whole point;
+    the COUNT this docstring's FIRST LINE states is therefore DERIVED, not
+    eyeballed -- it must equal the number of module-level functions whose body is
+    a single `return _gather_test_scan(...)`. They are all thin wrappers over
+    this private helper:
     the scanner-side mirror of `_thin_gather_cli` (iter 165, which collapsed the
     eight per-product `--json` printers) and `_company_rollup_cli` (iter 152,
     which collapsed the nine company roll-ups) on exactly this axis.
@@ -8827,6 +8836,197 @@ def skipped_tests_cli(cfg: ProductConfig, files=None,
     # Seam resolved HERE, by BARE name at CALL time, so a monkeypatch bites;
     # `_thin_gather_cli` owns the shared print/JSON/exit-code contract.
     return _thin_gather_cli(gather_skipped_tests, cfg, files, as_json)
+
+
+@dataclasses.dataclass(frozen=True)
+class UnfailableAssertSummary:
+    """The result of one unfailable-assert scan over a product's test files.
+
+    Frozen structural mirror of `SkippedTestSummary` (iter 56) that surfaces the
+    iter-186 `find_unfailable_assert_tests` detector: `test*` functions carrying
+    an assert that CANNOT FAIL -- a truthy literal (`assert True`), a non-empty
+    tuple (`assert (cond, "msg")`, the classic parenthesized-message typo) or a
+    disjunction holding a truthy literal (`assert cond or True`). THE FOURTH
+    LENS, and the only one of the four that asks *can this assertion fail?*
+    rather than *is there an assertion?* -- which is what earns it: an
+    `assert <real check> or True` carries a REAL signal, so
+    `find_assertionless_tests`, `find_constant_assert_tests` and
+    `find_always_skipped_tests` ALL return `()` for it. Such a test does not
+    merely escape the three shipped lenses, it VOUCHES for the function holding
+    it -- the false-green the vision's quality bar names this framework's #1
+    verification failure. Its findings can therefore OVERLAP the others (a
+    function whose ONLY signal is `assert True` is flagged here AND by
+    `constant-asserts`), mirroring the documented `skipped-tests` overlap rather
+    than the by-construction-disjoint `weak`/`constant` pair. `findings` is a
+    tuple of ``(file_path, test_name)`` pairs (one per flagged test) and
+    `parse_errors` a tuple of ``(file_path, message)`` pairs (files that would
+    not parse / read) -- both hashable + order-stable. The four properties are
+    pure derivations of the stored fields, so the scriptable exit code follows
+    deterministically from what was gathered.
+    """
+    product: str
+    files_scanned: int
+    findings: tuple[tuple[str, str], ...]
+    parse_errors: tuple[tuple[str, str], ...]
+
+    @property
+    def total_findings(self) -> int:
+        """How many `test*` functions carrying an unfailable assert were flagged."""
+        return len(self.findings)
+
+    @property
+    def clean(self) -> bool:
+        """True iff >=1 file was scanned AND nothing was flagged or unparseable.
+
+        Scanning zero files is NOT clean (there was nothing to certify), so the
+        operator can distinguish "verified clean" from "found nothing to look
+        at" -- mirroring `SkippedTestSummary.clean`."""
+        return (self.files_scanned > 0 and not self.findings
+                and not self.parse_errors)
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable verdict: ``2`` when nothing was scanned, else ``1`` when
+        anything was flagged OR failed to parse, else ``0`` (clean). Nothing-to-
+        scan is checked FIRST so an empty run is `2`, never a false `0`."""
+        if self.files_scanned == 0:
+            return 2
+        if self.findings or self.parse_errors:
+            return 1
+        return 0
+
+    @property
+    def verdict(self) -> str:
+        """The single human token for the current `exit_code` -- ONE source of
+        truth for `render()`'s last line so text + exit code never drift."""
+        return {0: "clean", 1: "UNFAILABLE ASSERTS FOUND",
+                2: "nothing to scan"}[self.exit_code]
+
+    def render(self) -> str:
+        """A deterministic multi-line report carrying every gathered signal.
+
+        Contains, as substrings (the CLI's black-box contract): the literal
+        ``foundry unfailable-asserts -- <product>``; ``files scanned: N``;
+        ``unfailable-assert tests: N``; one ``  <file> :: <test_name>`` line per
+        finding (so a dirty report names BOTH the file path and the test);
+        ``parse errors: N`` with one ``  <file>: <message>`` line each; and a
+        final ``verdict:`` token matching `exit_code` as the LAST non-empty
+        line. When clean, no test-function name is printed."""
+        lines = [
+            f"foundry unfailable-asserts -- {self.product}",
+            f"  files scanned: {self.files_scanned}",
+            f"  unfailable-assert tests: {self.total_findings}",
+        ]
+        for path, name in self.findings:
+            lines.append(f"  {path} :: {name}")
+        lines.append(f"  parse errors: {len(self.parse_errors)}")
+        for path, message in self.parse_errors:
+            lines.append(f"  {path}: {message}")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of the whole scan for machine
+        consumers, mirroring `SkippedTestSummary.to_dict()` (iter 56).
+
+        Returns EXACTLY 8 keys in a fixed order: `product`/`files_scanned` as
+        the stored fields verbatim, then the four DERIVED values each REUSING
+        the frozen properties -- `total_findings`/`clean`/`exit_code`/`verdict`
+        -- so the payload can never disagree with what `render()` prints or the
+        exit code returns (`to_dict` re-derives nothing), then `findings` as a
+        JSON array of ``{"file","test"}`` objects in the SAME order as
+        `self.findings` and `parse_errors` as a JSON array of
+        ``{"file","message"}`` objects in the SAME order as `self.parse_errors`.
+        Every value is JSON-native (str / int / bool / list of str-only dicts),
+        so `json.dumps(...)` never raises and the dict round-trips through
+        `json.loads(json.dumps(...))` -- including when both lists are empty.
+        Pure: touches no filesystem, only the already-gathered snapshot."""
+        return {
+            "product": self.product,
+            "files_scanned": self.files_scanned,
+            "total_findings": self.total_findings,
+            "clean": self.clean,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+            "findings": [{"file": path, "test": name}
+                         for path, name in self.findings],
+            "parse_errors": [{"file": path, "message": message}
+                             for path, message in self.parse_errors],
+        }
+
+
+def summarize_unfailable_asserts(*, product: str, files_scanned: int,
+                                 findings: tuple[tuple[str, str], ...],
+                                 parse_errors: tuple[tuple[str, str], ...]
+                                 ) -> UnfailableAssertSummary:
+    """Pure keyword-only constructor for an `UnfailableAssertSummary`.
+
+    A thin, total wrapper (mirror of `summarize_skipped_tests`) that packs the
+    gathered signals into the frozen summary -- keyword-only so a caller can
+    never transpose the fields by position, and it never raises. Kept separate
+    from `unfailable_asserts_cli` so the decision core stays a pure function the
+    tester can drive without any filesystem."""
+    return UnfailableAssertSummary(
+        product=product, files_scanned=files_scanned,
+        findings=tuple(findings), parse_errors=tuple(parse_errors))
+
+
+def gather_unfailable_asserts(cfg: ProductConfig,
+                              files=None) -> UnfailableAssertSummary:
+    """Gather one product's unfailable-assert scan into a summary.
+
+    The FIRST real call site of the iter-186 `find_unfailable_assert_tests`
+    detector, which shipped DORMANT and stayed unreachable from the CLI for 137
+    iterations while each of its three siblings got a per-product verb on its own
+    ship day. A structural mirror of `gather_skipped_tests` (iter 56) differing
+    ONLY in the detector each parsed file is handed to -- so the FOURTH lens
+    costs one line rather than a fourth copy of the scan body.
+
+    Reads every signal through the EXISTING module-level seams -- each called by
+    BARE name so a `monkeypatch.setattr(foundry, ...)` in a test bites: gathers
+    the paths from `files` if given (scanning EXACTLY those `pathlib.Path(f)` and
+    NOT walking the repo -- the iter-22/14 `--files` contract) else an rglob of
+    `cfg.repo` via the REUSED `_gather_weak_test_files` (same `WEAK_TEST_GLOBS` /
+    skip-hidden/`.git` rules); parses each path's text through
+    `find_unfailable_assert_tests` (folding a raised `SyntaxError` / `OSError`
+    into a graceful `parse_errors` entry `(str(path), f"{type(exc).__name__}:
+    {exc}")` rather than crashing, and CONTINUING to the next path, never
+    propagating); collects each finding as `(str(path), name)`; hands them to the
+    pure bare-name `summarize_unfailable_asserts`; and returns the frozen
+    `UnfailableAssertSummary` core. Writes NOTHING to disk (read-only).
+
+    The scan body itself is the shared `_gather_test_scan` (iter 183); this
+    wrapper resolves its OWN detector and summarizer by BARE name at CALL time
+    and passes them in, so every existing seam monkeypatch still bites."""
+    return _gather_test_scan(cfg, files, find_unfailable_assert_tests,
+                            summarize_unfailable_asserts)
+
+
+def unfailable_asserts_cli(cfg: ProductConfig, files=None,
+                           as_json: bool = False) -> int:
+    """On-demand CLI: scan test files for asserts that CANNOT FAIL.
+
+    Gathers the scan through the `gather_unfailable_asserts(cfg, files)` seam
+    (which walks `cfg.repo` via `_gather_weak_test_files` or scans EXACTLY
+    `files`, parses each through `find_unfailable_assert_tests`, folds a
+    `SyntaxError` / `OSError` into a graceful `parse_errors` entry rather than
+    crashing, and builds the summary via the pure bare-name
+    `summarize_unfailable_asserts`) then prints the pure
+    `UnfailableAssertSummary` core and returns its `exit_code` (0 clean / 1
+    unfailable-or-unparseable / 2 nothing to scan).
+
+    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
+    indent=2)` document (the stable machine contract for dashboards/reporter/CI,
+    mirroring `skipped_tests_cli --json`); the default `as_json=False` is the
+    human `render()` text. Either way the RETURN value is the same
+    `summary.exit_code`, and `--files` selection is identical in both modes.
+    Writes NOTHING to disk. A thin printer over the pure gather seam that adds no
+    decision logic of its own, so the printed figures always match the
+    `UnfailableAssertSummary` fields. DORMANT -- no control path calls it; only
+    `main()`'s argparse dispatch."""
+    # Seam resolved HERE, by BARE name at CALL time, so a monkeypatch bites;
+    # `_thin_gather_cli` owns the shared print/JSON/exit-code contract.
+    return _thin_gather_cli(gather_unfailable_asserts, cfg, files, as_json)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -23698,6 +23898,27 @@ def main(argv: list[str] | None = None) -> int:
     skt.add_argument("--json", action="store_true",
                      help="emit the scan as one JSON document (machine-readable) "
                           "instead of the human report; same 0/1/2 exit code, honours --files")
+    # `unfailable-asserts` scans a product's test files for `test*` functions
+    # carrying an assert that CANNOT FAIL -- a truthy literal (`assert True`), a
+    # non-empty tuple (`assert (cond, "msg")`, the parenthesized-message typo)
+    # or a disjunction holding a truthy literal (`assert cond or True`). The
+    # FIRST call site of the iter-186 `find_unfailable_assert_tests` detector,
+    # dormant for 137 iterations. The FOURTH complementary lens, and the only
+    # one asking whether an assertion CAN FAIL rather than whether one exists:
+    # `assert <real check> or True` carries a REAL signal, so #12/#21/#23 all
+    # return nothing for it -- it does not merely escape them, it VOUCHES for
+    # the test holding it. DORMANT / on-demand only -- the
+    # pipeline/gate/dispatcher NEVER call it; it writes nothing. `--files` scans
+    # EXACTLY those paths instead of walking `cfg.repo`. Exit 0 clean / 1
+    # unfailable-or-unparseable / 2 nothing to scan.
+    unf = sub.add_parser("unfailable-asserts")
+    unf.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    unf.add_argument("--files", nargs="*", default=None,
+                     help="scan these test files directly instead of walking the repo")
+    unf.add_argument("--json", action="store_true",
+                     help="emit the scan as one JSON document (machine-readable) "
+                          "instead of the human report; same 0/1/2 exit code, honours --files")
     # `test-quality` is the per-product COMPOSITE gate: it folds all THREE
     # offline "validates-nothing" scans -- #12 `weak-tests` (assertion-free),
     # #21 `constant-asserts` (constant/tautological assert), #23 `skipped-tests`
@@ -24140,6 +24361,8 @@ def main(argv: list[str] | None = None) -> int:
         return constant_asserts_cli(cfg, files=args.files, as_json=args.json)
     if args.cmd == "skipped-tests":
         return skipped_tests_cli(cfg, files=args.files, as_json=args.json)
+    if args.cmd == "unfailable-asserts":
+        return unfailable_asserts_cli(cfg, files=args.files, as_json=args.json)
     if args.cmd == "test-quality":
         return test_quality_cli(cfg, files=args.files, as_json=args.json)
     if args.cmd == "events":
