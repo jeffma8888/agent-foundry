@@ -15304,15 +15304,51 @@ def parse_triage_winner(text: str) -> str | None:
     """Extract the PM lead's WINNER candidate id from a `pm.md` body (pure, total).
 
     Best-effort: locates the FIRST line whose stripped form starts with
-    ``## Triage`` (case-insensitive), then returns the FIRST token matching the
-    regex ``\\b[ABC][0-9]\\b`` found in the text AFTER that heading line,
-    uppercased (already uppercase for the literal class, so a no-op that documents
-    intent) -- so a Triage section naming "Pick: C1" yields ``C1``. Requiring the
-    match to follow the ``## Triage`` heading avoids misreading a candidate id
-    mentioned earlier in the spec.
+    ``## Triage`` (case-insensitive), then applies TWO rules IN ORDER to the text
+    AFTER that heading line -- the first that matches wins. Requiring every match
+    to follow the ``## Triage`` heading avoids misreading a candidate id mentioned
+    earlier in the spec.
+
+    Rule 1 (unchanged, and it runs FIRST): the first token matching
+    ``\\b[ABC][0-9]\\b``, uppercased (already uppercase for the literal class, so a
+    no-op that documents intent) -- so a Triage section naming "Pick: C1" yields
+    ``C1``. Running it first is WHY the widening below cannot regress: every body
+    that resolved before Rule 2 existed still takes exactly the path it took then,
+    even when a scout-qualified phrase sits in the same text.
+
+    Rule 2 (the widening): a SCOUT-QUALIFIED reference -- a ``scout`` keyword, one
+    or more separators, and a single-letter designator -- followed on the SAME line
+    by EITHER
+
+    * (2a) a ``candidate`` keyword and a ``[A-Z1-9]`` token within 40 further
+      characters, which COMPOSES ``<designator><index>``: a digit is the index
+      as-is, and a letter is POSITIONAL, so it maps to its 1-based alphabet
+      position (A->1, B->2, C->3). "PM_SCOUT_B Candidate 1" yields ``B1`` and
+      "scout A candidate C" yields ``A3``; OR
+    * (2b) a ``\\b[A-Z][0-9]\\b`` token within 20 further characters, returned
+      VERBATIM, which recovers the ids outside the ``[ABC]`` class that later
+      slates used (``H1``, ``I1``, ``S1``).
+
+    2a is tried before 2b at each candidate position, so "scout B's candidate S1"
+    yields ``S1`` (2a cannot match a two-character candidate token) while "scout B
+    candidate A" yields ``B1``.
+
+    WHY Rule 2 accepts ONLY a scout-QUALIFIED reference: accepting a bare
+    ``[A-Z][0-9]`` token anywhere after the heading was prototyped first and
+    produced WRONG winners on real bodies -- an ``H1`` on a hotfix round that held
+    no contest at all, an ``L0`` where no scout slates existed, and an ``H2`` that
+    outranked the correct ``B2``. A wrong winner is strictly worse than ``None``:
+    ``None`` renders as an honest ``winner: unknown``, while a wrong id silently
+    misreports the loop's own history in the decision log every scout is sent to
+    read as a repetition brake. The non-empty separator run is load-bearing for the
+    same reason -- it stops the plural "scouts proposed candidate 2" resolving off
+    the word "scouts" while keeping the ``PM_SCOUT_A`` underscore spelling working
+    -- and the scoped ``(?i:...)`` groups are deliberate, because a blanket
+    ``re.IGNORECASE`` would let lowercase prose satisfy the uppercase-only id
+    classes.
 
     Returns ``None`` -- never raising for ANY string -- when there is no
-    ``## Triage`` heading or no such id token follows it."""
+    ``## Triage`` heading, or when neither rule matches after it."""
     lines = (text or "").splitlines()
     heading_idx = None
     for i, raw in enumerate(lines):
@@ -15323,7 +15359,25 @@ def parse_triage_winner(text: str) -> str | None:
         return None
     rest = "\n".join(lines[heading_idx + 1:])
     match = re.search(r"\b[ABC][0-9]\b", rest)
-    return match.group(0).upper() if match else None
+    if match:
+        return match.group(0).upper()
+    # Both separator classes list, in order: whitespace, underscore, asterisk,
+    # apostrophe, BACKTICK, hyphen -- the 2a class also admits hash and colon,
+    # which is how "candidate #2" and "candidate: 2" reach the index token.
+    qualified = re.search(
+        r"(?i:scout)[\s_*'`\-]+([A-Za-z])\b"
+        r"(?:[^\n]{0,40}?(?i:candidate)[\s#:*_'`\-]*([A-Z1-9])\b"
+        r"|[^\n]{0,20}?\b([A-Z][0-9])\b)",
+        rest,
+    )
+    if qualified is None:
+        return None
+    explicit = qualified.group(3)
+    if explicit:
+        return explicit
+    designator, index = qualified.group(1).upper(), qualified.group(2)
+    return designator + (index if index.isdigit()
+                         else str(ord(index) - ord("A") + 1))
 
 
 def parse_ship_sha(text: str) -> str | None:

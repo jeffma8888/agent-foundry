@@ -31,12 +31,12 @@ STATUS (iter 323): ledger and archive are current through 323 (193/194/199/201/2
 shipped, so none owes a row; 230 never shipped either -- its work re-landed as 231 -- and keeps its row).
 ITERATIONS 245-319 NEVER RAN (a 36.6 h infra outage; no commit exists, so none owes a row) -- verbatim record in the archive.
 STILL OPEN:
-(d), (g)'s `parse_triage_winner` half, (j), (k), and (o).
+(d), (g)'s rendering half, (j), (k), and (o).
 NEXT UP, in value order: (a) Only the OPTIONAL 25-guard
 CONSOLIDATION remains, and it does NOT unblock strangler steps 2/3 (one guard still freezes
 `dispatcher.py` and the meta-test requires it to); (c) CLOSED -- CONSUMER HALF SHIPPED iter 230 (measurement half, 229): `doctor`'s fifth never-blocking drift line. Read the archive's `- **iter 230` bullet BEFORE proposing any further wiring of this measurement; (d) relax `roles/tester.md`'s
 prose discipline around the two gate tokens, which iteration 127 makes safe but which MUST NOT ship in
-the same iteration as 127 itself (a live loop holds the pre-127 `foundry.py` in memory). (f) SHIPPED iter 133 -- record in the archive. (g) **candidates half SHIPPING iter 131; the rest still open.** STILL OPEN, in order: the `parse_triage_winner` half (21 `pm.md` files carry a `## Triage` heading and still yield `None`), then rendering "present but unparsed" distinctly from "absent". (i) **DE-LISTED by iteration 130's scout A -- do NOT re-propose:** detail in the archive. ALSO STILL OPEN: the iteration-121 RETRY (its 51,824-byte
+the same iteration as 127 itself (a live loop holds the pre-127 `foundry.py` in memory). (f) SHIPPED iter 133 -- record in the archive. (g) **candidates half SHIPPED iter 131; `parse_triage_winner` half SHIPPED iter 324 (32 of 38 unparsed bodies healed, 0 regressions).** STILL OPEN: rendering "present but unparsed" distinctly from "absent". (i) **DE-LISTED by iteration 130's scout A -- do NOT re-propose:** detail in the archive. ALSO STILL OPEN: the iteration-121 RETRY (its 51,824-byte
 `products/_platform/state/iter-121/REVERTED_IMPLEMENTATION.patch` is preserved and its FINAL lesson
 authorises the retry, plus the dispatcher restart that lesson demands). Scout A's per-product
 `fast_test_cmd` for the build stages was DE-LISTED by iteration 126's spec -- detail in the archive
@@ -317,6 +317,7 @@ in the archive.
 - iter 321 -- the decision log LABELS write-early placeholder candidates: `stubs: k of n`, not a silent over-count.
 - iter 322 -- the Resilience invariant's per-loop cooldown is SCOPED to `run_continuous`; supported path has none.
 - iter 323 -- `foundry unfailable-asserts`: the 4th test-quality detector gets its CLI after 137 dormant iterations.
+- iter 324 -- `parse_triage_winner` reads scout-qualified winner ids: 32 of 38 unparsed bodies heal, 0 regressions.
 
 
 ### Migration notes (per §6 self-mod guardrail)

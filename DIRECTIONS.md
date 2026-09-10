@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-324
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- 25 attempts and 5 iteration numbers died on an expired session, and the framework has no flag that says "a human must re-authenticate"
+    - Candidate A2 -- `parse_triage_winner` knows one id vocabulary, so 38 of 579 real Triage sections yield `None` and the decision log records "winner: unknown"
+    - Candidate A3 -- `company-unfailable-asserts`: the 4th test-quality lens got its per-product CLI last iteration and is the only one of four with no fleet roll-up
+    - Candidate B1 -- 27 every-suite guards byte-freeze `scripts/`, which is why iteration 241 shipped nothing; ship the SEMANTIC net first and leave every guard untouched
+    - Candidate B2 -- the leak guard reports "0 finding(s) in 1 file(s)" after silently dropping a whole directory from the scan, and exits 0
+    - Candidate B3 -- the meta-test that keeps the permanent freezes NARROW cannot see a pathspec built from a constant, and one shipped guard is already in that blind spot
+    winner: A2
+    ship: pending (not yet decided)
   iter-323
     lenses: narrative-and-docs (iteration 323), new-capability
     - Candidate A1 -- iter 322's own archive section states a FORCED reason for a move that was optional, and the index it claims to have shrunk GREW 241 chars in the same commit
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- nothing in the framework measures a CONSECUTIVE no-output streak, so a 36.6-hour, 75-iteration outage happened with every read-only verb exiting 0
     - Candidate B3 -- three read-only verbs and one brake collapse "the file was never written" into the same word as "the file exists but did not parse", and 75 outage rows are indistinguishable from the live iteration
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 51b850e
   iter-322
     lenses: performance-and-throughput (iteration 322), narrative-and-docs -- iteration 322
     - Candidate A1 -- (measuring)
@@ -1395,4 +1405,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-140 scouted iterations
+141 scouted iterations
