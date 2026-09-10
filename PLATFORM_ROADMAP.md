@@ -313,6 +313,7 @@ in the archive.
 - iter 243 -- inlined lesson tail cuts at the last full SENTENCE, not mid-word: -1,313 chars/prompt, 10/10 fixed.
 - iter 244 -- `ARCHITECTURE.md` names all five tester dispositions, policed by derived `tester_disposition_tokens`.
 - iter 320 -- `dual_pm_scouts` defaults TRUE: a scaffolded product gets the two-scout PM leg with no hand edit.
+- iter 321 -- the decision log LABELS write-early placeholder candidates: `stubs: k of n`, not a silent over-count.
 
 
 ### Migration notes (per §6 self-mod guardrail)

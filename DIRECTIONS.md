@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-321
+    lenses: simplification-and-deletion (iteration 321), performance-and-throughput (iteration 321)
+    - Candidate A1 -- (measuring)
+    - Candidate A2 -- (measuring)
+    - Candidate A3 -- (measuring)
+    - Candidate B1 -- (measuring)
+    - Candidate B2 -- (measuring)
+    - Candidate B3 -- (measuring)
+    winner: A1
+    ship: pending (not yet decided)
   iter-320
     lenses: integration-and-adoption (iteration 320), simplification-and-deletion (iteration 320)
     - Candidate A1 -- the dual-scout default is the path only the RETIRED product takes: flip it, blast radius zero
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the README front door is 61.7% single-line essays
     - Candidate B3 -- the `Company*` roll-up `exit_code` group (roadmap item (q))
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 45fd051
   iter-244
     lenses: performance-and-throughput (iteration 244), narrative-and-docs (iteration 244)
     - Candidate A1 -- the 8,921-char lesson tail is a 0.71-iteration window because APPEND ORDER, not role, decides who gets in
@@ -1365,4 +1375,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-137 scouted iterations
+138 scouted iterations
