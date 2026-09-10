@@ -159,8 +159,9 @@ briefs in [docs/research/](docs/research/README.md).
 4. **Anti-delegation, everywhere.** Every role prompt forbids nested agent runs
    / re-delegation, so sub-agents do the work instead of spawning more loops.
 5. **Infra failures never kill the loop.** Throttling, stalls, and 600s timeouts
-   are absorbed by per-stage retry + exponential backoff and an infra-cooldown;
-   the loop runs until you tell it to stop.
+   are absorbed by per-stage retry + exponential backoff, plus an infra-cooldown
+   in `foundry.run_continuous` only (the supported `launch.sh` shift loop retries
+   per stage and has no loop-level ladder); the loop runs until you tell it to stop.
 
 ## Quickstart
 

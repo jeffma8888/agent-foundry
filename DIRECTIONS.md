@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-322
+    lenses: performance-and-throughput (iteration 322), narrative-and-docs -- iteration 322
+    - Candidate A1 -- (measuring)
+    - Candidate A2 -- (measuring)
+    - Candidate A3 -- (measuring)
+    - Candidate B1 -- the Resilience invariant promises a per-loop infra cooldown that the SUPPORTED operating mode does not have, and this week that cost 36.6 hours
+    - Candidate B2 -- "the invariants" is enumerated four different ways in four shipped artifacts, and the section all four cite has SIX bullets
+    - Candidate B3 -- ARCHITECTURE.md and README still sell the two-scout PM leg as OPT-IN and "default-off"; it has defaulted TRUE since iter 320
+    winner: B1
+    ship: pending (not yet decided)
   iter-321
     lenses: simplification-and-deletion (iteration 321), performance-and-throughput (iteration 321)
     - Candidate A1 -- (measuring)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- (measuring)
     - Candidate B3 -- (measuring)
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 0b4d664
   iter-320
     lenses: integration-and-adoption (iteration 320), simplification-and-deletion (iteration 320)
     - Candidate A1 -- the dual-scout default is the path only the RETIRED product takes: flip it, blast radius zero
@@ -1375,4 +1385,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-138 scouted iterations
+139 scouted iterations
