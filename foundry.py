@@ -11665,6 +11665,113 @@ def call_site_count(source: str, *, symbol: str) -> int | None:
     return total
 
 
+def symbol_dormancy_class(*, symbol: str | None,
+                          production: Iterable[str] | None = (),
+                          tests: Iterable[str] | None = (),
+                          prose: str | None = "") -> str:
+    """Is `symbol` really dormant? One of live/unparseable/test-only/prose-only/dormant.
+
+    `call_site_count` above is this repo's only dormancy primitive, and by
+    documented design it counts `ast.Call` nodes in ONE source. `sentinel_dormancy_gaps`
+    below then reads its `0` as `dormant-claim-missing`, i.e. "confirmed dormant".
+    That UNDER-counts twice over, and both blind spots cost real iterations: (a) a
+    census scoped to production files reports a suite-owned oracle as dead when its
+    consumer is correctly `tests/`, and (b) a symbol reached through a STRING
+    (a `GAPS_FN_NAME = "..."` constant plus `getattr`) is invisible to any
+    `ast.Call` OR `ast.Name` walk. Iteration 326's two scout censuses produced FOUR
+    false dormancy findings between them for exactly these two reasons.
+
+    A REFERENCE to `symbol` in a parsed source is any of three shapes: an `ast.Name`
+    whose `id` matches, an `ast.Attribute` whose `attr` matches (so `mod.foo` counts
+    -- a reference through any owner is a real reference), or an `ast.Constant` whose
+    value is a `str` equal to the symbol (the string-dispatch case). Name/Attribute
+    unwrapping is delegated to `_callee_trailing_name`, deliberately NOT
+    re-implemented here -- one owner, per that helper's own docstring. A symbol's own
+    `def` is structurally NOT a reference (an `ast.FunctionDef` name is not an
+    `ast.Name`), and a `#` comment is absent from the AST entirely, so neither needs
+    a special case.
+
+    PRECEDENCE IS ASYMMETRIC ON PURPOSE, because the two error directions cost
+    different amounts. A POSITIVE production finding is decisive, so `"live"`
+    outranks everything -- even an unparseable `tests` source. A NEGATIVE cannot be
+    certified from a broken parse, so any `production` or `tests` source that fails
+    to parse yields `"unparseable"` and NEVER `"dormant"` or `"test-only"`, mirroring
+    `call_site_count`'s fail-CLOSED `None`. The full order is: `"live"` (a reference
+    in any `production` source), then `"unparseable"`, then `"test-only"` (a
+    reference in a `tests` source only), then `"prose-only"`, else `"dormant"`.
+
+    `prose` is scanned as PLAIN TEXT and is NEVER parsed, so a TOML or markdown blob
+    can never push the verdict to `"unparseable"` -- real cases are `pyproject.toml`
+    naming `pytest_addopts_plugin_gaps` and `ARCHITECTURE.md` naming
+    `infra_cooldown_owners`. Its match is VERBATIM SUBSTRING (so `foobar` counts for
+    `foo`), matching the rule `cooldown_claim_scope_gaps` already uses; the AST
+    string match, by contrast, is exact equality, because that is what a dispatch
+    constant looks like.
+
+    CONSERVATIVE BIAS, documented rather than left to be discovered: the symbol's
+    OWN function body is walked like any other code, so a purely recursive dead
+    function reads `"live"`. Every ambiguity resolves toward `"live"` on the measured
+    ground that a false `"dormant"` burns a whole iteration re-shipping shipped work
+    while a false `"live"` only forgoes one candidate.
+
+    `production` and `tests` are iterables of source TEXT, never paths (matching
+    `role_card_doc_gaps`' contract), so reading files stays the CALLER's job and
+    source completeness is the caller's to own -- exactly as `sentinel_dormancy_gaps`
+    requires its caller to supply `call_sites`.
+
+    Pure and TOTAL: no filesystem, subprocess, network or clock; mutates nothing;
+    never raises for any input. `symbol` empty or `None` returns `"dormant"` (nothing
+    is named); `None` for any collection or for `prose` reads as empty; a
+    non-iterable collection reads as empty; a non-`str` member is read as its `str()`
+    text; `""` parses to an empty module and contributes no reference. Equal inputs
+    always give the same word.
+
+    DORMANT: zero call site in the running pipeline (no CLI verb, no config field).
+    """
+    wanted = str(symbol or "")
+    if not wanted:
+        return "dormant"
+    sources: list[tuple[bool, str]] = []
+    for is_production, raw in ((True, production), (False, tests)):
+        try:
+            members = list(raw) if raw is not None else []
+        except TypeError:
+            members = []
+        sources.extend(
+            (is_production, str(member if member is not None else ""))
+            for member in members
+        )
+    unparseable = False
+    test_reference = False
+    for is_production, source in sources:
+        try:
+            tree = ast.parse(source)
+            found = any(
+                (isinstance(node, (ast.Name, ast.Attribute))
+                 and _callee_trailing_name(node) == wanted)
+                or (isinstance(node, ast.Constant)
+                    and isinstance(node.value, str)
+                    and node.value == wanted)
+                for node in ast.walk(tree)
+            )
+        except (SyntaxError, ValueError, RecursionError):
+            unparseable = True
+            continue
+        if found:
+            if is_production:
+                # A positive production finding is decisive -- it cannot be
+                # invalidated by a later source failing to parse.
+                return "live"
+            test_reference = True
+    if unparseable:
+        return "unparseable"
+    if test_reference:
+        return "test-only"
+    if wanted in str(prose or ""):
+        return "prose-only"
+    return "dormant"
+
+
 def sentinel_dormancy_gaps(doc: str, *, tokens, symbol: str,
                            call_sites: int | None) -> tuple[str, ...]:
     """Ways `doc` fails to record a control vocabulary + its dormancy fact.

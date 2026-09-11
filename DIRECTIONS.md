@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-326
+    lenses: integration-and-adoption (iteration 326), simplification-and-deletion (iteration 326)
+    - Candidate A1 -- the operator's "a restart is owed" flag has zero writers and zero readers, and is the only one of three such flags missing from `.gitignore`
+    - Candidate A2 -- the composite test-quality scan the reviewer runs EVERY iteration is blind to the 4th lens, which shipped three iterations ago
+    - Candidate A3 -- the anti-drift renderer for the retry ladders has no consumer, so the drift it exists to prevent is still policed by a hand-typed literal
+    - Candidate B1 -- the live roadmap index is 38.5% verbatim duplicate of the archive, and the repo already ships the two functions that prove which rows are safe to cut
+    - Candidate B2 -- nine `summarize_company_*` roll-up constructors are the same function nine times (174 lines, 0.73-0.94 textual similarity), and every consumer can keep its name
+    - Candidate B3 -- `docs/research/` is 105,192 bytes (9 files) that zero code paths read, and the design it was evidence for has been dormant for 261 iterations
+    winner: A3
+    ship: pending (not yet decided)
   iter-325
     lenses: hardening/DX, integration-and-adoption (iteration 325)
     - Candidate A1 -- the fail-CLOSED public-repo leak gate is invoked by hand-typed shell in the one seat that pushes, and iteration 324's gate read its verdict as the empty string
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- (measuring)
     - Candidate B3 -- (measuring)
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED d07b9ba
   iter-324
     lenses: new-capability, hardening/DX
     - Candidate A1 -- 25 attempts and 5 iteration numbers died on an expired session, and the framework has no flag that says "a human must re-authenticate"
@@ -1415,4 +1425,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: unknown
     ship: PUSHED 2f6dd82
-142 scouted iterations
+143 scouted iterations
