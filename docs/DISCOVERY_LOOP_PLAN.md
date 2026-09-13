@@ -12,30 +12,39 @@ machinery is complete and DORMANT" and "`scout_phase_outcome` has ZERO callers i
 `run_iteration`" were true on 2026-08-03 and are wrong today, and section 8's
 embargo has had its release condition met since roughly iteration 113.
 
-Each line below names the SYMBOL first and the line number second: the symbol is
-the authoritative anchor (`rg -n "<symbol>" foundry.py`), the line number is a
-convenience that drifts with every edit to `foundry.py`.
+Each line below anchors its claim in the CHECKABLE form file-path, two colons,
+then any text that literally appears in that file -- for example
+`foundry.py::def build_prompt`, resolved with `rg -F "<anchor>" <file>`. A BARE
+LINE NUMBER IS BANNED in this document. `foundry.py` grows every iteration, and
+at iteration 335 all ten of this block's line-number citations were measured
+WRONG, by 36 to 8,491 lines; not one landed past end-of-file, so every one of
+them sent a reader to real, plausible code in an unrelated feature with no
+signal of misdirection. An anchor moves WITH its target, and
+`foundry.doc_anchor_gaps` resolves every anchor in this doc on every suite run,
+so the rot cannot return unnoticed.
 
 - Bite 1 (wire the scout pre-phase) -- **SHIPPED**. `run_iteration` calls
   `scout_phase_outcome(cfg, iteration, "pm_scout.md", ...)` immediately before the
-  `pm` stage: `foundry.py:13086`. Every iteration's `pm_scout_a.md` /
-  `pm_scout_b.md` state files are the running proof.
+  `pm` stage: `foundry.py::scout_phase_outcome(cfg, iteration, "pm_scout.md",`.
+  Every iteration's `pm_scout_a.md` / `pm_scout_b.md` state files are the running
+  proof.
 - Bite 2 (widen and ROTATE the lens pool) -- **SHIPPED**. The six-lens pool is
-  `PM_SCOUT_LENS_POOL` (`foundry.py:5239`); the deterministic, iteration-seeded
-  2-of-6 rotation is `select_scout_lenses(iteration)` (`foundry.py:5249`), supplied
-  at the single call site `foundry.py:13087`. Iteration 133 additionally put a
-  suite brake on pool/card drift.
+  `foundry.py::PM_SCOUT_LENS_POOL`; the deterministic, iteration-seeded 2-of-6
+  rotation is `foundry.py::def select_scout_lenses`, supplied at the single call
+  site `foundry.py::list(select_scout_lenses(iteration))`. Iteration 133
+  additionally put a suite brake on pool/card drift.
 - Bite 3 (`novelty-check`, the repetition brake) -- **SHIPPED**, including the
   WIRING that made it a brake rather than a read-only verb. CLI:
-  `novelty_check_cli` (`foundry.py:8344`). Wiring: `pm_novelty_block`
-  (`foundry.py:8384`) is inlined into the PM stage prompt by `build_prompt`
-  (`foundry.py:12829`) and consumed by the card at `roles/pm.md:91`. Note for the
+  `foundry.py::def novelty_check_cli`. Wiring: `foundry.py::def pm_novelty_block`
+  is inlined into the PM stage prompt by `foundry.py::def build_prompt` and
+  consumed by the card at `roles/pm.md::NOVELTY CHECK (repetition`. Note for the
   record: this document's own evidence line "`rg novelty roles/` finds NOTHING"
   was a CASE-SENSITIVITY false negative -- the card says `NOVELTY CHECK`.
 - Bite 4 (`DIRECTIONS.md`, the human-readable digest) -- **SHIPPED**.
-  `refresh_directions_file(cfg)` (`foundry.py:9232`) regenerates the tracked
+  `foundry.py::def refresh_directions_file` regenerates the tracked
   `DIRECTIONS.md` from `gather_directions` + `render_directions_doc`, called from
-  `run_iteration` on a scouted iteration only (`foundry.py:13178`).
+  `run_iteration` on a scouted iteration only
+  (`foundry.py::refresh_directions_file(cfg)`).
 - Bite 5 (the strangler epic) -- still OPEN and still the highest-VALUE item; it
   was never gated on bites 1-4. It lives on `PLATFORM_ROADMAP.md`; follow
   `docs/STRANGLER_PLAN.md`.
