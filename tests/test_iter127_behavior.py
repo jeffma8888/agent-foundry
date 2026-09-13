@@ -647,7 +647,9 @@ def test_b12_no_new_config_field():
     # (19 -> 21). The assertion stays EXACT (`==`), so it still reds on the next
     # unplanned field; the substantive guard below (no `disposition`/`repair` field,
     # which is what 127 actually forbade) is untouched and still passes.
-    assert len(fields) == 21, fields
+    # EXTENDED again by iteration 334 on the same 188 precedent: `practice_register`,
+    # the PM seat's second external evidence feed (21 -> 22).
+    assert len(fields) == 22, fields
     for f in fields:
         low = f.lower()
         assert "disposition" not in low and "repair" not in low, f

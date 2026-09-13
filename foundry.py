@@ -359,6 +359,10 @@ class ProductConfig:
     # UNCHANGED and no product reads a register until one is set deliberately.
     gap_register: str = ""             # dir holding gaps/*.json ("" => feed off)
     gap_layers: tuple[str, ...] = ()   # stack layers to keep (() => every layer)
+    # External agent-practice register (read-only generated-digest feed, iter
+    # 333). Defaults OFF for the same reason as `gap_register` above: every
+    # existing config must load UNCHANGED and pay no I/O until a product opts in.
+    practice_register: str = ""         # dir holding DIGEST.md ("" => feed off)
 
     def resolve(self) -> "ProductConfig":
         def expand(p: str) -> str:
@@ -390,6 +394,11 @@ class ProductConfig:
         # layer filter (silently matching nothing), so the coercion is what lets
         # `gather_gaps` trust the declared type instead of re-checking it.
         self.gap_register = expand(self.gap_register)
+        # Same `~` / `{FOUNDRY}` treatment for the practice register: the tracked
+        # opt-in is stored in TILDE form (an absolute machine path in a tracked
+        # config would name a user's home dir), so the expansion is what makes
+        # the stored value usable, and it must survive `resolve()`.
+        self.practice_register = expand(self.practice_register)
         raw_layers = self.gap_layers
         if isinstance(raw_layers, str):
             raw_layers = (raw_layers,) if raw_layers else ()
@@ -12559,6 +12568,192 @@ def pm_gap_block(cfg: ProductConfig, stage: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# External agent-practice register -- read-only GENERATED-DIGEST feed (iter 333)
+#
+# `pm_gap_block` above answers "what is BROKEN in this problem domain?" from
+# OUTSIDE this repo. The PM's other question -- "what does the field already
+# KNOW about building this kind of system?" -- was still answered only from the
+# INSIDE, by the roadmap and this repo's own LEARNINGS. This family is the
+# practice-side twin: it injects the provider register's OWN generated
+# `DIGEST.md`, bounded and verbatim, into the PM prompt.
+#
+# Two deliberate NON-features, both copied from the gap seam's hard-won shape:
+#   * NO per-record parsing and NO re-ranking. The provider's own CI keeps
+#     `DIGEST.md` equal to its `practices/*.json` records (`practice digest
+#     --check`), so this side reads PLAIN TEXT and trusts it. Restating a
+#     value/confidence score the provider DERIVES is how a consumer ends up
+#     quietly disagreeing with the provider while looking correct.
+#   * NO subprocess, `uv`, PATH lookup or import of the provider package -- one
+#     `read_text` and one `glob`, stdlib only, so a broken or absent provider
+#     install can never reach the PM stage.
+#
+# Seam contract is `pm_novelty_block` / `pm_gap_block` / `pm_recoverable_block`
+# verbatim: "" for every non-`pm` stage so those prompts stay BYTE-IDENTICAL, ""
+# on ANY exception, bare-name internal calls so a monkeypatch bites at call
+# time, and one trailing newline so the next prompt line keeps its own line.
+# --------------------------------------------------------------------------- #
+PRACTICE_DIGEST_MAX_CHARS = 6000   # chars of digest text the PM block carries
+PRACTICE_TRUNCATION_MARK = " [...]"   # VISIBLE proof the digest was cut
+
+# The digest self-dates on its SECOND line (`... as of 2026-09-04]`). The shape
+# is pinned to zero-padded ISO here, and re-checked by `practice_age_days`,
+# because `strptime("%Y-%m-%d")` silently accepts `2026-9-4` while
+# `date.fromisoformat` rejects it -- a stamp whose shape depends on which parser
+# ran is not a stamp this block should date the register by.
+_PRACTICE_ASOF_RE = re.compile(r"as of (\d{4}-\d{2}-\d{2})", re.IGNORECASE)
+
+
+def gather_practices(cfg: ProductConfig) -> dict[str, object]:
+    """Read an external agent-practice register's generated digest (read-only).
+
+    Returns exactly `{"register", "digest", "asof", "records", "unreadable"}`.
+    An empty `cfg.practice_register` short-circuits to the all-empty feed
+    (`register/digest/asof == ""`, `records/unreadable == 0`) and touches NO
+    file, so an unconfigured product pays ZERO I/O -- the short-circuit is above
+    every `pathlib` call, not merely above the `open`.
+
+    `digest` is the file's EXACT text, UNCUT at this layer: the cap belongs to
+    the renderer (`practice_advice`), so a future consumer that wants more of
+    the digest does not have to re-read the file. `records` is a plain count of
+    `practices/*.json` -- this reader never opens those files, because the
+    provider's CI is what keeps the digest equal to them.
+
+    Total on a broken register: a missing register dir, a missing `DIGEST.md` or
+    a `DIGEST.md` that is a DIRECTORY all yield `digest == ""`, `asof == ""` and
+    `unreadable == 1` rather than raising, and the surviving `register` is what
+    lets `practice_advice` distinguish "no register configured" from "the
+    register I read is broken". A readable digest with fewer than 2 lines is
+    NOT unreadable, just undated (`asof == ""`).
+    """
+    register = getattr(cfg, "practice_register", "") or ""
+    if not register:
+        return {"register": "", "digest": "", "asof": "",
+                "records": 0, "unreadable": 0}
+    root = pathlib.Path(register)
+    try:
+        records = len(tuple((root / "practices").glob("*.json")))
+    except OSError:
+        records = 0
+    digest = ""
+    unreadable = 0
+    try:
+        # ValueError covers UnicodeDecodeError (a binary DIGEST.md); OSError
+        # covers absent, unreadable, and IsADirectoryError.
+        digest = (root / "DIGEST.md").read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        unreadable = 1
+    asof = ""
+    lines = digest.splitlines()
+    if len(lines) >= 2:
+        match = _PRACTICE_ASOF_RE.search(lines[1])
+        if match:
+            asof = match.group(1)
+    return {"register": register, "digest": digest, "asof": asof,
+            "records": records, "unreadable": unreadable}
+
+
+def practice_age_days(asof: str, today: dt.date | None = None) -> int | None:
+    """Signed age in days of an `as of YYYY-MM-DD` stamp (pure; NEVER raises).
+
+    `today` is INJECTED so the arithmetic is a pure function of two inputs and
+    reads no clock in a test; it falls back to `dt.date.today()` only when the
+    caller supplies nothing. A FUTURE stamp returns a NEGATIVE count rather than
+    being clamped to 0 -- a digest dated ahead of today means the two sides
+    disagree about the date, which is a fact worth showing, not hiding.
+
+    Returns None for every unusable stamp ("", non-date text, an out-of-range
+    date, or a non-zero-padded `2026-9-4`) so the renderer prints "age unknown"
+    instead of inventing a number. The shape is re-checked here rather than
+    delegated to the parser: `date.fromisoformat`'s leniency has changed between
+    interpreter versions, and this contract must not.
+    """
+    stamp = (asof or "").strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", stamp):
+        return None
+    try:
+        stamped = dt.date.fromisoformat(stamp)
+    except ValueError:
+        return None
+    return ((today or dt.date.today()) - stamped).days
+
+
+def practice_advice(feed: Mapping[str, object],
+                    today: dt.date | None = None) -> str:
+    """Render a `gather_practices` feed into a PM-facing block (pure; NO trailing newline).
+
+    Returns "" for an UNCONFIGURED feed (empty `register`) -- the ONLY silent
+    case. A CONFIGURED register always renders a non-empty block, even when its
+    digest could not be read, because "no register configured" and "the register
+    I read is broken" are different facts; collapsing them into one silent ""
+    is the fail-open shape this repo's dormant-by-accident failures keep taking.
+    A read failure therefore ANNOUNCES itself with an `UNREADABLE` token.
+
+    Three fixed header lines (register, counts+date, pass-through terms), then
+    the digest text, then a closing marker line. The closing line is what keeps
+    the "never ends with a newline" contract exact WITHOUT rstrip'ing the digest
+    -- a digest whose last char is `\n` must still appear byte-for-byte.
+
+    Truncation is a plain char slice plus `PRACTICE_TRUNCATION_MARK`, NOT a
+    sentence-boundary nicety, so the oracle is exact: over the cap renders the
+    first `PRACTICE_DIGEST_MAX_CHARS` chars plus the mark; exactly at the cap
+    renders verbatim with no mark. Deterministic and total: no disk, no network,
+    no subprocess, no clock unless `today` is omitted, and it writes nothing.
+    """
+    register = str(feed.get("register", "") or "")
+    if not register:
+        return ""
+    digest = str(feed.get("digest", "") or "")
+    asof = str(feed.get("asof", "") or "")
+    records = int(feed.get("records") or 0)
+    unreadable = int(feed.get("unreadable") or 0)
+    age = practice_age_days(asof, today)
+    asof_text = asof if asof else "unknown"
+    age_text = f"{age} day(s) old" if age is not None else "age unknown"
+    lines = [
+        f"EXTERNAL PRACTICE REGISTER (read-only, generated digest): {register}",
+        f"{records} practice record(s) in practices/*.json; "
+        f"digest as of {asof_text} ({age_text}).",
+        f"The digest below is the register's own generated text, passed through "
+        f"verbatim, capped at {PRACTICE_DIGEST_MAX_CHARS} chars; this block "
+        f"never re-ranks it and never restates a value or confidence score.",
+    ]
+    if unreadable or not digest:
+        lines.append(
+            f"DIGEST UNREADABLE ({unreadable} read failure(s)): the register is "
+            f"configured but no digest text was available to pass through.")
+    if digest:
+        lines.append(digest[:PRACTICE_DIGEST_MAX_CHARS]
+                     + (PRACTICE_TRUNCATION_MARK
+                        if len(digest) > PRACTICE_DIGEST_MAX_CHARS else ""))
+    lines.append("(end of external practice digest)")
+    return "\n".join(lines)
+
+
+def pm_practice_block(cfg: ProductConfig, stage: str) -> str:
+    """Read-only injection seam: the PM-stage external practice feed for build_prompt.
+
+    Returns "" for every non-`pm` stage, so those prompts stay BYTE-IDENTICAL;
+    for `pm` returns the practice block plus a single trailing newline, or ""
+    when no register is configured. `gather_practices` and `practice_advice` are
+    called by BARE module name so a `monkeypatch.setattr(foundry, ...)` bites at
+    call time. Defensive: ANY exception degrades to "" (== the pre-feed prompt),
+    so a missing, unreadable or malformed register can NEVER crash the PM stage.
+    Writes nothing.
+
+    Its one run-path caller is `build_prompt`, which calls it unconditionally for
+    EVERY stage: the stage gate lives HERE, inside the seam, so the call site has
+    no branch to get wrong and a monkeypatched seam is reached from every stage.
+    """
+    if stage != "pm":
+        return ""
+    try:
+        block = practice_advice(gather_practices(cfg))
+    except Exception:
+        return ""
+    return (block + "\n") if block else ""
+
+
+# --------------------------------------------------------------------------- #
 # Preserved work from a recent abort -- read-only retry feed (LIVE since iter 218)
 #
 # The abort path is the one place this framework destroys work it cannot recover,
@@ -20868,6 +21063,7 @@ def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
         f"{PROMPT_LEARNINGS_LABEL}\n{digest}\n"
         f"{pm_novelty_block(cfg, stage)}"
         f"{pm_gap_block(cfg, stage)}"
+        f"{pm_practice_block(cfg, stage)}"
         f"{pm_recoverable_block(cfg, stage)}"
         f"- Iteration number for file naming: {iteration:02d}\n"
         f"- YOUR REQUIRED OUTPUT FILE: {out_file} -- you MUST write it before "

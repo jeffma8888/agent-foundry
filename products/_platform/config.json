@@ -13,5 +13,6 @@
   "push_enabled": true,
   "dual_pm_scouts": true,
   "gap_register": "~/projects/agent-gap-radar",
-  "gap_layers": ["orchestration", "eval-verification", "observability"]
+  "gap_layers": ["orchestration", "eval-verification", "observability"],
+  "practice_register": "~/projects/agent-practice-index"
 }
