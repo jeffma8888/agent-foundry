@@ -1,6 +1,27 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-334
+    lenses: performance-and-throughput (iteration 334), narrative-and-docs (iteration 334)
+    - Candidate A1 -- foundry.py's own docstrings ban `ast.get_source_segment`; five shipped test files still call it 10 times for 27.1 s of the suite's 244 s CPU
+    - Candidate A2 -- (benchmark in flight: the fresh-clone verification costs 2.1x the warm suite -- 77.57 s vs 36.66 s)
+    - Candidate A3 -- 13 test files each build their own whole-tree source census, and one census costs 0.97 s of which 0.92 s is re-parsing the same 224 files
+    - Candidate B1 -- `dual_pm_scouts` has defaulted TRUE since iter 320, but ARCHITECTURE.md and README still sell the two-scout leg as OPT-IN / default-off, while `docs/DUAL_PM_SCOUT_SPEC.md` documents the flip correctly -- the shipped tree now contradicts itself
+    - Candidate B2 -- 13 committed `ship: REVERTED` rows in DIRECTIONS.md record no reason, and every reason lives ONLY in `products/*/state/`, which is gitignored -- so the log the loop reads as its repetition brake cannot say why a third of its losses happened
+    - Candidate B3 -- the committed DIRECTIONS.md disagrees with what the shipped code renders from the same inputs: 5 rows are stale RIGHT NOW, including one that reads `pending (not yet decided)` for an iteration that shipped 7 iterations ago -- and no check anywhere can see it
+    winner: B2
+    ship: pending (not yet decided)
+  iter-333
+    lenses: simplification-and-deletion (iteration 333), performance-and-throughput (iteration 333)
+    - Candidate A1 -- (measuring: dormant module-level function census via last iteration's own oracle)
+    - Candidate A2 -- (measuring)
+    - Candidate A3 -- (measuring)
+    - Candidate B1 -- the parallel suite is scheduler-bound, not CPU-bound: 25 of 8659 tests hold ~73% of the CPU and the default `--dist load` cannot rebalance them (A/B PENDING)
+    - Candidate B2 -- the 8 slowest tests are whole-tree censuses that each re-walk the same corpus; memoize the read inside the production helper and every stage plus every read-only verb gets faster
+    - Candidate B3 -- the gate's 240s budget and the timing verb's hard-coded 120s alarm are unrelated to each other, so a suite growing +0.38s/iteration walks toward a ship-blocking wall nothing announces
+    stubs: 2 of 6 candidate line(s) are write-early placeholders, not measured candidates
+    winner: B2
+    ship: REVERTED
   iter-326
     lenses: integration-and-adoption (iteration 326), simplification-and-deletion (iteration 326)
     - Candidate A1 -- the operator's "a restart is owed" flag has zero writers and zero readers, and is the only one of three such flags missing from `.gitignore`
@@ -10,7 +31,7 @@ foundry directions -- _platform
     - Candidate B2 -- nine `summarize_company_*` roll-up constructors are the same function nine times (174 lines, 0.73-0.94 textual similarity), and every consumer can keep its name
     - Candidate B3 -- `docs/research/` is 105,192 bytes (9 files) that zero code paths read, and the design it was evidence for has been dormant for 261 iterations
     winner: A3
-    ship: pending (not yet decided)
+    ship: PUSHED 7411e95
   iter-325
     lenses: hardening/DX, integration-and-adoption (iteration 325)
     - Candidate A1 -- the fail-CLOSED public-repo leak gate is invoked by hand-typed shell in the one seat that pushes, and iteration 324's gate read its verdict as the empty string
@@ -19,6 +40,7 @@ foundry directions -- _platform
     - Candidate B1 -- (measuring)
     - Candidate B2 -- (measuring)
     - Candidate B3 -- (measuring)
+    stubs: 3 of 6 candidate line(s) are write-early placeholders, not measured candidates
     winner: A1
     ship: PUSHED d07b9ba
   iter-324
@@ -49,6 +71,7 @@ foundry directions -- _platform
     - Candidate B1 -- the Resilience invariant promises a per-loop infra cooldown that the SUPPORTED operating mode does not have, and this week that cost 36.6 hours
     - Candidate B2 -- "the invariants" is enumerated four different ways in four shipped artifacts, and the section all four cite has SIX bullets
     - Candidate B3 -- ARCHITECTURE.md and README still sell the two-scout PM leg as OPT-IN and "default-off"; it has defaulted TRUE since iter 320
+    stubs: 3 of 6 candidate line(s) are write-early placeholders, not measured candidates
     winner: B1
     ship: PUSHED 4465cbe
   iter-321
@@ -59,6 +82,7 @@ foundry directions -- _platform
     - Candidate B1 -- (measuring)
     - Candidate B2 -- (measuring)
     - Candidate B3 -- (measuring)
+    stubs: 6 of 6 candidate line(s) are write-early placeholders, not measured candidates
     winner: A1
     ship: PUSHED 0b4d664
   iter-320
@@ -89,6 +113,7 @@ foundry directions -- _platform
     - Candidate B1 -- the lesson tail buys 8,000 chars per prompt to deliver 2,210 chars of rule, and cuts all 10 mid-word
     - Candidate B2 -- the digest HEAD has no role scoping, and 33% of what a seat reads is addressed to a different seat
     - Candidate B3 -- the two most expensive stages in the pipeline are the two whose prompt no verb can price
+    stubs: 3 of 6 candidate line(s) are write-early placeholders, not measured candidates
     winner: B1
     ship: PUSHED 70ee5a8
   iter-242
@@ -99,6 +124,7 @@ foundry directions -- _platform
     - Candidate B1 -- 26 per-iteration acceptance tests froze `dispatcher.py`, `scripts/` and `.gitignore` for the rest of time, and the operator has been hand-committing past them
     - Candidate B2 -- (measuring)
     - Candidate B3 -- (measuring)
+    stubs: 2 of 6 candidate line(s) are write-early placeholders, not measured candidates
     winner: A2
     ship: PUSHED ddcc2d3
   iter-241
@@ -129,6 +155,7 @@ foundry directions -- _platform
     - Candidate B1 -- placeholder (measuring)
     - Candidate B2 -- placeholder (measuring)
     - Candidate B3 -- placeholder (measuring)
+    stubs: 3 of 6 candidate line(s) are write-early placeholders, not measured candidates
     winner: A1
     ship: PUSHED ed77e6b
   iter-238
@@ -139,6 +166,7 @@ foundry directions -- _platform
     - Candidate B1 -- the last ship inverted the liveness mechanism, and the command the operator doc still teaches answers 3-for-1 on this machine
     - Candidate B2 -- two committed docs give the operator opposite instructions for the one action that can violate single-brain
     - Candidate B3 -- the doc every stage prompt is sent to for the invariants names 5 of the 6 prompt budgets, and the one it omits is the newest
+    stubs: 3 of 6 candidate line(s) are write-early placeholders, not measured candidates
     winner: A1
     ship: PUSHED 4cc876a
   iter-237
@@ -169,6 +197,7 @@ foundry directions -- _platform
     - Candidate B1 -- the repo's one AUTOMATED launcher still uses the raw `pgrep -f` scan that `dispatcher_proc_match` was built to replace (measured live: 3 pids for 1 brain), and it fails SHUT
     - Candidate B2 -- `scripts/launch_dispatcher.sh`: give `preflight`'s three-way launch verdict its first machine consumer
     - Candidate B3 -- (being measured)
+    stubs: 1 of 6 candidate line(s) are write-early placeholders, not measured candidates
     winner: B1
     ship: PUSHED b77f3f0
   iter-234
@@ -189,6 +218,7 @@ foundry directions -- _platform
     - Candidate B1 -- placeholder (being measured)
     - Candidate B2 -- placeholder (being measured)
     - Candidate B3 -- placeholder (being measured)
+    stubs: 3 of 6 candidate line(s) are write-early placeholders, not measured candidates
     winner: A3
     ship: PUSHED 5447797
   iter-232
@@ -199,6 +229,7 @@ foundry directions -- _platform
     - Candidate B1 -- placeholder (measuring)
     - Candidate B2 -- placeholder (measuring)
     - Candidate B3 -- placeholder (measuring)
+    stubs: 3 of 6 candidate line(s) are write-early placeholders, not measured candidates
     winner: A3
     ship: PUSHED 1ab677f
   iter-231
@@ -339,6 +370,7 @@ foundry directions -- _platform
     - Candidate B1 -- a per-product FAST test command for the non-tester stages
     - Candidate B2 -- shrink the fresh-clone cost the final gate pays twice per iteration
     - Candidate B3 -- TBD (measuring stalled-attempt waste)
+    stubs: 1 of 6 candidate line(s) are write-early placeholders, not measured candidates
     winner: B1
     ship: PUSHED 2678ad5
   iter-212
@@ -467,6 +499,7 @@ foundry directions -- _platform
     - Candidate A2 -- `roles/pm.md` must answer the repetition brake, the way iter 197 made it answer `GAP:`
     - Candidate A3 -- give `foundry agents` its first consumer, so house rules reach the repo fresh agents read
     - Candidate B1 -- placeholder pending measurement
+    stubs: 1 of 4 candidate line(s) are write-early placeholders, not measured candidates
     winner: A1
     ship: PUSHED 16857fe
   iter-199
@@ -557,7 +590,7 @@ foundry directions -- _platform
     - Candidate A -- `foundry steer`: the first WRITE path to the steering channel, with a delivery proof
     - Candidate B -- `foundry recurrence`: the 431 losing scout candidates nothing has ever read
     - Candidate C -- grade a role's ARTIFACT against its own card, the way `lint-spec` grades the PM's
-    winner: unknown
+    winner: A3
     ship: PUSHED 648f5b3
   iter-190
     lenses: performance-and-throughput, narrative-and-docs
@@ -747,6 +780,7 @@ foundry directions -- _platform
     - Candidate B1 -- the artifact catalog has no entry for the biggest artifact the foundry has built
     - Candidate B2 -- the committed decision log says "unknown" about ships the repo can prove
     - Candidate B3 -- three code comments still name the fixed scout lens pair the rotation retired
+    stubs: 2 of 6 candidate line(s) are write-early placeholders, not measured candidates
     winner: A1
     ship: unknown
   iter-171
@@ -937,6 +971,7 @@ foundry directions -- _platform
     - Candidate B1 -- collapse the 5 near-duplicate live-smoke tests onto one cached fixture
     - Candidate B2 -- a measured suite wall-time budget with a doctor line
     - Candidate B3 -- TBD (refining)
+    stubs: 1 of 6 candidate line(s) are write-early placeholders, not measured candidates
     winner: A1
     ship: PUSHED 6430ba4
   iter-152
@@ -1257,7 +1292,7 @@ foundry directions -- _platform
     - CANDIDATE A -- `stage_test_cmd`: let a product declare a stage-budget-safe check for the CAPPED agent stages
     - CANDIDATE B -- make the foundry's own CLI invocable from inside a stage
     - CANDIDATE C -- close the ACTIVATION gap on the shipped IPC endpoint self-heal (doc + `doctor` check)
-    winner: unknown
+    winner: A1
     ship: REVERTED
   iter-120
     lenses: new-capability, hardening/DX
@@ -1413,7 +1448,7 @@ foundry directions -- _platform
     - Candidate 1 -- strangler STEP 4: watchdog.decide delegates to the library (the SAFEST single step)
     - Candidate 2 -- strangler STEP 3: the stage retry path delegates to run_with_retry (higher value, medium resume-risk)
     - Candidate 3 -- _truncate_lesson robustness guard + stale-comment correction (the diversity pick; honestly low-but-real value)
-    winner: unknown
+    winner: A1
     ship: PUSHED 21410d8
   iter-104
     lenses: new-capability (iter 104), hardening/DX (iter 104)
@@ -1423,6 +1458,6 @@ foundry directions -- _platform
     - Candidate 1 (my strongest): give `learnings_digest` a real CHARACTER budget
     - Candidate 2: strangler -- delegate ONE reliability primitive to the library
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
-    winner: unknown
+    winner: B1
     ship: PUSHED 2f6dd82
-143 scouted iterations
+145 scouted iterations

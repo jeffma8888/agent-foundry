@@ -929,7 +929,27 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # the 75-assertion literal class keeps both sibling checks above. The
                 # other four frozen paths stay frozen. Red ONLY inside the pre-commit
                 # window; a fresh clone at the ship commit is clean.
-                "tests/test_iter244_behavior.py"}
+                "tests/test_iter244_behavior.py",
+                # iter 334: FORCED brake amendment, three paths. Re-landing
+                # iteration 333's `practice_register` config field REQUIRES its four
+                # frozen config-schema guards to be EXTENDED (a field count, a
+                # sorted tracked-key tuple, a declaration-order FROZEN_FIELDS tuple
+                # and a declaration-order tail) -- the suite cannot be green with
+                # both the new field and the old literals, which is exactly what
+                # reverted iteration 333. `tests/test_iter127_behavior.py` is already
+                # listed above (iter 320 row); these are the other three. Allow-listed
+                # rather than any assertion weakened, on the
+                # iter-212/215/242/323/325 precedent and the same evidence those rows
+                # use: `newest_ness_pin_sites` over EACH of the three is `()` at HEAD
+                # AND in the worktree (measured this iteration), so no newest-ness pin
+                # was swept, converted or added, and the 75-assertion literal class
+                # keeps both sibling checks above. Every one of the three edits stays
+                # an EXACT equality that still reds on the NEXT unplanned field -- they
+                # are extensions to the shipped truth, not relaxations. Red ONLY inside
+                # the pre-commit window; a fresh clone at the ship commit is clean.
+                "tests/test_iter149_behavior.py",
+                "tests/test_iter157_behavior.py",
+                "tests/test_iter188_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

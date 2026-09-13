@@ -302,7 +302,6 @@ in the archive.
 - iter 230 -- `doctor` grows a FIFTH drift line: iter 229's dormant test-touch measurement gets its first reader.
 - iter 231 -- pure `prose_stripped_source` disarms the self-referential count brake; iter 230's work re-lands.
 - iter 232 -- role-scoped lesson tail: 4 of the 10 digest slots go to the stage's OWN role's newest lessons.
-- iter 235 -- item 23 bite 2: `foundry.log`'s two writes get `dlog`'s guards; a dead stdout can't kill a shift.
 - iter 236 -- the durable detached launcher SHIPS: tracked leak-clean `launch.sh` gates on `single-brain`; USAGE.md.
 - iter 237 -- watchdog liveness delegates to `single-brain --json`: the last raw `pgrep -f` scan, fail-SHUT, is gone.
 - iter 238 -- derived doc brake: every module-level `PROMPT_LEARNINGS_*` constant must be named in ARCHITECTURE.md.
@@ -318,6 +317,7 @@ in the archive.
 - iter 324 -- `parse_triage_winner` reads scout-qualified winner ids: 32 of 38 unparsed bodies heal, 0 regressions.
 - iter 325 -- `foundry leak-check`: the fail-CLOSED leak gate gets a machine-readable verdict, not shell exit plumbing.
 - iter 326 -- `symbol_dormancy_class`: a dormancy census that tells TEST-ONLY from dead; 4 false findings this iter.
+- iter 334 -- `pm_practice_block`: the practice-register digest reaches the PM prompt; iter 333's seam re-lands.
 
 
 ### Migration notes (per §6 self-mod guardrail)

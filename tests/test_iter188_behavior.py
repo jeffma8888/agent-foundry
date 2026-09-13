@@ -624,7 +624,8 @@ def test_b13_both_modules_still_import() -> None:
 # --------------------------------------------------------------------------
 def test_b14_new_field_names_are_last_in_declaration_order() -> None:
     names = tuple(foundry.config_field_names())
-    assert names[-2:] == ("gap_register", "gap_layers")
+    # WIDENED by iteration 334: `practice_register` is the newest declaration-order tail.
+    assert names[-3:] == ("gap_register", "gap_layers", "practice_register")
     assert len(set(names)) == len(names), "a config field name is duplicated"
 
 

@@ -68,6 +68,10 @@ BANNED_IN_BAR = ("revert-on-doubt", "single-brain dispatch")
 # gains a field" (same extend-don't-loosen move iter 188 made to iter 157's FROZEN_FIELDS).
 CONFIG_TOP_LEVEL_KEYS = ("allowed_push_repo", "branch", "dual_pm_scouts", "gap_layers",
                          "gap_register", "name",
+                         # EXTENDED again by iteration 334: `_platform` opted the external
+                         # practice feed on. This tuple is compared against
+                         # `tuple(sorted(data))`, so the new name goes in SORTED position.
+                         "practice_register",
                          "push_enabled", "quality_bar", "quality_ref", "repo", "roadmap",
                          "roles_dir", "test_cmd", "vision", "work_root")
 
