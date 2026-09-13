@@ -3476,6 +3476,119 @@ def roadmap_rows_removed(index_text: str, iterations: Iterable[int]) -> str:
     return "".join(kept)
 
 
+# --------------------------------------------------------------------------- #
+# DOC-ANCHOR integrity (added iter 335): a line number is a CLAIM whose truth
+# decays with its target's churn, and nothing here noticed.
+#
+# Measured at iter 335 over `docs/DISCOVERY_LOOP_PLAN.md`: all 10 of its code
+# citations were wrong, by 36 to 8,491 lines, because `foundry.py` grows every
+# iteration and the doc's numbers were written when it was ~13,000 lines long.
+# NOT ONE landed past EOF, so nothing errored and nothing warned -- a reader who
+# followed an anchor landed on real, plausible code in an unrelated feature with
+# no signal of misdirection, which is strictly worse than no citation at all.
+#
+# The repair is a FORM change, not a refresh: a `<file>::<anchor>` citation names
+# text that moves WITH its target, so it is both durable AND checkable. This
+# oracle decides both halves -- it flags the rotting shape and it resolves the
+# durable one -- which is what lets a suite census keep a tracked doc honest.
+#
+# PRESENCE, not uniqueness, is deliberately the contract. Two of that doc's ten
+# claims are CALL SITES rather than definitions, so a "must be a `def` line" rule
+# could not express half of the doc's real content; requiring uniqueness would
+# reject a legitimately repeated call. Anchors are read only inside a
+# single-backtick span so their end is unambiguous without a length limit.
+#
+# PURE and TOTAL and DORMANT: text in, findings out; no filesystem, subprocess,
+# network or clock, never raises for mapping input, and NO call site in
+# `run_iteration` / `run_continuous` / `run_stage` / `build_prompt` /
+# `postrelease_step` / `dispatcher.py`, no CLI verb, no config field and no new
+# artifact -- so a loop in flight resumes byte-identically. The PEDAL is a suite
+# census over the real tracked doc, which runs every iteration.
+# --------------------------------------------------------------------------- #
+
+# A rotting citation: a `.py`/`.md` target followed by `:` and a line number.
+# Requiring a DIGIT immediately after the colon is what keeps the replacement form
+# out: in `foundry.py::def f` the next character is a second `:`, so the two shapes
+# can never collide and converting a citation always clears its own finding.
+_DOC_LINE_CITATION_RE = re.compile(r"[\w./-]+\.(?:py|md):\d+")
+
+# A durable citation, recognised ONLY inside a single-backtick span. Excluding the
+# backtick and the newline from BOTH sides is what bounds the span (the quantifier
+# is greedy but cannot cross a delimiter), so `` `a::b` and `c::d` `` yields two
+# anchors rather than one run-on that swallows the prose between them.
+_DOC_ANCHOR_SPAN_RE = re.compile(r"`([^`\n]*::[^`\n]*)`")
+
+
+def doc_anchor_gaps(docs: Mapping[str, str],
+                    sources: Mapping[str, str]) -> tuple[str, ...]:
+    """Every rotting line citation and every UNRESOLVABLE `file::anchor` in `docs`.
+
+    `docs` maps a doc path to that doc's TEXT and `sources` maps a cited path to
+    that file's TEXT. Both are plain text mappings: this function never opens a
+    path, so the keys are labels for the report and nothing else. Returns a tuple
+    of human-readable `<doc>:<line>: <kind>: <detail>` strings; `()` means every
+    citation in every given doc is of the durable form and resolves.
+
+    Two finding kinds, because a doc citation can fail in exactly two ways:
+
+    * `line-citation` -- a `<file>.py:<N>` / `<file>.md:<N>` shape. ALWAYS a
+      finding, never resolved against anything. That is the point: the shape is
+      unmaintainable by construction, so "it happens to be right today" is not a
+      defence and `sources` is not consulted for it.
+    * `unresolved-anchor` -- a `` `<path>::<text>` `` span whose `text` is not a
+      substring of `sources[path]`, INCLUDING the case where `path` is not a key
+      of `sources` at all. A missing source is reported rather than skipped so a
+      doc cannot buy silence by citing a file the caller did not supply.
+
+    Resolution is a plain substring test on purpose. It costs nothing, needs no
+    parser, and works identically for a `def`, a constant, a call site and a
+    prose heading in a Markdown role card -- the four things the repo's live docs
+    actually cite. Uniqueness is NOT required (see the section note above).
+
+    KNOWN EDGE, deliberate and spec-literal: an EMPTY anchor (`` `f.py::` ``)
+    resolves, because the empty string is a substring of every text. It is left
+    resolving rather than special-cased because the contract this implements is a
+    plain substring test, and narrowing it here would be an unspecified rule that
+    the feature's behavior tests could not know about. Worth a successor bite.
+
+    Findings are sorted by `(doc path, line number, kind)`, so the output is
+    deterministic for equal input and a reader walks each doc top to bottom.
+    Line numbers are 1-based, matching every editor and `rg -n`.
+
+    Pure and total: no filesystem, subprocess, network or clock, and a
+    non-mapping, empty or malformed value yields `()` instead of raising.
+    """
+    if not isinstance(docs, Mapping):
+        return ()
+    lookup: Mapping[str, str] = sources if isinstance(sources, Mapping) else {}
+    findings: list[tuple[str, int, str, str]] = []
+    for doc_path in docs:
+        text = docs[doc_path]
+        if not isinstance(text, str):
+            continue
+        label = str(doc_path)
+        for offset, line in enumerate(text.splitlines(), start=1):
+            for citation in _DOC_LINE_CITATION_RE.findall(line):
+                findings.append((
+                    label, offset, "line-citation",
+                    "%s -- a line number rots with its target; cite "
+                    "`<file>::<anchor>` instead" % citation,
+                ))
+            for span in _DOC_ANCHOR_SPAN_RE.findall(line):
+                cited, _, wanted = span.partition("::")
+                body = lookup.get(cited)
+                if isinstance(body, str) and wanted in body:
+                    continue
+                why = ("no text for %s was supplied" % cited
+                       if not isinstance(body, str)
+                       else "not found in %s" % cited)
+                findings.append((
+                    label, offset, "unresolved-anchor",
+                    "%s::%s -- %s" % (cited, wanted, why),
+                ))
+    return tuple("%s:%d: %s: %s" % row for row in sorted(findings))
+
+
 def git_ship_subjects(repo_dir) -> tuple[str, ...]:
     """Commit subjects of `repo_dir` in git order -- the ONE new I/O seam.
 

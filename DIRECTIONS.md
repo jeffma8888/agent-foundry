@@ -1,6 +1,17 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-335
+    lenses: narrative-and-docs (iteration 335), new-capability
+    - Candidate A1 -- 11 of the 13 code citations in the two LIVE docs point at the wrong line, by 36 to 8,501 lines, and the only 2 that survive both point into the one file that stopped growing
+    - Candidate A2 -- the catalog whose only job is "what has this foundry built" has ONE entry, and it describes work finished BEFORE this repo existed
+    - Candidate A3 -- ARCHITECTURE.md makes a migration note MANDATORY for any resume-semantics change; its own ledger's newest entry is iter 72, 262 iterations ago, and two later iterations provably qualified
+    - Candidate B1 -- (measuring)
+    - Candidate B2 -- (measuring)
+    - Candidate B3 -- (measuring)
+    stubs: 3 of 6 candidate line(s) are write-early placeholders, not measured candidates
+    winner: A1
+    ship: pending (not yet decided)
   iter-334
     lenses: performance-and-throughput (iteration 334), narrative-and-docs (iteration 334)
     - Candidate A1 -- foundry.py's own docstrings ban `ast.get_source_segment`; five shipped test files still call it 10 times for 27.1 s of the suite's 244 s CPU
@@ -10,7 +21,7 @@ foundry directions -- _platform
     - Candidate B2 -- 13 committed `ship: REVERTED` rows in DIRECTIONS.md record no reason, and every reason lives ONLY in `products/*/state/`, which is gitignored -- so the log the loop reads as its repetition brake cannot say why a third of its losses happened
     - Candidate B3 -- the committed DIRECTIONS.md disagrees with what the shipped code renders from the same inputs: 5 rows are stale RIGHT NOW, including one that reads `pending (not yet decided)` for an iteration that shipped 7 iterations ago -- and no check anywhere can see it
     winner: B2
-    ship: pending (not yet decided)
+    ship: PUSHED 6539dcc
   iter-333
     lenses: simplification-and-deletion (iteration 333), performance-and-throughput (iteration 333)
     - Candidate A1 -- (measuring: dormant module-level function census via last iteration's own oracle)
@@ -1460,4 +1471,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-145 scouted iterations
+146 scouted iterations

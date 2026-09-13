@@ -427,10 +427,26 @@ def test_b13_discovery_plan_carries_a_verified_status_block():
 
 
 def test_b13_status_block_anchors_each_bite_to_code():
-    """A status claim without an anchor is the same rot being fixed."""
+    """A status claim without an anchor is the same rot being fixed.
+
+    iter 335 -- FORCED advance of the anchor FORM, not a weakening of the count.
+    This brake measured `<file>:<line>`, which iteration 335 BANNED from this doc
+    after measuring all ten of the block's line numbers WRONG (by 36 to 8,491
+    lines; not one past end-of-file, so nothing ever errored and every stale
+    anchor silently sent a reader into an unrelated feature). The suite cannot be
+    green with both that ban and a `>= 4` requirement for the banned shape, so
+    the regex advances to the replacement `` `<file>::<anchor>` `` span while the
+    `>= 4` bound is untouched -- and the check gets STRICTLY STRONGER two ways:
+    each surviving anchor is RESOLVABLE (`foundry.doc_anchor_gaps` proves its text
+    really occurs in the cited file, which a line number never could) and the
+    banned shape now has its own negative pin below, so the rot cannot return.
+    """
     block = _status_block(_DOC.read_text())
-    anchors = re.findall(r"(?:foundry\.py|roles/[\w.-]+):\d+", block)
+    anchors = re.findall(
+        r"`(?:foundry\.py|dispatcher\.py|roles/[\w.-]+)::[^`\n]+`", block)
     assert len(anchors) >= 4, f"fewer than four code anchors in the block: {anchors}"
+    stale = re.findall(r"(?:foundry\.py|roles/[\w.-]+):\d+", block)
+    assert not stale, f"a banned bare line-number citation is back: {stale}"
 
 
 def test_b13_nothing_was_deleted_from_the_original_plan():

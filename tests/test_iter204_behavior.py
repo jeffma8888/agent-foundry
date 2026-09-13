@@ -949,7 +949,36 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # the pre-commit window; a fresh clone at the ship commit is clean.
                 "tests/test_iter149_behavior.py",
                 "tests/test_iter157_behavior.py",
-                "tests/test_iter188_behavior.py"}
+                "tests/test_iter188_behavior.py",
+                # iter 335: this iteration's OWN new behavior test file, for the
+                # identical reason as the iter-226/227/229/230/231/232/323/325 rows
+                # above -- `THIS_ITER` is FROZEN at 204, so the f-string on the
+                # `expected` line CANNOT name a later iteration, and the path is red
+                # ONLY inside the staging window (`git diff HEAD` cannot see an
+                # UNTRACKED path at all; the gate's own `git add -A` makes it
+                # visible). This WIDENS the allow-list, so it cannot red anything.
+                "tests/test_iter335_behavior.py",
+                # iter 335: FORCED brake amendment, one path, and the ONE red this
+                # iteration's Acceptance Criteria did not name -- the same
+                # second-layer trap iteration 334 recorded. Behavior 7 requires
+                # `docs/DISCOVERY_LOOP_PLAN.md` to carry ZERO `<file>:<line>`
+                # citations (all ten were measured WRONG by 36 to 8,491 lines), while
+                # iter 136's `test_b13_status_block_anchors_each_bite_to_code`
+                # requires `>= 4` anchors OF THAT EXACT BANNED SHAPE -- so the suite
+                # cannot be green with both and the advance is FORCED, not optional.
+                # Allow-listed rather than any assertion weakened, on the
+                # iter-212/215/242/323/325/334 precedent and the same evidence those
+                # rows use: `newest_ness_pin_sites` over that file is `()` at HEAD
+                # AND in the worktree (measured this iteration), so no newest-ness
+                # pin was swept, converted or added, and the 75-assertion literal
+                # class keeps both sibling checks above. The `>= 4` BOUND is
+                # untouched and the edit is a STRENGTHENING: the surviving anchors
+                # are now RESOLVABLE (`doc_anchor_gaps` proves the cited text really
+                # occurs in the cited file, which a line number never could) and the
+                # banned shape gains its own negative pin in that test. Red ONLY
+                # inside the pre-commit window; a fresh clone at the ship commit is
+                # clean.
+                "tests/test_iter136_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the
