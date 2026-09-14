@@ -1,6 +1,13 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-337
+    lenses: hardening/DX -- iteration 337, integration-and-adoption
+    - Candidate A1 -- every health surface prices stage TIME and no-output; none prices YIELD, so 8 of 22 scout seats since iter 320 reported SUCCESS while delivering zero candidates
+    - Candidate A2 -- 2 of the 43 state-reading verbs have no `--config` door, and getting it wrong prints all 56 verb names without ever naming the flag they want
+    - Candidate A3 -- two doctor gauges guard two prompt budgets; only one warns before the wall, and it is the other one that has 221 chars of headroom left
+    winner: A3
+    ship: pending (not yet decided)
   iter-336
     lenses: new-capability (iteration 336), hardening/DX
     - Candidate A1 -- (measuring)
@@ -11,7 +18,7 @@ foundry directions -- _platform
     - Candidate B3 -- (measuring)
     stubs: 6 of 6 candidate line(s) are write-early placeholders, not measured candidates
     winner: unknown
-    ship: pending (not yet decided)
+    ship: PUSHED 6247724
   iter-335
     lenses: narrative-and-docs (iteration 335), new-capability
     - Candidate A1 -- 11 of the 13 code citations in the two LIVE docs point at the wrong line, by 36 to 8,501 lines, and the only 2 that survive both point into the one file that stopped growing
@@ -1482,4 +1489,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-147 scouted iterations
+148 scouted iterations

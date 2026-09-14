@@ -302,8 +302,6 @@ in the archive.
 - iter 230 -- `doctor` grows a FIFTH drift line: iter 229's dormant test-touch measurement gets its first reader.
 - iter 231 -- pure `prose_stripped_source` disarms the self-referential count brake; iter 230's work re-lands.
 - iter 232 -- role-scoped lesson tail: 4 of the 10 digest slots go to the stage's OWN role's newest lessons.
-- iter 237 -- watchdog liveness delegates to `single-brain --json`: the last raw `pgrep -f` scan, fail-SHUT, is gone.
-- iter 238 -- derived doc brake: every module-level `PROMPT_LEARNINGS_*` constant must be named in ARCHITECTURE.md.
 - iter 239 -- README's repo map names every tracked role card: derived membership brake, count words deleted.
 - iter 240 -- `foundry inflight`: the PENDING stage attempt gets its first reader -- elapsed + headroom vs the 600s cap.
 - iter 242 -- `RESULT: BLOCKED`, a third tester disposition + the ship gate's record-only branch.
@@ -319,6 +317,7 @@ in the archive.
 - iter 334 -- `pm_practice_block`: the practice-register digest reaches the PM prompt; iter 333's seam re-lands.
 - iter 335 -- doc_anchor_gaps: DISCOVERY_LOOP_PLAN's 10 rotting line-number citations become resolvable symbol anchors.
 - iter 336 -- auth-loss: doctor's SIXTH drift line reads #51 losses.
+- iter 337 -- learnings-head WARNs NEAR the wall: the steering head reports 221 chars of headroom before it is elided.
 
 
 ### Migration notes (per §6 self-mod guardrail)

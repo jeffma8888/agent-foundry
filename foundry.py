@@ -326,6 +326,15 @@ PROMPT_LEARNINGS_ROLE_RESERVE = 4   # of the 10 tail slots, reserved for own rol
 # still show the full head; only the hot prompt path pays a bound.
 PROMPT_LEARNINGS_HEAD_BULLET_CHARS = 800    # per-head-bullet truncation cap (prompt)
 PROMPT_LEARNINGS_HEAD_BUDGET_CHARS = 10000  # total char cap on the head (prompt)
+# EARLY-WARNING margin on that same total budget (iter 337). The gauge watching the
+# head was binary by construction -- OK until `_bound_head` had ALREADY elided a
+# directive from every stage prompt -- so the only reachable warning was one whose
+# loss the operator had already paid. This margin buys the same lead time the
+# sibling `ROADMAP_INDEX_NEAR_WALL_CHARS` buys the roadmap index, sized the same
+# way: ~3 growing iterations, i.e. ~3 MEAN head bullet blocks (measured 2026-09-14
+# on this product's own head: 19 blocks, mean 513 chars, 221 chars of headroom
+# left). It bounds NOTHING -- the prompt path never reads it, only the report does.
+PROMPT_LEARNINGS_HEAD_NEAR_WALL_CHARS = 1500  # WARN this far out (~3 mean bullets)
 
 
 # --------------------------------------------------------------------------- #
@@ -2043,7 +2052,7 @@ def learnings_digest(
 # the remedy instead of pretending to make it.
 # --------------------------------------------------------------------------- #
 LEARNINGS_HEAD_PREFIX = "learnings-head:"   # stable grep anchor for the one line
-LEARNINGS_HEAD_WARN = "WARN"                # ONLY the elided branch carries it
+LEARNINGS_HEAD_WARN = "WARN"                # ONLY near-wall / elided carries it
 
 
 @dataclasses.dataclass(frozen=True)
@@ -2071,6 +2080,18 @@ class LearningsHeadAudit:
       every pre-iteration-181 five-keyword construction site still works and no
       equality assertion over the five original fields changes. It answers the
       question the counts cannot: WHICH directive the operator should retire.
+    * `headroom` -- `head_budget - raw_chars`, i.e. how many more chars the head
+      may grow before it loses `_bound_head`'s verbatim fast path; negative once
+      over. `None` when `head_budget` is `None`: with no declared wall there is
+      no distance to one, and inventing the default here would report a verdict
+      the caller explicitly declined to ask for.
+    * `near_wall` -- inside `PROMPT_LEARNINGS_HEAD_NEAR_WALL_CHARS` of that wall
+      but NOT yet over it, so the operator can still retire a directive BEFORE
+      any text is lost. MUTUALLY EXCLUSIVE with `over_budget` by construction, so
+      the three sized outcomes (roomy / near / elided) are unambiguous and no
+      caller has to break a tie. Both fields are DEFAULTED for the same reason
+      `worst_loss` is: every pre-iteration-337 five-keyword construction site
+      still works and no equality assertion over the earlier fields changes.
     """
     bullets: int
     raw_chars: int
@@ -2078,6 +2099,8 @@ class LearningsHeadAudit:
     dropped: int
     over_budget: bool
     worst_loss: "HeadBulletLoss | None" = None
+    headroom: int | None = None
+    near_wall: bool = False
 
 
 def learnings_head_audit(
@@ -2113,10 +2136,25 @@ def learnings_head_audit(
     `bullet_cap=None` / `head_budget=None` mean UNBOUNDED -- the call shape the
     `foundry learnings` CLI and the AGENTS.md renderer use -- and then `truncated`,
     `dropped` and `over_budget` are all falsy by construction while `bullets` and
-    `raw_chars` still describe the real head. The defaults are the two prompt
-    constants for ad-hoc use; `learnings_head_line` re-reads those globals INSIDE
-    its body and passes them explicitly, so the reported bounds track the live
-    constants rather than the values captured when this `def` executed.
+    `raw_chars` still describe the real head. `head_budget=None` additionally
+    leaves `headroom` as `None` and `near_wall` False: no declared wall, no
+    distance to it, no verdict. The defaults are the two prompt constants for
+    ad-hoc use; `learnings_head_line` re-reads those globals INSIDE its body and
+    passes them explicitly, so the reported bounds track the live constants rather
+    than the values captured when this `def` executed.
+
+    The NEAR-WALL margin is NOT a parameter, deliberately: it judges a distance
+    rather than performing a bound, so it is read from
+    `PROMPT_LEARNINGS_HEAD_NEAR_WALL_CHARS` as a module GLOBAL inside this body
+    (never as a default argument, which would freeze it at import), and a
+    `monkeypatch.setattr(foundry, ...)` therefore changes a SUBSEQUENT call's
+    `near_wall` with no re-import. `headroom` is derived from `raw_chars` and
+    `head_budget` alone -- the exact two quantities `_bound_head`'s fits-whole fast
+    path compares (`len("\n".join(head)) <= budget`) -- so `near_wall` means
+    precisely "this head is N chars from losing the verbatim fast path" and there
+    is no second size test that could drift from the first. That identity is also
+    why `headroom >= 0` implies `over_budget is False`, and why the two flags can
+    never both be True.
 
     A log with NO `## Patterns` section reports an all-zero, not-over-budget audit:
     there is no head text to size. (`learnings_digest` substitutes a two-line
@@ -2128,6 +2166,15 @@ def learnings_head_audit(
     raises does propagate; `learnings_head_line` absorbs that into its UNKNOWN
     branch, the same degradation every unexpected failure there already takes.
     """
+    margin = PROMPT_LEARNINGS_HEAD_NEAR_WALL_CHARS
+
+    def sized(raw_chars: int, over_budget: bool) -> tuple[int | None, bool]:
+        """`(headroom, near_wall)` for one measured head. One rule, both returns."""
+        if head_budget is None:
+            return None, False
+        headroom = head_budget - raw_chars
+        return headroom, (not over_budget) and 0 <= headroom <= margin
+
     lines = text.splitlines()
     head_start = next(
         (i for i, ln in enumerate(lines)
@@ -2135,8 +2182,14 @@ def learnings_head_audit(
         None,
     )
     if head_start is None:
+        # No head text to size, so the five original fields stay all-zero -- but the
+        # DISTANCE to the wall is still well defined (a head of 0 chars has the whole
+        # budget to grow into), exactly as the sibling `roadmap_index_budget` reports
+        # full headroom for `""` rather than refusing a verdict.
+        headroom, near_wall = sized(0, False)
         return LearningsHeadAudit(bullets=0, raw_chars=0, truncated=0,
-                                  dropped=0, over_budget=False)
+                                  dropped=0, over_budget=False,
+                                  headroom=headroom, near_wall=near_wall)
     head = [lines[head_start]]
     for ln in lines[head_start + 1:]:
         if ln.lstrip().startswith("## ") or ln.lstrip().startswith("- ["):
@@ -2152,13 +2205,17 @@ def learnings_head_audit(
     # scripted seam takes effect) and returns worst-first, so `[0]` IS the worst.
     losses = (head_bullet_losses(head, bullet_cap, head_budget)
               if over_budget else ())
+    raw_chars = len("\n".join(head))
+    headroom, near_wall = sized(raw_chars, over_budget)
     return LearningsHeadAudit(
         bullets=bullets,
-        raw_chars=len("\n".join(head)),
+        raw_chars=raw_chars,
         truncated=truncated,
         dropped=dropped,
         over_budget=over_budget,
         worst_loss=losses[0] if losses else None,
+        headroom=headroom,
+        near_wall=near_wall,
     )
 
 
@@ -2168,18 +2225,25 @@ def learnings_head_line(cfg: "ProductConfig") -> str:
     The single source of truth for the `doctor` line, shaped exactly like
     `live_lag_line` because it answers the same class of question (a drift the
     operator owes an edit for, not an environment fault). `learnings_head_audit`
-    is called by its BARE module name and the two prompt-bound constants are read
+    is called by its BARE module name and the three prompt-head constants are read
     as module globals INSIDE the body, so a `monkeypatch.setattr(foundry, ...)` on
-    any of the three bites here.
+    any of the four bites here.
 
-    Three OUTCOMES, deliberately distinct because they demand different actions:
+    FOUR OUTCOMES, deliberately distinct because they demand different actions:
       * UNKNOWN -- no readable learnings log. Says so, claims nothing about the
         head, and carries NO `LEARNINGS_HEAD_WARN`, because "I cannot tell" is not
         evidence of a problem. This is also the branch every unexpected failure
         degrades to.
-      * OK -- the head arrives whole in every stage prompt.
+      * OK -- the head arrives whole in every stage prompt with room to spare.
+      * NEAR-WALL WARN (iter 337) -- the head STILL arrives whole, but it is within
+        `PROMPT_LEARNINGS_HEAD_NEAR_WALL_CHARS` of the total budget, so the NEXT
+        directive appended to it is the one that gets deleted from every stage
+        prompt. Carries the WARN token and the SAME remedy as the elided branch,
+        because the remedy is what makes the warning worth firing early; claims
+        NOTHING about truncation or dropping, since by construction nothing is yet
+        elided and `worst_loss` is `None` on this branch.
       * WARN -- the bounds elide part of the head in EVERY stage prompt, with the
-        counts and the remedy. The only branch carrying the WARN token.
+        counts and the remedy. Its text is byte-unchanged from iteration 181.
 
     ALWAYS returns a non-empty single-line `str` (no embedded newline), never
     `None`, and NEVER raises: a diagnostic that can crash the preflight it
@@ -2188,6 +2252,7 @@ def learnings_head_line(cfg: "ProductConfig") -> str:
     try:
         bullet_cap = PROMPT_LEARNINGS_HEAD_BULLET_CHARS
         budget = PROMPT_LEARNINGS_HEAD_BUDGET_CHARS
+        margin = PROMPT_LEARNINGS_HEAD_NEAR_WALL_CHARS
         path = pathlib.Path(str(getattr(cfg, "learnings", "") or ".")).expanduser()
         try:
             text = path.read_text()
@@ -2197,6 +2262,20 @@ def learnings_head_line(cfg: "ProductConfig") -> str:
                     f"log at {path.name}; cannot size the pinned `## Patterns` "
                     f"head that every stage prompt carries")
         audit = learnings_head_audit(text, bullet_cap, budget)
+        # NEAR-WALL is checked FIRST because it is a STRICT SUBSET of
+        # `not over_budget`: the head still arrives whole, which is exactly what
+        # made the old OK branch report health 221 chars from silent deletion.
+        # Nothing is elided here, so this branch names no count and no worst
+        # loser -- only the distance, the wall, and the edit that buys room back.
+        if audit.near_wall:
+            return (f"{LEARNINGS_HEAD_PREFIX} {LEARNINGS_HEAD_WARN} -- pinned "
+                    f"`## Patterns` head is {audit.raw_chars} chars in "
+                    f"{audit.bullets} bullet(s) and STILL arrives whole, but with "
+                    f"only {audit.headroom} chars of headroom under the "
+                    f"{budget}-char total (margin {margin}, cap {bullet_cap} "
+                    f"chars/bullet) -- retire or archive the spent directives NOW: "
+                    f"past that wall the bound starts eliding head blocks from the "
+                    f"BOTTOM in EVERY stage prompt")
         if not audit.over_budget:
             return (f"{LEARNINGS_HEAD_PREFIX} OK -- pinned `## Patterns` head is "
                     f"{audit.raw_chars} chars in {audit.bullets} bullet(s) and "

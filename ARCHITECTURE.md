@@ -208,7 +208,11 @@ Nothing is remembered in-context across stages. Durable memory is:
   highest-precedence leading rules survive) within `PROMPT_LEARNINGS_HEAD_BUDGET_CHARS`.
   The head was originally exempt from that bound as "curated and small"; it grew to 63%
   of the digest, so the exemption is closed. Any elision emits ONE loud
-  `> [head bounded: ...]` notice line, never a silent cut. The `foundry learnings`
+  `> [head bounded: ...]` notice line, never a silent cut. Because that notice can only
+  exist once steering has ALREADY been deleted, `doctor`'s steering-head gauge also
+  reports the head's remaining headroom and WARNs while the head still arrives WHOLE,
+  once that headroom falls inside `PROMPT_LEARNINGS_HEAD_NEAR_WALL_CHARS` (iter 337);
+  that branch is report-only and claims no elision. The `foundry learnings`
   CLI/`--json` view and the `AGENTS.md` renderer pass NONE of these caps, so operator-
   facing renderings still show the head and the lessons in FULL.
 - `products/<name>/NIGHT_LOG.md` — the event timeline; `DISPATCH_LOG.md` — shifts.
