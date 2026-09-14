@@ -456,13 +456,17 @@ def test_b8_a_symbol_absent_from_the_whole_tree_is_dormant():
 
 
 # --------------------------------------------------------------------------
-# Behaviour 9 -- additive-dormant: zero call sites, no reference outside
-# `foundry.py` and `tests/`, so a loop in flight resumes byte-identically
+# Behaviour 9 -- ADOPTED in iteration 338: the oracle shipped additive-dormant
+# here and now has a production call site (`gather_dormancy`, behind the
+# `dormancy` verb), while STILL being named in no control-path file -- so a loop
+# in flight continues to resume byte-identically. These two pins were re-pointed
+# from dormancy to LIVENESS by iteration 338's fix pass; the third (no control
+# path) is unchanged, because that is the half that guards resume.
 # --------------------------------------------------------------------------
-def test_b9_the_new_function_has_zero_call_sites_in_foundry():
+def test_b9_the_new_function_is_now_production_wired_in_foundry():
     source = _read("foundry.py")
-    assert foundry.call_site_count(source, symbol=FN_NAME) == 0, \
-        f"{FN_NAME} must be DORMANT -- no call site may exist yet"
+    assert foundry.call_site_count(source, symbol=FN_NAME) >= 1, \
+        f"{FN_NAME} must be LIVE -- iteration 338 gave it a production call site"
     assert FN_NAME in source, \
         "two-sided control: the symbol must actually be defined in foundry.py"
 
@@ -479,10 +483,10 @@ def test_b9_the_new_function_is_named_in_no_control_path_file():
     assert hits == [], f"{FN_NAME} must not appear in any control path: {hits}"
 
 
-def test_b9_the_dormancy_oracle_agrees_that_it_is_itself_not_production_wired():
+def test_b9_the_dormancy_oracle_agrees_that_it_is_itself_production_wired():
     production, tests_src = _live_tree_sources()
-    assert _classify(symbol=FN_NAME, production=production) == "dormant", \
-        "the oracle applied to itself must report no production reference"
+    assert _classify(symbol=FN_NAME, production=production) == "live", \
+        "the oracle applied to itself must now find its production consumer"
     assert _classify(symbol=FN_NAME, production=production,
-                     tests=tests_src) == "test-only", \
-        "its only consumer this iteration is this very test module"
+                     tests=tests_src) == "live", \
+        "a production reference outranks the test one, so adding tests cannot demote it"

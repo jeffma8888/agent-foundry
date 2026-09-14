@@ -11948,7 +11948,10 @@ def symbol_dormancy_class(*, symbol: str | None,
     text; `""` parses to an empty module and contributes no reference. Equal inputs
     always give the same word.
 
-    DORMANT: zero call site in the running pipeline (no CLI verb, no config field).
+    LIVE since iteration 338: `gather_dormancy` calls this function by BARE name
+    to classify each symbol the `dormancy` CLI verb was asked about, so the
+    classifier that exists to prevent false dormancy findings is no longer itself
+    a false-dormancy candidate. It stays PURE -- that caller owns all the I/O.
     """
     wanted = str(symbol or "")
     if not wanted:
@@ -12068,6 +12071,296 @@ def sentinel_dormancy_gaps(doc: str, *, tokens, symbol: str,
     elif claimed:
         gaps.append("stale-dormant-claim")
     return tuple(gaps)
+
+
+# --------------------------------------------------------------------------- #
+# The DORMANCY CENSUS as a VERB (`dormancy`) -- the classifier finally gets a caller
+# --------------------------------------------------------------------------- #
+# `symbol_dormancy_class` above exists because a census that counts only `ast.Call`
+# nodes cannot tell a suite-owned oracle from dead code: that under-count produced
+# FOUR false dormancy findings in iteration 326's own two scout censuses, which is
+# why it was built. It shipped correct and it shipped UNREACHABLE -- zero production
+# consumers for 12 iterations -- so the dormancy question, which the scout seat asks
+# in EVERY rotation, kept being re-implemented in a throwaway heredoc and kept being
+# wrong: iteration 338's own scout recorded two more misses in ONE stage (a pass
+# counting `ast.Call` reported 7 symbols "never called", 3 of which are live
+# higher-order arguments; a second pass counting Name/Attribute loads reported 4
+# "dead", all 4 reached through a string-keyed `getattr`). Both blind spots are
+# already closed by the classifier's Name/Attribute/Constant rule. What was missing
+# was a caller, and that is all this section is: corpus plumbing plus a render.
+
+
+def dormancy_corpus_split(paths) -> tuple[tuple[str, ...], tuple[str, ...],
+                                          tuple[str, ...]]:
+    """Split repo-relative PATH strings into `(production, tests, prose)` corpora.
+
+    The shape `symbol_dormancy_class` already asks for: two iterables of SOURCE
+    files and one prose blob. This function owns only the PATH taxonomy, by
+    exactly three rules -- a `.py` path under `tests/` or named `conftest.py` is
+    TESTS, any other `.py` path is PRODUCTION, and every other path is PROSE.
+
+    WHY PATHS AND NOT A DIRECTORY WALK: the input is meant to be the lines of
+    `git ls-files`, i.e. the TRACKED tree, so an untracked scratch file, a
+    gitignored `state/` artifact and a stale `.pyc` can never enter a census that
+    is supposed to describe what SHIPS. The 2026-08-11 lesson in this repo's log
+    is exactly that shape (a test asserted on ambient working-tree state and went
+    BROKEN in the fresh clone), and a walk cannot avoid it.
+
+    Each corpus is SORTED and DEDUPED, so two runs over the same tree render
+    byte-identically and a path listed twice is counted once.
+
+    Pure and TOTAL: no filesystem, subprocess, network or clock, nothing is
+    mutated, and equal inputs give `==` results. A non-iterable argument yields
+    three empty tuples; a non-`str` member is SKIPPED rather than coerced,
+    because a coerced `str()` of an arbitrary object is not a path and would
+    inflate the prose count. A bare `str` argument yields three empty tuples on
+    purpose -- iterating it would walk its CHARACTERS and hand back a confident
+    partial answer, and "the caller passed one path instead of a list" must read
+    as "no corpus", never as a census of 40 one-character prose files.
+
+    DORMANT-BY-DESIGN it is NOT: `gather_dormancy` below is its production caller.
+    """
+    # A `str` IS iterable, so this guard is what separates "no corpus" from a
+    # per-character census; it must precede the iteration attempt.
+    if isinstance(paths, str):
+        return ((), (), ())
+    try:
+        members = list(paths) if paths is not None else []
+    except TypeError:
+        return ((), (), ())
+    production: set[str] = set()
+    tests: set[str] = set()
+    prose: set[str] = set()
+    for member in members:
+        if not isinstance(member, str):
+            continue
+        if not member.endswith(".py"):
+            prose.add(member)
+        elif member.startswith("tests/") or member.rsplit("/", 1)[-1] == "conftest.py":
+            tests.add(member)
+        else:
+            production.add(member)
+    return tuple(sorted(production)), tuple(sorted(tests)), tuple(sorted(prose))
+
+
+def dormancy_exit_code(rows, production_files) -> int:
+    """0 every symbol is wired / 1 >=1 DORMANT / 2 the census could not be taken.
+
+    Split out as a module-level PURE function, rather than buried in the summary,
+    so each arm is provable on its own from in-memory values -- the shape iter
+    326's classifier and iter 168's `attempt_kill_summary` both use.
+
+    FAIL-CLOSED, and the precedence 2 > 1 > 0 is the whole point: `2` is decided
+    FIRST, on three independent facts -- no symbol was requested, the production
+    corpus is EMPTY (nothing was read, so nothing can be certified absent), or a
+    row came back `unparseable` (the classifier's own "I could not decide" word).
+    A census that did not run must never be able to report a clean tree, which is
+    the fail-OPEN reading that makes a gauge worse than no gauge.
+
+    Pure and TOTAL: a non-iterable `rows`, a row that is not indexable and a
+    non-numeric `production_files` all fold into the undecidable arm instead of
+    raising."""
+    try:
+        members = list(rows) if rows is not None else []
+    except TypeError:
+        members = []
+    classes: list[str] = []
+    for row in members:
+        try:
+            classes.append(str(row[1]))
+        except (TypeError, IndexError, KeyError):
+            # A malformed row is undecidable, never a clean census -- same
+            # direction as the classifier's own `unparseable`.
+            classes.append("unparseable")
+    try:
+        production = int(production_files)
+    except (TypeError, ValueError):
+        production = 0
+    # The class words are `symbol_dormancy_class`'s vocabulary, quoted here rather
+    # than re-derived: that function is the single source of truth for them.
+    if not classes or production <= 0 or "unparseable" in classes:
+        return 2
+    return 1 if "dormant" in classes else 0
+
+
+@dataclasses.dataclass(frozen=True)
+class DormancySummary:
+    """One dormancy census over a product's TRACKED tree (the `dormancy` core).
+
+    Frozen, like every other pure core here, so a computed census cannot be
+    edited after the fact and value equality comes free.
+
+    `rows` are `(symbol, class)` pairs in the ORDER REQUESTED, never sorted: the
+    operator asked about symbol A then symbol B, and re-ordering the answer makes
+    a multi-symbol report harder to read than the two commands it replaced.
+
+    `exit_code` is a FIELD, computed in `__post_init__` from
+    `dormancy_exit_code`, and `init=False` so no caller can ever supply it. That
+    is deliberately stricter than the sibling summaries' derived `@property`:
+    Behavior 4 requires `to_dict()` to be EXACTLY the dataclass field names, and
+    a field cannot silently drift out of that payload the way a hand-listed
+    derived key can (iteration 19 keeps a key-count pin for precisely that
+    drift). `init=False` keeps "derived" true by construction -- the value is
+    never an argument, so no test and no future caller can override the verdict.
+    """
+    rows: tuple[tuple[str, str], ...]
+    production_files: int
+    test_files: int
+    prose_files: int
+    errors: tuple[str, ...]
+    exit_code: int = dataclasses.field(init=False, default=2)
+
+    def __post_init__(self) -> None:
+        """Derive `exit_code` once, at construction, on a FROZEN dataclass.
+
+        `object.__setattr__` is the documented way to assign a computed field on
+        a frozen instance; the seam is called by BARE module name so a
+        monkeypatched `dormancy_exit_code` still decides the verdict."""
+        object.__setattr__(self, "exit_code",
+                           dormancy_exit_code(self.rows, self.production_files))
+
+    @property
+    def dormant(self) -> int:
+        """How many rows came back `dormant` -- the figure the sentinel prints."""
+        return sum(1 for row in self.rows if row[1:2] == ("dormant",))
+
+    def render(self) -> str:
+        """The human report: detail lines first, sentinel LAST (never raises).
+
+        One `<symbol>: <class>` line per row in requested order, then the
+        `corpus:` census line, then one line per `errors` member VERBATIM (so a
+        report can be grepped for the exact string the summary stores), then the
+        `dormancy: <N> symbol(s), <D> dormant, exit <E>` sentinel as the LAST
+        non-empty line. Detail-then-sentinel, so "last non-empty line == the
+        sentinel" holds for zero rows and for fifty.
+
+        Every printed figure is READ FROM THE FIELD it names -- the counts, the
+        dormant tally and the exit code -- so the text, the JSON payload and the
+        returned exit code can never disagree."""
+        lines = [f"{symbol}: {klass}" for symbol, klass in self.rows]
+        lines.append(f"corpus: {self.production_files} production, "
+                     f"{self.test_files} test, {self.prose_files} prose file(s)")
+        lines.extend(self.errors)
+        lines.append(f"dormancy: {len(self.rows)} symbol(s), "
+                     f"{self.dormant} dormant, exit {self.exit_code}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A JSON-safe payload whose keys are EXACTLY the dataclass field names.
+
+        Hand-listed rather than `dataclasses.asdict`, matching every sibling
+        summary in this module, because the values must be JSON-NATIVE: the dict
+        round-trips through `json.loads(json.dumps(...))` unchanged, which a
+        payload holding tuples does not. Pure -- touches no filesystem."""
+        return {
+            "rows": [list(row) for row in self.rows],
+            "production_files": self.production_files,
+            "test_files": self.test_files,
+            "prose_files": self.prose_files,
+            "errors": list(self.errors),
+            "exit_code": self.exit_code,
+        }
+
+
+def _dormancy_read(repo, paths) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Read `paths` (repo-relative) under `repo` -> `(texts, errors)`.
+
+    Returns the errors rather than raising, and rather than taking a mutable
+    accumulator, so the caller composes one sorted `errors` tuple from all three
+    corpora and this helper stays side-effect free apart from the reads.
+
+    Each error is `f"{path}: {type(exc).__name__}"` -- the exception MESSAGE is
+    deliberately NOT quoted. An `OSError` message embeds the ABSOLUTE path it
+    failed on, and this string ships into reports, logs and state artifacts of a
+    PUBLIC repo; the path recorded here is the repo-relative one `git ls-files`
+    gave us, which carries no machine identity. Same constraint `leak_check_cli`
+    documents for the guard's own output."""
+    texts: list[str] = []
+    errors: list[str] = []
+    base = pathlib.Path(repo)
+    for path in paths:
+        try:
+            texts.append((base / path).read_text(encoding="utf-8", errors="replace"))
+        except (OSError, ValueError) as exc:
+            errors.append(f"{path}: {type(exc).__name__}")
+    return tuple(texts), tuple(errors)
+
+
+def gather_dormancy(cfg: ProductConfig, symbols=None) -> DormancySummary:
+    """Classify each requested symbol over `cfg.repo`'s TRACKED tree (ONE seam).
+
+    The verb's only I/O, and every external effect goes through an EXISTING
+    module-level seam called by BARE name, so a test drives all of it offline:
+    `run_cmd` for `git -C <repo> ls-files`, `dormancy_corpus_split` for the
+    taxonomy, and `symbol_dormancy_class` for the verdict -- a
+    `monkeypatch.setattr(foundry, "symbol_dormancy_class", ...)` bites THROUGH
+    this function.
+
+    The three counts are the files SUCCESSFULLY READ, not the files listed, and
+    that is a fail-CLOSED choice rather than an accounting detail: if every
+    production source failed to read, a listed-count of 4 would drive
+    `exit_code` to 0/1 off an EMPTY corpus and report "not dormant" from no
+    evidence, while a read-count of 0 lands in the undecidable arm. `errors`
+    discloses each file that dropped out, so nothing is hidden either way.
+
+    A FAILED `git ls-files` returns a summary with NO rows, zero counts and one
+    `errors` entry, hence `exit_code == 2` -- never a traceback, and never a row
+    saying `dormant` for a census that never ran. The failure text is a FIXED
+    sentence rather than git's own output, which can name absolute paths.
+
+    READ-ONLY: writes nothing, creates no directory, and runs exactly ONE
+    subprocess regardless of how many symbols were asked about."""
+    try:
+        members = list(symbols) if symbols is not None else []
+    except TypeError:
+        members = []
+    wanted = [member for member in members if isinstance(member, str) and member]
+    listing = run_cmd(["git", "-C", str(cfg.repo), "ls-files"])
+    if not listing.ok:
+        return DormancySummary(
+            rows=(), production_files=0, test_files=0, prose_files=0,
+            errors=("git ls-files: the tracked-tree listing failed",))
+    production_paths, test_paths, prose_paths = dormancy_corpus_split(
+        listing.out.splitlines())
+    production, prod_errors = _dormancy_read(cfg.repo, production_paths)
+    tests, test_errors = _dormancy_read(cfg.repo, test_paths)
+    prose_texts, prose_errors = _dormancy_read(cfg.repo, prose_paths)
+    rows = tuple(
+        (symbol, symbol_dormancy_class(symbol=symbol, production=production,
+                                       tests=tests, prose="\n".join(prose_texts)))
+        for symbol in wanted
+    )
+    return DormancySummary(
+        rows=rows,
+        production_files=len(production),
+        test_files=len(tests),
+        prose_files=len(prose_texts),
+        errors=tuple(sorted(prod_errors + test_errors + prose_errors)),
+    )
+
+
+def dormancy_cli(cfg: ProductConfig, symbols=None, as_json: bool = False) -> int:
+    """On-demand CLI: print the dormancy census + return its exit code.
+
+    With `as_json=True` the entire stdout is ONE `json.dumps(summary.to_dict(),
+    indent=2)` document (the stable machine contract for a scout stage that wants
+    the payload, not the prose); the default is the human `render()` text
+    byte-for-byte. Either way the RETURN value is the same `summary.exit_code`
+    (0 every named symbol is wired / 1 at least one is DORMANT / 2 the census
+    could not be taken). Writes NOTHING to disk.
+
+    REPORT-ONLY, deliberately: no brake anywhere fails on a dormant symbol. A
+    dormant symbol is a CANDIDATE for the PM to weigh, not a defect -- this
+    module ships additive-dormant code on purpose (that is what keeps a loop in
+    flight resumable) -- so a gate that reddened on one would punish the pattern
+    the framework depends on.
+
+    The NINTH caller of `_thin_gather_cli`, which owns the shared
+    print/JSON/exit-code contract; the gather seam is resolved HERE, by bare name
+    at CALL time, so a monkeypatch bites."""
+    # Seam resolved HERE, by BARE name at CALL time, so a monkeypatch bites;
+    # `_thin_gather_cli` owns the shared print/JSON/exit-code contract.
+    return _thin_gather_cli(gather_dormancy, cfg, symbols, as_json)
 
 
 def iteration_numbers(names) -> list[int]:
@@ -24894,6 +25187,25 @@ def main(argv: list[str] | None = None) -> int:
     unf.add_argument("--json", action="store_true",
                      help="emit the scan as one JSON document (machine-readable) "
                           "instead of the human report; same 0/1/2 exit code, honours --files")
+    # `dormancy` answers the question every PM_SCOUT rotation asks BY HAND: is this
+    # symbol really dormant, or is its only correct consumer the SUITE? It reads the
+    # product's TRACKED tree (`git ls-files`, so untracked scratch and gitignored
+    # state can never enter the census), splits it into production / test / prose
+    # corpora and hands each NAMED symbol to the shipped `symbol_dormancy_class`.
+    # `--symbol` is REPEATABLE and REQUIRED -- there is no `--all` mode on purpose:
+    # 393 module-level defs x 228 tracked sources is the known slow shape, and this
+    # verb exists to answer a question already in hand, not to trawl. REPORT-ONLY:
+    # no brake fails on a dormant symbol. Exit 0 all named symbols are wired / 1
+    # >=1 dormant / 2 undecidable (no symbol, empty production corpus, unparseable).
+    dmy = sub.add_parser("dormancy")
+    dmy.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    dmy.add_argument("--symbol", action="append", required=True,
+                     help="symbol to classify; repeat for several "
+                          "(e.g. --symbol foo --symbol bar)")
+    dmy.add_argument("--json", action="store_true",
+                     help="emit the census as one JSON document (machine-readable) "
+                          "instead of the human report; same 0/1/2 exit code")
     # `test-quality` is the per-product COMPOSITE gate: it folds all THREE
     # offline "validates-nothing" scans -- #12 `weak-tests` (assertion-free),
     # #21 `constant-asserts` (constant/tautological assert), #23 `skipped-tests`
@@ -25338,6 +25650,8 @@ def main(argv: list[str] | None = None) -> int:
         return skipped_tests_cli(cfg, files=args.files, as_json=args.json)
     if args.cmd == "unfailable-asserts":
         return unfailable_asserts_cli(cfg, files=args.files, as_json=args.json)
+    if args.cmd == "dormancy":
+        return dormancy_cli(cfg, symbols=args.symbol, as_json=args.json)
     if args.cmd == "leak-check":
         return leak_check_cli(cfg, ref=args.ref, as_json=args.json)
     if args.cmd == "test-quality":

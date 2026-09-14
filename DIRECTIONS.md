@@ -1,13 +1,24 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-338
+    lenses: integration-and-adoption (iteration 338), simplification-and-deletion (iteration 338)
+    - Candidate A1 -- 43 of the 53 CLI verbs are named in ZERO role card, so seats re-derive by hand what a shipped verb already computes
+    - Candidate A2 -- `symbol_dormancy_class` shipped 12 iterations ago to stop false dormancy findings, has zero consumers, and the same false findings recurred inside THIS run
+    - Candidate A3 -- the two newest PM prompt feeds reach 1 of 5 products, and the supported on-ramp never mentions them
+    - Candidate B1 -- (measuring)
+    - Candidate B2 -- (measuring)
+    - Candidate B3 -- (measuring)
+    stubs: 3 of 6 candidate line(s) are write-early placeholders, not measured candidates
+    winner: A2
+    ship: pending (not yet decided)
   iter-337
     lenses: hardening/DX -- iteration 337, integration-and-adoption
     - Candidate A1 -- every health surface prices stage TIME and no-output; none prices YIELD, so 8 of 22 scout seats since iter 320 reported SUCCESS while delivering zero candidates
     - Candidate A2 -- 2 of the 43 state-reading verbs have no `--config` door, and getting it wrong prints all 56 verb names without ever naming the flag they want
     - Candidate A3 -- two doctor gauges guard two prompt budgets; only one warns before the wall, and it is the other one that has 221 chars of headroom left
     winner: A3
-    ship: pending (not yet decided)
+    ship: PUSHED 8bc3eb7
   iter-336
     lenses: new-capability (iteration 336), hardening/DX
     - Candidate A1 -- (measuring)
@@ -1489,4 +1500,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-148 scouted iterations
+149 scouted iterations
