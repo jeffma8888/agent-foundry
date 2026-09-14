@@ -463,18 +463,34 @@ def test_ac_union_is_a_superset_of_the_old_rule_over_the_real_slate_corpus():
     assert gained > 0, "the union recovered nothing on the real corpus"
 
 
+_CHECKPOINT_MARKERS = ("checkpoint", "in progress")
+
+
 def _is_write_early_checkpoint(text: str) -> bool:
     """True when a scout file self-declares as an UNFINISHED write-early checkpoint.
 
-    Matched at a LINE START only (and case-sensitively, as the write-early
-    convention spells these markers in caps), so ordinary prose mentioning
-    progress mid-sentence can never exclude a finished slate. Pure and total.
+    Matched at a LINE START only, and only when the marker is CAPITALISED --
+    either the caps the convention prefers (`STATUS: CHECKPOINT`) or ordinary
+    sentence case (`Checkpoint written before measurement.`, which is what
+    iteration 337's cap-killed scout B wrote). WIDENED iter 337: CAPITALISATION,
+    not full caps, is the discriminator that keeps this filter from swallowing
+    finished work, and requiring full caps was a false NEGATIVE on a file that
+    self-declares in as many words. Measured over the whole slate corpus on this
+    checkout before the change: dropping the case test altogether would sweep in
+    22 FINISHED slates whose prose merely WRAPPED onto a line beginning
+    `checkpointed...` / `checkpoint gets...` -- exactly the false-positive class
+    this rule exists to refuse -- while requiring an uppercase first letter
+    excludes EXACTLY ONE file more than the caps-only rule did, and that file
+    parses to zero candidates. A lowercase marker AFTER `STATUS:` is deliberately
+    still counted as finished: those slates were refined after their checkpoint
+    and do parse, so excluding them would only shrink the corpus this brake
+    measures. Pure and total.
     """
     for raw in text.splitlines():
         line = raw.lstrip()
         if line.startswith("STATUS:"):
             line = line[len("STATUS:"):].lstrip()
-        if line.startswith("CHECKPOINT") or line.startswith("IN PROGRESS"):
+        if line[:1].isupper() and line.lower().startswith(_CHECKPOINT_MARKERS):
             return True
     return False
 
@@ -494,7 +510,9 @@ def test_ac_no_real_slate_parses_to_zero_candidates_when_it_has_id_headings():
     That is the frozen-count-over-gitignored-growing-state trap (OPERATOR
     2026-08-11): `products/*/state/` is gitignored, so a fresh clone SKIPS here
     while a long-lived checkout accumulates unfinished slates until a frozen
-    integer reds a correct iteration. Measured on this checkout: 937 slates, of
+    integer reds a correct iteration. The census below is ITERATION 215's, and it
+    is a timestamp rather than a fact -- the corpus it counts grows every stage,
+    so re-derive it before quoting it. Measured there: 937 slates, of
     which 89 self-declare incomplete (86 of those still parse, having been refined
     after their checkpoint) and exactly 3 are unfinished with zero candidates --
     and over the 848 FINISHED slates the parser misses ZERO. Iteration 131's own
