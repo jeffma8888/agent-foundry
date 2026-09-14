@@ -986,7 +986,37 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # UNTRACKED path at all; the gate's own `git add -A` makes it
                 # visible). This WIDENS the allow-list, so it cannot red anything.
                 "tests/test_iter336_behavior.py",
-                "tests/test_iter136_behavior.py"}
+                "tests/test_iter136_behavior.py",
+                # iter 338: FORCED brake amendment, one path. Iteration 338 ADOPTS
+                # `symbol_dormancy_class` (shipped additive-dormant by iter 326 and
+                # unreachable for 12 iterations) behind a new `dormancy` verb, which
+                # mechanically falsifies the TWO iter-326 pins that froze its
+                # dormancy: `call_site_count(..., symbol=FN_NAME) == 0` now measures
+                # 1, and the oracle applied to itself now reads `live` rather than
+                # `dormant`/`test-only`. The suite cannot be green with both the
+                # adoption and the old literals, so re-pointing them to LIVENESS is
+                # FORCED, not optional -- and leaving a test NAMED
+                # `..._has_zero_call_sites_...` while it asserts the opposite would be
+                # worse than the red. Allow-listed rather than any assertion weakened,
+                # on the iter-212/215/242/323/325/334/335 precedent and the same
+                # evidence those rows use: `newest_ness_pin_sites` over that file is
+                # `()` at HEAD AND in the worktree (measured this iteration by
+                # importing this module's own helper), so no newest-ness pin was
+                # swept, converted or added, and the 75-assertion literal class keeps
+                # both sibling checks above. The third Behavior-9 pin -- that the
+                # symbol is named in NO control-path file -- is UNTOUCHED, because
+                # that is the half that guards a loop in flight resuming
+                # byte-identically. Red ONLY inside the pre-commit window; a fresh
+                # clone at the ship commit is clean.
+                "tests/test_iter326_behavior.py",
+                # iter 338: this iteration's OWN new behavior test file, for the
+                # identical reason as the iter-226/227/229/230/231/232/323/325/335/336
+                # rows above -- `THIS_ITER` is FROZEN at 204, so the f-string on the
+                # `expected` line CANNOT name a later iteration, and the path is red
+                # ONLY inside the staging window (`git diff HEAD` cannot see an
+                # UNTRACKED path at all; the gate's own `git add -A` makes it
+                # visible). This WIDENS the allow-list, so it cannot red anything.
+                "tests/test_iter338_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

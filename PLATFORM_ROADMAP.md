@@ -318,6 +318,7 @@ in the archive.
 - iter 335 -- doc_anchor_gaps: DISCOVERY_LOOP_PLAN's 10 rotting line-number citations become resolvable symbol anchors.
 - iter 336 -- auth-loss: doctor's SIXTH drift line reads #51 losses.
 - iter 337 -- learnings-head WARNs NEAR the wall: the steering head reports 221 chars of headroom before it is elided.
+- iter 338 -- dormancy: iter 326's unreachable classifier gets a caller -- a read-only census verb.
 
 
 ### Migration notes (per §6 self-mod guardrail)
