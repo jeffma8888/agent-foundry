@@ -627,8 +627,11 @@ def test_b8_dispatcher_imports_in_process() -> None:
 def test_ac_a_run_doctor_cli_docstring_announces_five_drift_lines() -> None:
     doc = foundry.run_doctor_cli.__doc__ or ""
     assert doc.strip(), "run_doctor_cli lost its docstring"
-    assert re.search(r"(?i)\bfive drift lines\b", doc), doc[:200]
-    assert not re.search(r"(?i)\bfour drift lines\b", doc), doc[:200]
+    # ADVANCED iter 336: doctor grew a SIXTH drift line, so both count words step
+    # once more.  The test KEEPS its name -- iteration 231 and this module's own
+    # AC-G pin names as literal tokens, so a rename retires live brakes silently.
+    assert re.search(r"(?i)\bsix drift lines\b", doc), doc[:200]
+    assert not re.search(r"(?i)\bfive drift lines\b", doc), doc[:200]
     assert str(THIS_ITER) in doc, doc[:200]
     assert "all four checks pass" in doc, doc[:400]
     assert "164" in doc, doc[:400]
@@ -644,8 +647,9 @@ def _readme() -> str:
 
 def test_ac_b_readme_entry_zero_advances_to_five_drift_lines() -> None:
     entry = _readme_entry(0)
-    assert "PLUS FIVE drift lines" in entry
-    assert "PLUS FOUR drift lines" not in entry
+    # ADVANCED iter 336: same SIXTH drift line, same two-sided shape.
+    assert "PLUS SIX drift lines" in entry
+    assert "PLUS FIVE drift lines" not in entry
 
 
 def test_ac_b_readme_entry_zero_frozen_tail_sentence_survives_byte_unchanged() -> None:

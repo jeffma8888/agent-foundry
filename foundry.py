@@ -905,23 +905,36 @@ def doctor_ok(checks: list[Check]) -> bool:
 
 
 def run_doctor_cli(cfg: ProductConfig) -> int:
-    """CLI entry: print one line per check, FIVE drift lines, and a summary.
+    """CLI entry: print one line per check, SIX drift lines, and a summary.
 
     Exit code is 0 iff all four checks pass -- UNCHANGED by ANY drift line (the
     live-lag line, iter 130; the steering-head line, iter 136; the roadmap-index
     line, iter 145; the stage-budget line, iter 164; the test-touch line,
-    iter 230). None of the five is an environment fault: a stale brain is a
-    restart the operator owes, an over-budget steering head is an edit the
-    operator owes, a roadmap index near its hard wall is an ARCHIVE the operator
-    owes, a stage median at the hard per-stage cap is a SMALLER BITE the PM owes,
-    and a diff that has touched no test directory is a BEHAVIOR MODULE this
-    iteration owes -- so all five WARN where they will be seen (this is the
-    surface run before every launch) without ever blocking a run. `run_doctor`
-    itself stays a 4-`Check` function, since its shape is pinned by the iter-01
-    tests, which is exactly why these five diagnostics live HERE and not as fifth
-    through ninth checks.
+    iter 230; the auth-loss line, iter 336). None of the six is an environment
+    fault: a stale brain is a restart the operator owes, an over-budget steering
+    head is an edit the operator owes, a roadmap index near its hard wall is an
+    ARCHIVE the operator owes, a stage median at the hard per-stage cap is a
+    SMALLER BITE the PM owes, a diff that has touched no test directory is a
+    BEHAVIOR MODULE this iteration owes, and stage attempts destroyed by an
+    expired session are a RE-AUTHENTICATION a HUMAN owes -- so all six WARN where
+    they will be seen (this is the surface run before every launch) without ever
+    blocking a run. `run_doctor` itself stays a 4-`Check` function, since its
+    shape is pinned by the iter-01 tests, which is exactly why these six
+    diagnostics live HERE and not as fifth through tenth checks.
 
-    The newest line (iter 230) is a pure READER of the measurement iteration 229
+    The newest line (iter 336) is the only one of the six whose remedy lives
+    OUTSIDE this loop: `ATTEMPT_FAILURE_MARKERS` has held since iter 196 that
+    `auth` is the one failure kind NO retry and NO sleep can heal, and `losses`
+    has counted it per product since iter 173, yet that verdict reached no
+    surface a human runs unattended -- while 30.3% of the attempts in the
+    most-recent 20 iterations of this product were lost to it. It reduces
+    `gather_losses` through the pure `auth_loss_verdict`, is windowed by
+    `AUTH_LOSS_RECENT_ITERATIONS` (an all-time count is monotone, so it could
+    never retire its own WARN), degrades to UNKNOWN when nothing was scanned
+    rather than to OK, and reports COUNTS ONLY -- never a stage label, because a
+    doctor line is quoted verbatim into PM specs.
+
+    The iter-230 line is a pure READER of the measurement iteration 229
     shipped dormant: `test_touch_drift_line` carries `probe_test_touch`'s answer
     VERBATIM, so it can never disagree with the `test-touch` verb that shares its
     core, and an unreadable worktree degrades to UNKNOWN rather than to the clean
@@ -964,6 +977,14 @@ def run_doctor_cli(cfg: ProductConfig) -> int:
         print(test_touch_drift_line(cfg))
     except Exception as exc:  # pragma: no cover - contract-impossible belt
         print(f"{TEST_TOUCH_PREFIX} UNKNOWN -- test-touch line errored: {exc!r}")
+    try:
+        # Window read from the module global INSIDE this body (never captured at
+        # def time), exactly like the stage-budget line above, so a
+        # `monkeypatch.setattr(foundry, "AUTH_LOSS_RECENT_ITERATIONS", X)`
+        # re-windows the printed line with no re-import.
+        print(auth_loss_line(cfg, limit=AUTH_LOSS_RECENT_ITERATIONS))
+    except Exception as exc:  # pragma: no cover - contract-impossible belt
+        print(f"{AUTH_LOSS_PREFIX} UNKNOWN -- auth-loss line errored: {exc!r}")
     ok = doctor_ok(checks)
     passed = sum(1 for c in checks if c.ok)
     print(f"doctor: {passed}/{len(checks)} checks ok — "
@@ -23213,6 +23234,223 @@ def losses_cli(cfg: ProductConfig, limit: int | None = None,
     # Seam resolved HERE, by BARE name at CALL time, so a monkeypatch bites;
     # `_thin_gather_cli` owns the shared print/JSON/exit-code contract.
     return _thin_gather_cli(gather_losses, cfg, limit, as_json)
+
+
+# --------------------------------------------------------------------------
+# THE ONE LOSS NO RETRY CAN HEAL: doctor's SIXTH drift line -- iter 336.
+#
+# `ATTEMPT_FAILURE_MARKERS`' own comment states the fact this line publishes:
+# `auth` is "the one failure in this table that NO retry and NO sleep can heal:
+# only a human re-authenticating does, so the label is the only signal an
+# operator can act on". The framework has computed that label since iter 196 and
+# has been able to COUNT it per product since iter 173 (`losses`), yet the verdict
+# reaches no surface a human runs unattended -- `losses` is an on-demand verb no
+# role card names, exactly the `stage-times` decay iters 130/136/145/164/230 each
+# answered by moving a dormant lens onto `doctor`.
+#
+# MEASURED on this checkout, 2026-09-13, via the shipped verb:
+#   * windowed to the most-recent 20 iterations -- 119 attempts, 36 lost, ALL of
+#     them `auth`, concentrated in ONE stage: 30.3% of every stage attempt in the
+#     window destroyed by an expired session, with no operator-facing surface
+#     saying so and the remedy sitting outside the loop entirely.
+#   * all-time -- 2,055 attempts, 408 lost, of which 326 are `auth` (79.9% of ALL
+#     lost work) across 3 stages.
+# Cost of the scan the line pays: 0.051s windowed (0.280s unwindowed), so the
+# preflight it decorates pays no meaningful latency.
+#
+# WHY A WINDOW, AND WHY THE SAME 20 AS `stage-budget:` (iter 184's reasoning,
+# re-derived for this signal): the all-time count is MONOTONE -- 326 can never
+# fall -- so an all-time line WARNs forever once a session has ever expired,
+# which is precisely the "a preflight line that always fires teaches the operator
+# to skip the preflight" failure iter 164 refused to ship. The windowed count
+# returns to 0 after 20 clean iterations, so this WARN can retire itself, and it
+# also PRICES the harm the launch about to happen will actually meet: measured
+# above, the recent window is TWICE as bad as the all-time average (30.3% vs
+# 15.9%), so an all-time number would under-report live harm as well.
+#
+# A second READER of iteration 173's digest, never a change to it: `gather_losses`,
+# `attempt_loss_summary`, `LossRow`, `LossSummary` and the `losses` verb are all
+# byte-untouched, and this line derives no count of its own beyond selecting ONE
+# kind's rows out of a summary the shipped gatherer built. Pure verdict core + the
+# ONE existing I/O seam, DORMANT on the control path -- `run_iteration`,
+# `run_stage`, `build_prompt` and `dispatcher.py` name nothing below -- so a loop
+# in flight resumes byte-identically and no restart is owed. It REPORTS; only a
+# HUMAN can act on it, which is the whole point of printing it where a human is.
+# --------------------------------------------------------------------------
+AUTH_LOSS_PREFIX = "auth-loss:"      # stable grep anchor for the one line
+AUTH_LOSS_WARN = "WARN"              # ONLY the credential-loss branch carries it
+
+#: The `classify_attempt_failure` label this line reports on. A COPY of the key in
+#: `ATTEMPT_FAILURE_MARKERS`, not a lookup into it, for the same reason
+#: `KIND_RETRY_LADDERS` spells `auth` rather than deriving it: a future edit to
+#: that table must never be able to silently re-target this line at a different
+#: kind, and a test can pin the relationship instead
+#: (`AUTH_LOSS_KIND in dict(ATTEMPT_FAILURE_MARKERS)`), which fails LOUDLY if the
+#: label is ever renamed.
+AUTH_LOSS_KIND = "auth"
+
+#: doctor's default auth-loss window, in ITERATIONS (see the section comment for
+#: why a window at all, and why 20). Read at CALL TIME by `run_doctor_cli`, so a
+#: `monkeypatch.setattr(foundry, "AUTH_LOSS_RECENT_ITERATIONS", X)` re-windows the
+#: printed line with no re-import.
+AUTH_LOSS_RECENT_ITERATIONS = 20
+
+
+@dataclasses.dataclass(frozen=True)
+class AuthLossVerdict:
+    """What one product's loss digest says about EXPIRED CREDENTIALS, and nothing else.
+
+    Frozen (value equality, hashable, no post-hoc mutation), and deliberately three
+    fields rather than a whole `LossSummary`: this line answers ONE question, so
+    carrying the other kinds' rows would invite a future edit to start reporting a
+    `timeout` inside a line whose remedy sentence is "re-authenticate".
+
+    `attempts` is every attempt SCANNED in the window (produced or lost) -- the
+    denominator, which is what makes `share` a rate an operator can act on rather
+    than a bare count. `lost` counts only the `AUTH_LOSS_KIND` losses. `stage_count`
+    is how many DISTINCT stages those losses touched, a COUNT and never the labels:
+    a stage label is a FILENAME BODY read out of the scanned tree, and `doctor`'s
+    lines are quoted VERBATIM into PM specs (`roles/pm.md` requires the
+    `stage-budget:` line as a spec input), so this text ships into state artifacts
+    where no path body, and no `PRESHIP:`/`ACTION:` sentinel a crafted filename
+    could carry, may ever appear. The `losses` verb may echo the labels because a
+    human reads it interactively; this line may not, the same constraint
+    `test_touch_line` documents.
+    """
+    attempts: int
+    lost: int
+    stage_count: int
+
+    @property
+    def has_data(self) -> bool:
+        """True iff attempts were actually SCANNED, so a verdict is possible at all.
+
+        `attempts == 0` is UNKNOWN and never a clean bill of health: a state dir that
+        does not exist, is unreadable, or holds no attempt log yields the same zero as
+        a healthy window, and reporting OK off a scan that found nothing is the one
+        direction this gauge may not lie in."""
+        return self.attempts > 0
+
+    @property
+    def warns(self) -> bool:
+        """True iff at least one attempt in the window was lost to expired credentials."""
+        return self.lost > 0
+
+    @property
+    def share(self) -> float:
+        """Percent of scanned attempts lost to expired credentials (`0.0` if none scanned).
+
+        A rate rather than a count because the count alone cannot be triaged: 36 losses
+        is a broken product in a 119-attempt window and a footnote in a 20,000-attempt
+        one. Never raises, so the zero-denominator case cannot crash the line."""
+        return 0.0 if self.attempts <= 0 else 100.0 * self.lost / self.attempts
+
+
+def auth_loss_verdict(summary: object) -> AuthLossVerdict:
+    """PURE reduction of a loss digest to the credential question. Never raises.
+
+    Duck-typed on `attempts` plus a `rows` iterable of objects carrying
+    `kind`/`lost`/`stages` -- the shape `attempt_loss_summary` returns, so the real
+    digest works, and a hand-built stub works too, which is what lets every branch be
+    driven with ZERO filesystem. Anything of another shape (a `None`, an int, a row
+    with no `kind`) is SKIPPED rather than fatal, the same "a mis-derived input yields
+    an assertable record instead of a traceback" contract as `_loss_fields`.
+
+    `AUTH_LOSS_KIND` is read HERE by BARE name at CALL time (never captured at def
+    time), so a `monkeypatch.setattr(foundry, "AUTH_LOSS_KIND", ...)` re-targets the
+    selection without touching this code. Rows of every OTHER kind are ignored
+    entirely -- they are real lost work, but not work re-authenticating recovers.
+
+    Sums `lost` across every matching row and counts the DISTINCT stage labels those
+    rows name (a `LossSummary` holds at most one row per kind, but summing is what
+    keeps a duck-typed multi-row stub honest instead of silently reporting the first
+    match). Pure: no filesystem, subprocess, git, network or clock."""
+    def as_int(value: object) -> int:
+        """Coerce one duck-typed field to an int, defaulting to 0 (see the docstring)."""
+        try:
+            return int(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return 0
+
+    kind = AUTH_LOSS_KIND          # bare-name read at CALL time -- see above
+    attempts = as_int(getattr(summary, "attempts", 0))
+    rows = getattr(summary, "rows", ())
+    try:
+        iterator = iter(rows)
+    except TypeError:
+        iterator = iter(())
+    lost = 0
+    stages: set[str] = set()
+    for row in iterator:
+        if str(getattr(row, "kind", "")) != kind:
+            continue
+        lost += as_int(getattr(row, "lost", 0))
+        row_stages = getattr(row, "stages", ())
+        try:
+            stages.update(str(s) for s in row_stages)
+        except TypeError:
+            # A non-iterable `stages` costs the stage COUNT, never the loss count:
+            # dropping the row entirely would under-report the harm.
+            pass
+    return AuthLossVerdict(attempts=attempts, lost=lost, stage_count=len(stages))
+
+
+def auth_loss_line(cfg: "ProductConfig", *, limit: int | None = None) -> str:
+    """ONE human line: how much of this product's work did EXPIRED CREDENTIALS destroy?
+
+    Shaped exactly like `live_lag_line`, `learnings_head_line`, `roadmap_index_line`,
+    `stage_budget_line` and `test_touch_drift_line`, because it answers the same class
+    of question -- a drift somebody owes an ACTION on, never an environment fault -- so
+    it prints where it will be seen and never touches `doctor`'s exit code. It is the
+    only one of the six whose remedy is outside the loop entirely: no retry, no sleep
+    and no smaller bite heals an expired session, only a human re-authenticating.
+
+    Composes `gather_losses` by its BARE module name (so a
+    `monkeypatch.setattr(foundry, "gather_losses", ...)` controls this whole path with
+    no real state dir) exactly ONCE, and reduces it through the pure
+    `auth_loss_verdict`. Three OUTCOMES, deliberately distinct because they demand
+    different actions:
+      * UNKNOWN -- nothing was SCANNED (missing/unreadable state dir, an empty window,
+        a raising seam). Claims nothing and carries NO `AUTH_LOSS_WARN`, because "I
+        cannot tell" is not evidence of health OR of harm. Every unexpected internal
+        failure degrades HERE, never to OK.
+      * OK -- attempts were scanned and none was lost to expired credentials.
+      * WARN -- at least one was. Names the count, the denominator, the share, how many
+        distinct stages it bit, and the remedy: RE-AUTHENTICATE. Counts only, never a
+        stage label (see `AuthLossVerdict`).
+
+    A positive `limit` windows the digest to the N most-recent ITERATIONS and both
+    decided branches NAME that window in words, so no reader can mistake a recent rate
+    for an all-time one; `limit=None` scans everything and says so by omitting the
+    clause. ALWAYS returns a non-empty SINGLE-line `str` (no embedded newline), never
+    `None`, and NEVER raises: a diagnostic that can crash the preflight it decorates is
+    worse than no diagnostic. Writes NOTHING to disk."""
+    try:
+        try:
+            summary = gather_losses(cfg, limit)
+        except Exception:
+            summary = None       # unreadable / raising seam -> UNKNOWN, never OK
+        v = auth_loss_verdict(summary) if summary is not None else None
+        windowed = (isinstance(limit, int) and not isinstance(limit, bool)
+                    and limit > 0)
+        window = f" over the {limit} most-recent iteration(s)" if windowed else ""
+        if v is None or not v.has_data:
+            return (f"{AUTH_LOSS_PREFIX} UNKNOWN -- no stage attempt was scanned"
+                    f"{window}, so nothing is claimed about credential loss either "
+                    f"way")
+        if v.warns:
+            return (f"{AUTH_LOSS_PREFIX} {AUTH_LOSS_WARN} -- {v.lost}/{v.attempts} "
+                    f"attempt(s) ({v.share:.1f}%) lost to expired credentials"
+                    f"{window}, across {v.stage_count} distinct stage(s) -- a HUMAN "
+                    f"must re-authenticate; no retry, no sleep and no smaller bite "
+                    f"heals this kind")
+        return (f"{AUTH_LOSS_PREFIX} OK -- 0/{v.attempts} attempt(s) lost to expired "
+                f"credentials{window}")
+    except Exception as exc:  # pragma: no cover - contract-impossible belt
+        # Whitespace-collapsed so an exception message carrying a newline cannot break
+        # the one-line contract this line's readers rely on.
+        return (f"{AUTH_LOSS_PREFIX} UNKNOWN -- auth-loss report unavailable "
+                f"({' '.join(repr(exc).split())})")
 
 
 # --------------------------------------------------------------------------

@@ -318,6 +318,7 @@ in the archive.
 - iter 326 -- `symbol_dormancy_class`: a dormancy census that tells TEST-ONLY from dead; 4 false findings this iter.
 - iter 334 -- `pm_practice_block`: the practice-register digest reaches the PM prompt; iter 333's seam re-lands.
 - iter 335 -- doc_anchor_gaps: DISCOVERY_LOOP_PLAN's 10 rotting line-number citations become resolvable symbol anchors.
+- iter 336 -- auth-loss: doctor's SIXTH drift line reads #51 losses.
 
 
 ### Migration notes (per §6 self-mod guardrail)
