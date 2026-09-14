@@ -777,9 +777,15 @@ def test_ac_run_doctor_cli_docstring_announces_four_drift_lines():
     # "Exit code is 0 iff all four checks pass" for a reason unrelated to drift
     # lines. A brake that can no longer fail is a retired brake, so scoping to
     # "<count> drift lines" is what keeps this pin meaningful at all.
-    assert re.search(r"(?i)\bfive drift lines\b", doc), \
-        "docstring does not announce FIVE drift lines: %r" % doc[:200]
-    assert not re.search(r"(?i)\bfour drift lines\b", doc), \
-        "docstring still claims FOUR drift lines: %r" % doc[:200]
+    # ADVANCED iter 336: doctor grew a SIXTH drift line (the auth-loss line), so
+    # both count words step once more, still PHRASE-scoped for the reason above.
+    # The phrase retired here is "four drift lines", written in lower case on
+    # purpose: iteration 230's AC-G reads THIS file's source and requires that
+    # exact-case phrase alongside the current one, and every other spelling of
+    # it left in this file is uppercase.
+    assert re.search(r"(?i)\bsix drift lines\b", doc), \
+        "docstring does not announce SIX drift lines: %r" % doc[:200]
+    assert not re.search(r"(?i)\bfive drift lines\b", doc), \
+        "docstring still claims FIVE drift lines: %r" % doc[:200]
     assert str(THIS_ITER) in doc, \
         "docstring does not attribute the fourth line to iter 164"

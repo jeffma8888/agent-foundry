@@ -1,6 +1,17 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-336
+    lenses: new-capability (iteration 336), hardening/DX
+    - Candidate A1 -- (measuring)
+    - Candidate A2 -- (measuring)
+    - Candidate A3 -- (measuring)
+    - Candidate B1 -- (measuring)
+    - Candidate B2 -- (measuring)
+    - Candidate B3 -- (measuring)
+    stubs: 6 of 6 candidate line(s) are write-early placeholders, not measured candidates
+    winner: unknown
+    ship: pending (not yet decided)
   iter-335
     lenses: narrative-and-docs (iteration 335), new-capability
     - Candidate A1 -- 11 of the 13 code citations in the two LIVE docs point at the wrong line, by 36 to 8,501 lines, and the only 2 that survive both point into the one file that stopped growing
@@ -11,7 +22,7 @@ foundry directions -- _platform
     - Candidate B3 -- (measuring)
     stubs: 3 of 6 candidate line(s) are write-early placeholders, not measured candidates
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 58f226f
   iter-334
     lenses: performance-and-throughput (iteration 334), narrative-and-docs (iteration 334)
     - Candidate A1 -- foundry.py's own docstrings ban `ast.get_source_segment`; five shipped test files still call it 10 times for 27.1 s of the suite's 244 s CPU
@@ -1471,4 +1482,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-146 scouted iterations
+147 scouted iterations

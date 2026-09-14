@@ -100,7 +100,9 @@ RELANDED_PATHS = (
 )
 
 DIGITS = re.compile(r"\b\d+\b")
-DRIFT_PHRASE = re.compile(r"(?i)\bfive drift lines\b")
+# ADVANCED iter 336: doctor grew a SIXTH drift line, so the phrase both prose
+# surfaces must name steps once more.  The two-surface invariant is unchanged.
+DRIFT_PHRASE = re.compile(r"(?i)\bsix drift lines\b")
 
 # Used ONLY inside the string fixtures below.  Deliberately a number that counts
 # nothing in this repo, so no assertion here depends on the ambient tree.
