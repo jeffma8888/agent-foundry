@@ -13356,6 +13356,132 @@ def pm_recoverable_block(cfg: ProductConfig, stage: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# Scout SLATE YIELD -- read-only PM-stage prompt feed (LIVE since iter 339)
+#
+# WHAT IT PAYS FOR. The write-early contract (`WRITE_EARLY_MARKER`, every
+# `roles/*.md` card) tells a scout seat to checkpoint a skeleton slate FIRST so a
+# cap-killed stage still scores, and output-file success is inviolable -- so a seat
+# killed at the 600s cap having written only `## Candidate A1 -- (measuring: ...)`
+# reports SUCCESS, correctly. Measured over `products/_platform/state` at iteration
+# 339: of 28 scout seats since iter 320, 22 were cap-killed and 12 delivered ZERO
+# measured candidates, three iterations (321, 336, 339) handing the PM an entirely
+# EMPTY combined slate. The kill itself is fine (10 killed seats still shipped 3
+# real candidates); the cost is that the PM cannot tell the two apart without
+# opening both files and counting headings by hand, on the stage whose own budget
+# has NEGATIVE headroom.
+#
+# WHY A LABEL AND NEVER A GATE. `scout_candidate_is_stub` has decided exactly this
+# condition since iter 321 -- but its ONLY consumer is the `foundry directions`
+# renderer, a committed log a HUMAN reads AFTER the fact. This seam points the same
+# oracle at the seat that actually pays: the PM, in-prompt, before it opens a file.
+# It reports and nothing else: no brake, no retry, no exit code, no change to
+# output-file success.
+#
+# WHY IT TAKES `it_dir` AND NOT `cfg`, unlike its four siblings: the slates are
+# THIS iteration's artifacts, and `build_prompt` already holds the resolved
+# `it_dir`. Deriving it from `cfg` would re-implement the state-dir layout AND need
+# the iteration number, i.e. two ways to compute one path the caller already has.
+# Everything else about the seam contract is reused verbatim from
+# `pm_novelty_block` / `pm_gap_block` / `pm_practice_block` / `pm_recoverable_block`:
+# "" for every non-`pm` stage so those prompts stay BYTE-IDENTICAL, "" when there
+# is nothing to say, "" on ANY exception, oracles called by BARE module name so a
+# `monkeypatch.setattr(foundry, ...)` bites at call time, and exactly one trailing
+# newline so the next prompt line keeps its own line.
+# --------------------------------------------------------------------------- #
+
+#: The scout seats `pm_slate_block` probes, as `(seat letter, slate filename)`.
+#:
+#: DATA rather than two literals inside the loop, so adding or renaming a seat is a
+#: one-line change here and a test can pin the set without pinning the rendering.
+#: Order is the render order, and it is the order the PM reads the slates in.
+PM_SLATE_SEATS: tuple[tuple[str, str], ...] = (
+    ("A", "pm_scout_a.md"),
+    ("B", "pm_scout_b.md"),
+)
+
+#: The literal appended to a seat row whose slate carries NO measured candidate.
+#:
+#: A named constant because it is the one machine-readable token in the block: the
+#: PM lead greps for it, and a test can assert its presence/absence without
+#: re-typing it. Deliberately absent from `PM_SLATE_LABEL` so "the token appears"
+#: is a statement about a SEAT, never about the lead-in prose.
+PM_SLATE_UNFIT_TOKEN: str = "SLATE UNFIT"
+
+#: The fixed lead-in printed ONCE above the per-seat yield rows.
+#:
+#: Says the two things the bare counts cannot: that this is report-only (an
+#: all-placeholder slate is still a SUCCESSFUL stage and nothing here gates), and
+#: what a zero-yield seat entitles the PM to do -- `roles/pm.md` duty 1b's own
+#: escape hatch, which is the action the label exists to unlock.
+PM_SLATE_LABEL: str = (
+    "- SCOUT SLATE YIELD for this iteration, counted just now from the slate "
+    "files already in this state dir. REPORT-ONLY: a placeholder-only slate is "
+    "still a SUCCESSFUL stage and nothing here gates, retries or fails. Each row "
+    "is MEASURED candidates over TOTAL candidate headings; a seat that measured "
+    "none is tagged, and that tag is what entitles you to duty 1b's escape -- "
+    "supply a candidate of your own and say so in TRIAGE."
+)
+
+
+def pm_slate_block(it_dir: pathlib.Path | str, stage: str) -> str:
+    """Read-only injection seam: the PM-stage scout-slate yield feed for build_prompt.
+
+    Returns "" for every non-`pm` stage, so those prompts stay BYTE-IDENTICAL; for
+    `pm` returns :data:`PM_SLATE_LABEL`, then one `- scout X: <m> of <n>
+    candidate(s) measured` row per PRESENT slate file, then a single trailing
+    newline. A seat whose `<m>` is zero also carries
+    :data:`PM_SLATE_UNFIT_TOKEN`.
+
+    ONLY seats whose file EXISTS are named, and when NEITHER exists the whole block
+    is "" -- so an unscouted iteration's PM prompt is byte-identical to the
+    pre-iter-339 prompt. That is the common case for products that run no scouts,
+    and it is why the empty return is a feature rather than a degradation.
+
+    `parse_scout_candidates` and `scout_candidate_is_stub` are both called by BARE
+    module name, so the yield is COMPOSED from the shipped oracles rather than
+    re-derived here (and `monkeypatch.setattr(foundry, ...)` bites on either at
+    call time). Both are documented PURE and TOTAL, so the only failure this seam
+    must absorb itself is the file read.
+
+    TOTAL: never raises. A slate that is a DIRECTORY, unreadable, empty, or holding
+    undecodable bytes yields either an omitted seat or a `0 of 0` row (bytes are
+    decoded with `errors="replace"`, so garbage becomes text with no headings), and
+    ANY unexpected exception degrades the whole block to "" == the pre-change
+    prompt. Reads two paths and writes nothing.
+    """
+    if stage != "pm":
+        return ""
+    try:
+        base = pathlib.Path(it_dir)
+        rows: list[str] = []
+        for seat, filename in PM_SLATE_SEATS:
+            path = base / filename
+            try:
+                # `is_file()` is the cheap way to skip BOTH the absent slate and
+                # the directory-shaped one without leaning on an exception.
+                if not path.is_file():
+                    continue
+                text = path.read_text(errors="replace")
+            except OSError:
+                # One unreadable seat must not hide the other seat's yield, so
+                # skip THIS seat rather than abandoning the block.
+                continue
+            candidates = parse_scout_candidates(text)
+            measured = sum(1 for candidate in candidates
+                           if not scout_candidate_is_stub(candidate))
+            row = (f"- scout {seat}: {measured} of {len(candidates)} "
+                   f"candidate(s) measured")
+            if measured == 0:
+                row += f" -- {PM_SLATE_UNFIT_TOKEN}"
+            rows.append(row)
+        if not rows:
+            return ""
+        return PM_SLATE_LABEL + "\n" + "\n".join(rows) + "\n"
+    except Exception:
+        return ""
+
+
+# --------------------------------------------------------------------------- #
 # The gap CLAIM -- the ANSWER half of the same feed (DORMANT, no call site)
 #
 # `pm_gap_block` above is the COST half of the tracked gap-radar integration's
@@ -21550,6 +21676,20 @@ def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
     # byte-identical too), "" on ANY exception, bare name so monkeypatch bites.
     # REPORT-ONLY -- the payload is injected and no verdict or exit code gates
     # anything, because the verb's live exit code is 1 off ancient debris.
+    # PM-stage SCOUT SLATE YIELD feed (iter 339): pm_slate_block names each scout
+    # seat's MEASURED candidate count so an all-placeholder slate -- 12 of 28 seats
+    # since iter 320 -- reads as unfit BEFORE the PM opens a file, instead of
+    # costing the PM its own capped budget to rediscover by hand. Same contract as
+    # the four blocks above ("" for non-pm, "" when silent, "" on ANY exception,
+    # bare name so monkeypatch bites), and report-only: it never gates the loop.
+    # GATED HERE AS WELL AS INSIDE THE SEAM, and that is deliberate rather than
+    # duplication. Unlike its four siblings this seam does FILE I/O, so the branch
+    # keeps the other ten stages' prompt builds at zero filesystem probes; and it
+    # makes "no non-pm prompt can carry this block" a property of the CALL SITE,
+    # not a property the seam has to be trusted for -- a seam swapped out under a
+    # test (or a future variant that forgets its own gate) still cannot move a
+    # prompt it does not own. The seam keeps its own gate for every OTHER caller.
+    slate_feed = pm_slate_block(it_dir, stage) if stage == "pm" else ""
     return (
         f"You are the {stage.upper()} in iteration {iteration} of the "
         f"autonomous product team building the product '{cfg.name}'.\n\n"
@@ -21571,6 +21711,7 @@ def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
         f"{pm_gap_block(cfg, stage)}"
         f"{pm_practice_block(cfg, stage)}"
         f"{pm_recoverable_block(cfg, stage)}"
+        f"{slate_feed}"
         f"- Iteration number for file naming: {iteration:02d}\n"
         f"- YOUR REQUIRED OUTPUT FILE: {out_file} -- you MUST write it before "
         f"finishing, even on failure (state what failed and why).\n\n"

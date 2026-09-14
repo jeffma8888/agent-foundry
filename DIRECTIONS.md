@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-339
+    lenses: simplification-and-deletion (iteration 339), performance-and-throughput (iteration 339)
+    - Candidate A1 -- (measuring: dead-symbol census via the shipped `dormancy` verb)
+    - Candidate A2 -- (measuring: near-duplicate path collapse)
+    - Candidate A3 -- (measuring: superseded doc/flag retirement)
+    - Candidate B1 -- (measuring: per-test duration census, hot repeated work)
+    - Candidate B2 -- (measuring: cost paid once per stage vs once per iteration)
+    - Candidate B3 -- (measuring: wasted retries / redundant re-verification)
+    winner: A1
+    ship: pending (not yet decided)
   iter-338
     lenses: integration-and-adoption (iteration 338), simplification-and-deletion (iteration 338)
     - Candidate A1 -- 43 of the 53 CLI verbs are named in ZERO role card, so seats re-derive by hand what a shipped verb already computes
@@ -11,7 +21,7 @@ foundry directions -- _platform
     - Candidate B3 -- (measuring)
     stubs: 3 of 6 candidate line(s) are write-early placeholders, not measured candidates
     winner: A2
-    ship: pending (not yet decided)
+    ship: PUSHED 1d203c3
   iter-337
     lenses: hardening/DX -- iteration 337, integration-and-adoption
     - Candidate A1 -- every health surface prices stage TIME and no-output; none prices YIELD, so 8 of 22 scout seats since iter 320 reported SUCCESS while delivering zero candidates
@@ -1500,4 +1510,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-149 scouted iterations
+150 scouted iterations

@@ -302,8 +302,6 @@ in the archive.
 - iter 230 -- `doctor` grows a FIFTH drift line: iter 229's dormant test-touch measurement gets its first reader.
 - iter 231 -- pure `prose_stripped_source` disarms the self-referential count brake; iter 230's work re-lands.
 - iter 232 -- role-scoped lesson tail: 4 of the 10 digest slots go to the stage's OWN role's newest lessons.
-- iter 239 -- README's repo map names every tracked role card: derived membership brake, count words deleted.
-- iter 240 -- `foundry inflight`: the PENDING stage attempt gets its first reader -- elapsed + headroom vs the 600s cap.
 - iter 242 -- `RESULT: BLOCKED`, a third tester disposition + the ship gate's record-only branch.
 - iter 243 -- inlined lesson tail cuts at the last full SENTENCE, not mid-word: -1,313 chars/prompt, 10/10 fixed.
 - iter 244 -- `ARCHITECTURE.md` names all five tester dispositions, policed by derived `tester_disposition_tokens`.
@@ -319,6 +317,7 @@ in the archive.
 - iter 336 -- auth-loss: doctor's SIXTH drift line reads #51 losses.
 - iter 337 -- learnings-head WARNs NEAR the wall: the steering head reports 221 chars of headroom before it is elided.
 - iter 338 -- dormancy: iter 326's unreachable classifier gets a caller -- a read-only census verb.
+- iter 339 -- pm_slate_block: the PM prompt names each scout seat's measured yield; an all-stub slate reads UNFIT.
 
 
 ### Migration notes (per §6 self-mod guardrail)
