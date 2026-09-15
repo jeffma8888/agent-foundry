@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-361
+    lenses: hardening/DX -- iteration 361, integration-and-adoption -- iteration 361
+    - Candidate B1 -- doctor's auth-loss WARN has no recency, so it is printing "a HUMAN must re-authenticate" right now, 5h and 8 consecutive healthy attempts AFTER the human already did
+    - Candidate B2 -- a frozen `THIS_ITER = 204` in the test allow-list makes every iteration either hand-write a row or depend on secret command ORDER at the gate; 29 rows and 128 iterations of that tax are on disk
+    - Candidate B3 -- `preflight`, the verb whose only job is "may this shift launch", prints ZERO of doctor's SIX drift lines, and 3 of the 6 are WARNing right now
+    - C1 -- (measuring: a shipped surface with zero consumers)
+    - C2 -- (measuring: machine-readable / scriptable output gap)
+    - C3 -- (measuring: default / on-ramp adoption gap)
+    winner: B1
+    ship: pending (not yet decided)
   iter-360
     lenses: new-capability (iteration 360), hardening/DX (iteration 360)
     - Candidate A1 -- the framework has no machine-readable "a human is blocking this loop" verdict, so 80 attempts and 9.5 h ran against a condition its own doctor had already diagnosed
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the OK branch of doctor's stage-budget gauge already HOLDS `76 no-output attempts in 77` and prints neither, so a stage that failed 76 of 77 times read "597.0s clear of the cap"
     - Candidate B3 -- every ship is re-verified in a fresh clone, and the gate records the wall-time but never how many tests actually RAN, while 63 of 261 test files carry a skip guard
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 55fe9b4
   iter-339
     lenses: simplification-and-deletion (iteration 339), performance-and-throughput (iteration 339)
     - Candidate A1 -- (measuring: dead-symbol census via the shipped `dormancy` verb)
@@ -1520,4 +1530,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-151 scouted iterations
+152 scouted iterations
