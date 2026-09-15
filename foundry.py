@@ -7703,9 +7703,12 @@ class ScoutPhasePlan:
         list, like the `escalation-check` categories). Pure: touches no
         filesystem, does not mutate the frozen plan, and returns a fresh dict
         (with fresh nested stage dicts) each call. NO `exit_code` key: the CLI
-        exit derives from `enabled` (0/1) and `scout-plan` takes no file, so
-        there is no file-not-found (2) path to serialize -- contrast
-        `escalation-check`.
+        exit derives from `enabled` (0/1). Iteration 362 gave the verb an
+        optional `--config` and therefore a file-not-found (2) path, but that
+        outcome produces NO plan at all -- it is serialized by
+        `_report_unreadable_scout_config`'s own document -- so this dict still
+        has nothing to add and stays byte-identical; contrast
+        `escalation-check`, whose 2 IS a verdict on a file it parsed.
         """
         return {
             "enabled": self.enabled,
@@ -7746,8 +7749,77 @@ def decide_scout_phase(
     return ScoutPhasePlan(enabled=True, stages=stages)
 
 
+# --------------------------------------------------------------------------- #
+# `scout-plan`'s optional product-config door (iteration 362)
+# --------------------------------------------------------------------------- #
+# `scout-plan` is the only verb that PREVIEWS a per-product pipeline decision,
+# and it was answering the OPPOSITE of that pipeline for every product on disk.
+# The cause is a default collision, not a missing feature: the only way to say
+# "dual" was `--dual-pm-scouts`, an argparse `store_true` defaulting FALSE, while
+# `ProductConfig.dual_pm_scouts` has defaulted TRUE since iteration 320 and the
+# pipeline branches on `cfg.dual_pm_scouts`. All 5 configs on disk resolve TRUE
+# (4 explicit, 1 by default), so the bare verb printed `verdict: SINGLE` about a
+# phase that always runs. The fix is a DOOR, never a semantics change: an
+# optional `--config` whose RESOLVED flag feeds the SAME `decide_scout_phase`
+# core. This resolver is the entire decision and is pure, so every combination is
+# testable with no filesystem at all.
+def resolve_dual_pm_scouts(flag_given: bool, cfg_enabled: bool | None) -> bool:
+    """Resolve the effective dual-scout flag from the CLI flag plus a config.
+
+    ``flag_given`` is whether `--dual-pm-scouts` was typed (a `store_true`, so
+    argparse offers NO false-vs-absent distinction); ``cfg_enabled`` is the
+    resolved ``ProductConfig.dual_pm_scouts`` of a supplied `--config`, or
+    ``None`` when no config was supplied at all. That ``None`` is what keeps the
+    bare invocation byte-identical: with no door open the answer stays the
+    pre-iteration ``bool(flag_given)``.
+
+    The rule is a logical OR, chosen deliberately over "the config wins": since
+    the flag cannot express an explicit false, letting a config's ``false``
+    override a typed `--dual-pm-scouts` would make the operator's explicit
+    instruction unexpressible, whereas OR leaves the flag a pure override that
+    can only ever turn the pre-phase ON -- and the LIVE pipeline can only be
+    turned on by the config, so nobody loses a way to say what they mean. Truth
+    table, (flag, cfg) -> result: (F, None) -> F, (F, T) -> T, (F, F) -> F,
+    (T, F) -> T, (T, None) -> T.
+
+    Pure and total: booleans in, boolean out; no filesystem, subprocess, network
+    or clock access, no mutation of its arguments, and it never raises for ANY
+    argument because both inputs are coerced with ``bool(...)``.
+    """
+    return bool(flag_given) or bool(cfg_enabled)
+
+
+def _report_unreadable_scout_config(config_path: str, exc: BaseException,
+                                    as_json: bool) -> int:
+    """Print the `scout-plan: cannot read config ...` diagnostic, return 2.
+
+    WHY a THIRD outcome instead of a verdict: `scout-plan`'s exit code IS its
+    verdict (1 DUAL / 0 SINGLE), so folding a config fault into either number
+    would let a CI job read "the pre-phase is off" out of a typo'd path. Exit 2
+    keeps that 0/1 contract clean -- the same separation `lint_config_cli` draws
+    between a lint PROBLEM (1) and an unreadable file (2). It deliberately does
+    NOT reuse `_report_unreadable_config`, whose message is prefixed
+    `lint-config:`: a diagnostic naming the wrong verb costs an operator more
+    than a duplicated f-string does. The message names the offending PATH,
+    because that is where the mistake almost always is.
+    """
+    message = (f"scout-plan: cannot read config {config_path}: "
+               f"{type(exc).__name__}: {exc}")
+    if as_json:
+        print(json.dumps({"config_path": config_path, "error": message,
+                          "exit_code": 2}, indent=2))
+    else:
+        print(message)
+    return 2
+
+
+# `config_path` sits BEFORE `iteration`, and that order is PINNED, not stylistic:
+# `tests/test_iter107_behavior.py::test_ac_scout_plan_signature_trailing_iteration_kwarg`
+# asserts `iteration` is the TRAILING parameter. Every caller passes both by KEYWORD
+# (the `**sp_kwargs` dispatch below, and every test), so the order is free here and
+# appending a new kwarg after `iteration` buys a red suite for nothing.
 def scout_plan_cli(dual_pm_scouts: bool, lenses: list[str] | None, as_json: bool = False,
-                   iteration: int | None = None) -> int:
+                   config_path: str | None = None, iteration: int | None = None) -> int:
     """On-demand CLI: report the ordered dual-PM-scout pre-stage plan.
 
     Computes `decide_scout_phase`, prints the ``dual_pm_scouts`` flag + a
@@ -7755,9 +7827,9 @@ def scout_plan_cli(dual_pm_scouts: bool, lenses: list[str] | None, as_json: bool
     its lens, and a final ``verdict:`` line, and returns ``1`` (DUAL -- the
     dual-scout pre-phase is active) / ``0`` (SINGLE) -- non-zero = the pre-phase
     runs, mirroring `cadence-review` REVIEW / `restaffing-review` DIFF. Writes
-    NOTHING to disk. A THIN wrapper over the pure core: it adds no logic beyond
-    decide -> format, so the printed figures always match the `ScoutPhasePlan`.
-    Takes no file, so there is no file-not-found path. With ``as_json=True`` it
+    NOTHING to disk of its own. A THIN wrapper over the pure core: it adds no
+    logic beyond resolve -> decide -> format, so the printed figures always match
+    the `ScoutPhasePlan`. With ``as_json=True`` it
     prints one ``json.dumps(result.to_dict(), indent=2)`` document
     (machine-readable) instead of the human report; the ``0``/``1`` exit
     contract is byte-identical in both modes. The optional ``iteration``
@@ -7765,6 +7837,18 @@ def scout_plan_cli(dual_pm_scouts: bool, lenses: list[str] | None, as_json: bool
     ``lenses`` is passed; an explicit ``lenses`` wins over ``iteration``
     (Behavior 12), and with neither the plan reads ``PM_SCOUT_LENSES`` for
     the byte-identical default path (Behavior 13).
+
+    The optional ``config_path`` is the iteration-362 door: it MANAGES ITS OWN
+    load (the `lint_config_cli` idiom) so an unreadable or invalid config returns
+    the THIRD outcome ``2`` via `_report_unreadable_scout_config` instead of
+    leaking a traceback or polluting the 0/1 verdict, and it reads the RESOLVED
+    `ProductConfig` field rather than the raw JSON so a config that OMITS
+    ``dual_pm_scouts`` inherits the dataclass default the pipeline itself would
+    see. `load_config` is called by BARE module name so a
+    ``monkeypatch.setattr(foundry, "load_config", ...)`` bites. Its only
+    filesystem touch is `load_config`'s own work_root/state mkdir, shared by
+    every `--config` verb; with ``config_path=None`` (the default, and the bare
+    CLI form) NOTHING is read at all.
     """
     # Lens-resolution precedence: an explicit --lens override wins; else, when
     # an --iteration is given, use the deterministic rotation pool; else stay
@@ -7773,7 +7857,18 @@ def scout_plan_cli(dual_pm_scouts: bool, lenses: list[str] | None, as_json: bool
     effective_lenses = lenses
     if effective_lenses is None and iteration is not None:
         effective_lenses = list(select_scout_lenses(iteration))
-    result = decide_scout_phase(dual_pm_scouts, effective_lenses)
+    # Product-config door: resolve `dual_pm_scouts` from the config when one is
+    # supplied. The load is SELF-MANAGED inside a try so a bad path/JSON is the
+    # THIRD outcome (2) and can never surface as a verdict or a traceback; a
+    # missing config_path leaves cfg_enabled None, i.e. flag-only behaviour.
+    cfg_enabled: bool | None = None
+    if config_path is not None:
+        try:
+            cfg_enabled = bool(load_config(config_path).dual_pm_scouts)
+        except Exception as exc:
+            return _report_unreadable_scout_config(config_path, exc, as_json)
+    effective_flag = resolve_dual_pm_scouts(dual_pm_scouts, cfg_enabled)
+    result = decide_scout_phase(effective_flag, effective_lenses)
     if as_json:
         print(json.dumps(result.to_dict(), indent=2))
     else:
@@ -25143,15 +25238,22 @@ def main(argv: list[str] | None = None) -> int:
     # optional lens override), compute the ordered scout pre-stage plan an
     # iteration would run BEFORE the PM lead -- pm_scout_a (new-capability lens)
     # then pm_scout_b (hardening/DX lens) by default, positional a/b/c/... for
-    # more lenses. It takes a flag, NOT a product --config or a --file, so like
-    # `cadence-review`/`escalation-check`/`product-gate`/`lint-spec` it is
+    # more lenses. Its product `--config` is OPTIONAL (iteration 362) and, like
+    # `lint-config`, it MANAGES ITS OWN load so an unreadable config maps to
+    # exit 2; the bare form needs no config at all, so like
+    # `cadence-review`/`escalation-check`/`product-gate`/`lint-spec` it stays
     # dispatched BEFORE the top-level `load_config` below. DORMANT / on-demand
     # only -- the pipeline/gate/dispatcher NEVER call it; it writes nothing.
-    # Exit 1 DUAL / 0 SINGLE.
+    # Exit 1 DUAL / 0 SINGLE / 2 unreadable-config.
     scp = sub.add_parser("scout-plan")
     scp.add_argument("--dual-pm-scouts", action="store_true",
                      help="run the two-scout pre-phase (pm_scout_a then "
                           "pm_scout_b) before the PM lead")
+    scp.add_argument("--config", default=None,
+                     help="OPTIONAL path to a PRODUCT JSON config; its resolved "
+                          "dual_pm_scouts is what the pipeline would read, so "
+                          "the preview matches the live phase (an explicit "
+                          "--dual-pm-scouts still wins; unreadable => exit 2)")
     scp.add_argument("--lens", action="append", default=None,
                      help="explicit scout lens (repeatable, in order); omit to "
                           "read the module-level PM_SCOUT_LENSES at call time")
@@ -26001,9 +26103,15 @@ def main(argv: list[str] | None = None) -> int:
         # existing monkeypatched spy with the old 3-arg signature still works
         # and the no-flag path is unchanged (Behavior 13); when given, the
         # rotation flows into scout_plan_cli's optional kwarg (Behaviors 10-12).
+        # `config_path` is conditional for the SAME reason (iteration 362): the
+        # two iter-90 dispatch spies are declared
+        # `(dual_pm_scouts, lenses, as_json=False)`, so an UNCONDITIONAL kwarg
+        # would break them even on a bare call.
         sp_kwargs = {"as_json": args.json}
         if args.iteration is not None:
             sp_kwargs["iteration"] = args.iteration
+        if args.config is not None:
+            sp_kwargs["config_path"] = args.config
         return scout_plan_cli(args.dual_pm_scouts, args.lens, **sp_kwargs)
     if args.cmd == "lint-config":
         return lint_config_cli(args.config, as_json=args.json)

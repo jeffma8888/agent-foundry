@@ -317,6 +317,7 @@ in the archive.
 - iter 339 -- pm_slate_block: the PM prompt names each scout seat's measured yield; an all-stub slate reads UNFIT.
 - iter 360 -- the auth needle's THIRD decay: 162 no-output attempts stop reading as cap timeouts; census 88.5%->97.4%.
 - iter 361 -- doctor's auth-loss WARN learns TENSE: a healed window names the iteration it cleared at, not a human.
+- iter 362 -- scout-plan gains an optional --config: the preview's verdict finally matches the live scout phase.
 
 
 ### Migration notes (per §6 self-mod guardrail)

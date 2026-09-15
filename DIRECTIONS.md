@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-362
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- the five PM prompt feeds all return "" for both scout seats, so the seats that PROPOSE the feature see none of the evidence the seat that merely PICKS one does
+    - Candidate A2 -- `doctor` is the launch surface every wrapper runs and the only read verb with no machine-readable door, so its 4 checks + 6 drift lines can only be screen-scraped
+    - Candidate A3 -- `scout-plan` has no `--config`, so the verb whose only job is previewing the scout phase answers SINGLE for every product on disk while all 5 run DUAL
+    - Candidate B1 -- doctor is WARNing that the pinned learnings head is 221 chars from eliding blocks out of EVERY stage prompt, and 988 of those chars are retirement NOTICES describing deletions that already happened
+    - Candidate B2 -- 35 of the CLI's 55 verbs are hand-typed clones of one of six archetypes, costing 806 lines, and the pure oracle that would PROVE a collapse changed no verb is already in the tree (dormant)
+    - Candidate B3 -- the 8 `summarize_company_*` roll-up constructors are 156 lines of 0.76-0.95 textually identical code, and this is the SECOND time the census has been taken
+    winner: A3
+    ship: pending (not yet decided)
   iter-361
     lenses: hardening/DX -- iteration 361, integration-and-adoption -- iteration 361
     - Candidate B1 -- doctor's auth-loss WARN has no recency, so it is printing "a HUMAN must re-authenticate" right now, 5h and 8 consecutive healthy attempts AFTER the human already did
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - C2 -- (measuring: machine-readable / scriptable output gap)
     - C3 -- (measuring: default / on-ramp adoption gap)
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 6502360
   iter-360
     lenses: new-capability (iteration 360), hardening/DX (iteration 360)
     - Candidate A1 -- the framework has no machine-readable "a human is blocking this loop" verdict, so 80 attempts and 9.5 h ran against a condition its own doctor had already diagnosed
@@ -1530,4 +1540,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-152 scouted iterations
+153 scouted iterations
