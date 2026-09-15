@@ -235,10 +235,37 @@ ATTEMPT_FAILURE_DEFAULT = "other"
 # construction -- `auth`, `timeout` and `cli-error` share ONE ladder, so a
 # false positive stolen from either fast kind changes no delay at all, and the
 # two long-ladder kinds are protected by the conservative-first ordering above.
+#
+# MEASURED BASIS, part 3 -- iteration 360, RE-MEASURED 2026-09-15 over 7,892
+# files under the same glob, for exactly the decay part 2 predicted: the agent
+# CLI changed its expired-session wording AGAIN, and the new blob is the WHOLE
+# log -- 199 characters, byte-identical in all 162 occurrences:
+#
+#     agent run failed: subagent turn failed: Credentials were still being
+#     renewed when the request gave up - try again in a moment
+#     (detail: dispatch failure: other: identity resolver timed out after 30s)
+#
+# This one is a MIS-classification rather than a gap, which is why it hid: the
+# second line's `timed out after 30s` hands the generic `timed out` needle a
+# session that never opened, so all 162 filed as `timeout` -- an instant-fail
+# whose only remedy is a HUMAN re-authenticating, reported as "the work did not
+# fit the budget". Whole-corpus label census, the check part 2 established:
+# `timeout` 2704 -> 2542, `auth` 1937 -> 2099, and `other` (2963), `service`
+# (111), `stalled` (157) and `cli-error` (20) ALL BYTE-UNCHANGED. Nothing is
+# taken from any kind except `timeout`, and only through this needle.
+#
+# Spread across all four products (`_platform` 40, `agent-gap-radar` 44,
+# `proactive-loop-agent` 39, `repolens` 39), so it is recurring maintenance of
+# somebody else's wording and not one outage. The false-positive risk part 2
+# had to reason about does NOT exist here: 162 of 162 have NO sibling
+# `<stage>.md`, so every hit is a real no-output failure and none is an agent
+# NARRATING this bug inside a stage that succeeded. The needle also stops short
+# of the em dash after `gave up`, so no encoding detail is load-bearing.
 ATTEMPT_FAILURE_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("service", ("service is busy", "too many tokens", "throttl")),
     ("stalled", ("connection stalled",)),
-    ("auth", ("credential refresh failed", "auth failed")),
+    ("auth", ("credential refresh failed", "auth failed",
+              "credentials were still being renewed")),
     ("cli-error", ("native shortcut did not match",)),
     ("timeout", ("timed out",)),
 )
