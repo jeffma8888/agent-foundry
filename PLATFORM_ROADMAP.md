@@ -318,6 +318,7 @@ in the archive.
 - iter 337 -- learnings-head WARNs NEAR the wall: the steering head reports 221 chars of headroom before it is elided.
 - iter 338 -- dormancy: iter 326's unreachable classifier gets a caller -- a read-only census verb.
 - iter 339 -- pm_slate_block: the PM prompt names each scout seat's measured yield; an all-stub slate reads UNFIT.
+- iter 360 -- the auth needle's THIRD decay: 162 no-output attempts stop reading as cap timeouts; census 88.5%->97.4%.
 
 
 ### Migration notes (per §6 self-mod guardrail)

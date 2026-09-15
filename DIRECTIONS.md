@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-360
+    lenses: new-capability (iteration 360), hardening/DX (iteration 360)
+    - Candidate A1 -- the framework has no machine-readable "a human is blocking this loop" verdict, so 80 attempts and 9.5 h ran against a condition its own doctor had already diagnosed
+    - Candidate A2 -- `run_iteration` already has an `infra-fail` status, and `history` can never report it: 20 total losses render as `no-ship` and the roll-up counts them as nothing
+    - Candidate A3 -- VISION sells a "weekly-defined goal" and no product config has any goal field, so the only way to steer this loop is to hand-edit a shared prose head that doctor says is 221 chars from truncation
+    - Candidate B1 -- the auth needle decayed a THIRD time: 162 attempt logs across ALL FOUR products carry a 199-byte expired-session blob that classifies `timeout`, and one of them is read on the ship path
+    - Candidate B2 -- the OK branch of doctor's stage-budget gauge already HOLDS `76 no-output attempts in 77` and prints neither, so a stage that failed 76 of 77 times read "597.0s clear of the cap"
+    - Candidate B3 -- every ship is re-verified in a fresh clone, and the gate records the wall-time but never how many tests actually RAN, while 63 of 261 test files carry a skip guard
+    winner: B1
+    ship: pending (not yet decided)
   iter-339
     lenses: simplification-and-deletion (iteration 339), performance-and-throughput (iteration 339)
     - Candidate A1 -- (measuring: dead-symbol census via the shipped `dormancy` verb)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- (measuring: cost paid once per stage vs once per iteration)
     - Candidate B3 -- (measuring: wasted retries / redundant re-verification)
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 93ac505
   iter-338
     lenses: integration-and-adoption (iteration 338), simplification-and-deletion (iteration 338)
     - Candidate A1 -- 43 of the 53 CLI verbs are named in ZERO role card, so seats re-derive by hand what a shipped verb already computes
@@ -1510,4 +1520,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-150 scouted iterations
+151 scouted iterations
