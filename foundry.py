@@ -23820,6 +23820,16 @@ def losses_cli(cfg: ProductConfig, limit: int | None = None,
 AUTH_LOSS_PREFIX = "auth-loss:"      # stable grep anchor for the one line
 AUTH_LOSS_WARN = "WARN"              # ONLY the credential-loss branch carries it
 
+#: The uppercase token the WARN's HEALED arm carries WHERE the remedy clause sits in
+#: the ACTIVE arm (iteration 361). A second grep anchor rather than a reworded remedy,
+#: for the reason `AUTH_LOSS_WARN` is a constant at all: an operator who greps the
+#: preflight for the one drift line whose fix is a HUMAN needs to tell "you owe an
+#: action" from "you already paid it", and a substring of the remedy sentence cannot
+#: express that. The line still carries `AUTH_LOSS_WARN` in this arm ON PURPOSE -- the
+#: losses in the window are real history and the counts are unchanged; only the TENSE
+#: of the instruction moves.
+AUTH_LOSS_HEALED = "ALREADY CLEARED"
+
 #: The `classify_attempt_failure` label this line reports on. A COPY of the key in
 #: `ATTEMPT_FAILURE_MARKERS`, not a lookup into it, for the same reason
 #: `KIND_RETRY_LADDERS` spells `auth` rather than deriving it: a future edit to
@@ -23935,6 +23945,250 @@ def auth_loss_verdict(summary: object) -> AuthLossVerdict:
     return AuthLossVerdict(attempts=attempts, lost=lost, stage_count=len(stages))
 
 
+# --------------------------------------------------------------------------
+# TENSE: the same losses, but WHEN -- iter 361.
+#
+# THE DEFECT, measured live at HEAD 55fe9b4: doctor printed `auth-loss: WARN --
+# 72/81 attempt(s) (88.9%) lost to expired credentials over the 20 most-recent
+# iteration(s), across 1 distinct stage(s) -- a HUMAN must re-authenticate; no
+# retry, no sleep and no smaller bite heals this kind` while all 72 of those
+# losses sat in iterations 341-359 and the newest 9 attempts scanned were CLEAN.
+# The remedy clause was FALSE at the instant it printed, and because the window
+# is 20 ITERATIONS and not 20 successes it would have kept printing for ~19 more
+# iterations of a perfectly healthy loop -- which is precisely the failure
+# `run_doctor_cli.__doc__` names as its own reason for windowing these lines ("a
+# permanently-standing WARN teaches the operator to skip the preflight"),
+# reintroduced on the ONE line of the six whose remedy lives outside the loop and
+# is therefore the one a human can waste real time on. It also mis-steers specs:
+# `roles/pm.md` quotes doctor lines VERBATIM into `## Size self-check`.
+#
+# ROOT CAUSE IS A DISCARDED FIELD ONE FRAME UP, not a wrong count. `gather_losses`
+# emits one `(stage, iteration, attempt, produced, kind)` tuple per attempt log;
+# `_loss_fields` then narrows each to `(stage, produced, kind)` and
+# `attempt_loss_summary` aggregates to `LossRow(kind, lost, stages)`. The
+# ITERATION NUMBER -- the only thing that separates "expired NOW" from "expired,
+# then fixed" -- is computed and thrown away before any verdict can see it.
+#
+# So this is a SECOND READER of the same attempt logs, in the same shape iteration
+# 336 used on iteration 173's digest, and never an edit to it: `gather_losses`,
+# `attempt_loss_summary`, `_loss_fields`, `LossRow`, `LossSummary`,
+# `auth_loss_verdict`, `classify_attempt_failure` and `ATTEMPT_FAILURE_MARKERS`
+# are all BYTE-UNTOUCHED, and the ACTIVE sentence is byte-identical to the one
+# that shipped in iteration 336.
+#
+# WHY A WHOLE SECOND WALK AND NOT A WIDENED `gather_losses`: the digest's records
+# are consumed and dropped inside that function, so reaching the iteration number
+# means either changing its return shape -- which moves `LossSummary`, the
+# `losses` verb, its JSON payload and every test that reads them -- or walking the
+# glob again. The walk costs 0.051s windowed (measured in iteration 336) and runs
+# ONLY when the digest already WARNs, so a clean or unscannable window pays
+# nothing at all. A shared record-builder extracted from both is the obvious
+# follow-up and is explicitly out of THIS iteration's scope, because it would edit
+# the frozen gatherer.
+#
+# THE FAIL-SAFE DIRECTION IS THE WHOLE DESIGN. Every way this reader can fail to
+# decide -- a raise, an unreadable state dir, no records at all, or a digest that
+# says LOST while the reader finds no `auth` record -- lands on the ACTIVE arm,
+# never on HEALED. Silently suppressing a real credential wall is the one banned
+# direction here, the same asymmetry `auth_loss_line` already applies when it
+# degrades to UNKNOWN rather than to OK.
+#
+# NOT A SEVENTH DRIFT LINE: this is a better VERDICT on an existing gauge, the
+# shape iteration 337 used when `learnings-head` grew its fourth outcome. doctor
+# still prints six lines and `run_doctor` is still exactly four `Check`s. DORMANT
+# on the control path -- `run_iteration`, `run_stage`, `build_prompt`,
+# `run_continuous` and `dispatcher.py` name nothing below -- so a loop in flight
+# resumes byte-identically and no restart is owed.
+# --------------------------------------------------------------------------
+
+
+@dataclasses.dataclass(frozen=True)
+class AuthRecency:
+    """WHEN the credential losses in one window happened -- two iteration numbers.
+
+    Frozen (value equality, hashable, no post-hoc mutation), and deliberately a
+    SEPARATE record from `AuthLossVerdict` rather than two more fields on it: that one
+    answers "how much did expired credentials cost", this one answers "is that still
+    true", and the two are read by different arms of the same line. Merging them would
+    also force every existing `AuthLossVerdict` consumer and its pinned field census to
+    move for a question they do not ask.
+
+    Both fields are ITERATION NUMBERS or `None`, and `None` means "not decidable from
+    what was scanned" -- never zero, which is a real iteration number. They are ints
+    parsed out of directory names by `iteration_numbers`, so unlike a stage label they
+    cannot carry a path body or an `ACTION:`/`PRESHIP:` sentinel into the text this line
+    ships into PM specs; that is why naming them is safe where naming a stage is not.
+
+    `newest_scanned` is the highest iteration ANY attempt was scanned in (produced or
+    lost), which is the recency clock; `newest_loss` is the highest iteration an
+    `AUTH_LOSS_KIND` LOSS was found in. Keyed on the ITERATION and never on the newest
+    ROW on purpose: one iteration dir holds several stages, so a max over rows would
+    read an in-flight iteration as clean the moment its first stage checkpointed, while
+    `newest_loss < newest_scanned` means no auth loss anywhere in the newest iteration.
+    """
+    newest_scanned: int | None
+    newest_loss: int | None
+
+    @property
+    def has_data(self) -> bool:
+        """True iff at least one attempt was SCANNED, so a tense is decidable at all."""
+        return self.newest_scanned is not None
+
+    @property
+    def active(self) -> bool:
+        """True iff the NEWEST iteration scanned itself carries a credential loss.
+
+        `>=` rather than `==` as a belt: `newest_loss` is drawn from the same records as
+        `newest_scanned`, so it can never exceed it, but a duck-typed caller could hand
+        in a hand-built record pair that does, and reading that as ACTIVE is the safe
+        direction."""
+        return (self.newest_scanned is not None and self.newest_loss is not None
+                and self.newest_loss >= self.newest_scanned)
+
+    @property
+    def healed(self) -> bool:
+        """True iff losses were found but the NEWEST iteration scanned is clean.
+
+        The ONLY property that may suppress the remedy clause, so it is positive-only:
+        it demands both numbers AND a strict ordering, which makes "nothing scanned",
+        "nothing lost" and "one iteration holding both" all read as NOT healed. Mutually
+        exclusive with `active` by construction, and neither holds when there is no
+        data."""
+        return (self.newest_scanned is not None and self.newest_loss is not None
+                and self.newest_loss < self.newest_scanned)
+
+
+def auth_recency_verdict(records: object) -> AuthRecency:
+    """PURE reduction of per-attempt loss records to WHEN the losses happened. Total.
+
+    Duck-typed on an iterable of either the plain `(stage, iteration, attempt, produced,
+    kind)` 5-sequence `gather_losses` builds -- so the real records work, and a test
+    needs no fixture class -- or any object carrying those attribute names. Anything of
+    neither shape, and any record whose `iteration` is missing or not int-able, is
+    SKIPPED rather than fatal: the same "a mis-derived input yields an assertable record
+    instead of a traceback" contract as `_loss_fields` and `auth_loss_verdict`. A
+    non-iterable `records` yields the undecidable `(None, None)`.
+
+    `AUTH_LOSS_KIND` is read HERE by BARE name at CALL time (never captured at def
+    time), so a `monkeypatch.setattr(foundry, "AUTH_LOSS_KIND", ...)` re-targets the
+    selection, and a missing `kind` degrades to `ATTEMPT_FAILURE_DEFAULT` -- also read
+    by bare name -- exactly as `_loss_fields` does it.
+
+    A record counts as a LOSS on the same two conditions the `losses` digest uses: it
+    produced NO output file AND its kind is `AUTH_LOSS_KIND`. An `auth`-classified
+    attempt that DID produce its output lost no work, so it is scanned and not a loss --
+    keeping this definition identical to the digest's is what lets the counts and the
+    tense be reported in one sentence without disagreeing.
+
+    Pure: no filesystem, subprocess, git, network or clock."""
+    def fields(record: object) -> tuple[int, bool, str] | None:
+        """Read `(iteration, produced, kind)` off ONE record, or `None` to skip it.
+
+        A local rather than a third module-level `_*_fields` sibling: it reads position
+        1 where neither existing reader does, and nothing outside this reduction wants
+        that shape, so exporting it would only widen the module's surface."""
+        if isinstance(record, (tuple, list)):
+            if len(record) < 5:
+                return None
+            try:
+                iteration = int(record[1])
+            except (TypeError, ValueError):
+                return None
+            return iteration, bool(record[3]), str(record[4])
+        raw = getattr(record, "iteration", None)
+        if raw is None:
+            return None
+        try:
+            iteration = int(raw)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return None
+        kind = getattr(record, "kind", None)
+        return (iteration, bool(getattr(record, "produced", False)),
+                str(kind) if kind is not None else ATTEMPT_FAILURE_DEFAULT)
+
+    auth = AUTH_LOSS_KIND          # bare-name read at CALL time -- see above
+    try:
+        iterator = iter(records)   # type: ignore[call-overload]
+    except TypeError:
+        return AuthRecency(newest_scanned=None, newest_loss=None)
+    newest_scanned: int | None = None
+    newest_loss: int | None = None
+    for record in iterator:
+        parsed = fields(record)
+        if parsed is None:
+            continue
+        iteration, produced, kind = parsed
+        if newest_scanned is None or iteration > newest_scanned:
+            newest_scanned = iteration
+        if produced or kind != auth:
+            continue
+        if newest_loss is None or iteration > newest_loss:
+            newest_loss = iteration
+    return AuthRecency(newest_scanned=newest_scanned, newest_loss=newest_loss)
+
+
+def gather_auth_recency(cfg: ProductConfig,
+                        limit: int | None = None) -> AuthRecency:
+    """Read WHEN this product's credential losses happened, off the same attempt logs.
+
+    The `gather_losses` sibling, and deliberately a SECOND walk of the same corpus
+    rather than a widened gatherer (see this section's comment for the accounting):
+    `ATTEMPT_LOG_GLOB`, `_ATTEMPT_LOG_RE`, `iteration_numbers`, `_stage_output_present`
+    and `classify_attempt_failure` are all reused BY BARE NAME at call time, so this
+    reader can never classify an attempt differently from the digest it annotates, and a
+    `monkeypatch.setattr(foundry, ...)` on any of them bites both.
+
+    The `limit` window is computed with the SAME predicate as `gather_losses`
+    (`isinstance(limit, int) and limit > 0`, newest N iteration dirs, `None` /
+    non-positive scans everything), because the two readers describe ONE window in ONE
+    sentence: a window that differed by even one iteration would let the counts and the
+    tense contradict each other with no way for a reader to tell.
+
+    Read-only and TOTAL by construction: writes nothing, creates no directory, and every
+    failure -- a missing or unreadable state dir, an unparseable dir name, an
+    undecodable log -- degrades toward the undecidable `(None, None)` rather than
+    raising, which `auth_loss_line` then reads as "keep the remedy clause". Hands the
+    records to the pure `auth_recency_verdict`, which owns every decision."""
+    state = cfg.state
+    try:
+        paths = sorted(state.glob(ATTEMPT_LOG_GLOB)) if state.exists() else []
+    except OSError:
+        # A read error on the state dir means "nothing decidable", never a crash --
+        # the same no-news contract as the other read-only lenses.
+        paths = []
+    keep: set[int] | None = None
+    if isinstance(limit, int) and limit > 0:
+        try:
+            names = [p.name for p in state.iterdir()]
+        except OSError:
+            names = []
+        # `iteration_numbers` is ascending, so the most-recent N are the LAST N.
+        keep = set(iteration_numbers(names)[-limit:])
+    records: list[tuple[str, int, int, bool, str]] = []
+    for path in paths:
+        match = _ATTEMPT_LOG_RE.match(path.name)
+        if match is None:
+            continue
+        numbers = iteration_numbers([path.parent.name])
+        if not numbers:
+            continue
+        iteration = numbers[0]
+        if keep is not None and iteration not in keep:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except Exception:
+            # Missing / permission / decode error -> no evidence of a cause, still an
+            # attempt that was SCANNED, so it still advances the recency clock.
+            text = ""
+        stage = match.group("stage")
+        records.append((
+            stage, iteration, int(match.group("attempt")),
+            _stage_output_present(path.parent, stage, iteration),
+            classify_attempt_failure(text)))
+    return auth_recency_verdict(records)
+
+
 def auth_loss_line(cfg: "ProductConfig", *, limit: int | None = None) -> str:
     """ONE human line: how much of this product's work did EXPIRED CREDENTIALS destroy?
 
@@ -23949,7 +24203,7 @@ def auth_loss_line(cfg: "ProductConfig", *, limit: int | None = None) -> str:
     `monkeypatch.setattr(foundry, "gather_losses", ...)` controls this whole path with
     no real state dir) exactly ONCE, and reduces it through the pure
     `auth_loss_verdict`. Three OUTCOMES, deliberately distinct because they demand
-    different actions:
+    different actions (and since iteration 361 the WARN has two ARMS -- see below):
       * UNKNOWN -- nothing was SCANNED (missing/unreadable state dir, an empty window,
         a raising seam). Claims nothing and carries NO `AUTH_LOSS_WARN`, because "I
         cannot tell" is not evidence of health OR of harm. Every unexpected internal
@@ -23958,6 +24212,25 @@ def auth_loss_line(cfg: "ProductConfig", *, limit: int | None = None) -> str:
       * WARN -- at least one was. Names the count, the denominator, the share, how many
         distinct stages it bit, and the remedy: RE-AUTHENTICATE. Counts only, never a
         stage label (see `AuthLossVerdict`).
+
+    Since iteration 361 that WARN has TWO arms, because a count over a 20-ITERATION
+    window says nothing about TENSE: it kept instructing a human to re-authenticate for
+    ~19 iterations after the human already had. A SECOND read-only seam,
+    `gather_auth_recency`, is composed by bare name INSIDE this arm only -- so an OK or
+    UNKNOWN window pays no extra I/O -- and splits it:
+      * ACTIVE -- the newest iteration scanned itself carries a credential loss. The
+        sentence is BYTE-IDENTICAL to the one iteration 336 shipped, which is
+        load-bearing: it is quoted verbatim into PM specs and pinned by that
+        iteration's guard.
+      * HEALED -- losses sit in the window but the newest iteration scanned is clean.
+        Same counts, same window, same stage count; the remedy clause is replaced by
+        `AUTH_LOSS_HEALED` naming the iteration the losses stop at and the newest
+        iteration scanned. Two iteration NUMBERS, so the counts-only rule above still
+        holds -- an int cannot carry a path body or a sentinel.
+    Every undecided case -- a raising seam, an unreadable state dir, no records, or a
+    digest reporting LOST where the reader finds no `auth` record -- renders ACTIVE.
+    Suppressing a real credential wall is the one banned direction, the same asymmetry
+    as degrading to UNKNOWN rather than to OK.
 
     A positive `limit` windows the digest to the N most-recent ITERATIONS and both
     decided branches NAME that window in words, so no reader can mistake a recent rate
@@ -23979,11 +24252,26 @@ def auth_loss_line(cfg: "ProductConfig", *, limit: int | None = None) -> str:
                     f"{window}, so nothing is claimed about credential loss either "
                     f"way")
         if v.warns:
-            return (f"{AUTH_LOSS_PREFIX} {AUTH_LOSS_WARN} -- {v.lost}/{v.attempts} "
+            # The counts, the window and the stage COUNT are identical in both arms;
+            # only the clause after them moves, so the two arms cannot disagree about
+            # the harm -- they disagree only about whose action is outstanding.
+            head = (f"{AUTH_LOSS_PREFIX} {AUTH_LOSS_WARN} -- {v.lost}/{v.attempts} "
                     f"attempt(s) ({v.share:.1f}%) lost to expired credentials"
-                    f"{window}, across {v.stage_count} distinct stage(s) -- a HUMAN "
-                    f"must re-authenticate; no retry, no sleep and no smaller bite "
-                    f"heals this kind")
+                    f"{window}, across {v.stage_count} distinct stage(s) -- ")
+            try:
+                # The SECOND seam, composed by BARE name and ONLY here: an OK or
+                # UNKNOWN window pays no extra I/O at all. Any failure leaves
+                # `recency` undecided, which keeps the remedy clause -- never HEALED.
+                recency = gather_auth_recency(cfg, limit)
+            except Exception:
+                recency = None
+            if recency is not None and recency.healed:
+                return (f"{head}{AUTH_LOSS_HEALED}: the newest loss is iteration "
+                        f"{recency.newest_loss} and every attempt since, through "
+                        f"iteration {recency.newest_scanned}, is clean -- no human "
+                        f"action is owed unless it recurs")
+            return (f"{head}a HUMAN must re-authenticate; no retry, no sleep and no "
+                    f"smaller bite heals this kind")
         return (f"{AUTH_LOSS_PREFIX} OK -- 0/{v.attempts} attempt(s) lost to expired "
                 f"credentials{window}")
     except Exception as exc:  # pragma: no cover - contract-impossible belt
