@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-364
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- (measuring: repeated per-stage / per-suite cost)
+    - Candidate A2 -- (measuring: cost paid once per iteration vs once per stage)
+    - Candidate A3 -- (measuring: wasted retries / redundant re-verification)
+    - Candidate B1 -- the loop's own slate-quality label reads "1 of 4 placeholders" for an iteration whose candidate rows are all placeholders, and the card that produces the shape never names it
+    - Candidate B2 -- the number that decides whether a PM owes a roadmap paydown lives in two test files and one code comment, in zero docs, and the diagnostic the PM is sent to reports the other wall
+    - Candidate B3 -- of the five line-number citations left in the live docs, the two that rot both sit in the migration note whose whole job is a resume-safety claim
+    winner: B2
+    ship: pending (not yet decided)
   iter-363
     lenses: simplification-and-deletion (iteration 363), performance-and-throughput
     - Candidate A1 -- 165 pure test helpers are copy-pasted 3,579 code-lines' worth across the suite, and cross-test imports are already a shipped pattern in 8 files
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- (measuring: cost paid once per stage vs once per iteration)
     - Candidate B3 -- (measuring: wasted retries / redundant re-verification)
     winner: A3
-    ship: pending (not yet decided)
+    ship: PUSHED 1372987
   iter-362
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- the five PM prompt feeds all return "" for both scout seats, so the seats that PROPOSE the feature see none of the evidence the seat that merely PICKS one does
@@ -1550,4 +1560,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-154 scouted iterations
+155 scouted iterations

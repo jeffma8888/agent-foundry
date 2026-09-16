@@ -118,7 +118,11 @@ the same work checkpointed early survives the kill.
      fails (inside a stage the agent probe is normally unset), which is a fact
      about this shell and not about your spec -- the same asymmetry
      `roles/final.md` records for its own local-clone gate's exit 2. Read
-     the line, ignore the status.
+     the line, ignore the status. That same run prints exactly one
+     `roadmap-index:` line -- read it too: since iteration 364 it WARNs when the
+     index cannot absorb ONE mandatory ledger row, and when it does, the duty-3
+     row you write must FIT the slack that line names, or the paydown it asks
+     for (archive spent index prose) comes FIRST.
 
 ## Rules
 - SMALL increments beat ambition. If in doubt, cut scope.

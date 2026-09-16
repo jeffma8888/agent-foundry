@@ -455,7 +455,16 @@ def test_b8_frozen_paths_are_byte_unchanged_against_head():
     # ship is re-verified from sees no change at all.  The assertion is NOT weakened
     # for anything else: `dispatcher.py`, `scripts/`, `.gitignore`, `launch.sh` and
     # every OTHER card under `roles/` stay byte-frozen.
-    allowed = {"roles/final.md"}
+    # iter 364: `roles/pm.md` joins the allow-list on that SAME precedent, and for the
+    # same reason -- iteration 364's spec makes the edit MANDATORY, not discretionary:
+    # `doctor`'s `roadmap-index:` line gains a fourth (paydown) outcome, and duty 4 of
+    # the PM card is the ONLY instructed reader of that line, so acceptance criterion 4
+    # requires ONE added sentence there and Expected Behavior 10 asserts the card
+    # contains the literal `roadmap-index:` at least once.  The edit is ADDITIVE: it
+    # appends to duty 4's existing "Read the line, ignore the status." sentence and
+    # deletes nothing, so iteration 139's write-early card audit, the duty-3 ledger
+    # contract and every other content brake over this card still hold -- verified green.
+    allowed = {"roles/final.md", "roles/pm.md"}
     unexpected = [p for p in changed if p not in allowed]
     assert unexpected == [], f"frozen paths changed: {unexpected}"
 
