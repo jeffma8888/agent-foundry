@@ -45,6 +45,9 @@ nothing is missing any more), and the post-release gate re-runs this suite from 
 FRESH CLONE whose HEAD *is* this commit (`OPERATOR 2026-08-11`).  So the baseline is
 resolved by WALKING history for the newest commit whose index does NOT yet carry the
 `- iter 365 ` row -- stable before the commit, after it, and forever after.
+Behavior 5's two COUNTING pins need the same treatment at the OTHER end, because a
+LATER iteration's own mandatory duty-3 row also moves the live count: they measure
+iteration 365's own commit via `_shipped_index()`, not the worktree (`[ENG iter366]`).
 
 Offline and deterministic apart from local `git show`/`git log` reads of this repo's
 own history: no network, no writes outside `tmp_path`, no sleep.
@@ -151,6 +154,48 @@ def _need_baseline():
         pytest.skip("no git history for PLATFORM_ROADMAP.md -- missing INFRA, "
                     "not a lost paydown")
     return got
+
+
+_SHIPPED_CACHE: list = []
+
+
+def _shipped_index() -> str:
+    """The index text as iteration 365 ACTUALLY SHIPPED it, not as it stands today.
+
+    Behavior 5's two COUNTING pins ask "did iteration 365 add exactly ONE ledger
+    row", which is a question about a frozen PAIR of commits -- yet they measured
+    `_text(INDEX)`, the live worktree.  That is the same reading only while 365 is
+    the newest iteration: iteration 366 landed its own mandatory duty-3 row and
+    both pins went red (`ledger rows went 170 -> 172`) for a paydown that was
+    already correct and already shipped, i.e. a rot bug in the TEST, not a defect
+    in the subject.  This module's header already promises a baseline that is
+    stable "before the commit, after it, and forever after"; `_baseline()`
+    delivered that for the BEFORE end, and this delivers it for the AFTER end.
+
+    Resolution mirrors `_baseline()`'s walk exactly, one step earlier: newest-first
+    over the commits that touched the index, the OLDEST one still carrying the
+    `- iter 365 ` row is the commit that INTRODUCED it, i.e. 365's own.  Falls back
+    to the worktree while no commit carries the row yet (iteration 365
+    pre-commit); the post-release verifier's fresh clone is AT that commit, so
+    both readings agree there.
+    """
+    if _SHIPPED_CACHE:
+        return _SHIPPED_CACHE[0]
+    text = _text(INDEX)
+    log = _git("log", "--format=%H", "--", "PLATFORM_ROADMAP.md")
+    if log:
+        introduced = None
+        for sha in log.split():
+            blob = _git("show", "%s:PLATFORM_ROADMAP.md" % sha)
+            if blob is None:
+                continue
+            if not any(ln.startswith(ROW_365) for ln in blob.splitlines()):
+                break
+            introduced = blob
+        if introduced is not None:
+            text = introduced
+    _SHIPPED_CACHE.append(text)
+    return text
 
 
 def _lost_lines():
@@ -343,7 +388,7 @@ def test_b5_no_pre_existing_ledger_row_was_deleted():
 
 def test_b5_exactly_one_row_was_added():
     _sha, base, _arc = _need_baseline()
-    was, now = len(_rows(base)), len(_rows(_text(INDEX)))
+    was, now = len(_rows(base)), len(_rows(_shipped_index()))
     assert now == was + 1, (
         "ledger rows went %d -> %d; duty 3 wants exactly one new row" % (was, now))
 
@@ -351,7 +396,7 @@ def test_b5_exactly_one_row_was_added():
 def test_b5_the_new_row_is_iteration_365_s_and_fits_the_cap():
     _sha, base, _arc = _need_baseline()
     old = set(_rows(base))
-    added = [r for r in _rows(_text(INDEX)) if r not in old]
+    added = [r for r in _rows(_shipped_index()) if r not in old]
     assert len(added) == 1, "expected 1 new ledger row, got %r" % ([a[:80] for a in added],)
     row = added[0]
     assert row.startswith(ROW_365), "the new row is not iteration 365's: %r" % row

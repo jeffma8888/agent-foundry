@@ -1,6 +1,17 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-366
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- (measuring: a NEW user-facing capability the framework lacks)
+    - Candidate A2 -- (measuring: a roadmap-endorsed OPEN item with a shipped prerequisite)
+    - Candidate A3 -- (measuring: a vision promise with no shipped surface)
+    - Candidate B1 -- the assertion-free detector misses this repo's own `_assert_*` helper convention, so its verdict has 24 findings and 0 are actionable
+    - Candidate B2 -- doctor's stage-budget WARN names the stage to shrink by median alone, so a group with n=1 outranks four groups with n=6-7 at the same median
+    - Candidate B3 -- (measuring)
+    stubs: 1 of 6 candidate line(s) are write-early placeholders, not measured candidates
+    winner: B1
+    ship: pending (not yet decided)
   iter-365
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- (measuring: a doc/role-card claim the shipped code contradicts)
@@ -10,7 +21,7 @@ foundry directions -- _platform
     - Candidate B2 -- (measuring: a vision promise with no shipped surface)
     - Candidate B3 -- (measuring: a capability the operator does by hand every iteration)
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 2731c69
   iter-364
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- (measuring: repeated per-stage / per-suite cost)
@@ -1570,4 +1581,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-156 scouted iterations
+157 scouted iterations
