@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-365
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- (measuring: a doc/role-card claim the shipped code contradicts)
+    - Candidate A2 -- (measuring: a decision whose reasoning exists nowhere a reader will look)
+    - Candidate A3 -- (measuring: an artifact that reports a stale figure)
+    - Candidate B1 -- (measuring: a NEW user-facing capability the framework lacks)
+    - Candidate B2 -- (measuring: a vision promise with no shipped surface)
+    - Candidate B3 -- (measuring: a capability the operator does by hand every iteration)
+    winner: B1
+    ship: pending (not yet decided)
   iter-364
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- (measuring: repeated per-stage / per-suite cost)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the number that decides whether a PM owes a roadmap paydown lives in two test files and one code comment, in zero docs, and the diagnostic the PM is sent to reports the other wall
     - Candidate B3 -- of the five line-number citations left in the live docs, the two that rot both sit in the migration note whose whole job is a resume-safety claim
     winner: B2
-    ship: pending (not yet decided)
+    ship: PUSHED 4569fc2
   iter-363
     lenses: simplification-and-deletion (iteration 363), performance-and-throughput
     - Candidate A1 -- 165 pure test helpers are copy-pasted 3,579 code-lines' worth across the suite, and cross-test imports are already a shipped pattern in 8 files
@@ -1560,4 +1570,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-155 scouted iterations
+156 scouted iterations
