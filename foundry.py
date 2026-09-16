@@ -23786,42 +23786,54 @@ def attempt_loss_summary(*, product: str,
     return LossSummary(product=product, rows=tuple(rows), attempts=attempts)
 
 
-def gather_losses(cfg: ProductConfig,
-                  limit: int | None = None) -> LossSummary:
-    """Gather one product's no-output attempts, by cause, into a `LossSummary`.
+def gather_attempt_records(
+        cfg: ProductConfig,
+        limit: int | None = None) -> tuple[tuple[str, int, int, bool, str], ...]:
+    """Walk one product's attempt logs ONCE into plain per-attempt records.
 
-    The ONLY I/O seam of this verb. Walks `cfg.state` with the module-level
-    `ATTEMPT_LOG_GLOB` (read at CALL time by bare name, so a
-    `monkeypatch.setattr(foundry, ...)` reshapes the scan without touching this code)
-    and, for each matched file, emits ONE plain
+    The single I/O seam under BOTH attempt-log readers -- the `losses` digest and the
+    `auth-loss` recency verdict -- extracted in iteration 363 because those two had
+    drifted into 0.952-identical copies of this walk, and iterations 360 and 361 each
+    had to repair the scanning contract in ONE copy at a time. After this there is
+    exactly one place in the module where "what counts as an attempt" is decided.
+
+    Walks `cfg.state` with the module-level `ATTEMPT_LOG_GLOB` (read at CALL time by
+    bare name, so a `monkeypatch.setattr(foundry, ...)` reshapes the scan without
+    touching this code) and, for each matched file, emits ONE plain
     `(stage, iteration, attempt, produced, kind)` tuple:
       * `stage` / `attempt` from the filename via `_ATTEMPT_LOG_RE`, `iteration` from
         the parent dir via `iteration_numbers` (called by BARE name) -- a name of any
         other shape is SKIPPED, never guessed at;
       * `produced` from `_stage_output_present`, byte-for-byte the condition
-        `run_stage` calls success, so "lost" here means exactly what it meant to the
-        loop (that helper resolves the OUTPUT name through `STAGE_OUTPUT_NAMES`,
+        `run_stage` calls success, so "lost" downstream means exactly what it meant to
+        the loop (that helper resolves the OUTPUT name through `STAGE_OUTPUT_NAMES`,
         because `run_stage` takes `out_name` SEPARATELY from the stage label);
       * `kind` from `classify_attempt_failure` over the log's TEXT -- the shipped
-        classifier, unchanged, so the labels a human sees here are the same labels
-        `retry_delay` prices. An unreadable or UNDECODABLE log is still an ATTEMPT with
-        no evidence: its text degrades to `""`, which the classifier maps to
-        `ATTEMPT_FAILURE_DEFAULT`, never a crash and never a dropped row.
-    A plain tuple rather than a third dataclass on purpose: the shape is already the
+        classifier, unchanged, so the labels a human sees are the same labels
+        `retry_delay` prices. An unreadable or UNDECODABLE log is still an ATTEMPT
+        with no evidence: its text degrades to `""`, which the classifier maps to
+        `ATTEMPT_FAILURE_DEFAULT` -- never a crash, never a dropped row, and still an
+        attempt that was SCANNED, so it still advances the recency clock.
+    A plain tuple rather than a dataclass on purpose: the shape is already the
     contract `_loss_fields` documents, and one fewer public name is one fewer thing a
     future iteration must keep in step.
 
     A POSITIVE `limit` keeps only the newest `limit` iteration dirs (the five ledger
     verbs' `--limit` semantics, via the same `iteration_numbers` helper); `None` or a
-    non-positive value scans them all. Read-only: writes nothing, creates no directory,
-    and a missing or unreadable `cfg.state` yields a digest with no rows and
-    `exit_code == 2` rather than raising."""
+    non-positive value scans them all. Both readers now share ONE window BY
+    CONSTRUCTION rather than by two copies of one predicate agreeing: a window that
+    differed by even one iteration would let the loss counts and the tense contradict
+    each other with no way for a reader to tell which was right.
+
+    Read-only and TOTAL: writes nothing, creates no directory, and a missing or
+    unreadable `cfg.state` yields `()` rather than raising -- the no-news input each
+    caller's own pure verdict function already handles."""
     state = cfg.state
     try:
         paths = sorted(state.glob(ATTEMPT_LOG_GLOB)) if state.exists() else []
     except OSError:
-        # A read error on the state dir means "nothing to report", never a crash --
-        # the same no-news contract as the other read-only lenses.
+        # A read error on the state dir means "no news", never a crash -- the same
+        # no-news contract as the other read-only lenses.
         paths = []
     keep: set[int] | None = None
     if isinstance(limit, int) and limit > 0:
@@ -23846,14 +23858,30 @@ def gather_losses(cfg: ProductConfig,
             text = path.read_text(encoding="utf-8")
         except Exception:
             # Missing / permission / decode error -> no evidence of a cause, still an
-            # attempt (see the docstring's `kind` bullet for why it is not dropped).
+            # attempt that was SCANNED (see the `kind` bullet above for why it is
+            # neither dropped nor fatal, and why the recency clock still advances).
             text = ""
         stage = match.group("stage")
         records.append((
             stage, iteration, int(match.group("attempt")),
             _stage_output_present(path.parent, stage, iteration),
             classify_attempt_failure(text)))
-    return attempt_loss_summary(product=cfg.name, records=tuple(records))
+    return tuple(records)
+
+
+def gather_losses(cfg: ProductConfig,
+                  limit: int | None = None) -> LossSummary:
+    """Gather one product's no-output attempts, by cause, into a `LossSummary`.
+
+    A thin composition since iteration 363: `gather_attempt_records` owns the whole
+    walk -- and documents the record shape, the `limit` window and the no-news
+    contract -- while the pure `attempt_loss_summary` owns every decision. Both are
+    reached by BARE module name at CALL time, so a `monkeypatch.setattr(foundry, ...)`
+    on either one controls this verb with no real state dir. Read-only: writes
+    nothing, creates no directory, and a missing or unreadable `cfg.state` yields a
+    digest with no rows and `exit_code == 2` rather than raising."""
+    return attempt_loss_summary(product=cfg.name,
+                                records=gather_attempt_records(cfg, limit))
 
 
 def losses_cli(cfg: ProductConfig, limit: int | None = None,
@@ -24077,9 +24105,12 @@ def auth_loss_verdict(summary: object) -> AuthLossVerdict:
 # `losses` verb, its JSON payload and every test that reads them -- or walking the
 # glob again. The walk costs 0.051s windowed (measured in iteration 336) and runs
 # ONLY when the digest already WARNs, so a clean or unscannable window pays
-# nothing at all. A shared record-builder extracted from both is the obvious
-# follow-up and is explicitly out of THIS iteration's scope, because it would edit
-# the frozen gatherer.
+# nothing at all. ITERATION 363 TOOK THAT NAMED FOLLOW-UP FOR THE CODE: both
+# readers now compose one shared `gather_attempt_records`, so the scanning contract
+# lives in exactly one place and the digest's return shape still never moved. The
+# WARN arm still pays the SECOND walk priced above -- sharing the builder
+# deduplicated the DUPLICATION, not the I/O; threading one record set through both
+# readers is a later bite.
 #
 # THE FAIL-SAFE DIRECTION IS THE WHOLE DESIGN. Every way this reader can fail to
 # decide -- a raise, an unreadable state dir, no records at all, or a digest that
@@ -24226,62 +24257,20 @@ def gather_auth_recency(cfg: ProductConfig,
                         limit: int | None = None) -> AuthRecency:
     """Read WHEN this product's credential losses happened, off the same attempt logs.
 
-    The `gather_losses` sibling, and deliberately a SECOND walk of the same corpus
-    rather than a widened gatherer (see this section's comment for the accounting):
-    `ATTEMPT_LOG_GLOB`, `_ATTEMPT_LOG_RE`, `iteration_numbers`, `_stage_output_present`
-    and `classify_attempt_failure` are all reused BY BARE NAME at call time, so this
-    reader can never classify an attempt differently from the digest it annotates, and a
-    `monkeypatch.setattr(foundry, ...)` on any of them bites both.
+    The `gather_losses` sibling, and since iteration 363 literally the SAME walk
+    rather than a second copy of it (see this section's comment for the accounting):
+    both readers compose `gather_attempt_records` by BARE module name at call time, so
+    this one can never classify an attempt differently from the digest it annotates,
+    can never see a different `limit` window, and one
+    `monkeypatch.setattr(foundry, ...)` on the shared seam -- or on any of the five
+    collaborators it reads -- bites both.
 
-    The `limit` window is computed with the SAME predicate as `gather_losses`
-    (`isinstance(limit, int) and limit > 0`, newest N iteration dirs, `None` /
-    non-positive scans everything), because the two readers describe ONE window in ONE
-    sentence: a window that differed by even one iteration would let the counts and the
-    tense contradict each other with no way for a reader to tell.
-
-    Read-only and TOTAL by construction: writes nothing, creates no directory, and every
-    failure -- a missing or unreadable state dir, an unparseable dir name, an
+    Read-only and TOTAL by construction: writes nothing, creates no directory, and
+    every failure -- a missing or unreadable state dir, an unparseable dir name, an
     undecodable log -- degrades toward the undecidable `(None, None)` rather than
     raising, which `auth_loss_line` then reads as "keep the remedy clause". Hands the
     records to the pure `auth_recency_verdict`, which owns every decision."""
-    state = cfg.state
-    try:
-        paths = sorted(state.glob(ATTEMPT_LOG_GLOB)) if state.exists() else []
-    except OSError:
-        # A read error on the state dir means "nothing decidable", never a crash --
-        # the same no-news contract as the other read-only lenses.
-        paths = []
-    keep: set[int] | None = None
-    if isinstance(limit, int) and limit > 0:
-        try:
-            names = [p.name for p in state.iterdir()]
-        except OSError:
-            names = []
-        # `iteration_numbers` is ascending, so the most-recent N are the LAST N.
-        keep = set(iteration_numbers(names)[-limit:])
-    records: list[tuple[str, int, int, bool, str]] = []
-    for path in paths:
-        match = _ATTEMPT_LOG_RE.match(path.name)
-        if match is None:
-            continue
-        numbers = iteration_numbers([path.parent.name])
-        if not numbers:
-            continue
-        iteration = numbers[0]
-        if keep is not None and iteration not in keep:
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except Exception:
-            # Missing / permission / decode error -> no evidence of a cause, still an
-            # attempt that was SCANNED, so it still advances the recency clock.
-            text = ""
-        stage = match.group("stage")
-        records.append((
-            stage, iteration, int(match.group("attempt")),
-            _stage_output_present(path.parent, stage, iteration),
-            classify_attempt_failure(text)))
-    return auth_recency_verdict(records)
+    return auth_recency_verdict(gather_attempt_records(cfg, limit))
 
 
 def auth_loss_line(cfg: "ProductConfig", *, limit: int | None = None) -> str:

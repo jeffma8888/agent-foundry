@@ -314,10 +314,10 @@ in the archive.
 - iter 336 -- auth-loss: doctor's SIXTH drift line reads #51 losses.
 - iter 337 -- learnings-head WARNs NEAR the wall: the steering head reports 221 chars of headroom before it is elided.
 - iter 338 -- dormancy: iter 326's unreachable classifier gets a caller -- a read-only census verb.
-- iter 339 -- pm_slate_block: the PM prompt names each scout seat's measured yield; an all-stub slate reads UNFIT.
 - iter 360 -- the auth needle's THIRD decay: 162 no-output attempts stop reading as cap timeouts; census 88.5%->97.4%.
 - iter 361 -- doctor's auth-loss WARN learns TENSE: a healed window names the iteration it cleared at, not a human.
 - iter 362 -- scout-plan gains an optional --config: the preview's verdict finally matches the live scout phase.
+- iter 363 -- gather_losses and gather_auth_recency stop walking the attempt logs twice: one shared record-builder.
 
 
 ### Migration notes (per §6 self-mod guardrail)
