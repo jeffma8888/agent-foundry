@@ -318,6 +318,7 @@ in the archive.
 - iter 361 -- doctor's auth-loss WARN learns TENSE: a healed window names the iteration it cleared at, not a human.
 - iter 362 -- scout-plan gains an optional --config: the preview's verdict finally matches the live scout phase.
 - iter 363 -- gather_losses and gather_auth_recency stop walking the attempt logs twice: one shared record-builder.
+- iter 364 -- roadmap-index WARNs when the index cannot absorb one mandatory ledger row.
 
 
 ### Migration notes (per §6 self-mod guardrail)

@@ -3118,6 +3118,15 @@ ROADMAP_INDEX_HARD_CHARS = 54000        # the wall the LIVE quality suite enforc
 ROADMAP_INDEX_NEAR_WALL_CHARS = 3000    # warn this far out (~3 growing iterations)
 ROADMAP_INDEX_PREFIX = "roadmap-index:"  # stable grep anchor for the one line
 ROADMAP_INDEX_WARN = "WARN"             # ONLY near-wall / over-budget carries it
+# The wall above is NOT the number that reds the quality suite. The suite binds to a
+# HEADROOM FLOOR: `tests/test_iter185_behavior.py:361` asserts
+# `headroom >= ABSOLUTE_INDEX_FLOOR + MAX_ROW_CHARS`, restated as `BINDING_FLOOR` in
+# `tests/test_iter228_behavior.py:91-93` and asserted again at `:417`. These two globals
+# MIRROR those test constants so the gauge can price the floor the suite actually uses;
+# they are deliberately NOT a new budget to spend, and raising either one raises nothing
+# real -- the brake lives in the tests, and the remedy is always to ARCHIVE.
+ROADMAP_INDEX_ABSOLUTE_FLOOR = 4000     # tests/test_iter185_behavior.py:353
+ROADMAP_INDEX_LEDGER_ROW_CHARS = 120    # tests/test_iter185_behavior.py:354
 
 
 @dataclasses.dataclass(frozen=True)
@@ -3178,6 +3187,45 @@ def roadmap_index_budget(text: str) -> RoadmapIndexBudget:
     )
 
 
+def roadmap_index_binding_slack(headroom: int) -> int:
+    """How many chars the index may still grow before the SUITE goes red (pure, total).
+
+    `roadmap_index_budget().headroom` is measured against the 54,000-char hard wall,
+    but the wall is not what fails a gate: the quality suite asserts
+    `headroom >= ROADMAP_INDEX_ABSOLUTE_FLOOR + ROADMAP_INDEX_LEDGER_ROW_CHARS`, so the
+    number a PM needs is the distance to THAT floor. Reporting the wall's headroom as
+    if it were spendable is what let iteration 363 read `OK ... 4457 chars of headroom`
+    and still land 2 chars under the floor once its mandatory row went in.
+
+    Both globals are read AT CALL TIME (never captured at import or as a default
+    argument) so a `monkeypatch.setattr(foundry, ...)` on either one changes the next
+    call with no re-import -- the same contract `roadmap_index_budget` already keeps.
+
+    Touches no filesystem, subprocess, network or clock, and never raises for any `int`
+    (including `0`, negatives and a `bool`): a diagnostic that can crash the preflight
+    it decorates is worse than no diagnostic.
+    """
+    floor = ROADMAP_INDEX_ABSOLUTE_FLOOR + ROADMAP_INDEX_LEDGER_ROW_CHARS
+    return headroom - floor
+
+
+def roadmap_index_paydown_owed(headroom: int) -> bool:
+    """Does the index lack room for ONE more mandatory ledger row? (pure, total)
+
+    `roles/pm.md` duty 3 makes a ledger row MANDATORY every iteration at up to
+    `ROADMAP_INDEX_LEDGER_ROW_CHARS` chars, so the question that decides whether a
+    paydown is owed is not "are we near the wall" but "would the NEXT row fit above the
+    binding floor". STRICTLY LESS THAN one row, deliberately: slack of exactly one row
+    still admits one full-width row and lands ON the floor, which the suite's `>=`
+    accepts, so calling that owed would demand a paydown the brake does not.
+
+    Reads `ROADMAP_INDEX_LEDGER_ROW_CHARS` inside the body for the same
+    monkeypatch-visibility reason as `roadmap_index_binding_slack`, which it calls by
+    its BARE module name so a test can force either half independently.
+    """
+    return roadmap_index_binding_slack(headroom) < ROADMAP_INDEX_LEDGER_ROW_CHARS
+
+
 def roadmap_index_line(cfg: "ProductConfig") -> str:
     """ONE human line: how close is the roadmap index to the wall that REVERTS?
 
@@ -3190,16 +3238,31 @@ def roadmap_index_line(cfg: "ProductConfig") -> str:
     The path comes from `cfg.roadmap`, which every product config already carries,
     so this stays repo-agnostic -- no product's filename is hardcoded.
 
-    Three OUTCOMES, deliberately distinct because they demand different actions:
+    FOUR OUTCOMES, deliberately distinct because they demand different actions:
       * UNKNOWN -- no readable index (empty/missing path, unreadable, or a
         directory). Says so, claims NOTHING about the size, and carries NO
         `ROADMAP_INDEX_WARN`, because "I cannot tell" is not evidence of a
         problem. Every unexpected internal failure degrades to this branch.
-      * OK -- more headroom than the near-wall margin.
-      * WARN -- inside the margin, or already over. Names the count, the headroom
-        and the remedy, which is to ARCHIVE spent prose -- never to raise the
-        budget, since raising it converts a one-off paydown into a file that
-        regrows forever.
+      * OK -- clear of the near-wall margin AND with room above the binding floor
+        for one more mandatory ledger row.
+      * WARN (paydown) -- since iteration 364: clear of BOTH the wall and the
+        margin, yet with less than one mandatory ledger row of slack above the
+        floor the quality suite actually asserts. Same ARCHIVE remedy, but it
+        names the BINDING FLOOR and the real slack rather than the wall's
+        headroom, because the wall is not the number that reds a gate: iteration
+        363 read `OK ... 4457 chars of headroom` off this very line and still
+        landed 2 chars under the floor once its mandatory row went in, so the
+        gauge did not merely stay silent, it licensed the wrong call. It claims
+        NOTHING about the wall or the margin -- both are genuinely clear here.
+      * WARN (wall) -- inside the margin, or already over. Names the count, the
+        headroom and the remedy, which is to ARCHIVE spent prose -- never to
+        raise the budget, since raising it converts a one-off paydown into a file
+        that regrows forever.
+
+    The paydown arm lives INSIDE the pre-existing `not (over_budget or near_wall)`
+    branch and reaches its verdict through `roadmap_index_paydown_owed`, called by
+    its BARE module name, so the OK text is byte-unchanged whenever no paydown is
+    owed and a test can force either arm with one `monkeypatch.setattr`.
 
     ALWAYS returns a non-empty SINGLE-line `str` (no embedded newline), never
     `None`, and NEVER raises: a diagnostic that can crash the preflight it
@@ -3218,6 +3281,18 @@ def roadmap_index_line(cfg: "ProductConfig") -> str:
                     f"enforces")
         v = roadmap_index_budget(text)
         if not (v.over_budget or v.near_wall):
+            if roadmap_index_paydown_owed(v.headroom):
+                floor = (ROADMAP_INDEX_ABSOLUTE_FLOOR
+                         + ROADMAP_INDEX_LEDGER_ROW_CHARS)
+                return (f"{ROADMAP_INDEX_PREFIX} {ROADMAP_INDEX_WARN} -- {label} is "
+                        f"{v.char_count} chars and clear of the "
+                        f"{v.hard_budget}-char wall, but only "
+                        f"{roadmap_index_binding_slack(v.headroom)} chars of slack sit "
+                        f"above the {floor}-char BINDING FLOOR the quality suite "
+                        f"asserts, so ONE mandatory "
+                        f"{ROADMAP_INDEX_LEDGER_ROW_CHARS}-char ledger row does not "
+                        f"fit -- archive spent prose to the *_ARCHIVE.md file first; "
+                        f"raising the budget is NOT the remedy")
             return (f"{ROADMAP_INDEX_PREFIX} OK -- {label} is {v.char_count} chars "
                     f"with {v.headroom} chars of headroom under the "
                     f"{v.hard_budget}-char wall (margin {v.near_wall_margin})")
