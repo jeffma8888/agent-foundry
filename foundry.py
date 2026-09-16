@@ -8157,6 +8157,22 @@ WEAK_TEST_ASSERTION_CALLS: frozenset[str] = frozenset({"raises", "warns", "fail"
 # `WEAK_TEST_ASSERTION_CALLS`. `skipif`/`skipIf`/`skipUnless` are NOT decided by
 # membership here; their constant condition is judged in `_is_always_skip_decorator`.
 WEAK_TEST_SKIP_NAMES: frozenset[str] = frozenset({"skip"})
+# Whether `find_assertionless_tests` credits a call to a SAME-MODULE `def` as an
+# assertion signal for its CALLER, when that callee's own AST subtree carries a
+# signal (one level, no recursion -- see `_delegated_signal_names`). WHY it
+# exists: `_has_assertion_signal` decides a call by NAME
+# (`.startswith("assert")`), so this repo's own private-helper convention misses
+# by exactly one leading underscore -- and not only that convention, since
+# `_prompt(...)` and `_classify(...)` carry the asserts of two live findings. A
+# gauge whose findings are all non-actionable trains the reader to skip it, the
+# same disease `run_doctor_cli.__doc__` names for a permanently-standing WARN.
+# Module-level + patchable + read at CALL time (not captured at import) so a
+# monkeypatch bites -- mirrors `WEAK_TEST_ASSERTION_CALLS` /
+# `WEAK_TEST_SKIP_NAMES`. A module constant rather than a config field or CLI
+# flag because the resolution is a property of the DETECTOR, not of a product;
+# setting it False restores the pre-iter-366 output EXACTLY, which is what makes
+# the change reviewable as a pure narrowing.
+WEAK_TEST_RESOLVE_DELEGATES: bool = True
 
 
 def _callee_trailing_name(func_node: ast.expr) -> str | None:
@@ -8299,6 +8315,36 @@ def _test_function_nodes(
     ]
 
 
+def _delegated_signal_names(tree: ast.AST) -> frozenset[str]:
+    """Names of every `def`/`async def` in `tree` that itself carries a signal.
+
+    The one-level delegation table `find_assertionless_tests` consults: a test
+    that only calls `_check(...)` validates nothing UNLESS `_check` does, so the
+    caller's verdict needs its callees' verdicts, keyed by the name a call site
+    can be resolved to. Membership is PROVED from the callee's own AST via
+    `_has_assertion_signal`, never guessed from its name -- so a helper called
+    `_prompt` or `_classify` counts exactly as much as one called `_assert_x`,
+    and one called `assert_nothing` that asserts nothing counts for nothing.
+
+    EVERY `def` in the tree is a candidate, not just the non-`test*` ones,
+    because a `test_b` delegating to a sibling `test_a` is the same shape.
+    `ast.walk` is used rather than `tree.body`, so a helper defined inside a
+    class or inside another function is still resolvable by its bare name: an
+    over-approximation of Python's scoping that can only ever CLEAR a finding,
+    which is the safe direction for a gauge whose false positives are the
+    disease being treated. Two `def`s sharing one name collapse into that single
+    name, which therefore signals iff EITHER of them carries a signal.
+
+    Pure and total: reads only the tree it is handed -- no filesystem,
+    subprocess, network or clock -- and raises for no tree shape.
+    """
+    return frozenset(
+        node.name for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and _has_assertion_signal(node)
+    )
+
+
 def find_assertionless_tests(source: str | ast.AST) -> tuple[str, ...]:
     """Names of every `test*` function in `source` with no assertion signal.
 
@@ -8312,9 +8358,40 @@ def find_assertionless_tests(source: str | ast.AST) -> tuple[str, ...]:
     number, NOT alphabetically (Behavior 7). Raises `SyntaxError` verbatim when
     `source` is not valid Python (Behavior 9) -- the caller decides how to
     degrade (the CLI turns it into a graceful parse-error entry).
+
+    DELEGATION (iter 366): a `test*` function carrying no signal of its own is
+    ALSO cleared when it calls a `def` DEFINED IN THE SAME MODULE whose own
+    subtree carries a signal -- `def test_a(): _check(1)` beside
+    `def _check(v): assert v` is a validating test, not an empty one. The
+    callee's signal is PROVED from its AST (`_delegated_signal_names`), never
+    inferred from its name, which is why the rule catches `_prompt`/`_classify`
+    helpers that no `_assert_*` naming convention would. Bounded to ONE level
+    deliberately: a `_mid` that merely calls an asserting `_leaf` carries no
+    signal itself, so a test calling `_mid` stays flagged -- unbounded chasing
+    would need cycle handling and would make a finding un-obvious to the operator
+    reading it. A callee the tree does not define (an import, a fixture argument,
+    a builtin) is NOT resolved: that would need a second FILE read, and this
+    function is contracted as a pure AST scan. Attribute callees resolve on their
+    trailing name through `_callee_trailing_name`, unchanged. A self-call can
+    never clear a test, with no special case for it: a name enters the table only
+    if its own subtree already carries a signal, in which case the test was never
+    flagged. Gated by `WEAK_TEST_RESOLVE_DELEGATES`, read at CALL time, and
+    STRICTLY NARROWING -- for every input the flagged set with it True is a
+    SUBSET of the set with it False, because delegation only ever adds a reason
+    to clear.
     """
-    funcs = _test_function_nodes(source)
-    flagged = [f for f in funcs if not _has_assertion_signal(f)]
+    tree = source if isinstance(source, ast.AST) else ast.parse(source)
+    delegates = (_delegated_signal_names(tree)
+                 if WEAK_TEST_RESOLVE_DELEGATES else frozenset())
+    flagged = []
+    for f in _test_function_nodes(tree):
+        if _has_assertion_signal(f):
+            continue
+        if delegates and any(
+                _callee_trailing_name(node.func) in delegates
+                for node in ast.walk(f) if isinstance(node, ast.Call)):
+            continue
+        flagged.append(f)
     flagged.sort(key=lambda f: f.lineno)
     return tuple(f.name for f in flagged)
 

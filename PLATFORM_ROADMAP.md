@@ -270,6 +270,7 @@ in the archive.
 - iter 363 -- gather_losses and gather_auth_recency stop walking the attempt logs twice: one shared record-builder.
 - iter 364 -- roadmap-index WARNs when the index cannot absorb one mandatory ledger row.
 - iter 365 -- index paydown: 8 spent item-detail blocks archived verbatim, ledger-row runway restored
+- iter 366 -- weak-tests resolves one level of same-module delegation: 9 of 24 non-actionable findings clear.
 
 
 ### Migration notes (per §6 self-mod guardrail)

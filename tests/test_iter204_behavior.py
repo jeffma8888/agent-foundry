@@ -1016,7 +1016,33 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # ONLY inside the staging window (`git diff HEAD` cannot see an
                 # UNTRACKED path at all; the gate's own `git add -A` makes it
                 # visible). This WIDENS the allow-list, so it cannot red anything.
-                "tests/test_iter338_behavior.py"}
+                "tests/test_iter338_behavior.py",
+                # iter 366: FORCED brake amendment, one path. This iteration's
+                # mandatory duty-3 `- iter 366 ` ledger row rots iteration 365's own
+                # two COUNTING pins, which measured the LIVE worktree: the row count
+                # goes 170 -> 172, so `now == was + 1` reds for a paydown that is
+                # already correct and already shipped. MEASURED BOTH WAYS this
+                # iteration -- reverting that edit reds
+                # `test_b5_exactly_one_row_was_added` AND
+                # `test_b5_the_new_row_is_iteration_365_s_and_fits_the_cap` -- so
+                # re-anchoring those two pins to iteration 365's OWN commit via
+                # `_shipped_index()` is FORCED, not optional. Allow-listed rather
+                # than any assertion weakened, on the
+                # iter-212/215/242/320/323/325/334/335/338 precedent and the same
+                # evidence those rows use: `newest_ness_pin_sites` over that file is
+                # `()` at HEAD AND in the worktree, so no newest-ness pin was swept,
+                # converted or added, and the 75-assertion literal class keeps both
+                # sibling checks above. Stronger still: BOTH re-anchored functions
+                # contain NONE of DOC_TOKENS at HEAD and in the worktree, so neither
+                # can host a newest-ness claim about a live tracked doc at all -- and
+                # the one `test_b5_*` that DOES carry `ARCHIVE`
+                # (`..._has_an_archive_bullet_the_brake_can_parse`) is byte-untouched
+                # by AST source-segment comparison. The DELETION pin
+                # `test_b5_no_pre_existing_ledger_row_was_deleted` still reads the
+                # live tree and is UNTOUCHED, which is the half that guards against a
+                # real row loss. Red ONLY inside the pre-commit window; a fresh clone
+                # at the ship commit is clean.
+                "tests/test_iter365_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the
