@@ -41,72 +41,22 @@ the same iteration as 127 itself (a live loop holds the pre-127 `foundry.py` in 
 authorises the retry, plus the dispatcher restart that lesson demands). Scout A's per-product
 `fast_test_cmd` for the build stages was DE-LISTED by iteration 126's spec -- detail in the archive
 (iteration 126's bullet); do NOT re-propose.
-THREE NEW items measured by iteration 136's scouts; FULL evidence in `products/_platform/state/iter-136/`
-(`pm_scout_a.md`, `pm_scout_b.md`) -- read those before designing, do NOT re-measure. (j) ACTIVATE-ON-LAG,
-biggest number on either slate: the live brain holds an Aug-5 `foundry.py`, so 14 shipped iterations (incl.
-the 129/135 retry re-pricings) have NEVER executed = 2.43 h/day of fleet sleep (quote that RUN RATE, not a
-total). Two bites; bite 2 edits a running loop's control flow, so it needs its own iteration. (k) the suite
-is 46.58 s serial vs 17.02 s under `-n auto` (2.74x, zero verdict changes) BUT that mutates the declared
-quality-check command the final gate and fresh clone consume, and 26 freeze guards would `git diff` from
-many workers on ONE tree -- only for an iteration that can re-verify the fresh clone. (l) SHIPPED iter 160 -- detail in the archive.
-(o) NEW, hoisted from 141's STATUS and named there as the recommended next feature: re-scope
-the 26 every-suite guards asserting `git diff --quiet HEAD -- dispatcher.py scripts/ .gitignore` to an
-AST/symbol invariant (dispatcher.py still imports foundry, still calls exactly load_config / run_iteration /
-dispatch_progress_line in the shift loop, still honors both STOP files). PREREQUISITE for ANY dispatcher-side
-change -- 141's flag shipped DORMANT because its one-line call site could not land -- and it also unblocks (j)
-bite 2 and (k). TEST-OWNED and the highest blast radius on this list (it re-scopes the product's own safety net
-over the running loop's control path), with `tests/test_control_path_freeze_scope.py` pinning a guard-count
-FLOOR of 26 plus `FORBIDDEN = ("README.md", "roles/")`, so it wants its OWN iteration and must NOT be bundled
-with a feature.
+(j) ACTIVATE-ON-LAG and (k) the parallel-suite bite are both OPEN; iteration 136's evidence and both bites' constraints are in the archive.
+(l) SHIPPED iter 160 -- detail in the archive.
+(o) OPEN and the PREREQUISITE for any dispatcher-side change -- re-scope the 26 control-path freeze guards to an AST/symbol invariant; TEST-OWNED, own iteration. Detail in the archive.
 (p) SHIPPED iters 169/174/175 -- detail in the archive.
-(q) NEW (iter 153, successor to A1): 235 more redundant declared lines remain in the 9 `Company*` roll-up classes,
-but each group covers a SUBSET (`exit_code` x4/x3, `to_dict` x3, `verdict` x5/x3, `n_flagged` x4, `files_scanned` x4,
-`total_findings` x4, `total_parse_errors` x3, `total` x3) and each is the roll-up's decision/serialisation contract --
-so ONE group per iteration behind golden-output comparison, never a blanket collapse. NEXT BITE, PROTOTYPED iter 164 scout B: `exit_code` x4 (57
-redundant lines); a 2nd mixin AND extending `CompanyRollupCounts` each RED an iter-153 pin, so assign one module-level
-fn as `exit_code = property(fn)` in the 4 class bodies -- MRO stays 3, fget identity holds, zero prior tests edited.
+(q) OPEN -- 235 redundant declared lines remain in the 9 Company* roll-ups; ONE subset group per iteration behind golden output, never a blanket collapse. Detail in the archive.
 (r) DE-LISTED (iter 154) -- detail in the archive; do NOT re-propose.
-(s) NEW (iter 155, the hotfix's deferred CLASS fix): iter 154 shipped green and turned post-release BROKEN because
-a test asserted the ambient `products/` tree holds >6000 files -- true in this working tree, false in the fresh
-clone the verifier builds (4 tracked files). A repo-wide guard over `tests/` banning ambient-tree COUNT
-preconditions owes its own false-positive calibration: only 2 files define `_REAL_PRODUCTS`, and the many
-legitimate `tmp_path` byte-walks must NOT be flagged. Calibrate two-sidedly, then ship.
+(s) OPEN -- a repo-wide guard over tests/ banning ambient-tree COUNT preconditions (the iter-154 post-release break); owes two-sided calibration. Detail in the archive.
 (t) SHIPPED iter 156 -- detail in the archive.
 (u) SHIPPED iter 181 -- detail in the archive.
 (v) SHIPPED iter 163 -- detail in the archive.
-(w) NEW (iter 165 scouts; FULL evidence in `products/_platform/state/iter-165/` + 165's archive bullet -- do NOT
-re-measure). The company verdict hoist is item (q) and its OBVIOUS shape is KNOWN-RED: 164's scout B measured that
-extending `CompanyRollupCounts` REDs an iter-153 pin, so only `exit_code = property(fn)` in the 4 class bodies is
-green. 3 of the 5 gate parsers collapsed at iter 202 (54-cell matrix; archive); the `ACTION:` pair remains. THREE DE-LISTINGS: (k) is 0.8% of
-an iteration (28.80s fresh-clone suite), so 2.74x buys ~18s -- it is NOT the throughput item; a digest share cap is
-NOT restart-free (the budget is code in the frozen `foundry.py`), fold into (u); one-scout-per-iteration is 23.8% of
-all agent time but sits behind (o).
-(x) NEW (iter 183 scout A); evidence, method and rejected alternatives in 183's archive bullet -- do NOT re-measure.
-Rank duplication by STATEMENTS, never lines. NEXT BITE, not bundled with 183 (same subsystem): the `render` triplet
-on the three test-quality Summary classes -- 8 statements each differing in TWO string literals, uncovered by (q),
-guarded by 18 literal assertions, so golden-capture it. C1 (`_head_region`) is HOT-PATH: its own iteration.
-(y) NEW (iter 184 scout A; evidence + rejected alternatives in 184's archive bullet -- do NOT re-measure).
-NEXT BITE RE-PRICED at 201 and DOWN-RANKED: the line ALREADY windows (`limit=20`) and WARNs naming the
-worst stage + headroom, so a delta adds direction of travel only. Then scout A's `deadtail` report (12.0 min/iteration of
-wall clock after the required artifact stops growing; 7.0 of it in prose-only stages). Item (i) already
-DE-LISTED the stop-when-stable EARLY EXIT -- report only, never a kill.
+(w) OPEN -- iteration 165's scout measurements: the company-verdict hoist's obvious shape is KNOWN-RED, plus three DE-LISTINGS (do NOT re-measure). Detail in the archive.
+(x) OPEN -- rank duplication by STATEMENTS, never lines; NEXT BITE is the render triplet on the three test-quality Summary classes, golden-captured. Detail in the archive.
+(y) OPEN, DOWN-RANKED at 201 -- then scout A's deadtail report (12.0 min/iteration of wall clock after the artifact stops growing); report only, never a kill. Detail in the archive.
 (z) NEW (iter 186) -- 4th test-quality lens. CLI SHIPPED iter 323 (`unfailable-asserts`). STILL OPEN:
 the `TestQualitySummary` fold and a `company-unfailable-asserts` roll-up. Detail in the archive.
-(aa) NEW (iter 207, from scout B's B1 plus the PM's own verification; the OBVIOUS shape is KNOWN-RED, do NOT
-re-propose it as a one-iteration bite). The prompt learnings tail is MIS-TUNED and it is measured: the live window's
-10 lessons run 874/991/1484/1299/1483/1286/1127/979/1415/2026 chars, so `PROMPT_LEARNINGS_LESSON_CHARS` (800) binds on
-10 of 10 and cuts every one mid-clause, the tail spends 8,000 of its 10,000 chars, and
-`PROMPT_LEARNINGS_BUDGET_CHARS` (10,000) is therefore STRUCTURALLY UNREACHABLE on the live path (recent=10 x 800 =
-8,000 < 10,000) -- one of the two declared bounds can never fire. Whole-lesson admission newest-first fits 7 COMPLETE
-lessons in 9,615 chars under the UNCHANGED budget. WHY IT IS NOT A SMALL BITE, measured at 207: six assertions of the
-form `len(ln) <= lesson_chars` in `tests/test_iter104_behavior.py` red any whole-lesson admission by construction, and
-both escapes are pinned shut too -- `tests/test_iter118_behavior.py` freezes the exact fully-bounded call as appearing
-VERBATIM in the pm prompt, and `tests/test_iter144_behavior.py`'s spy asserts `lesson_chars` IS passed
-(`seen.get("lesson_chars") == 77`). So every route that changes what the prompt path receives must edit prior tests on
-the fleet-wide path `build_prompt` runs for every stage of every team. Also do NOT simply drop `lesson_chars` from the
-two call sites: with no per-lesson cap a single lesson longer than the budget admits NOTHING, emitting
-`## Recent lessons (last 0 of N)`, and `len(d) <= HB + MB + 300` still passes -- a fail-open the suite cannot see. Any
-future attempt needs a documented LAST-RESORT truncation and its own iteration.
+(aa) OPEN but its OBVIOUS shape is KNOWN-RED (do NOT re-propose as a one-iteration bite): the prompt learnings tail is MIS-TUNED, and every route that changes it edits prior tests on the fleet-wide build_prompt path. Detail in the archive.
 (bb) NEW (iter 227) -- DEFERRED bites of the gate-eval corpus; detail in the archive.
 INDEX BUDGET (a scheduling item, never a competitive candidate): the binding wall is now ONE constant,
 `ROADMAP_INDEX_HARD_CHARS` (54,000) -- NOT the 60,000 `ROADMAP_SIZE_WARN_CHARS` -- and the two live tests that
@@ -319,6 +269,7 @@ in the archive.
 - iter 362 -- scout-plan gains an optional --config: the preview's verdict finally matches the live scout phase.
 - iter 363 -- gather_losses and gather_auth_recency stop walking the attempt logs twice: one shared record-builder.
 - iter 364 -- roadmap-index WARNs when the index cannot absorb one mandatory ledger row.
+- iter 365 -- index paydown: 8 spent item-detail blocks archived verbatim, ledger-row runway restored
 
 
 ### Migration notes (per §6 self-mod guardrail)
