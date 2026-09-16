@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-363
+    lenses: simplification-and-deletion (iteration 363), performance-and-throughput
+    - Candidate A1 -- 165 pure test helpers are copy-pasted 3,579 code-lines' worth across the suite, and cross-test imports are already a shipped pattern in 8 files
+    - Candidate A2 -- the roadmap index carries 134 Done rows (15,589 chars, 31% of the file) that both brakes' own docstrings say may be dropped, while doctor reports 4,234 chars of headroom
+    - Candidate A3 -- `gather_losses` and `gather_auth_recency` are 95.2% identical (128 lines), the LAST collapsible pair in foundry.py
+    - Candidate B1 -- (measuring: per-test / per-stage repeated cost)
+    - Candidate B2 -- (measuring: cost paid once per stage vs once per iteration)
+    - Candidate B3 -- (measuring: wasted retries / redundant re-verification)
+    winner: A3
+    ship: pending (not yet decided)
   iter-362
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- the five PM prompt feeds all return "" for both scout seats, so the seats that PROPOSE the feature see none of the evidence the seat that merely PICKS one does
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- 35 of the CLI's 55 verbs are hand-typed clones of one of six archetypes, costing 806 lines, and the pure oracle that would PROVE a collapse changed no verb is already in the tree (dormant)
     - Candidate B3 -- the 8 `summarize_company_*` roll-up constructors are 156 lines of 0.76-0.95 textually identical code, and this is the SECOND time the census has been taken
     winner: A3
-    ship: pending (not yet decided)
+    ship: PUSHED e0b8d93
   iter-361
     lenses: hardening/DX -- iteration 361, integration-and-adoption -- iteration 361
     - Candidate B1 -- doctor's auth-loss WARN has no recency, so it is printing "a HUMAN must re-authenticate" right now, 5h and 8 consecutive healthy attempts AFTER the human already did
@@ -1540,4 +1550,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-153 scouted iterations
+154 scouted iterations
