@@ -1042,7 +1042,34 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # live tree and is UNTOUCHED, which is the half that guards against a
                 # real row loss. Red ONLY inside the pre-commit window; a fresh clone
                 # at the ship commit is clean.
-                "tests/test_iter365_behavior.py"}
+                "tests/test_iter365_behavior.py",
+                # iter 371: FORCED brake amendment, one path. Iteration 371 adds
+                # the 58th CLI verb (`stop`), which mechanically falsifies iteration
+                # 362's FROZEN-INTEGER census pin `EXPECTED_VERB_COUNT = 57`
+                # (`test_ac_verb_census_unchanged`): measured this iteration,
+                # `foundry_cli_verbs` reads 57 at HEAD and 58 in the worktree with
+                # set difference exactly `['stop']`, so the suite cannot be green
+                # with both the verb and the old literal -- re-pointing it to 58 is
+                # FORCED, not optional, and the equality was kept EXACT (never
+                # weakened to `>=`) so an accidental verb still reds. Allow-listed
+                # rather than any assertion weakened, on the
+                # iter-212/215/242/320/323/325/334/335/338/366 precedent and the same
+                # evidence those rows use: `newest_ness_pin_sites` over that file is
+                # `()` at HEAD AND in the worktree (measured this iteration by
+                # importing this module's own helper), so no newest-ness pin was
+                # swept, converted or added, and the 75-assertion literal class keeps
+                # both sibling checks above. Red ONLY inside the pre-commit window; a
+                # fresh clone at the ship commit is clean.
+                "tests/test_iter362_behavior.py",
+                # iter 371: this iteration's OWN new behavior test file, for the
+                # identical reason as the
+                # iter-226/227/229/230/231/232/323/325/335/336/338 rows above --
+                # `THIS_ITER` is FROZEN at 204, so the f-string on the `expected`
+                # line CANNOT name a later iteration, and the path is red ONLY inside
+                # the staging window (`git diff HEAD` cannot see an UNTRACKED path at
+                # all; the gate's own `git add -A` makes it visible). This WIDENS the
+                # allow-list, so it cannot red anything.
+                "tests/test_iter371_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

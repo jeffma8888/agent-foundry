@@ -21952,6 +21952,332 @@ def company_stops_cli(dispatch_path: str, as_json: bool = False) -> int:
 
 
 # --------------------------------------------------------------------------- #
+# The WRITE half of the STOP contract (`stop`) -- iteration 371
+#
+# `VISION.md` sells a loop that ships "indefinitely, until told to stop", and
+# TELLING it to stop was the one operator action in that sentence with no verb.
+# The READ half shipped 168 iterations ago (`stop_reason`, `StopRow`,
+# `gather_stop`, `summarize_company_stops`, the `company-stops` verb,
+# `STOP_REASON_MAX_CHARS`, `STOP_REASON_UNREADABLE`) and the WRITE half was
+# EMPTY: the only non-reader mention of the sentinel in this module was
+# `ProductConfig.stop_file`, a path property.
+#
+# WHY THAT IS A DEFECT AND NOT A MISSING CONVENIENCE. The action every document
+# taught instead was `touch STOP`, which writes ZERO bytes -- so the documented
+# operator action produces exactly the reason-LESS sentinel the reader above
+# exists to interpret, whose reason renders `""` and is then indistinguishable
+# from a sentinel whose text simply could not be parsed. The comment beside
+# `STOP_REASON_MAX_CHARS` states the requirement in the framework's own words:
+# these files "carry a REASON and usually a reactivation condition an operator
+# must read before deleting one". A verb that cannot produce a reason-less
+# sentinel is the only writer that keeps that promise, which is why a blank
+# `--reason` is REFUSED here rather than defaulted.
+#
+# THE ROUND TRIP IS ENFORCED IN THE PRODUCTION CODE, not asserted only in a
+# test: `stop_write_verdict` derives the reason it reports by feeding the bytes
+# about to be written back through the SHIPPED `stop_reason`, so the verdict can
+# never claim a reason the fleet report will not render, and narrowing
+# `STOP_REASON_MAX_CHARS` narrows what gets written.
+#
+# ADDITIVE-DORMANT: nothing on the control path calls any of this.
+# `stop_reason`, `StopRow`, `gather_stop`, `company_stops_cli`, `global_stop`,
+# `stopping` and `ProductConfig.stop_file` are BYTE-UNTOUCHED, so a loop in
+# flight resumes byte-identically. LIFTING a sentinel is deliberately out of
+# scope: it is `rm <path>` and needs nothing rendered, so a `resume` verb is a
+# separate bite. Making the sentinel DURABLE (a reviewable record of who retired
+# a team) is out of scope too -- `.gitignore` ignores `STOP` and
+# `products/*/STOP`, and changing that is a roadmap decision.
+# --------------------------------------------------------------------------- #
+# Every action word `stop_write_verdict` can return. Published as DATA so a
+# consumer (a report, a future verb, a test) never retypes a literal that could
+# drift -- the same reason `GAP_CLAIM_VERDICTS` is a tuple.
+STOP_WRITE_ACTIONS: tuple[str, ...] = ("WROTE", "REFUSED", "FAILED")
+
+# The error recorded when the requested reason renders to nothing. Non-empty and
+# specific on purpose: the whole point of this verb over `touch` is that it
+# CANNOT produce a sentinel whose reason its own reader renders as `""`, so the
+# blank case has to be a refusal with a stated cause rather than a silent write.
+STOP_BLANK_REASON_ERROR = (
+    "a STOP sentinel must carry a reason its own reader can render; "
+    "--reason held no non-whitespace text")
+
+
+def render_stop_text(reason: str | None) -> str:
+    """The exact bytes to write into a STOP sentinel for `reason`.
+
+    PURE and TOTAL: no filesystem, subprocess, network or clock access, no
+    mutation of its argument, and equal inputs give `==` results. Writing the
+    file is deliberately the CALLER's job (`stop_cli`), which is what lets a test
+    drive every branch from in-memory strings.
+
+    THE OUTPUT IS A FIXPOINT OF THE SHIPPED READER, which is the whole contract
+    and the reason this function exists rather than a `write_text(reason)` call
+    at the seam: `stop_reason(render_stop_text(r))` equals this function's own
+    first line, for EVERY input, so a sentinel this verb writes can never render
+    in `company-stops` as anything other than the line it put there. It is built
+    by reusing `stop_reason` itself (called by BARE module name at CALL time, so
+    a monkeypatch bites and a narrowed `STOP_REASON_MAX_CHARS` narrows the
+    written text) and then `rstrip()`-ing the result.
+
+    WHY THE `rstrip()` IS LOAD-BEARING rather than tidy: `stop_reason` truncates
+    at `STOP_REASON_MAX_CHARS`, and that cut can land ON a space, leaving a
+    trailing space that a RE-read would strip -- so without the strip the bytes
+    on disk would render one character shorter than the verdict claimed. The
+    honest consequence, stated rather than hidden: for such an input the written
+    line is one character shorter than `stop_reason(reason)`. A fixpoint is worth
+    that character; writing bytes our own reader renders differently is not.
+
+    Returns `""` -- NOT a newline -- when the reason holds no non-whitespace
+    text, so a caller that writes this output unconditionally still cannot create
+    the reason-less sentinel `touch` creates. `stop_write_verdict` turns that
+    empty rendering into a `FAILED` verdict.
+
+    TOTAL: raises for NO input. `None`, a non-`str`, `""` and a whitespace-only
+    string all return `""`.
+
+    DORMANT: zero call site in the running pipeline -- no orchestrator,
+    dispatcher, stage or final gate references it.
+    """
+    line = stop_reason(reason).rstrip()
+    return f"{line}\n" if line else ""
+
+
+@dataclasses.dataclass(frozen=True)
+class StopWriteVerdict:
+    """One decision about writing ONE STOP sentinel -- the `stop` verb's core.
+
+    Frozen, like every other pure core here, so a computed verdict cannot be
+    edited after the fact and value equality comes free.
+
+    Fields:
+      * `action` -- a member of `STOP_WRITE_ACTIONS`: `WROTE` (the sentinel now
+        carries the operator's reason), `REFUSED` (one was already there and
+        `--force` was not given, so its text is UNCHANGED), `FAILED` (the write
+        could not be done, or the reason was blank).
+      * `scope` -- `"global"` (`<foundry>/STOP`, every team) or `"team"`
+        (`<work_root>/STOP`, one team). Named in the report because the blast
+        radius of the two differs by the whole roster.
+      * `sentinel` -- the path decided upon, reported for every action so an
+        operator can see WHICH file to delete to resume.
+      * `reason` -- for `WROTE`, the line actually written, derived by feeding
+        those bytes back through the shipped `stop_reason`; for `REFUSED` and for
+        a `FAILED` over an existing sentinel, the EXISTING sentinel's reason,
+        because that is the text the operator must read before deleting it.
+      * `existed` -- whether a sentinel was already at `sentinel`.
+      * `forced` -- whether `--force` was given.
+      * `error` -- `""`, or the CAUSE of a `FAILED`: an exception TYPE name or
+        `STOP_BLANK_REASON_ERROR`. Never an exception MESSAGE -- an `OSError`
+        message embeds the absolute path it failed on, and this text ships into
+        the logs and state artifacts of a PUBLIC repo.
+      * `exit_code` -- a FIELD, computed in `__post_init__` and `init=False` so
+        no caller can ever supply the verdict (the `DormancySummary` idiom):
+        0 `WROTE` / 1 `REFUSED` / 2 `FAILED`. Deliberately stricter than a
+        derived `@property`, because `to_dict()` is EXACTLY the field names and a
+        field cannot silently drift out of that payload the way a hand-listed
+        derived key can.
+
+    WHY `REFUSED` IS 1 AND `FAILED` IS 2, matching the `leak-check` family: 1 is
+    "your instruction did not happen and you need to look at this", 2 is "the
+    thing could not be decided or carried out at all". A refusal is the FAIL-SAFE
+    arm -- the team stays in whatever state it was in, and no reactivation
+    condition an earlier operator wrote is destroyed.
+    """
+    action: str
+    scope: str
+    sentinel: str
+    reason: str
+    existed: bool
+    forced: bool
+    error: str
+    exit_code: int = dataclasses.field(init=False, default=2)
+
+    def __post_init__(self) -> None:
+        """Derive `exit_code` once, at construction, on a FROZEN dataclass.
+
+        `object.__setattr__` is the documented way to assign a computed field on
+        a frozen instance. The rule is inline rather than a second module-level
+        seam because it has exactly ONE consumer and no independent meaning, and
+        keeping it unpatchable is a feature: the exit code can then never
+        disagree with the action word beside it."""
+        codes = {"WROTE": 0, "REFUSED": 1}
+        object.__setattr__(self, "exit_code", codes.get(self.action, 2))
+
+    @property
+    def written(self) -> bool:
+        """True iff bytes should reach / did reach the sentinel.
+
+        Derived rather than stored so it can never disagree with `action`. The
+        seam reads it to decide whether to write at all, which is what keeps the
+        write/refuse rule in ONE place instead of duplicated at the call site."""
+        return self.action == "WROTE"
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe payload -- every value is JSON-native, so it
+        round-trips through `json.loads(json.dumps(...))`. Keys are EXACTLY the
+        dataclass field names, `exit_code` included, so the machine contract and
+        the verdict cannot drift apart. Pure: touches no filesystem."""
+        return {field.name: getattr(self, field.name)
+                for field in dataclasses.fields(self)}
+
+    def render(self) -> str:
+        """The ONE human line this verb prints, chosen per action.
+
+        Pure: no I/O, no clock, so two runs over one verdict render
+        byte-identically. One line rather than a block because this is a verdict
+        an operator reads in a terminal between two other commands -- and the
+        `REFUSED` arm names the flag that would change the answer, since a
+        refusal the reader cannot act on is just an error."""
+        head = f"stop: {self.action} -- {self.scope} scope; sentinel {self.sentinel}"
+        if self.action == "REFUSED":
+            return (f"{head} already exists and its text is UNCHANGED; "
+                    f"reason: {self.reason} (pass --force to replace it)")
+        if self.action == "FAILED":
+            return f"{head}; nothing was written: {self.error}"
+        return f"{head}; reason: {self.reason}"
+
+
+def stop_write_verdict(scope: str, sentinel: str, text: str, *,
+                       existed: bool = False, forced: bool = False,
+                       existing_reason: str = "",
+                       error: str = "") -> StopWriteVerdict:
+    """Decide what writing `text` to `sentinel` should do -- PURE and TOTAL.
+
+    Takes the SITUATION as plain values (the rendered bytes, whether a sentinel
+    is already there, what it said, whether `--force` was given, and any error
+    already suffered) and returns the frozen verdict. No filesystem, subprocess,
+    network or clock access, no mutation of its arguments, and equal inputs give
+    `==` results -- probing and writing the path is deliberately the CALLER's
+    job, which is what lets a test drive every branch from in-memory strings.
+
+    THE REASON IS READ BACK OUT OF `text` THROUGH THE SHIPPED `stop_reason`,
+    called by BARE module name at CALL time. That is the round-trip law expressed
+    as code rather than as a test: whatever this verdict reports is exactly what
+    `company-stops` will render off the bytes the caller is about to write.
+
+    The rules, in order, each with its own reason:
+      1. an `error` the caller already suffered wins -- a write that raised is
+         `FAILED` no matter how good the request was;
+      2. a `text` whose reason renders EMPTY is `FAILED` with
+         `STOP_BLANK_REASON_ERROR`, because this verb's entire advantage over
+         `touch` is that it cannot create a reason-less sentinel;
+      3. an existing sentinel without `forced` is `REFUSED`, the fail-SAFE arm --
+         clobbering would destroy a reactivation condition an earlier operator
+         wrote, and that text is unrecoverable (the file is gitignored);
+      4. otherwise `WROTE`.
+
+    `reason` reports the EXISTING sentinel's text whenever one exists and we are
+    not writing, because that is the text the operator must read; otherwise it
+    reports the line derived from `text`.
+
+    TOTAL: raises for NO input. A non-`str` `text` renders an empty reason and so
+    lands in rule 2; non-`str` `scope` / `sentinel` / `existing_reason` / `error`
+    are coerced with `str()`; `existed` / `forced` are read for truthiness. The
+    sole caller is an operator-facing verb, so a raise here would turn "I could
+    not stop the team" into a traceback.
+
+    DORMANT: zero call site in the running pipeline -- only `stop_cli` calls it.
+    """
+    # Bare-name call at CALL time, so `monkeypatch.setattr(foundry,
+    # "stop_reason", ...)` bites and a narrowed cap narrows this verdict too.
+    written_reason = stop_reason(text if isinstance(text, str) else None)
+    already = bool(existed)
+    cause = str(error) if error else ""
+    if cause:
+        action = "FAILED"
+    elif not written_reason:
+        action, cause = "FAILED", STOP_BLANK_REASON_ERROR
+    elif already and not forced:
+        action = "REFUSED"
+    else:
+        action = "WROTE"
+    reason = (str(existing_reason) if already and action != "WROTE"
+              else written_reason)
+    return StopWriteVerdict(action=action, scope=str(scope),
+                            sentinel=str(sentinel), reason=reason,
+                            existed=already, forced=bool(forced), error=cause)
+
+
+def stop_cli(cfg: ProductConfig | None, *, reason: str, force: bool = False,
+             global_scope: bool = False, as_json: bool = False) -> int:
+    """On-demand CLI: write the STOP sentinel that halts a team, or the company.
+
+    The ONE filesystem seam of this verb (the pure cores are `render_stop_text`
+    and `stop_write_verdict`). It resolves the target -- `<foundry>/STOP` for
+    `global_scope`, else this product's `<work_root>/STOP` through the EXISTING
+    `ProductConfig.stop_file` property so the path is not duplicated here --
+    probes it, asks `stop_write_verdict` what to do, and writes ONLY when that
+    verdict says so.
+
+    THE DECISION IS ASKED BEFORE THE WRITE AND RE-ASKED AFTER A FAILURE, so the
+    write/refuse rule exists in exactly one place: this body never re-tests
+    "does it already exist" to decide, it reads `verdict.written`.
+
+    With `as_json=True` stdout is exactly ONE `json.dumps(to_dict(), indent=2)`
+    document; either way the RETURN value is the same `exit_code` (0 wrote /
+    1 refused, an existing sentinel is UNCHANGED / 2 failed). The shared
+    `_thin_gather_cli` printer deliberately is NOT reused: its contract is
+    `gather(cfg, arg)` over a READ-ONLY census, and this is the one verb in the
+    family that mutates the tree, so borrowing a read-only helper's body would
+    misfile it.
+
+    Resilient: a missing parent directory is created, and an unwritable target,
+    an existing DIRECTORY in place of the file, or undecodable bytes in an
+    existing sentinel all yield a verdict and an exit code, never a traceback.
+    A sentinel it can see but not read is reported with `STOP_REASON_UNREADABLE`
+    exactly as `gather_stop` reports it, so the two surfaces agree.
+
+    THE ONLY WRITING VERB IN THE `company-*`/report family, and the most
+    dangerous in the CLI: `global_scope` halts EVERY team. That is why its
+    parser makes the target a REQUIRED mutually-exclusive group instead of
+    defaulting to one -- a verb that can halt the whole company must never
+    acquire its target by omission -- and why `force` is opt-in.
+
+    DORMANT: on-demand only. The pipeline, the final gate and `dispatcher.py`
+    never call it, so a loop in flight resumes byte-identically."""
+    if global_scope:
+        # `global_stop()` owns WHERE the company sentinel lives; this mirrors the
+        # one path `gather_stop` names for the same file.
+        sentinel, scope = FOUNDRY / "STOP", "global"
+    elif cfg is None:
+        # Unreachable through the parser (the target group is REQUIRED), but the
+        # function is total for direct callers rather than trusting argparse.
+        verdict = stop_write_verdict("team", "", "",
+                                     error="no target: pass --config or --global")
+        print(json.dumps(verdict.to_dict(), indent=2) if as_json
+              else verdict.render())
+        return verdict.exit_code
+    else:
+        sentinel, scope = cfg.stop_file, "team"
+
+    existed = sentinel.exists()
+    existing_reason = ""
+    if existed:
+        try:
+            existing_reason = stop_reason(sentinel.read_text())
+        except (OSError, UnicodeDecodeError, ValueError):
+            # Same fail-CLOSED reading as `gather_stop`: a sentinel we can see
+            # but not read still counts as present, with the shared marker.
+            existing_reason = STOP_REASON_UNREADABLE
+
+    text = render_stop_text(reason)
+    verdict = stop_write_verdict(scope, str(sentinel), text, existed=existed,
+                                 forced=force, existing_reason=existing_reason)
+    if verdict.written:
+        try:
+            sentinel.parent.mkdir(parents=True, exist_ok=True)
+            sentinel.write_text(text)
+        except OSError as exc:
+            # TYPE only, never the message -- an OSError message embeds the
+            # absolute path it failed on, and this line ships into public logs.
+            verdict = stop_write_verdict(scope, str(sentinel), text,
+                                         existed=existed, forced=force,
+                                         existing_reason=existing_reason,
+                                         error=type(exc).__name__)
+    print(json.dumps(verdict.to_dict(), indent=2) if as_json else verdict.render())
+    return verdict.exit_code
+
+
+# --------------------------------------------------------------------------- #
 # Prompt + stage runner
 # --------------------------------------------------------------------------- #
 def product_config_path(cfg: ProductConfig) -> str | None:
@@ -26369,6 +26695,42 @@ def main(argv: list[str] | None = None) -> int:
                      help="emit the company roll-up as one JSON document "
                           "(machine-readable) instead of the human report; "
                           "same 0/1/2 exit code")
+    # `stop` is the WRITE half of the contract `company-stops` above READS: it
+    # writes a sentinel carrying a REASON, which the documented alternative
+    # (`touch STOP`, zero bytes) cannot do -- and a reason-less sentinel is
+    # indistinguishable from one whose bytes went bad, so the reader loses the
+    # reactivation condition an operator must see before deleting the file.
+    # THE TARGET IS A REQUIRED MUTUALLY-EXCLUSIVE GROUP, never a default: this is
+    # the only verb in this CLI that changes what the loop DOES, and `--global`
+    # halts EVERY team, so it must not be able to acquire a target by omission.
+    # `--reason` is REQUIRED for the same reason -- a blank one is REFUSED rather
+    # than written. It is dispatched BEFORE the `load_config(args.config)` call
+    # below because `--global` names no product at all, so there may be no
+    # product config to load (the `new-product` precedent). Exit 0 wrote /
+    # 1 refused, an existing sentinel is UNCHANGED / 2 failed.
+    stp = sub.add_parser("stop")
+    target = stp.add_mutually_exclusive_group(required=True)
+    target.add_argument("--config",
+                        help="path to ONE PRODUCT config -- retire just that "
+                             "team by writing its <work_root>/STOP (no default: "
+                             "exactly one of --config / --global is required)")
+    target.add_argument("--global", dest="global_scope", action="store_true",
+                        help="write <foundry>/STOP instead, which halts EVERY "
+                             "team in the dispatch roster, not one")
+    stp.add_argument("--reason", required=True,
+                     help="why the loop is being stopped, and ideally the "
+                          "condition for restarting it -- collapsed to ONE line "
+                          "of at most STOP_REASON_MAX_CHARS so the shipped "
+                          "company-stops reader renders it verbatim; a blank "
+                          "reason is REFUSED, never written")
+    stp.add_argument("--force", action="store_true",
+                     help="replace an EXISTING sentinel; without it an existing "
+                          "sentinel is refused and its text is preserved "
+                          "verbatim (it may hold a reactivation condition)")
+    stp.add_argument("--json", action="store_true",
+                     help="emit the write verdict as one JSON document "
+                          "(machine-readable) instead of the human line; "
+                          "same 0/1/2 exit code")
     # `company-history` rolls up EVERY enabled dispatch team's iter-17
     # ship LEDGER into ONE company-wide view (total iterations / shipped /
     # reverted / broken summed across all teams). Its `--config` points at the
@@ -26661,6 +27023,13 @@ def main(argv: list[str] | None = None) -> int:
         # above: no product `--config` is needed because `dispatcher.out` is a
         # foundry-root artifact, and this verb only READS it.
         return inflight_cli(args.log, now=args.now, as_json=args.json)
+    if args.cmd == "stop":
+        # Dispatched BEFORE load_config, and the ONLY verb that may be given no
+        # product at all: `--global` targets the foundry-root sentinel, so there
+        # is no product config to load (the `new-product` precedent above).
+        return stop_cli(load_config(args.config) if args.config else None,
+                        reason=args.reason, force=args.force,
+                        global_scope=args.global_scope, as_json=args.json)
 
     cfg = load_config(args.config)
     if args.cmd == "doctor":

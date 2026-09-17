@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-371
+    lenses: narrative-and-docs, new-capability -- iteration 371
+    - Candidate A1 -- (measuring: a doc/role-card claim the shipped code contradicts)
+    - Candidate A2 -- (measuring: a decision whose reasoning exists nowhere a future reader will look)
+    - Candidate A3 -- (measuring: an artifact that reports a stale figure)
+    - Candidate B1 -- `foundry stop` / `foundry resume`: the WRITE half of the STOP contract the VISION sells
+    - Candidate B2 -- a per-product `goal` config field, rendered into the PM and both scout prompts
+    - Candidate B3 -- every stage learns its OWN measured budget, not the static "~600s" every role card recites
+    winner: B1
+    ship: pending (not yet decided)
   iter-370
     lenses: performance-and-throughput (iteration 370), narrative-and-docs (iteration 370)
     - Candidate A1 -- `stage-times`, the throughput census itself, reports the hottest stage's median as 2s
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- three doctor verdicts are wired into the PM and BOTH scout prompts, and not one of the three role cards that receive them says so; `roles/pm.md` still spends a stage subprocess fetching one of them by hand
     - Candidate B3 -- the four rotting line-number citations `PLATFORM_ROADMAP.md` inherited from iteration 335's own written deferral, with the paydown gate that blocked them now released
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 9184f63
   iter-369
     lenses: simplification-and-deletion (iteration 369), performance-and-throughput (iteration 369)
     - Candidate A1 -- (measuring: dead/dormant symbol census)
@@ -1619,4 +1629,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-161 scouted iterations
+162 scouted iterations
