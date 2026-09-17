@@ -21886,6 +21886,207 @@ def config_path_line(cfg: ProductConfig) -> str:
     return f"{PROMPT_CONFIG_PATH_LABEL}{path}\n"
 
 
+# --------------------------------------------------------------------------- #
+# PM-facing DRIFT feed (iter 367) -- DELIVERING verdicts the framework already
+# computes, to the seats that owe their remedies.
+#
+# `run_doctor_cli.__doc__` assigns these remedies in the imperative -- "an
+# over-budget steering head is an edit the operator owes, a roadmap index near
+# its hard wall is an ARCHIVE the operator owes, a stage median at the hard
+# per-stage cap is a SMALLER BITE the PM owes" -- yet every one of those verdicts
+# reached exactly ONE surface: a human who remembered to run `foundry doctor`.
+# `build_prompt` held ZERO occurrences of `live_lag`, `learnings_head`,
+# `roadmap_index`, `stage_budget` or `doctor`, so the seat a verdict is ADDRESSED
+# TO never read it. A computed verdict that never reaches that seat is a broken
+# feedback loop, not a diagnostic -- and the cost is measured, not hypothetical:
+# iteration 367's own `pm_scout_b` spent a full capped stage ranking FIRST a
+# candidate that 27 permanent freeze guards make unshippable, while
+# `stage-budget: WARN` was naming that seat's own stage as the budget victim.
+#
+# This feed DELIVERS and computes NOTHING new. The three fed renderers are called
+# by their BARE module names, and ALL FOUR of `doctor`'s drift renderers stay
+# byte-untouched, so `doctor` output cannot move by one character and the two
+# surfaces can never disagree.
+#
+# THREE renderers are fed, not four: `learnings_head_line`, `test_touch_line` and
+# `auth_loss_line` are deliberately NOT, each for a MEASURED reason.
+#
+# `learnings_head_line` is the exclusion this iteration exists to pin, and it is
+# measured rather than argued: iteration 367 fed it and was REVERTED for exactly
+# that row. Its WARN body NAMES the head's worst offending bullet and QUOTES that
+# bullet's own text, so feeding it re-injects into the prompt the very
+# over-budget learnings text that iteration 118's head budget had just EVICTED
+# from the same prompt -- verbatim red, `assert "DROPME" not in prompt`, and the
+# gate proved causation three ways (feed ON -> 1 failed, feed OFF -> 1 passed,
+# clean HEAD -> 1 passed). It is also the LEAST PM-actionable of the four: its
+# remedy belongs to the OPERATOR ("retire or archive the spent directives"),
+# whereas the fed `stage_budget_line`'s remedy is assigned to the PM BY NAME. The
+# three fed lines quote NO learnings text at all -- `live_lag_line` quotes
+# iteration numbers, `roadmap_index_line` character counts, `stage_budget_line`
+# stage names and medians -- so no fed line can re-inject an evicted bullet.
+#
+# `test_touch_line` takes git porcelain rather than `cfg`, so feeding it means
+# owning a subprocess seam inside `build_prompt` (a separate bite), and
+# `auth_loss_line`'s live WARN is an already-CLEARED tense ("no human action is
+# owed unless it recurs"), i.e. a line that would spend prompt characters saying
+# nothing is owed. Noise, not signal.
+# --------------------------------------------------------------------------- #
+
+# Hard byte cap on the WHOLE rendered block, trailing newline included. Bounded
+# by CHARACTERS rather than by line count for the same reason the learnings head
+# is: every one of the three fed renderers interpolates live counts, and each
+# one's UNKNOWN branch interpolates an exception repr, so a single gauge having
+# a bad day must not be able to crowd the rulebook out of the same finite
+# window. Read
+# as a module global INSIDE the body, never captured at def time, so a
+# `monkeypatch.setattr(foundry, "PROMPT_DRIFT_BLOCK_CHARS", N)` bites at call
+# time -- which is what makes the cap demonstrable instead of a comment.
+PROMPT_DRIFT_BLOCK_CHARS = 2000
+
+# The seats whose prompts carry the feed: the PM lead and the two scout seats.
+# The scouts are included because the measured loss above was a SCOUT'S, not the
+# lead's. A tuple of literals rather than a `startswith("pm_scout_")` test, so
+# the gate is one greppable, monkeypatchable line; a product configured with a
+# third lens (`pm_scout_c`) is a deliberate one-token widening here, not a silent
+# inclusion by pattern.
+PROMPT_DRIFT_STAGES: tuple[str, ...] = ("pm", "pm_scout_a", "pm_scout_b")
+
+
+def drift_line_verdict(line: object, prefix: str) -> str:
+    """Recover a drift line's verdict token BY FIXED POSITION, for any prefix.
+
+    This is `live_lag_verdict`'s algorithm character for character, with the
+    prefix lifted into a parameter, and that reuse is the whole point. Iteration
+    209 removed a REAL defect in which a SUBSTRING test read an UNKNOWN line as
+    lag, because the UNKNOWN branch interpolates `{exc!r}` and an exception's text
+    can contain the 4-character `WARN` token. All THREE fed drift renderers have
+    such an UNKNOWN branch, so a second reader written by substring containment
+    would reintroduce that same bug on two more lines.
+
+    Every one of `doctor`'s four drift renderers emits
+    `"<prefix> <VERDICT> -- ..."` -- which is WHY the prefix is a parameter here,
+    even though only THREE of them are fed into a prompt -- so the verdict lives
+    at the FIRST whitespace-delimited token after `f"{prefix} "`
+    and nowhere else. Returns EXACTLY one of `LIVE_LAG_WARN` / `LIVE_LAG_OK` /
+    `LIVE_LAG_UNKNOWN` -- the fed renderers share that vocabulary, since
+    `ROADMAP_INDEX_WARN` and `STAGE_BUDGET_WARN` are both the same 4-character
+    token as `LIVE_LAG_WARN` -- or `""` when that position carries no
+    recognised verdict: a foreign line, an empty string, a non-`str`, or a line
+    where the prefix sits somewhere other than the start. `""` rather than the
+    raw word is deliberate: an unrecognised token must never compare equal to a
+    verdict, so `WARNING` cannot be mistaken for `WARN`.
+
+    Pure and total; reads nothing and writes nothing.
+
+    The INVARIANT that keeps the two readers from ever drifting apart, and the
+    one worth pinning: for EVERY input,
+    `drift_line_verdict(line, LIVE_LAG_PREFIX) == live_lag_verdict(line)`.
+    """
+    if not isinstance(line, str) or not isinstance(prefix, str) or not prefix:
+        return ""
+    head, sep, tail = line.partition(f"{prefix} ")
+    if not sep or head.strip():
+        return ""            # the prefix must OPEN the line, not sit inside it
+    parts = tail.split()
+    token = parts[0] if parts else ""
+    return token if token in (LIVE_LAG_WARN, LIVE_LAG_OK, LIVE_LAG_UNKNOWN) else ""
+
+
+def _drift_stage_budget(cfg: "ProductConfig") -> str:
+    """`stage_budget_line` in DOCTOR's own windowed call shape, arity-tolerant.
+
+    `doctor` prints `stage_budget_line(cfg, limit=STAGE_BUDGET_RECENT_ITERATIONS)`
+    and the feed must match it, because an UNWINDOWED median is an ALL-TIME
+    figure: iteration 184 shipped the window precisely because an all-time median
+    can never show that a throughput fix worked, and a permanently-standing WARN
+    teaches a reader to skip the gauge. Quoting a different median than `doctor`
+    would make the two surfaces disagree, which is the one thing this feed must
+    never do.
+
+    This is also the ONE renderer of the three whose live call shape is not
+    `(cfg)`, so a scripted stand-in written in the shape the other two take
+    would raise `TypeError` and VANISH from the block instead of reporting -- a
+    diagnostic that disappears under test is not a testable diagnostic. Retry
+    once with `cfg` alone; any other failure propagates to the caller's
+    per-renderer guard, which is where totality is owned.
+
+    `stage_budget_line` is called by its BARE module name and the window is read
+    as a module global inside this body, so `monkeypatch.setattr(foundry, ...)`
+    bites on either.
+    """
+    try:
+        return stage_budget_line(cfg, limit=STAGE_BUDGET_RECENT_ITERATIONS)
+    except TypeError:
+        return stage_budget_line(cfg)
+
+
+def drift_prompt_block(cfg: "ProductConfig") -> str:
+    """The WARN-only drift feed injected into the PM lead's and scout seats' prompts.
+
+    Renders the THREE `doctor` drift lines whose remedy is owed by the PM or the
+    operator -- `live_lag_line`, `roadmap_index_line`, `stage_budget_line`, and
+    NOT `learnings_head_line`, whose WARN quotes an over-budget learnings
+    bullet's own text and so re-injects what iteration 118's head budget just
+    evicted (the measured regression that reverted iteration 367) -- keeps ONLY
+    those whose verdict POSITION holds `WARN`, and returns
+    them newline-terminated -- or the EMPTY STRING when every verdict is OK or
+    UNKNOWN, so a healthy product's prompt stays BYTE-IDENTICAL to the
+    pre-iter-367 prompt and pays zero prompt characters. That provable no-op is
+    the whole safety argument for inlining this into text every PM seat reads.
+
+    WARN-ONLY, and UNKNOWN is deliberately NOT a warning: "I cannot tell" is not
+    evidence of a problem (the contract all three fed renderers state), and an
+    UNKNOWN line's body is an exception repr -- the least useful thing a prompt
+    character could buy.
+
+    NO HEADING, no label. Each line already names its own gauge, its own facts
+    and its own remedy, so a heading would spend characters restating them; and
+    its absence is what makes "the block is empty, or EVERY line is a WARN drift
+    line" a total property of the return value rather than a claim about shape.
+
+    Bounded by `PROMPT_DRIFT_BLOCK_CHARS`, read as a module global inside this
+    body. The cut is a HARD character slice and deliberately NOT a
+    drop-whole-lines policy: dropping lines makes an over-long block look
+    identical to a healthy short one, whereas a visibly cut block is a symptom an
+    operator can act on. The trailing newline is appended AFTER the slice, so it
+    can never be the character the cap removes -- a block glued onto the next
+    `## Context` line would corrupt the very prompt it exists to improve.
+
+    TOTAL: never raises, and degrades toward `""`. Each renderer runs inside its
+    OWN guard, so one raising gauge costs only its own line while the other two
+    still report. A diagnostic that can crash `build_prompt` takes the whole loop
+    down with it and is strictly worse than no diagnostic.
+
+    All three fed renderers are composed by their BARE MODULE NAMES, resolved at call
+    time and never captured at def time, so `monkeypatch.setattr(foundry,
+    "<name>", ...)` bites here and every branch is reachable offline with zero
+    real git, subprocess, clock or log. Reads only what the renderers read and
+    writes NOTHING.
+    """
+    lines: list[str] = []
+    # `doctor`'s own print order, so the block reads as a SUBSET of the preflight
+    # rather than as a second, re-ordered report. Each renderer is wrapped in a
+    # zero-arg closure purely so the loop can guard the three calls uniformly; the
+    # call inside each closure is the bare module name, looked up when the closure
+    # runs, which is what a monkeypatch replaces.
+    for prefix, produce in (
+        (LIVE_LAG_PREFIX, lambda: live_lag_line(cfg)),
+        (ROADMAP_INDEX_PREFIX, lambda: roadmap_index_line(cfg)),
+        (STAGE_BUDGET_PREFIX, lambda: _drift_stage_budget(cfg)),
+    ):
+        try:
+            line = produce()
+        except Exception:
+            continue          # a raising gauge contributes nothing, never a crash
+        if drift_line_verdict(line, prefix) == LIVE_LAG_WARN:
+            lines.append(str(line).strip())
+    body = "\n".join(lines)
+    # `max(..., 0)` so a cap of 0 or 1 yields "" instead of `body[:-1]`, which
+    # would silently drop a character rather than the whole block.
+    body = body[:max(int(PROMPT_DRIFT_BLOCK_CHARS) - 1, 0)]
+    return f"{body}\n" if body else ""
+
+
 def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
                  role_file: str, out_file: pathlib.Path,
                  it_dir: pathlib.Path, extra: str) -> str:
@@ -21964,6 +22165,26 @@ def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
     # test (or a future variant that forgets its own gate) still cannot move a
     # prompt it does not own. The seam keeps its own gate for every OTHER caller.
     slate_feed = pm_slate_block(it_dir, stage) if stage == "pm" else ""
+    # PM-SEAT DRIFT feed (iter 368, re-landing iter 367 minus one row):
+    # drift_prompt_block delivers the THREE `doctor` drift verdicts whose remedy
+    # `run_doctor_cli.__doc__` assigns to the PM or the operator. Before it, this
+    # function contained ZERO occurrences of `live_lag`, `roadmap_index` or
+    # `stage_budget`, so a verdict addressed BY NAME to the PM reached only a
+    # human who remembered to run a verb. `learnings_head_line` is the FOURTH
+    # drift line and is deliberately NOT fed: its WARN quotes an over-budget
+    # learnings bullet's own text, which re-injects into this prompt what
+    # iteration 118's head budget had just evicted from it -- the measured
+    # regression that reverted iteration 367. WARN-only, hard-capped, and "" for
+    # a healthy product, so the common prompt is byte-identical to the pre-367
+    # one.
+    # GATED AT THE CALL SITE, for both of the reasons `slate_feed` above is: the
+    # fed renderers do file and git I/O, so the branch keeps every OTHER stage's
+    # prompt build at zero probes; and it makes "no non-PM-seat prompt can carry
+    # this block" a property of the CALL SITE, not a property the seam has to be
+    # trusted for -- a seam swapped out under a test still cannot move a prompt it
+    # does not own. `PROMPT_DRIFT_STAGES` and the seam are both read as module
+    # globals so a `monkeypatch.setattr(foundry, ...)` bites on either.
+    drift_feed = drift_prompt_block(cfg) if stage in PROMPT_DRIFT_STAGES else ""
     return (
         f"You are the {stage.upper()} in iteration {iteration} of the "
         f"autonomous product team building the product '{cfg.name}'.\n\n"
@@ -21986,6 +22207,7 @@ def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
         f"{pm_practice_block(cfg, stage)}"
         f"{pm_recoverable_block(cfg, stage)}"
         f"{slate_feed}"
+        f"{drift_feed}"
         f"- Iteration number for file naming: {iteration:02d}\n"
         f"- YOUR REQUIRED OUTPUT FILE: {out_file} -- you MUST write it before "
         f"finishing, even on failure (state what failed and why).\n\n"

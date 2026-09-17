@@ -1,6 +1,24 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-368
+    lenses: integration-and-adoption, simplification-and-deletion (iteration 368)
+    - Candidate C1 -- retry iteration 367's winner with the final gate's own one-line fix: doctor's PM-owned drift verdicts reach the stage prompt
+    - Candidate C2 -- `lint-config` gains the missing half of its own key census: name the shipped fields a config never sets
+    - Candidate C3 -- the supported on-ramp cannot reach 10 of the 22 config fields
+    - Candidate B1 -- (measuring: duplication census, not dead code)
+    winner: C1
+    ship: pending (not yet decided)
+  iter-367
+    lenses: hardening/DX (iteration 367), integration-and-adoption (iteration 367)
+    - Candidate A1 -- weak-tests still calls 5 tests assertion-free whose oracle is a delegated test in an IMPORTED module
+    - Candidate A2 -- `foundry.py --help` lists 55 verbs and 0 descriptions: all 60 `add_parser` sites pass no `help=`
+    - Candidate A3 -- (measuring: live-lag's "restart the dispatcher" over-claims -- CLI-only vs brain-path changes)
+    - Candidate B1 -- the shift-loop hook that flags a stale brain has ZERO production call sites, and the brain is 12 iterations stale RIGHT NOW
+    - Candidate B2 -- all six of doctor's drift verdicts reach ZERO stage prompt, including the two whose remedy doctor's own docstring assigns to the PM
+    - Candidate B3 -- exit code `2` means both "the census could not be taken" and "you typed the flag wrong", and the contract is documented in zero docs
+    winner: B2
+    ship: REVERTED
   iter-366
     lenses: new-capability, hardening/DX
     - Candidate A1 -- (measuring: a NEW user-facing capability the framework lacks)
@@ -11,7 +29,7 @@ foundry directions -- _platform
     - Candidate B3 -- (measuring)
     stubs: 1 of 6 candidate line(s) are write-early placeholders, not measured candidates
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 32b399e
   iter-365
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- (measuring: a doc/role-card claim the shipped code contradicts)
@@ -1581,4 +1599,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-157 scouted iterations
+159 scouted iterations

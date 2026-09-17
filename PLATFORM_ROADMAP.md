@@ -271,6 +271,7 @@ in the archive.
 - iter 364 -- roadmap-index WARNs when the index cannot absorb one mandatory ledger row.
 - iter 365 -- index paydown: 8 spent item-detail blocks archived verbatim, ledger-row runway restored
 - iter 366 -- weak-tests resolves one level of same-module delegation: 9 of 24 non-actionable findings clear.
+- iter 368 -- the PM/scout prompts gain doctor's three drift WARNs; the learnings-head line is excluded and pinned.
 
 
 ### Migration notes (per §6 self-mod guardrail)
