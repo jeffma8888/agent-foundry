@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-370
+    lenses: performance-and-throughput (iteration 370), narrative-and-docs (iteration 370)
+    - Candidate A1 -- `stage-times`, the throughput census itself, reports the hottest stage's median as 2s
+    - Candidate A2 -- (measuring: bytes paid on EVERY stage prompt that carry no live instruction)
+    - Candidate A3 -- (measuring: wall clock burned by retries whose failure kind no retry can fix)
+    - Candidate B1 -- README's own "a second READER, never a change to it" claim is now false by 597 seconds, and the figure it misdescribes is copied verbatim into every spec
+    - Candidate B2 -- three doctor verdicts are wired into the PM and BOTH scout prompts, and not one of the three role cards that receive them says so; `roles/pm.md` still spends a stage subprocess fetching one of them by hand
+    - Candidate B3 -- the four rotting line-number citations `PLATFORM_ROADMAP.md` inherited from iteration 335's own written deferral, with the paydown gate that blocked them now released
+    winner: B1
+    ship: pending (not yet decided)
   iter-369
     lenses: simplification-and-deletion (iteration 369), performance-and-throughput (iteration 369)
     - Candidate A1 -- (measuring: dead/dormant symbol census)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- (measuring: cost paid once per iteration vs once per stage)
     - Candidate B3 -- (measuring: wasted retries / redundant re-verification)
     winner: B2
-    ship: pending (not yet decided)
+    ship: PUSHED 40a6919
   iter-368
     lenses: integration-and-adoption, simplification-and-deletion (iteration 368)
     - Candidate C1 -- retry iteration 367's winner with the final gate's own one-line fix: doctor's PM-owned drift verdicts reach the stage prompt
@@ -1609,4 +1619,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-160 scouted iterations
+161 scouted iterations
