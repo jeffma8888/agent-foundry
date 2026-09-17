@@ -18114,6 +18114,71 @@ def limit_stage_attempts(attempts, limit: int | None = None) -> list:
     return [a for a in items if _stage_attempt_iteration(a) in keep]
 
 
+def drop_excluded_kind_attempts(attempts, kinds) -> list:
+    """Drop the attempts whose failure `kind` is one of `kinds` (pure, total).
+
+    A POPULATION filter, deliberately upstream of `summarize_stage_times` rather
+    than a new summary field: iter-145's `_fake` stand-in builds its verdict type
+    from EXACTLY its declared keyword fields, so adding a dataclass field would
+    red an existing module. Filtering here means every metric the summariser
+    computes (count/median/max/timeouts/kind_counts/cap_hits) describes the same
+    kept population, with no second axis to keep in sync.
+
+    Only a `produced=False` attempt carries a non-empty `kind` (a success is
+    `kind=""`), so a kind filter can never drop a SUCCESSFUL attempt.
+
+    OFF BY DEFAULT for every existing caller: a `kinds` of `None`, an empty
+    collection, a bare `str`/`bytes` (whose iteration would silently mean "these
+    characters"), an `int`, or anything else non-iterable all degrade to the
+    NO-OP -- a list equal to the input, with the input sequence itself never
+    mutated.
+
+    BLACKOUT GUARD: when a NON-EMPTY input would lose EVERY attempt, all of them
+    are returned instead. WHY: the consumer is a read-only diagnostic, and an
+    input that is 100% excluded means "nothing here did any work" -- reporting
+    the honest excluded numbers says that, whereas an empty digest is
+    indistinguishable from a missing log and would silently downgrade the line to
+    UNKNOWN. An empty input stays empty.
+
+    The guard is WHOLE-LIST, not per-group, because this function has no notion
+    of grouping: a SINGLE stage whose every windowed attempt was excluded does
+    still drop out of the caller's group census (its `group_count` falls by one).
+    That is the intended cost of filtering upstream of the summariser -- the
+    `auth-loss:` line owns exactly that population and names it loudly -- and it
+    is why the guard exists only for the total blackout, where the alternative is
+    a diagnostic that claims to know nothing.
+
+    TOTAL -- never raises. A duck-typed row with NO `kind` attribute, a `kind` of
+    `None`, or a non-`str` `kind` is KEPT, because "I cannot classify this row"
+    is not evidence that it should be excluded.
+    """
+    items = list(attempts)
+    if isinstance(kinds, (str, bytes)) or kinds is None:
+        return items
+    try:
+        excluded = {k for k in kinds if isinstance(k, str)}
+    except TypeError:
+        # Non-iterable `kinds` (an int, an object): degrade to the no-op.
+        return items
+    if not excluded:
+        return items
+    kept = [a for a in items
+            if not _stage_attempt_kind_excluded(a, excluded)]
+    # Non-empty in, empty out -> the blackout guard above.
+    return kept if kept or not items else items
+
+
+def _stage_attempt_kind_excluded(attempt: object, excluded: "set[str]") -> bool:
+    """True iff this row's `kind` is a `str` present in `excluded`.
+
+    Split out of `drop_excluded_kind_attempts` so the KEEP-on-doubt rule lives in
+    one named place: the `isinstance` guard is what makes a missing / `None` /
+    non-string `kind` KEPT rather than compared, and reading it as a predicate
+    makes that intent obvious at the call site."""
+    kind = getattr(attempt, "kind", None)
+    return isinstance(kind, str) and kind in excluded
+
+
 def summarize_stage_times(attempts, *, budget: int | None = None,
                           limit: int | None = None,
                           cap: int | None = None) -> "StageTimesSummary":
@@ -18193,7 +18258,9 @@ def summarize_stage_times(attempts, *, budget: int | None = None,
 def gather_stage_times(log_path, *, budget: int | None = None,
                        team: str | None = None,
                        limit: int | None = None,
-                       cap: int | None = None) -> "StageTimesSummary":
+                       cap: int | None = None,
+                       exclude_kinds: "tuple[str, ...] | None" = None,
+                       ) -> "StageTimesSummary":
     """Read a `dispatcher.out` path and summarise its stage attempt durations.
 
     Reads the file at `log_path`, runs `parse_stage_attempts` on its text (called
@@ -18207,7 +18274,22 @@ def gather_stage_times(log_path, *, budget: int | None = None,
     move the cap-hit threshold offline without patching a module global. Called
     without it, every pre-existing field of the returned summary is what it was
     before iter 190, and NO new CLI flag exists: `stage-times` keeps exactly its
-    `--log/--team/--budget/--limit` surface."""
+    `--log/--team/--budget/--limit` surface.
+
+    `exclude_kinds` (iter 369) is an OPT-IN population filter: named failure
+    `kind`s are dropped via `drop_excluded_kind_attempts` (bare-name call, so a
+    `monkeypatch.setattr(foundry, ...)` bites) AFTER the `team` filter and BEFORE
+    the summariser, so an excluded attempt belonging to another team can never
+    affect this team's numbers. It defaults to `None` = OFF, which is why
+    `stage-times` output is byte-identical to before; only the `stage-budget:`
+    preflight line opts in, because that line's remedy ("shrink the bite") is
+    meaningless for an attempt that died on expired credentials.
+
+    When (and ONLY when) that filter is live, the `limit` WINDOW is applied here
+    FIRST so the exclusion cannot make the window slide backwards into older
+    history -- see the body comment for the measurement. `included` then counts
+    the windowed iterations that still hold a KEPT attempt, i.e. how many recent
+    iterations actually did measurable work."""
     try:
         text = pathlib.Path(log_path).expanduser().read_text()
     except Exception:
@@ -18216,6 +18298,27 @@ def gather_stage_times(log_path, *, budget: int | None = None,
     attempts = parse_stage_attempts(text)
     if team is not None:
         attempts = [a for a in attempts if a.team == team]
+    if exclude_kinds:
+        # WINDOW FIRST, THEN FILTER -- never the reverse, and this ORDER is the
+        # whole correctness of the feature. `limit_stage_attempts` keeps the
+        # `limit` most-recent DISTINCT ITERATION numbers of whatever it is
+        # handed, so filtering first would DELETE the iterations whose every
+        # attempt was excluded and let the window slide BACKWARDS to refill its
+        # quota. Measured on this checkout: `_platform` iterations 350-359 hold
+        # nothing but `pm_scout_a` credential deaths, so a filter-then-window
+        # order reported iterations 324-339 -- ~45-iteration-old history -- and
+        # moved `final`'s median 405.0s -> 349.0s and the group count 9 -> 11
+        # purely by sliding the window, in the harm-HIDING direction iter 184
+        # created this window to close. Windowing first pins the reach to the
+        # true most-recent N and makes the exclusion a pure POPULATION
+        # correction: only the excluded attempts move, nothing else. Idempotent,
+        # so the re-window inside `summarize_stage_times` is a no-op.
+        attempts = limit_stage_attempts(attempts, limit)
+    # AFTER the team filter, so an excluded attempt of ANOTHER team is already
+    # gone and cannot influence this team's population either way. Called by
+    # BARE name (and UNCONDITIONALLY) so a monkeypatch of the seam bites on
+    # every path, including the default `exclude_kinds=None` no-op.
+    attempts = drop_excluded_kind_attempts(attempts, exclude_kinds)
     # `limit` rides through to the summariser, which windows AFTER this team
     # filter -- so the window is computed from THIS team's own iteration
     # numbers, never from the log's global maximum (which would return an empty
@@ -18277,6 +18380,33 @@ STAGE_HARD_CAP_SECONDS = 600      # the agent CLI's OWN hard per-stage kill
 STAGE_NEAR_CAP_MARGIN = 60        # WARN this close to the wall (basis above)
 STAGE_BUDGET_PREFIX = "stage-budget:"   # stable grep anchor for the one line
 STAGE_BUDGET_WARN = "WARN"        # ONLY the near-wall branch carries it
+
+# WHY THE BUDGET GAUGE EXCLUDES CREDENTIAL DEATHS (iter 369). This line's ONLY
+# prescription is "shrink the bite or split the stage", and that remedy is
+# meaningless for an attempt that died because the machine's credentials had
+# expired: a `kind == "auth"` attempt did no work, so its ~3s duration is a fact
+# about the login state and never about the bite size. Measured on this
+# checkout's live log over the 20-iteration window, `pm_scout_a` read `count 50
+# median 3.0s max 601s timeouts 40 kinds auth=40`: forty instant credential
+# deaths owned the median of a bimodal population, and re-grouping the SAME
+# window with the auth attempts dropped gave `n_work=10 med_work=600.0` -- the
+# gauge understated that seat's median by 597s and handed the PM 597s of
+# headroom that does not exist. The `auth-loss:` line already owns those
+# attempts; this one must price the attempts that actually ran.
+#
+# ONLY `auth`. A `timeout`, `stalled`, `service`, `cli-error` or `other` attempt
+# at the cap is exactly the signal this gauge exists to report, so those all stay
+# IN the population. Spelled as the LITERAL `("auth",)` rather than
+# `(AUTH_LOSS_KIND,)` because that name is defined ~6,000 lines LOWER in this
+# module -- a module-level reference to it would be a `NameError` at import and
+# break the importable invariant. The relationship is pinned by a test instead
+# (`STAGE_BUDGET_EXCLUDED_KINDS == (AUTH_LOSS_KIND,)`, every member a key of
+# `ATTEMPT_FAILURE_MARKERS`), the same idiom `AUTH_LOSS_KIND` itself documents,
+# so renaming the failure-kind vocabulary fails the suite LOUDLY instead of
+# silently emptying the filter. Read at CALL TIME inside `stage_budget_line`, so
+# a `monkeypatch.setattr(foundry, "STAGE_BUDGET_EXCLUDED_KINDS", X)` re-populates
+# the printed line with no re-import.
+STAGE_BUDGET_EXCLUDED_KINDS: tuple[str, ...] = ("auth",)
 
 # WHY A RECENT WINDOW, AND WHY 20 (iter 184). `roles/pm.md`'s size self-check
 # makes this line a REQUIRED verbatim input to every spec, so it must price the
@@ -18474,7 +18604,13 @@ def stage_budget_line(cfg: "ProductConfig",
             # depend on a parser it does not own staying warning-free.
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", DeprecationWarning)
-                summary = gather_stage_times(log, team=team, limit=limit)
+                summary = gather_stage_times(
+                    log, team=team, limit=limit,
+                    # Module global read HERE, at call time -- never captured as
+                    # a default argument -- so a monkeypatch re-populates the
+                    # next call. Credential deaths belong to `auth-loss:`, not
+                    # to a gauge whose only remedy is "shrink the bite".
+                    exclude_kinds=STAGE_BUDGET_EXCLUDED_KINDS)
         except Exception:
             summary = None       # unreadable / raising seam -> UNKNOWN, not WARN
         v = stage_budget_verdict(summary) if summary is not None else None

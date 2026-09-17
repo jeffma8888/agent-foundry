@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-369
+    lenses: simplification-and-deletion (iteration 369), performance-and-throughput (iteration 369)
+    - Candidate A1 -- (measuring: dead/dormant symbol census)
+    - Candidate A2 -- (measuring: near-duplicate path collapse outside foundry.py)
+    - Candidate A3 -- (measuring: superseded doc section / flag retirement)
+    - Candidate B1 -- (measuring: repeated per-stage cost on the critical path)
+    - Candidate B2 -- (measuring: cost paid once per iteration vs once per stage)
+    - Candidate B3 -- (measuring: wasted retries / redundant re-verification)
+    winner: B2
+    ship: pending (not yet decided)
   iter-368
     lenses: integration-and-adoption, simplification-and-deletion (iteration 368)
     - Candidate C1 -- retry iteration 367's winner with the final gate's own one-line fix: doctor's PM-owned drift verdicts reach the stage prompt
@@ -8,7 +18,7 @@ foundry directions -- _platform
     - Candidate C3 -- the supported on-ramp cannot reach 10 of the 22 config fields
     - Candidate B1 -- (measuring: duplication census, not dead code)
     winner: C1
-    ship: pending (not yet decided)
+    ship: PUSHED a6580e6
   iter-367
     lenses: hardening/DX (iteration 367), integration-and-adoption (iteration 367)
     - Candidate A1 -- weak-tests still calls 5 tests assertion-free whose oracle is a delegated test in an IMPORTED module
@@ -1599,4 +1609,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-159 scouted iterations
+160 scouted iterations
