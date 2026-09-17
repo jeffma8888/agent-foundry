@@ -273,6 +273,7 @@ in the archive.
 - iter 366 -- weak-tests resolves one level of same-module delegation: 9 of 24 non-actionable findings clear.
 - iter 368 -- the PM/scout prompts gain doctor's three drift WARNs; the learnings-head line is excluded and pinned.
 - iter 369 -- stage-budget medians drop credential-loss attempts: pm_scout_a read 3.0s, its worked median is 600.0s.
+- iter 370 -- README + roles/pm.md name STAGE_BUDGET_EXCLUDED_KINDS: the copied figure's population, plus a brake.
 
 
 ### Migration notes (per §6 self-mod guardrail)

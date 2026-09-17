@@ -111,7 +111,14 @@ the same work checkpointed early survives the kill.
      It prints exactly one `stage-budget:` line naming this product's worst
      stage, its median and its headroom (`WARN` = at least one stage already
      sits inside the margin, so shrink the bite or split the stage); copy that
-     line into the section verbatim. It only prints -- it writes nothing --
+     line into the section verbatim. That median prices ONLY the attempts
+     that did work: since iteration 369 `STAGE_BUDGET_EXCLUDED_KINDS` drops
+     the ones an expired session killed, because a credential death is a
+     fact about the machine and says nothing about how big your bite was.
+     So this line and the all-attempts `stage-times` census legitimately
+     report DIFFERENT medians for the same seat -- size the bite against
+     THIS line, and do not reconcile the two by taking the kinder number.
+     It only prints -- it writes nothing --
      and PRODUCT_CONFIG is the same verified path as for the learnings script
      above. Its EXIT CODE is ADVISORY here and must never shrink your scope on
      its own: it reports non-zero whenever any of its four ENVIRONMENT probes
