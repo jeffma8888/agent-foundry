@@ -53,6 +53,7 @@ import tomllib
 import warnings
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
+from typing import TypeVar
 
 FOUNDRY = pathlib.Path(__file__).resolve().parent
 # The agent CLI is configurable so the foundry stays tool-agnostic. AGENT_BIN
@@ -11729,24 +11730,64 @@ class CompanyStatus(CompanyRollupCounts):
         }
 
 
+_CompanyRollupT = TypeVar("_CompanyRollupT")
+
+
+def _pack_company_rollup(ctor: Callable[..., _CompanyRollupT], *,
+                         dispatch_path: str,
+                         products: Iterable[object],
+                         disabled: Iterable[str],
+                         errors: Iterable[tuple[str, str]],
+                         **extra: object) -> _CompanyRollupT:
+    """The ONE shared body behind every `Company*` fleet roll-up CONSTRUCTOR.
+
+    TEN public `summarize_*` seams (`summarize_company`, plus `_history`,
+    `_timing`, `_weak_tests`, `_constant_asserts`, `_skipped_tests`,
+    `_test_quality`, `_config_lint`, `_events` and `summarize_stops`, whose name
+    hides it from a prefix scan) carried the SAME body: pack four gathered
+    signals into a frozen `Company*` dataclass, tuple-coercing each. Ten copies
+    of one contract means a fix can land in nine of them and the tenth's drift
+    is invisible -- the same reason iter 152 collapsed the nine verb bodies onto
+    `_company_rollup_cli` and iter 207 collapsed the four findings-first exit
+    codes onto `_company_findings_exit_code`. This is the LAST uncollapsed layer
+    of that family; each wrapper now only names its own class.
+
+    The contract every wrapper inherits, unchanged: PURE and TOTAL. It never
+    raises for well-formed inputs -- each `errors` entry is a
+    `(product, message)` 2-tuple, which every wrapper's sole caller guarantees
+    via `_company_rollup_cli`; documenting the precondition keeps the "never
+    raises" contract airtight -- and it touches no filesystem, so the tester can
+    drive any roll-up's decision core with no I/O at all.
+
+    WHY `ctor` is POSITIONAL while the fields stay KEYWORD-ONLY: the fields must
+    be keyword-only so a caller can never transpose them by position, and every
+    wrapper re-declares that `*` in its own signature. The class is not a field,
+    so keeping it positional lets a wrapper read as one glance-able line.
+
+    WHY `**extra` rather than named optional parameters: two members carry a
+    FIFTH field (`summarize_company_timing` a `threshold`,
+    `summarize_company_events` a `kind_filter`). Forwarding them as KEYWORDS
+    means each frozen dataclass keeps naming its own extra field and this helper
+    never has to know which ones exist -- had they been positional, adding a
+    third such field would have re-opened the transposition hole the
+    keyword-only signatures exist to close."""
+    return ctor(dispatch_path=dispatch_path,
+                products=tuple(products),
+                disabled=tuple(disabled),
+                errors=tuple((name, message) for name, message in errors),
+                **extra)
+
+
 def summarize_company(*, dispatch_path: str,
                       products: tuple[StatusSummary, ...],
                       disabled: tuple[str, ...],
                       errors: tuple[tuple[str, str], ...]) -> CompanyStatus:
     """Pure keyword-only constructor for a `CompanyStatus` (Behaviors 4-7).
 
-    A thin, total wrapper that packs the gathered signals into the frozen
-    roll-up -- keyword-only so a caller can never transpose the fields by
-    position, and it never raises for well-formed inputs (each `errors` entry is
-    a `(product, message)` 2-tuple, which the sole caller `company_status_cli`
-    guarantees; documenting the precondition keeps the "never raises" contract
-    airtight). Kept separate from `company_status_cli` so the decision core stays
-    a pure function the tester can drive without any filesystem."""
-    return CompanyStatus(
-        dispatch_path=dispatch_path,
-        products=tuple(products),
-        disabled=tuple(disabled),
-        errors=tuple((name, message) for name, message in errors))
+    Contract, purity and the WHY of the collapse: `_pack_company_rollup`."""
+    return _pack_company_rollup(CompanyStatus, dispatch_path=dispatch_path,
+                                products=products, disabled=disabled,
+                                errors=errors)
 
 
 def _company_rollup_cli(dispatch_path: str, as_json: bool,
@@ -17380,18 +17421,10 @@ def summarize_company_history(*, dispatch_path: str,
                               ) -> CompanyHistory:
     """Pure keyword-only constructor for a `CompanyHistory` (Behaviors 3-7).
 
-    A thin, total wrapper that packs the gathered ledgers into the frozen
-    roll-up -- keyword-only so a caller can never transpose the fields by
-    position, and it never raises for well-formed inputs (each `errors` entry is
-    a `(product, message)` 2-tuple, which the sole caller `company_history_cli`
-    guarantees; documenting the precondition keeps the "never raises" contract
-    airtight). Kept separate from `company_history_cli` so the decision core
-    stays a pure function the tester can drive without any filesystem."""
-    return CompanyHistory(
-        dispatch_path=dispatch_path,
-        products=tuple(products),
-        disabled=tuple(disabled),
-        errors=tuple((name, message) for name, message in errors))
+    Contract, purity and the WHY of the collapse: `_pack_company_rollup`."""
+    return _pack_company_rollup(CompanyHistory, dispatch_path=dispatch_path,
+                                products=products, disabled=disabled,
+                                errors=errors)
 
 
 def company_history_cli(dispatch_path: str, limit: int | None = None,
@@ -19930,19 +19963,10 @@ def summarize_company_timing(*, dispatch_path: str,
                              threshold: float) -> CompanyTiming:
     """Pure keyword-only constructor for a `CompanyTiming` (Behaviors 1-6).
 
-    A thin, total wrapper that packs the gathered digests into the frozen
-    roll-up -- keyword-only so a caller can never transpose the fields by
-    position, and it never raises for well-formed inputs (each `errors` entry is
-    a `(product, message)` 2-tuple, which the sole caller `company_timing_cli`
-    guarantees; documenting the precondition keeps the "never raises" contract
-    airtight). Kept separate from `company_timing_cli` so the decision core stays
-    a pure function the tester can drive without any filesystem."""
-    return CompanyTiming(
-        dispatch_path=dispatch_path,
-        products=tuple(products),
-        disabled=tuple(disabled),
-        errors=tuple((name, message) for name, message in errors),
-        threshold=threshold)
+    Contract, purity and the WHY of the collapse: `_pack_company_rollup`."""
+    return _pack_company_rollup(CompanyTiming, dispatch_path=dispatch_path,
+                                products=products, disabled=disabled,
+                                errors=errors, threshold=threshold)
 
 
 def company_timing_cli(dispatch_path: str, limit: int | None = None,
@@ -20148,18 +20172,10 @@ def summarize_company_weak_tests(*, dispatch_path: str,
                                  ) -> CompanyWeakTests:
     """Pure keyword-only constructor for a `CompanyWeakTests` (Behaviors 1-7).
 
-    A thin, total wrapper that packs the gathered scans into the frozen roll-up
-    -- keyword-only so a caller can never transpose the fields by position, and
-    it never raises for well-formed inputs (each `errors` entry is a
-    `(product, message)` 2-tuple, which the sole caller `company_weak_tests_cli`
-    guarantees; documenting the precondition keeps the "never raises" contract
-    airtight). Kept separate from `company_weak_tests_cli` so the decision core
-    stays a pure function the tester can drive without any filesystem."""
-    return CompanyWeakTests(
-        dispatch_path=dispatch_path,
-        products=tuple(products),
-        disabled=tuple(disabled),
-        errors=tuple((name, message) for name, message in errors))
+    Contract, purity and the WHY of the collapse: `_pack_company_rollup`."""
+    return _pack_company_rollup(CompanyWeakTests, dispatch_path=dispatch_path,
+                                products=products, disabled=disabled,
+                                errors=errors)
 
 
 def company_weak_tests_cli(dispatch_path: str, as_json: bool = False) -> int:
@@ -20365,19 +20381,10 @@ def summarize_company_constant_asserts(*, dispatch_path: str,
                                        ) -> CompanyConstantAsserts:
     """Pure keyword-only constructor for a `CompanyConstantAsserts` (Behaviors 1-5).
 
-    A thin, total wrapper that packs the gathered scans into the frozen roll-up
-    -- keyword-only so a caller can never transpose the fields by position, and
-    it never raises for well-formed inputs (each `errors` entry is a
-    `(product, message)` 2-tuple, which the sole caller
-    `company_constant_asserts_cli` guarantees; documenting the precondition keeps
-    the "never raises" contract airtight). Kept separate from
-    `company_constant_asserts_cli` so the decision core stays a pure function the
-    tester can drive without any filesystem."""
-    return CompanyConstantAsserts(
-        dispatch_path=dispatch_path,
-        products=tuple(products),
-        disabled=tuple(disabled),
-        errors=tuple((name, message) for name, message in errors))
+    Contract, purity and the WHY of the collapse: `_pack_company_rollup`."""
+    return _pack_company_rollup(CompanyConstantAsserts, dispatch_path=dispatch_path,
+                                products=products, disabled=disabled,
+                                errors=errors)
 
 
 def company_constant_asserts_cli(dispatch_path: str, as_json: bool = False) -> int:
@@ -20600,19 +20607,10 @@ def summarize_company_skipped_tests(*, dispatch_path: str,
                                     ) -> CompanySkippedTests:
     """Pure keyword-only constructor for a `CompanySkippedTests` (Behaviors 1-5).
 
-    A thin, total wrapper that packs the gathered scans into the frozen roll-up
-    -- keyword-only so a caller can never transpose the fields by position, and
-    it never raises for well-formed inputs (each `errors` entry is a
-    `(product, message)` 2-tuple, which the sole caller
-    `company_skipped_tests_cli` guarantees; documenting the precondition keeps
-    the "never raises" contract airtight). Kept separate from
-    `company_skipped_tests_cli` so the decision core stays a pure function the
-    tester can drive without any filesystem."""
-    return CompanySkippedTests(
-        dispatch_path=dispatch_path,
-        products=tuple(products),
-        disabled=tuple(disabled),
-        errors=tuple((name, message) for name, message in errors))
+    Contract, purity and the WHY of the collapse: `_pack_company_rollup`."""
+    return _pack_company_rollup(CompanySkippedTests, dispatch_path=dispatch_path,
+                                products=products, disabled=disabled,
+                                errors=errors)
 
 
 def company_skipped_tests_cli(dispatch_path: str, as_json: bool = False) -> int:
@@ -20896,19 +20894,10 @@ def summarize_company_test_quality(*, dispatch_path: str,
                                    ) -> CompanyTestQuality:
     """Pure keyword-only constructor for a `CompanyTestQuality` (Behaviors 1-6).
 
-    A thin, total wrapper that packs the gathered composite scans into the frozen
-    roll-up -- keyword-only so a caller can never transpose the fields by
-    position, and it never raises for well-formed inputs (each `errors` entry is
-    a `(product, message)` 2-tuple, which the sole caller
-    `company_test_quality_cli` guarantees; documenting the precondition keeps the
-    "never raises" contract airtight). Kept separate from
-    `company_test_quality_cli` so the decision core stays a pure function the
-    tester can drive without any filesystem."""
-    return CompanyTestQuality(
-        dispatch_path=dispatch_path,
-        products=tuple(products),
-        disabled=tuple(disabled),
-        errors=tuple((name, message) for name, message in errors))
+    Contract, purity and the WHY of the collapse: `_pack_company_rollup`."""
+    return _pack_company_rollup(CompanyTestQuality, dispatch_path=dispatch_path,
+                                products=products, disabled=disabled,
+                                errors=errors)
 
 
 def company_test_quality_cli(dispatch_path: str, as_json: bool = False) -> int:
@@ -21161,18 +21150,10 @@ def summarize_company_config_lint(*, dispatch_path: str,
                                   ) -> CompanyConfigLint:
     """Pure keyword-only constructor for a `CompanyConfigLint` (Behaviors 1-6).
 
-    A thin, total wrapper that packs the gathered lint verdicts into the frozen
-    roll-up -- keyword-only so a caller can never transpose the fields by
-    position, and it never raises for well-formed inputs (each `errors` entry is
-    a `(product, message)` 2-tuple, which the sole caller
-    `company_config_lint_cli` guarantees). Kept separate from
-    `company_config_lint_cli` so the decision core stays a pure function the
-    tester can drive without any filesystem."""
-    return CompanyConfigLint(
-        dispatch_path=dispatch_path,
-        products=tuple(products),
-        disabled=tuple(disabled),
-        errors=tuple((name, message) for name, message in errors))
+    Contract, purity and the WHY of the collapse: `_pack_company_rollup`."""
+    return _pack_company_rollup(CompanyConfigLint, dispatch_path=dispatch_path,
+                                products=products, disabled=disabled,
+                                errors=errors)
 
 
 def company_config_lint_cli(dispatch_path: str, as_json: bool = False) -> int:
@@ -21685,18 +21666,10 @@ def summarize_company_events(*, dispatch_path: str,
                              kind_filter: str | None) -> CompanyEvents:
     """Pure keyword-only constructor for a `CompanyEvents` (Behaviors 1-7).
 
-    A thin, total wrapper that packs the gathered digests into the frozen
-    roll-up -- keyword-only so a caller can never transpose the fields by
-    position, and it never raises for well-formed inputs (each `errors` entry is
-    a `(product, message)` 2-tuple, which the sole caller `company_events_cli`
-    guarantees). Kept separate from `company_events_cli` so the decision core
-    stays a pure function the tester can drive without any filesystem."""
-    return CompanyEvents(
-        dispatch_path=dispatch_path,
-        products=tuple(products),
-        disabled=tuple(disabled),
-        errors=tuple((name, message) for name, message in errors),
-        kind_filter=kind_filter)
+    Contract, purity and the WHY of the collapse: `_pack_company_rollup`."""
+    return _pack_company_rollup(CompanyEvents, dispatch_path=dispatch_path,
+                                products=products, disabled=disabled,
+                                errors=errors, kind_filter=kind_filter)
 
 
 def company_events_cli(dispatch_path: str, kind: str | None = None,
@@ -22048,19 +22021,10 @@ def summarize_stops(*, dispatch_path: str,
                     errors: tuple[tuple[str, str], ...]) -> CompanyStops:
     """Pure keyword-only constructor for a `CompanyStops` roll-up.
 
-    A thin, total wrapper that packs the gathered rows into the frozen roll-up --
-    keyword-only so a caller can never transpose the fields by position, and it
-    never raises for well-formed inputs (each `errors` entry is a
-    `(product, message)` 2-tuple, which the sole caller `company_stops_cli`
-    guarantees via `_company_rollup_cli`; documenting the precondition keeps the
-    "never raises" contract airtight). Kept separate from `company_stops_cli` so
-    the decision core stays a pure function the tester can drive without any
-    filesystem."""
-    return CompanyStops(
-        dispatch_path=dispatch_path,
-        products=tuple(products),
-        disabled=tuple(disabled),
-        errors=tuple((name, message) for name, message in errors))
+    Contract, purity and the WHY of the collapse: `_pack_company_rollup`."""
+    return _pack_company_rollup(CompanyStops, dispatch_path=dispatch_path,
+                                products=products, disabled=disabled,
+                                errors=errors)
 
 
 def company_stops_cli(dispatch_path: str, as_json: bool = False) -> int:
