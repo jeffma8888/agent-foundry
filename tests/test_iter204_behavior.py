@@ -690,15 +690,65 @@ def test_b15_the_benign_literals_still_stand():
         "a CONTIGUITY claim derived from max(nums) itself must not be converted"
 
 
+def swept_test_paths(name_status_text: str) -> set[str]:
+    """The `tests/` paths this brake may legitimately judge, from `--name-status` text.
+
+    WHY parse a status at all: the brake's domain is that an already-shipped
+    assertion class is not SWEPT, so only a path that EXISTS at HEAD can be in
+    it. `--name-only` cannot tell an edit from an addition, and after the final
+    gate's own `git add -A` it also lists the iteration's brand-new behavior
+    test file -- a path that cannot be a sweep of anything, yet reds a green
+    iteration (iteration 374). Dropping status `A` narrows the population to
+    the real domain WITHOUT the test needing to know which iteration is in
+    flight, which is why 14 hand-written rows had accumulated in `expected`:
+    `THIS_ITER` is frozen, so its f-string can never name a later iteration.
+
+    Pure and total -- text in, set out, no subprocess, git, filesystem, network
+    or clock -- so every branch is forceable offline, and any string is accepted
+    rather than raising: a parse crash on porcelain we do not control would be a
+    false red, the exact failure this function exists to remove.
+    """
+    paths: set[str] = set()
+    for line in name_status_text.splitlines():
+        if "\t" not in line:
+            # Blank, whitespace-only, or a `--name-only`-shaped line: the status
+            # we key on is absent, so there is nothing we can judge.
+            continue
+        fields = line.split("\t")
+        status, path = fields[0].strip(), fields[-1].strip()
+        # The LAST field is the path (a copy/rename line carries two), and an
+        # `A` status -- prefix-matched so a scored `A100`-shaped field lands on
+        # the same side -- means the path is absent at HEAD.
+        if not path or status.startswith("A"):
+            continue
+        paths.add(path)
+    return paths
+
+
 def test_b15_only_the_three_expected_test_files_differ_from_head():
-    r = subprocess.run(["git", "diff", "HEAD", "--name-only", "--", "tests/"],
+    r = subprocess.run(["git", "diff", "HEAD", "--name-status", "--no-renames",
+                        "--", "tests/"],
                        cwd=str(_ROOT), capture_output=True, text=True)
     if r.returncode != 0:
         pytest.skip("git diff unavailable")
-    changed = {ln.strip() for ln in r.stdout.splitlines() if ln.strip()}
-    # This iteration's OWN new test file joins the set the moment the final gate
-    # runs `git add -A` (an untracked path is invisible to `git diff HEAD`, a
-    # STAGED one is not), so it is expected rather than an unswept-class hit.
+    changed = swept_test_paths(r.stdout)
+    # An iteration's OWN new test file is no longer a member of `changed` at
+    # all: `swept_test_paths` drops status `A`, and a path absent from HEAD
+    # cannot be a sweep of a shipped assertion. Iteration 375 is its own proof
+    # -- it ships with NO row for `tests/test_iter375_behavior.py` -- and eight
+    # rows that existed for no other reason (iters 226/323/325/335/338/371/372/
+    # 373) retire with it.
+    #
+    # SIX of that class did NOT retire: iters 227/229/230/231/232/336 each ship
+    # an independent `..._is_on_the_b15_allow_list` witness that reads THIS
+    # file's text and asserts its own quoted path is present. MEASURED this
+    # iteration by removing all 14 and running the suite: exactly those six
+    # tests red. Retiring their rows means amending six shipped modules, which
+    # makes each one status `M` -- in-domain, so the row would have to stay
+    # anyway. That is a later bite, not one this narrowing can take.
+    #
+    # The f-string row below is load-bearing for the same reason: any iteration
+    # that repairs this brake EDITS this file, which is status `M`.
     expected = {"tests/test_iter185_behavior.py",
                 "tests/test_iter175_behavior.py",
                 "tests/test_iter202_behavior.py",
@@ -793,37 +843,14 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # added, and the 75-assertion literal class keeps both sibling
                 # checks above.
                 "tests/test_iter196_behavior.py",
-                # ... and iteration 226's OWN new test file, named explicitly
-                # because `THIS_ITER` above is FROZEN at 204: the comment at the
-                # head of this set already declares the current iteration's new
-                # test file EXPECTED, but that intent stopped being reachable the
-                # moment 204 shipped. Iteration 220's final gate had to work
-                # around the gap with load-bearing command ORDER (commit first,
-                # then run the suite) because the path is red ONLY inside the
-                # staging window -- `git diff HEAD` cannot see an UNTRACKED file
-                # at all, and a `git add -N`/`git add -A` makes it visible. One
-                # explicit string discharges the stated intent for this iteration
-                # without touching the assertion or the frozen literal.
-                "tests/test_iter226_behavior.py",
-                # iter 227: this iteration's own new behavior test file, added
-                # for the same reason as the row above -- `THIS_ITER` is FROZEN
-                # at 204, so the head comment's "this iteration's OWN new test
-                # file is expected" intent cannot be expressed by the f-string
-                # for any later iteration. Nothing about the assertion or the
-                # 75-assertion literal class changes.
+                # RETAINED, measured: deleting this row reds this module's OWN
+                # b15 allow-list witness. See the head of this set.
                 "tests/test_iter227_behavior.py",
-                # iter 229: this iteration's own new behavior test file, added for
-                # the same reason as the two rows above -- `THIS_ITER` is FROZEN at
-                # 204, so the head comment's "this iteration's OWN new test file is
-                # expected" intent cannot be expressed by the f-string for any later
-                # iteration, and the path is red ONLY inside the gate's staging
-                # window (`git diff HEAD` cannot see an UNTRACKED file at all).
-                # Nothing about the assertion or the 75-assertion literal class
-                # changes.
+                # RETAINED, measured: deleting this row reds this module's OWN
+                # b15 allow-list witness. See the head of this set.
                 "tests/test_iter229_behavior.py",
-                # iter 230: this iteration's OWN new behavior test file, for the
-                # identical reason as the iter-229 row above (`THIS_ITER` is
-                # FROZEN at 204, so the f-string cannot name a later iteration).
+                # RETAINED, measured: deleting this row reds this module's OWN
+                # b15 allow-list witness. See the head of this set.
                 "tests/test_iter230_behavior.py",
                 # iter 230: FORCED count-word advance. doctor grew a FIFTH drift
                 # line, and iter 145 owns the only README pin on that count.
@@ -833,17 +860,11 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # its two regexes are re-scoped from bare words to phrases so the
                 # brake cannot go vacuous. No assertion is weakened by either.
                 "tests/test_iter164_behavior.py",
-                # iter 231: this iteration's OWN new behavior test file, for the
-                # identical reason as the iter-229/230 rows above (`THIS_ITER` is
-                # FROZEN at 204, so the f-string cannot name a later iteration).
+                # RETAINED, measured: deleting this row reds this module's OWN
+                # b15 allow-list witness. See the head of this set.
                 "tests/test_iter231_behavior.py",
-                # iter 232: this iteration's OWN new behavior test file, for the
-                # identical reason as the iter-229/230/231 rows above (`THIS_ITER`
-                # is FROZEN at 204, so the f-string cannot name a later
-                # iteration, and the path is red ONLY inside the gate's staging
-                # window -- `git diff HEAD` cannot see an UNTRACKED file at all).
-                # Nothing about the assertion or the 75-assertion literal class
-                # changes.
+                # RETAINED, measured: deleting this row reds this module's OWN
+                # b15 allow-list witness. See the head of this set.
                 "tests/test_iter232_behavior.py",
                 # iter 242: `RESULT: BLOCKED` became a first-class third tester
                 # disposition, so iter 201's module-level TESTER triple -- the
@@ -893,29 +914,6 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # ONLY inside the pre-commit window.
                 "tests/test_iter186_behavior.py",
                 "tests/test_iter147_behavior.py",
-                # iter 323: this iteration's OWN new behavior test file, for the
-                # identical reason as the iter-226/227/229/230/231/232 rows above --
-                # `THIS_ITER` is FROZEN at 204, so the f-string on the `expected`
-                # line CANNOT name a later iteration, and the head comment's
-                # "this iteration's OWN new test file is expected" intent therefore
-                # needs one explicit string per iteration. Red ONLY inside the
-                # staging window: `git diff HEAD` cannot see an UNTRACKED path at
-                # all, and the `git add -N` iteration 323's acceptance criteria
-                # REQUIRE (so `git ls-files` can see the file) makes it visible --
-                # as does the gate's own `git add -A`. Nothing about the assertion
-                # or the 75-assertion literal class changes.
-                "tests/test_iter323_behavior.py",
-                # iter 325: this iteration's OWN new behavior test file, for the
-                # identical reason as the iter-226/227/229/230/231/232/323 rows
-                # above -- `THIS_ITER` is FROZEN at 204, so the f-string on the
-                # `expected` line CANNOT name a later iteration, and the head
-                # comment's "this iteration's OWN new test file is expected"
-                # intent therefore needs one explicit string per iteration. Red
-                # ONLY inside the staging window: `git diff HEAD` cannot see an
-                # UNTRACKED path at all, and the gate's own `git add -A` (or a
-                # `git add -N`) is what makes it visible. Nothing about the
-                # assertion or the 75-assertion literal class changes.
-                "tests/test_iter325_behavior.py",
                 # iter 325: FORCED brake amendment. Spec Behavior 10 REQUIRES the
                 # gate card `roles/final.md` to name the new `foundry.py leak-check`
                 # verb, and iteration 244's `test_b8_frozen_paths_are_byte_unchanged`
@@ -950,14 +948,9 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 "tests/test_iter149_behavior.py",
                 "tests/test_iter157_behavior.py",
                 "tests/test_iter188_behavior.py",
-                # iter 335: this iteration's OWN new behavior test file, for the
-                # identical reason as the iter-226/227/229/230/231/232/323/325 rows
-                # above -- `THIS_ITER` is FROZEN at 204, so the f-string on the
-                # `expected` line CANNOT name a later iteration, and the path is red
-                # ONLY inside the staging window (`git diff HEAD` cannot see an
-                # UNTRACKED path at all; the gate's own `git add -A` makes it
-                # visible). This WIDENS the allow-list, so it cannot red anything.
-                "tests/test_iter335_behavior.py",
+                # RETAINED, measured: deleting this row reds this module's OWN
+                # b15 allow-list witness. See the head of this set.
+                "tests/test_iter336_behavior.py",
                 # iter 335: FORCED brake amendment, one path, and the ONE red this
                 # iteration's Acceptance Criteria did not name -- the same
                 # second-layer trap iteration 334 recorded. Behavior 7 requires
@@ -978,14 +971,6 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # banned shape gains its own negative pin in that test. Red ONLY
                 # inside the pre-commit window; a fresh clone at the ship commit is
                 # clean.
-                # iter 336: this iteration's OWN new behavior test file, for the
-                # identical reason as the iter-226/227/229/230/231/232/323/325/335
-                # rows above -- `THIS_ITER` is FROZEN at 204, so the f-string on the
-                # `expected` line CANNOT name a later iteration, and the path is red
-                # ONLY inside the staging window (`git diff HEAD` cannot see an
-                # UNTRACKED path at all; the gate's own `git add -A` makes it
-                # visible). This WIDENS the allow-list, so it cannot red anything.
-                "tests/test_iter336_behavior.py",
                 "tests/test_iter136_behavior.py",
                 # iter 338: FORCED brake amendment, one path. Iteration 338 ADOPTS
                 # `symbol_dormancy_class` (shipped additive-dormant by iter 326 and
@@ -1009,14 +994,6 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # byte-identically. Red ONLY inside the pre-commit window; a fresh
                 # clone at the ship commit is clean.
                 "tests/test_iter326_behavior.py",
-                # iter 338: this iteration's OWN new behavior test file, for the
-                # identical reason as the iter-226/227/229/230/231/232/323/325/335/336
-                # rows above -- `THIS_ITER` is FROZEN at 204, so the f-string on the
-                # `expected` line CANNOT name a later iteration, and the path is red
-                # ONLY inside the staging window (`git diff HEAD` cannot see an
-                # UNTRACKED path at all; the gate's own `git add -A` makes it
-                # visible). This WIDENS the allow-list, so it cannot red anything.
-                "tests/test_iter338_behavior.py",
                 # iter 366: FORCED brake amendment, one path. This iteration's
                 # mandatory duty-3 `- iter 366 ` ledger row rots iteration 365's own
                 # two COUNTING pins, which measured the LIVE worktree: the row count
@@ -1060,42 +1037,7 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # swept, converted or added, and the 75-assertion literal class keeps
                 # both sibling checks above. Red ONLY inside the pre-commit window; a
                 # fresh clone at the ship commit is clean.
-                "tests/test_iter362_behavior.py",
-                # iter 371: this iteration's OWN new behavior test file, for the
-                # identical reason as the
-                # iter-226/227/229/230/231/232/323/325/335/336/338 rows above --
-                # `THIS_ITER` is FROZEN at 204, so the f-string on the `expected`
-                # line CANNOT name a later iteration, and the path is red ONLY inside
-                # the staging window (`git diff HEAD` cannot see an UNTRACKED path at
-                # all; the gate's own `git add -A` makes it visible). This WIDENS the
-                # allow-list, so it cannot red anything.
-                "tests/test_iter371_behavior.py",
-                # iter 372: this iteration's OWN new behavior test file, for the
-                # identical reason as the
-                # iter-226/227/229/230/231/232/323/325/335/336/338/371 rows above
-                # -- `THIS_ITER` is FROZEN at 204, so the f-string on the
-                # `expected` line CANNOT name a later iteration, and the path is
-                # red ONLY inside the staging window (`git diff HEAD` cannot see
-                # an UNTRACKED path at all; the gate's own `git add -A` makes it
-                # visible). This WIDENS the allow-list, so it cannot red anything.
-                # `tests/test_iter131_behavior.py` -- the file iteration 372
-                # actually repairs -- is ALREADY on this list at the iter-215 row
-                # above, added for this exact repair class, so it is NOT re-added.
-                "tests/test_iter372_behavior.py",
-                # iter 373: this iteration's OWN new behavior test file, for the
-                # identical reason as the
-                # iter-226/227/229/230/231/232/323/325/335/336/338/371/372 rows
-                # above -- `THIS_ITER` is FROZEN at 204, so the f-string on the
-                # `expected` line CANNOT name a later iteration, and the path is
-                # red ONLY inside the staging window (`git diff HEAD` cannot see
-                # an UNTRACKED path at all; the gate's own `git add -A` makes it
-                # visible). This WIDENS the allow-list, so it cannot red anything.
-                # `tests/test_iter362_behavior.py` -- whose FROZEN verb-census
-                # integer iteration 373's 59th verb (`watchdog-arm`) mechanically
-                # falsified, exactly as iteration 371's 58th did -- is ALREADY on
-                # this list at the iter-371 row above, added for this exact repair
-                # class, so it is NOT re-added.
-                "tests/test_iter373_behavior.py"}
+                "tests/test_iter362_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the
