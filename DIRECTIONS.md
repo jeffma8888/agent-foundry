@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-373
+    lenses: hardening/DX, integration-and-adoption -- iteration 373
+    - Candidate A1 -- the ONE resilience path the framework ships is armed on NO machine: 405 lines of watchdog with no installer, no scheduler entry, and no probe that can say so
+    - Candidate A2 -- the suite that green-lights each iteration cannot see the file the iteration is shipping: 49 test modules key their tree domain on `git diff HEAD`, which is blind to an untracked path
+    - Candidate A3 -- 3 paths in this repo are hidden only by `.git/info/exclude`, which git never clones, and one of them scores 5 leak-guard findings including two absolute macOS home-path literals -- in a PUBLIC auto-pushing repo
+    - Candidate B1 -- (measuring: a shipped surface nothing yet consults)
+    - Candidate B2 -- (measuring: machine-readable / scriptable output gap)
+    - Candidate B3 -- (measuring: default / discoverability / migration on-ramp gap)
+    winner: A1
+    ship: pending (not yet decided)
   iter-372
     lenses: new-capability -- iteration 372, hardening/DX -- iteration 372
     - Candidate A1 -- `foundry resume`: the DELETE half of the STOP contract, whose only current implementation is a hand `rm` that leaves no trace
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- 9 brakes can silently EVAPORATE in the throwaway clone, and the loop's own red is the proof: the strongest control arm cannot see it
     - Candidate B3 -- one `test_cmd` for a 600s cap: the fix the learnings log has already prescribed, for the product it already killed, is still unshipped
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 6083bc6
   iter-371
     lenses: narrative-and-docs, new-capability -- iteration 371
     - Candidate A1 -- (measuring: a doc/role-card claim the shipped code contradicts)
@@ -1639,4 +1649,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-163 scouted iterations
+164 scouted iterations

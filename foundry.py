@@ -10716,6 +10716,147 @@ def test_touch_drift_line(cfg: "ProductConfig") -> str:
                 f"iteration's diff either way")
 
 
+# The command that lists this machine's PERIODIC SCHEDULE, as a TUPLE (immutable)
+# and read at CALL time rather than captured at def-time, so
+# `monkeypatch.setattr(foundry, "WATCHDOG_ARM_LISTING_CMD", ...)` bites. ONE
+# listing source on purpose: `crontab -l` is the portable POSIX surface every
+# machine this framework has run on exposes, and the verdict wording therefore
+# scopes its claim to the entries THIS listing held -- it never asserts the
+# watchdog is globally unarmed, because a launchd plist or another scheduler's
+# entry would be invisible here. A second source is a separate bite; two sources
+# behind one verdict would let a silent read failure on either read as a fact.
+WATCHDOG_ARM_LISTING_CMD: tuple[str, ...] = ("crontab", "-l")
+
+# Wall-clock ceiling for the ONE read-only schedule listing the arm probe issues.
+# A DIAGNOSTIC MAY NEVER OUTLIVE THE REPORT IT ANNOTATES -- the rule
+# `TEST_TOUCH_TIMEOUT_SECONDS` documents: with no explicit timeout a hung
+# `crontab` pins its caller forever, which is strictly worse than an unknown
+# answer, and `run_cmd` folds a timeout into `ok is False`, which the probe
+# already reads as "unknown" (`None`). A SIBLING of that constant rather than a
+# reuse of it: the two probes are independent diagnostics, so sharing one knob
+# would imply a coupling that does not exist and would let a future tune of one
+# silently retime the other.
+WATCHDOG_ARM_TIMEOUT_SECONDS = 20
+
+# The substring a schedule entry must name to count as the resurrection path.
+# The shipped module's own FILENAME, because that is what a cron line has to say
+# to run it, and read at CALL time so a product that renames the module can
+# re-point the gauge with a `monkeypatch.setattr` / a one-line edit rather than a
+# rewrite. Matched as a plain substring and never as a path: an entry may reach
+# the module through any prefix, a wrapper or a shell `-c`, and every one of those
+# spellings still contains this token.
+WATCHDOG_ARM_TOKEN = "watchdog.py"
+
+# Stable grep anchor for the ONE line this verb prints, and deliberately distinct
+# from the SIX drift prefixes `run_doctor_cli` already emits (`live-lag:`,
+# `learnings-head:`, `roadmap-index:`, `stage-budget:`, `test-touch:`,
+# `auth-loss:`): an operator must be able to grep exactly one report out of a
+# stdout by PREFIX rather than by line position. NOT wired into `doctor` here --
+# that seat is its own bite, priced in this iteration's spec -- so this prefix is
+# the whole surface today.
+WATCHDOG_ARM_PREFIX = "watchdog-arm:"
+
+
+def watchdog_arm_line(listing: object) -> str:
+    """Say whether a periodic-schedule listing ARMS the resurrection path (pure).
+
+    `watchdog.py` is the ONLY resilience path this framework has against the
+    DISPATCHER PROCESS ITSELF dying, and its own docstring says the whole company
+    "stays down until a human notices" without it -- which defeats the VISION's
+    promise of an org that runs "indefinitely, until told to stop". Roadmap item 8
+    closed on "a documented, tested watchdog EXISTS", and nothing since has asked
+    whether the thing RUNS: `rg -n watchdog foundry.py dispatcher.py` is five
+    COMMENT hits and zero code references, so no orchestrator, launcher or
+    scheduler entry invokes it. This function is the missing assertion against the
+    END STATE of the environment rather than against the artifact produced.
+
+    A COMMENT IS NOT A SCHEDULE, and that asymmetry is the whole correctness
+    argument. A line is an ENTRY only when it is non-blank AND does not start with
+    `#`, so a commented-out `# */5 * * * * python3 watchdog.py` -- the exact shape
+    an operator leaves behind when they disable a job "temporarily" -- reads
+    `no-schedule` and can NEVER read `armed`. The failure direction that matters
+    is a gauge claiming armed when nothing runs, so every ambiguity resolves away
+    from `armed`: a `PATH=`/`MAILTO=` assignment line counts as an entry, which
+    can only enlarge the total and make a NOT-ARMED alarm louder, never fabricate
+    a match.
+
+    BUILT FROM COUNTS ONLY, never from a line BODY -- the constraint
+    `test_touch_line` and `worktree_scope_line` document. No text from the scanned
+    listing reaches the return value, which keeps this repo's public-safety rule
+    (no machine paths in shipped output) true by construction AND makes it
+    impossible for a crafted cron entry to smuggle a `PRESHIP:` or `ACTION:`
+    sentinel into a report that ships into logs and state artifacts. A crontab is
+    exactly the place absolute home paths live, so this is not a hypothetical.
+
+    THE THREE VERDICT WORDS ARE MUTUALLY EXCLUSIVE AS TEXT, not merely as states:
+    no body contains another body's leading word, so a reader (or a grep) can key
+    on one word and never match a different state. `NOT-ARMED` is the only
+    upper-case one because it is the only one that asks for work.
+
+    Total: EVERY input returns a non-empty single-line `str` and nothing raises --
+    including a non-`str` (treated as an unread listing), `""`, whitespace only,
+    CRLF line endings, tab-indented entries, one 10,000-character line, and a line
+    shorter than the token itself.
+    """
+    token = WATCHDOG_ARM_TOKEN  # read at CALL time -- see the constant
+    text = listing if isinstance(listing, str) else ""
+    entries = 0
+    matches = 0
+    for raw in text.splitlines():
+        stripped = raw.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        entries += 1
+        if isinstance(token, str) and token and token in stripped:
+            matches += 1
+    if not entries:
+        return ("no-schedule -- 0 uncommented entry(s) in the listing, so nothing "
+                "periodic runs the resurrection probe on this box")
+    if matches:
+        return (f"armed -- {matches} of {entries} uncommented entry(s) in the "
+                f"listing run the resurrection probe")
+    return (f"NOT-ARMED -- 0 of {entries} uncommented entry(s) in the listing run "
+            f"the resurrection probe; add a periodic entry invoking {token} so a "
+            f"dead dispatcher is brought back without a human")
+
+
+def probe_watchdog_arm() -> str | None:
+    """List this machine's periodic schedule and answer `watchdog_arm_line`.
+
+    Read-only and INERT: ONE listing issued through the `run_cmd` seam by BARE
+    module name (so `monkeypatch.setattr(foundry, "run_cmd", ...)` bites and the
+    whole path is verifiable offline, with no real subprocess, git, network or
+    clock), EXACTLY ONCE per invocation, carrying an EXPLICIT
+    `timeout=WATCHDOG_ARM_TIMEOUT_SECONDS` so a hung listing degrades to an
+    unknown answer instead of blocking its caller forever. Takes no `repo` and no
+    `cfg`: the schedule is a property of the MACHINE, not of a product, which is
+    also why the verb needs no `--config`.
+
+    Returns `None` -- never raising, for ANY seam behaviour -- when the read did
+    not succeed or the seam itself misbehaved. `None` deliberately does NOT
+    degrade to `no-schedule`: a listing that did not read must never be reported
+    as a listing that held nothing, the same fail-SAFE asymmetry
+    `probe_test_touch` and `probe_worktree_scope` use. Reporting "nothing
+    scheduled" off a failed read would be a fail-OPEN gauge, and here the
+    fail-open direction is the one that hides an unarmed resilience path.
+
+    HONEST LIMIT, recorded rather than papered over: `crontab -l` exits non-zero
+    on a box with NO crontab at all, so that machine reads UNKNOWN and not
+    `no-schedule`. Guessing the empty listing from a non-zero exit would mean
+    inventing a fact from an error code -- the read genuinely did not happen -- so
+    the two are kept apart, and distinguishing them needs a second signal this
+    iteration deliberately does not ship.
+    """
+    try:
+        listing = run_cmd(list(WATCHDOG_ARM_LISTING_CMD),
+                          timeout=WATCHDOG_ARM_TIMEOUT_SECONDS)
+        if not listing.ok:
+            return None
+        return watchdog_arm_line(listing.out)
+    except Exception:
+        return None
+
+
 def prose_stripped_source(source: object) -> str:
     """Blank every comment and string literal in a Python source, keeping shape.
 
@@ -25678,6 +25819,56 @@ def test_touch_cli(cfg: ProductConfig) -> int:
     return 0
 
 
+def watchdog_arm_cli() -> int:
+    """On-demand CLI: print the watchdog-arm line for this MACHINE, ALWAYS exit 0.
+
+    REPORT-ONLY BY CONSTRUCTION, and the unconditional 0 is the feature -- the
+    `test_touch_cli` contract, for the same reason: a machine-local SCHEDULING
+    choice must never gate a launch, so this is deliberately not a `Check` (a
+    failing one flips `doctor` to NOT READY and `preflight` to NO-GO) and not a
+    brake. It may inform a decision and may never make one: no kill, no non-zero
+    code, and it writes NOTHING to disk.
+
+    Takes NO `cfg`, and that is a contract rather than a saving: the periodic
+    schedule belongs to the MACHINE, so a per-product config could only mislead a
+    reader into thinking one team's arming differs from another's. Ten shipped
+    verbs already take no `--config` (the closest sibling being `single-brain`,
+    which likewise probes the box rather than a product), so it is dispatched
+    before `load_config` and also works in a fresh clone.
+
+    DORMANT on purpose -- the additive-dormant pattern that keeps a loop in flight
+    resumable: nothing in `run_iteration`, `run_stage`, `build_prompt`,
+    `run_continuous`, `postrelease_step`, the final gate, `run_doctor`,
+    `run_doctor_cli` or `dispatcher.py` reaches any watchdog-arm symbol; this
+    function is their only caller and `main()`'s dispatch is its only caller.
+    Giving the answer a seat in `doctor` is a SEVENTH drift line, whose real cost
+    (four pinned test modules and a retired-phrase trap) is measured in this
+    iteration's spec and left as its own bite.
+
+    An unread listing prints its own explicit UNKNOWN sentence, sharing no leading
+    verdict word with the three real bodies, for the reason `probe_watchdog_arm`
+    returns `None`: a listing that did not read must never read as a listing that
+    held nothing. Whitespace-collapsed and double-guarded like
+    `test_touch_drift_line`, so EXACTLY ONE line is printed and 0 is returned for
+    every state -- a diagnostic that can crash the shell around it is worse than
+    none.
+    """
+    try:
+        body = probe_watchdog_arm()
+    except Exception as exc:  # pragma: no cover - contract-impossible belt
+        body = None
+        print(f"{WATCHDOG_ARM_PREFIX} UNKNOWN -- the schedule probe raised "
+              f"{type(exc).__name__}, so nothing is claimed about this machine "
+              f"either way")
+        return 0
+    if not isinstance(body, str) or not body.strip():
+        print(f"{WATCHDOG_ARM_PREFIX} UNKNOWN -- the schedule listing did not "
+              f"read, so nothing is claimed about this machine either way")
+    else:
+        print(f"{WATCHDOG_ARM_PREFIX} {' '.join(body.split())}")
+    return 0
+
+
 def recoverable_cli(cfg: ProductConfig, limit: int | None = None,
                     as_json: bool = False) -> int:
     """On-demand CLI: print the recoverability report + return its exit code.
@@ -26167,6 +26358,18 @@ def main(argv: list[str] | None = None) -> int:
                      help="emit the preflight verdict as one JSON document "
                           "(machine-readable) instead of the human report; "
                           "same 0/1/2 exit code")
+    # `watchdog-arm` answers the question roadmap item 8 never asked: the shipped
+    # `watchdog.py` resurrection path EXISTS, but is it ARMED anywhere? Reads ONE
+    # periodic-schedule listing and prints ONE `watchdog-arm:` line -- armed /
+    # NOT-ARMED / no-schedule / UNKNOWN. A COMMENTED-OUT entry naming the module
+    # counts as no entry at all. Built from COUNTS only, never an entry body, so
+    # no absolute home path (which is exactly what a crontab holds) and no
+    # smuggled sentinel can reach the output. Like `single-brain` it probes the
+    # MACHINE and not a product, so it needs NO --config and is dispatched BEFORE
+    # load_config below. REPORT-ONLY and DORMANT: the pipeline/gate/dispatcher
+    # never call it, it writes nothing, and it ALWAYS exits 0 -- never a brake,
+    # because a machine-local scheduling choice must not gate a launch.
+    sub.add_parser("watchdog-arm")
     # `prd` reports "N/M stories pass" from a product's prd.json machine roadmap
     # (cfg.prd). On-demand only -- the pipeline/dispatcher NEVER call it (bite 2
     # wires the same pure prd_status into the dispatcher for an automatic stop).
@@ -26983,6 +27186,8 @@ def main(argv: list[str] | None = None) -> int:
                                  as_json=args.json)
     if args.cmd == "single-brain":
         return single_brain_cli(pattern=args.pattern, as_json=args.json)
+    if args.cmd == "watchdog-arm":
+        return watchdog_arm_cli()
     if args.cmd == "company-status":
         return company_status_cli(args.config, as_json=args.json)
     if args.cmd == "company-stops":
