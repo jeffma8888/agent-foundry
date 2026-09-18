@@ -279,6 +279,7 @@ in the archive.
 - iter 373 -- foundry watchdog-arm: the framework's only resilience path gets its first armed-or-not gauge.
 - iter 374 -- the nine company roll-up constructors fold onto ONE shared packer: 174 lines, 9 contracts -> 1.
 - iter 375 -- b15 stops taxing each iteration a literal row: an ADDED test path leaves its measured set.
+- iter 376 -- ARCHITECTURE §3 holds the FIVE invariants VISION and README name; a pure rule reports count drift.
 
 
 ### Migration notes (per §6 self-mod guardrail)

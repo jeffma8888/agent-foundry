@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-376
+    lenses: performance-and-throughput (iteration 376), narrative-and-docs (iteration 376)
+    - Candidate A1 -- (measuring: the scout phase's 1200s/iteration critical path with a 52% placeholder rate)
+    - Candidate A2 -- (measuring: bytes paid on EVERY stage prompt that carry no live instruction)
+    - Candidate A3 -- (measuring: repeated full-suite cost per iteration / wasted re-verification)
+    - Candidate B1 -- README's own verb census is stale by 11 and the shipped rule that exists to stop exactly this is blind to README's phrasing
+    - Candidate B2 -- four artifacts, three different memberships of the list the loop calls "inviolable"; the sentence in VISION miscounts the document it cites
+    - Candidate B3 -- the roadmap cites a routing decision at two `foundry.py` line numbers; one is a comment about argument validation, the other is a BLANK LINE, and the census cannot see the blank-line one
+    winner: B2
+    ship: pending (not yet decided)
   iter-375
     lenses: simplification-and-deletion (iteration 375), performance-and-throughput (iteration 375)
     - Candidate A1 -- (measuring: dead/dormant symbol census in foundry.py)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- (measuring: cost paid once per iteration vs once per stage)
     - Candidate B3 -- (measuring: wasted retries / redundant re-verification)
     winner: A3
-    ship: pending (not yet decided)
+    ship: PUSHED 3d80095
   iter-374
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- doctor's SEVENTH drift line: yesterday's watchdog-arm verdict reaches the surface an operator runs before every launch
@@ -1669,4 +1679,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-166 scouted iterations
+167 scouted iterations

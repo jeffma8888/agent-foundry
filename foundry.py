@@ -53,7 +53,7 @@ import tomllib
 import warnings
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import TypeVar
+from typing import NamedTuple, TypeVar
 
 FOUNDRY = pathlib.Path(__file__).resolve().parent
 # The agent CLI is configurable so the foundry stays tool-agnostic. AGENT_BIN
@@ -4168,6 +4168,212 @@ def quality_bar_invariant_gaps(bar: str, doc: str) -> tuple[str, ...]:
     haystack = _collapsed_fold(doc)
     return tuple(name for name in quality_bar_invariants(bar)
                  if _collapsed_fold(name) not in haystack)
+
+
+# --------------------------------------------------------------------------- #
+# The INVARIANT-COUNT brake (added iter 376): when a document says "the five
+# invariants in ARCHITECTURE.md", are there five?
+#
+# The iter-149 pair above is a FINDABILITY test, and a guard's domain is its
+# blind spot. Measured at iter 376: FOUR artifacts stated this repo's own
+# "inviolable" list in THREE different memberships. `ARCHITECTURE.md`'s
+# invariants section carried SIX bolded bullets, while `VISION.md` ("The five
+# invariants in ARCHITECTURE.md are inviolable") and `README.md` ("five
+# hard-won invariants") both named the same FIVE, and the product config's
+# `quality_bar` -- which `build_prompt` inlines into EVERY stage prompt -- named
+# those five plus `single-brain`. `quality_bar_invariant_gaps` reported clean,
+# and honestly so: every name it checks IS findable somewhere in the document.
+# Nothing had ever compared a count WORD with the number of bullets it points
+# at, so the FIXED-INTENT document was factually wrong about the document it
+# cites, and an agent that counted -- one reads that text every stage -- found
+# the citing sentence false.
+#
+# The reconciliation shipped in the same iteration, and only the one editable
+# artifact of the four moved: the invariants section's sixth bullet (`Iteration
+# numbering`) went VERBATIM to `## 5. Memory model`, beside the `state/iter-NN`
+# directory it scans. It is a MECHANISM, not an invariant; the three consumers
+# already agreed unanimously on which five they meant; and `CONTINUOUS.md`
+# states the same restart guarantee independently, so demoting it out of a list
+# of invariants lost no documented promise.
+#
+# Same deliberate shape as iter 149: a PURE pair with ZERO call site in the
+# pipeline, so resume semantics for an in-flight loop are byte-identical. The
+# live assertion lives in the test suite, exactly like the roadmap-record
+# brakes, so a canon drift reds the suite without putting new logic on the
+# dispatch control path.
+# --------------------------------------------------------------------------- #
+
+# The heading whose span holds the invariant bullets. Matched by SHAPE -- a
+# numbered h2 whose title starts with `Invariants` -- not by the literal `## 3.`,
+# because the section number is exactly the kind of detail a later reorganisation
+# changes, and a brake that goes silent on a renumbered document is worse than
+# none. `\b` after `Invariants` keeps `## 3. Invariants (do not regress these)`
+# in and a hypothetical `## 3. Invariant-testing notes` out. Module-level and
+# read as a global INSIDE `architecture_invariant_names`, so a
+# `monkeypatch.setattr(foundry, "ARCHITECTURE_INVARIANT_HEADING_RE", ...)` moves
+# a subsequent call's extraction.
+ARCHITECTURE_INVARIANT_HEADING_RE = re.compile(
+    r"^##\s+\d+\.\s+Invariants\b.*$", re.M)
+
+# Where the invariants span ENDS: the next top-level section. Private because it
+# is a markdown fact, not a tunable of this brake.
+_INVARIANT_SPAN_END_RE = re.compile(r"^## ", re.M)
+
+# One invariant = a TOP-LEVEL list item whose first span is bold. The `^- `
+# anchor is the whole precision story and it is measured, not assumed: the live
+# invariants section carries inline bold inside its prose (`**Post-release
+# re-verification:**`) and may carry INDENTED sub-bullets, and neither is an
+# invariant. A pattern without the line anchor reads both as members and inflates
+# the count, which would make the brake fire on a correct document.
+_ARCHITECTURE_INVARIANT_BULLET_RE = re.compile(r"^- \*\*(.+?)\*\*", re.M)
+
+# How a document CLAIMS a size for that list. Scoped by the plural noun
+# `invariants` and by proximity: at most ONE word may sit between the number and
+# the noun, which admits README's live `five hard-won invariants` while refusing
+# `five whole hard-won invariants` and the roadmap's singular `§3
+# full-suite-rerun invariant untouched` (whose nearest number is many words
+# away). That bound is deliberately tight -- widening it is how a count brake
+# starts inventing findings in prose that was never making a claim. Module-level
+# and read as a global inside `invariant_count_gaps`.
+INVARIANT_COUNT_CLAIM_RE = re.compile(
+    r"\b(\d+|two|three|four|five|six|seven|eight|nine|ten)"
+    r"\s+(?:[A-Za-z][\w-]*\s+)?invariants\b", re.I)
+
+# The number words `INVARIANT_COUNT_CLAIM_RE` admits, lower-cased keys looked up
+# under `casefold`. English prose spells small counts out, so a digits-only rule
+# would miss every real claim in this repo's documents; the range stops at ten
+# because a list of inviolable invariants past that size is a different problem.
+INVARIANT_COUNT_WORDS = {
+    "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+
+
+class InvariantCountGap(NamedTuple):
+    """ONE size claim about the invariant list that the list itself contradicts.
+
+    A `NamedTuple` rather than this module's usual frozen dataclass, and the
+    choice is for the CALLER's benefit: a record that IS a plain tuple compares
+    `==` against a literal like `((5, 6, "five invariants"),)`, so a test can pin
+    a whole verdict in one readable literal instead of rebuilding the record
+    type. Immutable for the same reason every measurement record here is frozen
+    -- a computed verdict must not be editable after the fact -- and value
+    equality plus a deterministic field order come free.
+
+    * `claimed` -- the count the citing document prints (digit or number word).
+    * `expected` -- how many invariant bullets the cited document ACTUALLY has.
+    * `phrase` -- the matched span verbatim (`five hard-won invariants`), so a
+      failure message can name the exact words a human has to edit.
+    """
+
+    claimed: int
+    expected: int
+    phrase: str
+
+
+def architecture_invariant_names(doc: str) -> tuple[str, ...]:
+    """The invariant names `doc`'s invariants SECTION declares, in source order.
+
+    SECTION-SCOPED, which is the point: the span runs from the heading matching
+    `ARCHITECTURE_INVARIANT_HEADING_RE` to the next `## ` heading, so a bolded
+    bullet in a LATER section is not an invariant. Without that bound the design
+    doc's other sections contribute members and the count is meaningless.
+
+    Each name is the bullet's bold span, whitespace-stripped, with ONE trailing
+    period removed -- `Output-file success.` reads as `Output-file success`,
+    while `Anti-delegation clause` is returned as written. Empty fragments are
+    dropped, so a degenerate `- **.**` yields no phantom member, mirroring
+    `quality_bar_invariants`.
+
+    KNOWN AND ACCEPTED LIMIT: a bold span WRAPPED across two source lines is not
+    a member, because `.` does not cross a newline. That is a report-low, not a
+    report-high: the failure mode of a count brake worth having is a false
+    finding, so the pattern is kept literal rather than made clever. Measured at
+    iter 376 against the live document: zero wrapped and zero indented bolded
+    bullets exist in the section.
+
+    Pure and total: no filesystem, subprocess, network or clock; the argument is
+    never mutated; and no input raises. `""`, a text with no matching heading, a
+    section with no top-level bolded bullet, a non-`str` value and a pattern
+    monkeypatched to a non-pattern all yield `()`.
+    """
+    text = str(doc or "")
+    try:
+        heading = ARCHITECTURE_INVARIANT_HEADING_RE.search(text)
+    except AttributeError:
+        return ()
+    if heading is None:
+        return ()
+
+    span = text[heading.end():]
+    end = _INVARIANT_SPAN_END_RE.search(span)
+    if end is not None:
+        span = span[:end.start()]
+
+    names: list[str] = []
+    for raw in _ARCHITECTURE_INVARIANT_BULLET_RE.findall(span):
+        name = raw.strip()
+        if name.endswith("."):
+            name = name[:-1].strip()
+        if name:
+            names.append(name)
+    return tuple(names)
+
+
+def invariant_count_gaps(citing: str,
+                         doc: str) -> tuple[InvariantCountGap, ...]:
+    """Size claims in `citing` that `doc`'s invariant section contradicts.
+
+    `()` means every document that quotes a size for the inviolable list quotes
+    the size the list actually has. One record PER OCCURRENCE in source order,
+    not per distinct number, because each occurrence is its own sentence for a
+    human to edit and a caller that wants distinct values can take a set.
+
+    VACUITY -- the two halves fail in OPPOSITE directions, and that asymmetry is
+    deliberate. On the CLAIM side the brake is vacuous when quiet: a citing
+    document re-worded past `INVARIANT_COUNT_CLAIM_RE` yields no claims and
+    therefore `()` forever, so a live caller must ALSO assert the pattern still
+    finds a claim in each document it trusts -- the same pairing the iter-149
+    live test uses. On the DOC side it is fail-CLOSED instead: if `doc` loses its
+    invariants heading, `expected` is `0`, every real claim disagrees with it,
+    and the suite reds loudly rather than going quietly green. A brake that
+    cannot see its own subject must complain about it.
+
+    Residual, recorded rather than chased: `\\b` makes the number token in a
+    hyphenated compound visible, so `twenty-five invariants` reads as a claim of
+    5. No document in this repo writes a count that way, and the alternative --
+    widening the token pattern -- costs precision where precision is the whole
+    value.
+
+    Pure and total: no filesystem, subprocess, network or clock; neither argument
+    is mutated; and no input raises. A non-`str` argument is read as its `str()`
+    text, a claim word absent from `INVARIANT_COUNT_WORDS` is skipped rather than
+    raising, and a pattern monkeypatched to a non-pattern yields `()`. As with
+    `quality_bar_invariants` and its module-level pattern, a monkeypatched
+    `INVARIANT_COUNT_WORDS` is assumed to still be a mapping.
+
+    DORMANT: zero call site in the running pipeline -- no orchestrator,
+    dispatcher, stage, CLI verb or config field references it -- so an in-flight
+    loop's resume semantics are byte-identical.
+    """
+    expected = len(architecture_invariant_names(doc))
+    try:
+        claims = list(INVARIANT_COUNT_CLAIM_RE.finditer(str(citing or "")))
+    except AttributeError:
+        return ()
+
+    # Read the word table as a module GLOBAL here, at call time, so a
+    # monkeypatch of the constant re-decides subsequent calls on unchanged input.
+    words = INVARIANT_COUNT_WORDS
+    gaps: list[InvariantCountGap] = []
+    for match in claims:
+        token = match.group(1)
+        claimed = int(token) if token.isdigit() else words.get(token.casefold())
+        if claimed is None or claimed == expected:
+            continue
+        gaps.append(InvariantCountGap(claimed=claimed, expected=expected,
+                                      phrase=match.group(0)))
+    return tuple(gaps)
 
 
 # The top-level key that makes a JSON file a DISPATCHER ROSTER rather than a product

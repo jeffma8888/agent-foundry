@@ -165,7 +165,6 @@ core stages above byte-for-byte, so the default path is unchanged.
   never violates single-brain (§4) or STOP-respect. It is a standalone module
   off the control path (process-scan liveness, no PID-file, no edit to
   `dispatcher.py`/`foundry.py`).
-- **Iteration numbering** continues across restarts by scanning `state/iter-*`.
 
 ## 4. The single-brain rule (why the dispatcher exists)
 
@@ -181,6 +180,7 @@ loop plus another continuous agent loop) against the same account concurrently.*
 
 Nothing is remembered in-context across stages. Durable memory is:
 - `products/<name>/state/iter-NN/*` — every stage's inputs/outputs/logs.
+- **Iteration numbering** continues across restarts by scanning `state/iter-*`.
 - the product repo's git history + README + roadmap file.
 - `products/<name>/LEARNINGS.md` — role-tagged lessons (`- [PM iterNN] ...`).
   A pinned `## Patterns` head holds the durable curated rules; `foundry learnings
