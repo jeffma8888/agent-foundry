@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-374
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- doctor's SEVENTH drift line: yesterday's watchdog-arm verdict reaches the surface an operator runs before every launch
+    - Candidate A2 -- the operator runbook still teaches `touch STOP`, so every sentinel made the documented way is REASONLESS
+    - Candidate A3 -- the reviewer's mandated test-quality scan is blind to the FOURTH false-green lens
+    - Candidate B1 -- the last uncollapsed layer of the company roll-up family: 9 near-identical constructors, 174 lines, one general rule
+    - Candidate B2 -- two switches for one behavior, with OPPOSITE defaults: retire the superseded `--dual-pm-scouts` flag
+    - Candidate B3 -- the live roadmap index still carries a block whose own heading says ARCHIVED, plus 3 content-free stubs
+    winner: B1
+    ship: pending (not yet decided)
   iter-373
     lenses: hardening/DX, integration-and-adoption -- iteration 373
     - Candidate A1 -- the ONE resilience path the framework ships is armed on NO machine: 405 lines of watchdog with no installer, no scheduler entry, and no probe that can say so
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- (measuring: machine-readable / scriptable output gap)
     - Candidate B3 -- (measuring: default / discoverability / migration on-ramp gap)
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 35da29c
   iter-372
     lenses: new-capability -- iteration 372, hardening/DX -- iteration 372
     - Candidate A1 -- `foundry resume`: the DELETE half of the STOP contract, whose only current implementation is a hand `rm` that leaves no trace
@@ -1649,4 +1659,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-164 scouted iterations
+165 scouted iterations

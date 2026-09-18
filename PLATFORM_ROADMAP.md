@@ -277,6 +277,7 @@ in the archive.
 - iter 371 -- foundry stop writes a reason-bearing STOP sentinel: the WRITE half the shipped reader round-trips.
 - iter 372 -- iter 131's frozen <= 2 zero-parse ceiling becomes the per-file heading implication: 0 of 1343 fail.
 - iter 373 -- foundry watchdog-arm: the framework's only resilience path gets its first armed-or-not gauge.
+- iter 374 -- the nine company roll-up constructors fold onto ONE shared packer: 174 lines, 9 contracts -> 1.
 
 
 ### Migration notes (per §6 self-mod guardrail)
