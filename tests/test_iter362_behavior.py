@@ -44,11 +44,12 @@ BARE_OUTPUT = "scout-plan: dual_pm_scouts=False count=0\nverdict: SINGLE\n"
 VERDICT_TOKENS = ("verdict: DUAL", "verdict: SINGLE")
 
 # Every verb the CLI is allowed to expose (iteration 362's Acceptance Criteria
-# pinned "the same 57-verb set"; iteration 371 added the 58th verb, `stop`).
+# pinned "the same 57-verb set"; iteration 371 added the 58th verb, `stop`, and
+# iteration 373 the 59th, `watchdog-arm`).
 # Counted, not enumerated, so the check stays about the INVARIANT rather than
 # re-typing a table the census already owns -- keep it an EXACT equality, never
 # `>=`, so an accidental verb still reds.
-EXPECTED_VERB_COUNT = 58
+EXPECTED_VERB_COUNT = 59
 
 
 def _cap(fn):
