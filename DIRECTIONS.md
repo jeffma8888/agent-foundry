@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-372
+    lenses: new-capability -- iteration 372, hardening/DX -- iteration 372
+    - Candidate A1 -- `foundry resume`: the DELETE half of the STOP contract, whose only current implementation is a hand `rm` that leaves no trace
+    - Candidate A2 -- `foundry prd-stop`: the loop learns a definition of DONE, so a finished product retires itself instead of looping forever
+    - Candidate A3 -- `foundry enroll`: the scaffolding verb creates a team the single brain will never run
+    - Candidate B1 -- the slate-parser brake has been RED for five straight iterations, and all 3 of its "parse failures" are cap-kill debris its own docstring says must never count
+    - Candidate B2 -- 9 brakes can silently EVAPORATE in the throwaway clone, and the loop's own red is the proof: the strongest control arm cannot see it
+    - Candidate B3 -- one `test_cmd` for a 600s cap: the fix the learnings log has already prescribed, for the product it already killed, is still unshipped
+    winner: B1
+    ship: pending (not yet decided)
   iter-371
     lenses: narrative-and-docs, new-capability -- iteration 371
     - Candidate A1 -- (measuring: a doc/role-card claim the shipped code contradicts)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- a per-product `goal` config field, rendered into the PM and both scout prompts
     - Candidate B3 -- every stage learns its OWN measured budget, not the static "~600s" every role card recites
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 323ed3b
   iter-370
     lenses: performance-and-throughput (iteration 370), narrative-and-docs (iteration 370)
     - Candidate A1 -- `stage-times`, the throughput census itself, reports the hottest stage's median as 2s
@@ -1629,4 +1639,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-162 scouted iterations
+163 scouted iterations

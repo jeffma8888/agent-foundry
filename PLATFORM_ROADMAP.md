@@ -275,6 +275,7 @@ in the archive.
 - iter 369 -- stage-budget medians drop credential-loss attempts: pm_scout_a read 3.0s, its worked median is 600.0s.
 - iter 370 -- README + roles/pm.md name STAGE_BUDGET_EXCLUDED_KINDS: the copied figure's population, plus a brake.
 - iter 371 -- foundry stop writes a reason-bearing STOP sentinel: the WRITE half the shipped reader round-trips.
+- iter 372 -- iter 131's frozen <= 2 zero-parse ceiling becomes the per-file heading implication: 0 of 1343 fail.
 
 
 ### Migration notes (per §6 self-mod guardrail)

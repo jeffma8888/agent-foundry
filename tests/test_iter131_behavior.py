@@ -34,8 +34,10 @@ work, no sleeps, no mutation of the product tree.
 """
 import json
 import pathlib
+import re
 import sys
 import types
+from collections.abc import Iterable
 
 import pytest
 
@@ -463,84 +465,101 @@ def test_ac_union_is_a_superset_of_the_old_rule_over_the_real_slate_corpus():
     assert gained > 0, "the union recovered nothing on the real corpus"
 
 
-_CHECKPOINT_MARKERS = ("checkpoint", "in progress")
+_CANDIDATE_HEADING_RE = re.compile(
+    r"^##[ \t]+(?:candidates?\b|[A-Za-z]{1,2} ?\d{1,3}\b)", re.IGNORECASE)
 
 
-def _is_write_early_checkpoint(text: str) -> bool:
-    """True when a scout file self-declares as an UNFINISHED write-early checkpoint.
+def _has_candidate_heading(text: str) -> bool:
+    """True when ANY line of `text` is a candidate heading at `##` depth.
 
-    Matched at a LINE START only, and only when the marker is CAPITALISED --
-    either the caps the convention prefers (`STATUS: CHECKPOINT`) or ordinary
-    sentence case (`Checkpoint written before measurement.`, which is what
-    iteration 337's cap-killed scout B wrote). WIDENED iter 337: CAPITALISATION,
-    not full caps, is the discriminator that keeps this filter from swallowing
-    finished work, and requiring full caps was a false NEGATIVE on a file that
-    self-declares in as many words. Measured over the whole slate corpus on this
-    checkout before the change: dropping the case test altogether would sweep in
-    22 FINISHED slates whose prose merely WRAPPED onto a line beginning
-    `checkpointed...` / `checkpoint gets...` -- exactly the false-positive class
-    this rule exists to refuse -- while requiring an uppercase first letter
-    excludes EXACTLY ONE file more than the caps-only rule did, and that file
-    parses to zero candidates. A lowercase marker AFTER `STATUS:` is deliberately
-    still counted as finished: those slates were refined after their checkpoint
-    and do parse, so excluding them would only shrink the corpus this brake
-    measures. Pure and total.
+    WHY a test-local oracle instead of reusing the shipped matcher: this is the
+    GRADER for `parse_scout_candidates`, so it has to be written independently or
+    the brake below would only assert that the parser agrees with itself. It is
+    deliberately LOOSER than `foundry._CANDIDATE_ID_HEADING_RE` on the digit bound
+    (one to THREE digits, not one to two), and that gap is what keeps the
+    implication two-sided: `## A123 -- x` is a heading this oracle accepts and the
+    shipped parser cannot see, so a genuine parser miss still reds -- proved from
+    a hand-built fixture in `tests/test_iter372_behavior.py`, which needs no
+    corpus and therefore cannot evaporate in a fresh clone.
+
+    Depth is EXACTLY two hashes followed by whitespace, matching the shipped rule:
+    `# A1 -- x`, `### A1 -- x` and `##A1 -- x` are all rejected, and leading
+    indentation is stripped first. Pure and total -- no I/O, no mutation, never
+    raises for ANY string.
     """
-    for raw in text.splitlines():
-        line = raw.lstrip()
-        if line.startswith("STATUS:"):
-            line = line[len("STATUS:"):].lstrip()
-        if line[:1].isupper() and line.lower().startswith(_CHECKPOINT_MARKERS):
-            return True
-    return False
+    return any(_CANDIDATE_HEADING_RE.match(raw.lstrip())
+               for raw in text.splitlines())
+
+
+def _heading_parse_exceptions(pairs: Iterable[tuple[str, str]]) -> tuple[str, ...]:
+    """Labels whose text HAS a candidate heading yet parses to NO candidates.
+
+    The whole brake in one expression: the implication `has a heading -> at least
+    one candidate`, evaluated over an arbitrary `(label, text)` population so the
+    real-corpus leg and the fixture legs share ONE grader rather than two
+    hand-copied loops. Failing labels come back in INPUT order. Pure and total --
+    it touches no disk, mutates neither its argument nor any global, and calls
+    only the two pure functions it grades with.
+    """
+    return tuple(label for label, text in pairs
+                 if _has_candidate_heading(text)
+                 and not foundry.parse_scout_candidates(text))
 
 
 def test_ac_no_real_slate_parses_to_zero_candidates_when_it_has_id_headings():
-    """The parser must find candidates in every FINISHED slate on disk.
+    """Every slate WITH a candidate heading must parse to at least one candidate.
 
-    THE POPULATION EXCLUDES SELF-DECLARED WRITE-EARLY CHECKPOINTS, which is what
-    makes this brake measure the PARSER instead of the loop's cap-kill rate. A
-    scout stage killed under the ~600s cap leaves behind the checkpoint it wrote
-    first -- a file that says `STATUS: CHECKPOINT` / `IN PROGRESS` and carries no
-    candidate heading YET -- so grading it as a parse failure scores the kill, not
-    the parser, and the tally then grows with every future cap-kill in ANY
-    product. Counting them also made this test body disagree with its own NAME: an
-    unfinished placeholder has no id headings at all.
+    THE POPULATION IS FILES WITH A CANDIDATE HEADING. That is what makes this
+    brake grade `parse_scout_candidates` instead of the loop's cap-kill rate, and
+    what finally makes this body agree with its own NAME. A HEADLESS cap-kill
+    checkpoint -- the write-early stub a scout stage killed under the ~600s cap
+    leaves behind, which self-declares (`STATUS: CHECKPOINT`) and carries no
+    candidate heading YET -- is OUT of population: grading it scores the kill, not
+    the parser.
 
-    That is the frozen-count-over-gitignored-growing-state trap (OPERATOR
-    2026-08-11): `products/*/state/` is gitignored, so a fresh clone SKIPS here
-    while a long-lived checkout accumulates unfinished slates until a frozen
-    integer reds a correct iteration. The census below is ITERATION 215's, and it
-    is a timestamp rather than a fact -- the corpus it counts grows every stage,
-    so re-derive it before quoting it. Measured there: 937 slates, of
-    which 89 self-declare incomplete (86 of those still parse, having been refined
-    after their checkpoint) and exactly 3 are unfinished with zero candidates --
-    and over the 848 FINISHED slates the parser misses ZERO. Iteration 131's own
-    `<= 2` headroom is kept unchanged rather than retuned down to that 0.
+    RETIRED HERE (iteration 372): iteration 131's frozen zero-parse CEILING over
+    the whole corpus, together with the self-declaration filter that bound needed.
+    The ceiling was the frozen-count-over-gitignored-growing-state trap (OPERATOR
+    2026-08-11) in its worst direction -- RED in every long-lived checkout and
+    SKIPPED in the throwaway fresh clone every ship is re-verified from, so the
+    arm the loop trusts to adjudicate an ambient red could not see it. Its own
+    docstring already called the census "a timestamp rather than a fact" and it
+    rotted exactly as predicted: the corpus grew from iteration 215's 937 slates
+    to 1343 (+43%, two files per iteration forever), and three cap-killed stubs
+    belonging to OTHER products held this test red for five consecutive
+    iterations.
 
-    The population FLOOR is the two-sided half: a filter that emptied the corpus
-    would satisfy the `<= 2` bound forever, so it must leave a real corpus behind.
+    THE REPLACEMENT IS TIGHTER, NOT LOOSER: over the headed population it
+    tolerates ZERO misses where the retired bound tolerated TWO, so a single new
+    parser miss now reds where the old headroom passed. Measured over all 1343
+    slates on this checkout when it landed: 1334 headed slates parse, ZERO headed
+    slates parse to nothing, and every one of the 9 files that parses to nothing
+    is headless. What this deliberately stops counting is exactly that headless
+    debris.
+
+    The population FLOOR is the two-sided half: an oracle that matched nothing
+    would satisfy an emptiness assertion forever, so it must leave a real corpus
+    behind. `tests/test_iter372_behavior.py` carries the oracle and implication
+    legs as hand-built fixtures, so they still run where this leg skips.
     """
     slates = sorted((_ROOT / "products").glob("*/state/iter-*/pm_scout_*.md"))
     if len(slates) < 10:
         pytest.skip("no meaningful slate corpus in this checkout")
-    finished, zero = [], []
+    headed: list[tuple[str, str]] = []
     for path in slates:
         try:
             text = path.read_text(errors="replace")
         except OSError:
             continue
-        if _is_write_early_checkpoint(text):
-            continue
-        finished.append(path)
-        if not foundry.parse_scout_candidates(text):
-            zero.append(path)
-    assert len(finished) >= 10, (
-        f"the checkpoint filter left only {len(finished)} of {len(slates)} slates"
-        " -- it would satisfy the bound below vacuously")
-    assert len(zero) <= 2, (
-        f"{len(zero)} FINISHED slates still parse to zero candidates: "
-        f"{[q.name for q in zero[:5]]}")
+        if _has_candidate_heading(text):
+            headed.append((path.name, text))
+    assert len(headed) >= 10, (
+        f"only {len(headed)} of {len(slates)} slates carry a candidate heading"
+        " -- the assertion below would pass vacuously")
+    misses = _heading_parse_exceptions(headed)
+    assert not misses, (
+        f"{len(misses)} slate(s) carry a candidate heading the parser cannot see: "
+        f"{list(misses[:5])}")
 
 
 def test_ac_docstring_states_both_shapes_and_the_depth_exclusion():
