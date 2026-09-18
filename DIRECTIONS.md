@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-375
+    lenses: simplification-and-deletion (iteration 375), performance-and-throughput (iteration 375)
+    - Candidate A1 -- (measuring: dead/dormant symbol census in foundry.py)
+    - Candidate A2 -- (measuring: near-duplicate path collapse, post-iter-374 family)
+    - Candidate A3 -- (measuring: superseded flag / doc section / special-case retirement)
+    - Candidate B1 -- (measuring: repeated per-stage cost on the critical path)
+    - Candidate B2 -- (measuring: cost paid once per iteration vs once per stage)
+    - Candidate B3 -- (measuring: wasted retries / redundant re-verification)
+    winner: A3
+    ship: pending (not yet decided)
   iter-374
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- doctor's SEVENTH drift line: yesterday's watchdog-arm verdict reaches the surface an operator runs before every launch
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- two switches for one behavior, with OPPOSITE defaults: retire the superseded `--dual-pm-scouts` flag
     - Candidate B3 -- the live roadmap index still carries a block whose own heading says ARCHIVED, plus 3 content-free stubs
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 676b1fe
   iter-373
     lenses: hardening/DX, integration-and-adoption -- iteration 373
     - Candidate A1 -- the ONE resilience path the framework ships is armed on NO machine: 405 lines of watchdog with no installer, no scheduler entry, and no probe that can say so
@@ -1659,4 +1669,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-165 scouted iterations
+166 scouted iterations

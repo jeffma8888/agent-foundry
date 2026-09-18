@@ -278,6 +278,7 @@ in the archive.
 - iter 372 -- iter 131's frozen <= 2 zero-parse ceiling becomes the per-file heading implication: 0 of 1343 fail.
 - iter 373 -- foundry watchdog-arm: the framework's only resilience path gets its first armed-or-not gauge.
 - iter 374 -- the nine company roll-up constructors fold onto ONE shared packer: 174 lines, 9 contracts -> 1.
+- iter 375 -- b15 stops taxing each iteration a literal row: an ADDED test path leaves its measured set.
 
 
 ### Migration notes (per §6 self-mod guardrail)
