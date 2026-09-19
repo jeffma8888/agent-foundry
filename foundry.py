@@ -15918,6 +15918,68 @@ def readme_verb_index_gaps(readme_text: str, verbs: Iterable[str]) -> ReadmeVerb
     )
 
 
+def role_card_verbs(card_text: str) -> tuple[str, ...]:
+    """Every name a role card teaches as `foundry.py <name>`, sorted and deduped.
+
+    Takes the card's TEXT, never a path, so it is PURE and TOTAL: no filesystem,
+    subprocess, network or clock access, no mutation of its argument, equal
+    inputs give ``==`` results, and it never raises -- `""`, a non-`str` or text
+    with no invocation yields `()`. Reading `roles/*.md` off disk is the
+    CALLER's job, which is what lets a test drive it from in-memory strings
+    while the live brake points it at the tracked cards.
+
+    WHY a separate extractor rather than `readme_verb_index_gaps`: that audit
+    is shaped around README's `# N.` sections and reports section-level debt; a
+    role card has no such sections and the question is simpler -- WHICH verbs
+    does this seat's playbook put in front of the agent? A card is the only
+    surface a seat reads before it acts, so the set of verbs it names IS the
+    seat's adopted tooling. Iteration 338 shipped `dormancy` FOR the scout
+    seat and forty slates later no scout had run it, because the card never
+    named it; this extractor lets the suite pin adoption instead of hoping.
+
+    Reuses `_README_INVOCATION_RE`, so the invocation SHAPE is one definition:
+    `foundry.py <name>` on ONE line, and a flag (`foundry.py --help`) matches
+    nothing -- a flag is not a verb.
+
+    DORMANT: zero call site in the running pipeline -- no orchestrator,
+    dispatcher, stage, CLI verb or config field references it -- so resume
+    semantics for an in-flight loop are byte-identical.
+    """
+    if not isinstance(card_text, str) or not card_text:
+        return ()
+    return tuple(sorted(set(_README_INVOCATION_RE.findall(card_text))))
+
+
+def role_card_verb_gaps(card_text: str, verbs: Iterable[str]) -> tuple[str, ...]:
+    """Every verb a role card teaches that the CLI does NOT accept, sorted.
+
+    PURE and TOTAL by the same contract as `role_card_verbs`, which does the
+    extraction: card TEXT and an iterable of accepted verb names in, a sorted
+    tuple of the taught names missing from that set out. A `verbs` argument
+    that is not iterable is treated as EMPTY and non-`str` members are ignored,
+    so a caller that mis-derived the verb set gets every taught name reported
+    rather than a traceback.
+
+    WHY: a role card is prose the agent itself edits, so the rule that keeps
+    it honest cannot live in the card. Pairing this with `foundry_cli_verbs`
+    in the suite makes the card and the CLI drift-proof in the direction that
+    hurts -- retiring a verb the card still teaches fails loudly AT THE CARD,
+    and a card that teaches a misspelled or made-up verb fails the same way.
+    The empty-card case returns `()` deliberately: an absent card is not a
+    drift, and the non-vacuity floor ("at least N cards teach a verb") is the
+    caller's to assert, exactly as with `readme_verb_index_gaps`.
+
+    DORMANT: zero call site in the running pipeline -- no orchestrator,
+    dispatcher, stage, CLI verb or config field references it -- so resume
+    semantics for an in-flight loop are byte-identical.
+    """
+    try:
+        known = {verb for verb in verbs if isinstance(verb, str) and verb}
+    except TypeError:
+        known = set()
+    return tuple(name for name in role_card_verbs(card_text) if name not in known)
+
+
 # --------------------------------------------------------------------------- #
 # The `roles/` INVENTORY, as a DERIVED claim instead of a count word in prose
 # --------------------------------------------------------------------------- #

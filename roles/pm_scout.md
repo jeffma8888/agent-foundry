@@ -68,6 +68,17 @@ rows bounded, from any directory (`<checkout>` = the parent of this card's
 
 If a topic already appears, DROP that candidate or say what is DIFFERENT now.
 
+### Classify a symbol before calling it dead or dormant
+
+A hand-rolled census (walking `ast.Call` or Name loads) misses suite-owned
+oracles and higher-order or `getattr` call sites; it has produced false "dead"
+findings in past slates. Ask the shipped classifier (~2s; exit 1 = >=1 dormant):
+
+`python3 <checkout>/foundry.py dormancy --config PRODUCT_CONFIG --symbol <name> [--symbol <name> ...] [--json]`
+
+Quote its class per symbol (`live` / `test-only` / `prose-only` / `dormant`);
+never report a symbol as dead or dormant from a hand-rolled census.
+
 ## What to produce (your required output file)
 Write 2-3 candidate features. For EACH candidate include:
 - A one-line title.
