@@ -24482,10 +24482,11 @@ def save_work_cli(cfg: ProductConfig) -> int:
 # fleet sibling, and any attempt to PREVENT a kill.
 
 # WHERE the attempt logs live under a product's state dir, and WHAT marks one as a
-# hard kill. Module-level and read INSIDE `gather_rescues` (never captured at def
-# time), so a `monkeypatch.setattr(foundry, ...)` on either reshapes the scan without
-# touching the code that reads them -- the kill signature is DATA, not a literal
-# buried in a branch, because the agent CLI's wording is not ours to control.
+# hard kill. Module-level and read INSIDE `_walk_attempt_logs` / `gather_rescues`
+# (never captured at def time), so a `monkeypatch.setattr(foundry, ...)` on either
+# reshapes the scan without touching the code that reads them -- the kill
+# signature is DATA, not a literal buried in a branch, because the agent CLI's
+# wording is not ours to control.
 ATTEMPT_LOG_GLOB = "iter-*/*.attempt*.log"
 ATTEMPT_KILL_TOKENS: tuple[str, ...] = ("agent run timed out after",)
 
@@ -24810,38 +24811,46 @@ def attempt_kill_summary(*, product: str,
     return RescueSummary(product=product, rows=tuple(rows))
 
 
-def gather_rescues(cfg: ProductConfig,
-                   limit: int | None = None) -> RescueSummary:
-    """Gather one product's attempt-log kill accounting into a `RescueSummary`.
+def _walk_attempt_logs(
+        cfg: ProductConfig,
+        limit: int | None = None) -> Iterable[tuple[str, int, int, bool, str]]:
+    """Yield one RAW `(stage, iteration, attempt, produced, text)` row per attempt log.
 
-    The FIRST reader of the attempt logs `run_stage` has been writing all along. Walks
-    `cfg.state` with the module-level `ATTEMPT_LOG_GLOB`, read at CALL time so a
-    `monkeypatch.setattr(foundry, ...)` bites, and for each matched file derives:
-      * `stage` / `attempt` from the filename via `_ATTEMPT_LOG_RE`, and `iteration`
-        from its parent dir via `iteration_numbers` (called by BARE name) -- a name of
-        any other shape is SKIPPED, never guessed at;
-      * `killed` -- the log text contains any `ATTEMPT_KILL_TOKENS` member (also read
-        at call time, so the kill signature stays patchable DATA). An unreadable or
-        UNDECODABLE log degrades to `killed=False` and is still counted as an attempt:
-        absence of evidence is not evidence of a kill, and dropping the row would
-        under-count the denominator the rate is computed against;
-      * `produced` -- this stage's OUTPUT file in the SAME iteration dir exists with
-        `st_size > 0`, byte-for-byte the condition `run_stage` calls success, so a
-        rescue here means exactly what a rescue meant to the loop. The name comes from
-        `STAGE_OUTPUT_NAMES` (default `<stage>.md`), NOT from the attempt log's own
-        stage label, which `run_stage` does not use to name its output.
-    A POSITIVE `limit` keeps only the newest `limit` iteration dirs under `cfg.state`
-    (the five ledger verbs' `--limit` semantics, derived through the same
-    `iteration_numbers` helper); `None` / non-positive scans them all. Hands the
-    records to the pure `attempt_kill_summary` and returns the frozen core. Read-only:
-    writes nothing, creates no directory, and a missing / unreadable `cfg.state`
-    yields an empty digest (`attempts == 0`, exit 2) rather than raising."""
+    The ONE place in the module where "what counts as an attempt" is decided. Iteration
+    363 folded the `losses` and `auth-loss` walks onto `gather_attempt_records`, but
+    `gather_rescues` kept a ~36-line private copy of the same walk, and iterations 360
+    and 361 had each repaired the scanning contract in one copy at a time. Iteration 380
+    moved the walk HERE, under both readers: they differ only in the lens they apply to
+    the log's text, so the text is yielded RAW and each consumer classifies it itself.
+
+    Walks `cfg.state` with the module-level `ATTEMPT_LOG_GLOB` (read at CALL time by
+    bare name, so a `monkeypatch.setattr(foundry, ...)` reshapes the scan without
+    touching this code) and, for each matched file:
+      * `stage` / `attempt` from the filename via `_ATTEMPT_LOG_RE`, `iteration` from
+        the parent dir via `iteration_numbers` (called by BARE name) -- a name of any
+        other shape is SKIPPED, never guessed at;
+      * `produced` from `_stage_output_present`, byte-for-byte the condition
+        `run_stage` calls success (that helper resolves the OUTPUT name through
+        `STAGE_OUTPUT_NAMES`, because `run_stage` takes `out_name` SEPARATELY from the
+        stage label), so "rescued" and "lost" downstream mean what they meant to the
+        loop;
+      * `text` is the log's UTF-8 content, or `""` when it is missing, unreadable or
+        UNDECODABLE -- still an attempt, still yielded: absence of evidence is not
+        evidence of a kill or of a cause, and dropping the row would under-count the
+        denominator every downstream rate is computed against.
+    A POSITIVE `limit` keeps only the newest `limit` iteration dirs (the ledger verbs'
+    `--limit` semantics, via the same `iteration_numbers` helper); `None` or a
+    non-positive value scans them all -- so every consumer shares ONE window BY
+    CONSTRUCTION rather than by copies of one predicate agreeing. A generator, so a
+    consumer pays only for the rows it reads. Read-only and TOTAL: writes nothing,
+    creates no directory, and a missing or unreadable `cfg.state` yields nothing rather
+    than raising -- the no-news input each caller's pure verdict already handles."""
     state = cfg.state
     try:
         paths = sorted(state.glob(ATTEMPT_LOG_GLOB)) if state.exists() else []
     except OSError:
-        # A read error on the state dir means "no attempts to report", never a crash
-        # -- the same no-news-is-good-news contract as the other read-only lenses.
+        # A read error on the state dir means "no news", never a crash -- the same
+        # no-news contract as the other read-only lenses.
         paths = []
     keep: set[int] | None = None
     if isinstance(limit, int) and limit > 0:
@@ -24851,7 +24860,6 @@ def gather_rescues(cfg: ProductConfig,
             names = []
         # `iteration_numbers` is ascending, so the most-recent N are the LAST N.
         keep = set(iteration_numbers(names)[-limit:])
-    records: list[AttemptRecord] = []
     for path in paths:
         match = _ATTEMPT_LOG_RE.match(path.name)
         if match is None:
@@ -24865,16 +24873,37 @@ def gather_rescues(cfg: ProductConfig,
         try:
             text = path.read_text(encoding="utf-8")
         except Exception:
-            # Missing / permission / decode error -> no kill evidence, still an
-            # attempt (see the docstring's `killed` bullet for why it is not dropped).
+            # Missing / permission / decode error -> no evidence, still an attempt
+            # (see the `text` bullet above for why the row is neither dropped nor fatal).
             text = ""
         stage = match.group("stage")
-        records.append(AttemptRecord(
-            stage=stage, iteration=iteration,
-            attempt=int(match.group("attempt")),
-            killed=any(token in text for token in ATTEMPT_KILL_TOKENS),
-            produced=_stage_output_present(path.parent, stage, iteration)))
-    return attempt_kill_summary(product=cfg.name, records=tuple(records))
+        yield (stage, iteration, int(match.group("attempt")),
+               _stage_output_present(path.parent, stage, iteration), text)
+
+
+def gather_rescues(cfg: ProductConfig,
+                   limit: int | None = None) -> RescueSummary:
+    """Gather one product's attempt-log kill accounting into a `RescueSummary`.
+
+    The FIRST reader of the attempt logs `run_stage` has been writing all along, and
+    since iteration 380 a thin consumer of `_walk_attempt_logs`, which owns the glob,
+    the filename parse, the `limit` window, the read-with-degrade and the `produced`
+    test. This reader's ONE lens is `killed`: the log text contains any
+    `ATTEMPT_KILL_TOKENS` member, read at CALL time so the kill signature stays
+    patchable DATA. It is decided over the TEXT, never via the classifier's `kind`: a
+    log carrying `throttl` plus `agent run timed out after` classifies `service` yet
+    IS a kill. An unreadable or UNDECODABLE log arrives as `""` and degrades to
+    `killed=False` while still counting as an attempt -- absence of evidence is not
+    evidence of a kill, and dropping the row would under-count the denominator the
+    rate is computed against. Hands the records to the pure `attempt_kill_summary` and
+    returns the frozen core. Read-only: a missing or unreadable `cfg.state` yields an
+    empty digest (`attempts == 0`, exit 2) rather than raising."""
+    records = tuple(
+        AttemptRecord(stage=stage, iteration=iteration, attempt=attempt,
+                      killed=any(token in text for token in ATTEMPT_KILL_TOKENS),
+                      produced=produced)
+        for stage, iteration, attempt, produced, text in _walk_attempt_logs(cfg, limit))
+    return attempt_kill_summary(product=cfg.name, records=records)
 
 
 def _stage_output_present(it_dir: pathlib.Path, stage: str,
@@ -25151,82 +25180,30 @@ def gather_attempt_records(
         limit: int | None = None) -> tuple[tuple[str, int, int, bool, str], ...]:
     """Walk one product's attempt logs ONCE into plain per-attempt records.
 
-    The single I/O seam under BOTH attempt-log readers -- the `losses` digest and the
-    `auth-loss` recency verdict -- extracted in iteration 363 because those two had
-    drifted into 0.952-identical copies of this walk, and iterations 360 and 361 each
-    had to repair the scanning contract in ONE copy at a time. After this there is
-    exactly one place in the module where "what counts as an attempt" is decided.
-
-    Walks `cfg.state` with the module-level `ATTEMPT_LOG_GLOB` (read at CALL time by
-    bare name, so a `monkeypatch.setattr(foundry, ...)` reshapes the scan without
-    touching this code) and, for each matched file, emits ONE plain
-    `(stage, iteration, attempt, produced, kind)` tuple:
-      * `stage` / `attempt` from the filename via `_ATTEMPT_LOG_RE`, `iteration` from
-        the parent dir via `iteration_numbers` (called by BARE name) -- a name of any
-        other shape is SKIPPED, never guessed at;
-      * `produced` from `_stage_output_present`, byte-for-byte the condition
-        `run_stage` calls success, so "lost" downstream means exactly what it meant to
-        the loop (that helper resolves the OUTPUT name through `STAGE_OUTPUT_NAMES`,
-        because `run_stage` takes `out_name` SEPARATELY from the stage label);
+    The I/O seam under the `losses` digest and the `auth-loss` recency verdict,
+    extracted in iteration 363 because those two had drifted into 0.952-identical
+    copies of one walk, and iterations 360 and 361 each had to repair the scanning
+    contract in ONE copy at a time. Since iteration 380 the walk itself lives in
+    `_walk_attempt_logs` (shared with `gather_rescues`, so there is again exactly one
+    place in the module where "what counts as an attempt" is decided); this reader
+    only applies its lens and emits ONE plain `(stage, iteration, attempt, produced,
+    kind)` tuple per row:
       * `kind` from `classify_attempt_failure` over the log's TEXT -- the shipped
         classifier, unchanged, so the labels a human sees are the same labels
-        `retry_delay` prices. An unreadable or UNDECODABLE log is still an ATTEMPT
-        with no evidence: its text degrades to `""`, which the classifier maps to
-        `ATTEMPT_FAILURE_DEFAULT` -- never a crash, never a dropped row, and still an
-        attempt that was SCANNED, so it still advances the recency clock.
+        `retry_delay` prices. An unreadable or UNDECODABLE log arrives as `""`, which
+        the classifier maps to `ATTEMPT_FAILURE_DEFAULT` -- never a crash, never a
+        dropped row, and still an attempt that was SCANNED, so it still advances the
+        recency clock;
+      * `stage`, `iteration`, `attempt` and `produced` pass through untouched, with
+        the generator's `limit` window and no-news contract (a missing or unreadable
+        `cfg.state` yields `()`), shared BY CONSTRUCTION rather than by two copies of
+        one predicate agreeing.
     A plain tuple rather than a dataclass on purpose: the shape is already the
     contract `_loss_fields` documents, and one fewer public name is one fewer thing a
-    future iteration must keep in step.
-
-    A POSITIVE `limit` keeps only the newest `limit` iteration dirs (the five ledger
-    verbs' `--limit` semantics, via the same `iteration_numbers` helper); `None` or a
-    non-positive value scans them all. Both readers now share ONE window BY
-    CONSTRUCTION rather than by two copies of one predicate agreeing: a window that
-    differed by even one iteration would let the loss counts and the tense contradict
-    each other with no way for a reader to tell which was right.
-
-    Read-only and TOTAL: writes nothing, creates no directory, and a missing or
-    unreadable `cfg.state` yields `()` rather than raising -- the no-news input each
-    caller's own pure verdict function already handles."""
-    state = cfg.state
-    try:
-        paths = sorted(state.glob(ATTEMPT_LOG_GLOB)) if state.exists() else []
-    except OSError:
-        # A read error on the state dir means "no news", never a crash -- the same
-        # no-news contract as the other read-only lenses.
-        paths = []
-    keep: set[int] | None = None
-    if isinstance(limit, int) and limit > 0:
-        try:
-            names = [p.name for p in state.iterdir()]
-        except OSError:
-            names = []
-        # `iteration_numbers` is ascending, so the most-recent N are the LAST N.
-        keep = set(iteration_numbers(names)[-limit:])
-    records: list[tuple[str, int, int, bool, str]] = []
-    for path in paths:
-        match = _ATTEMPT_LOG_RE.match(path.name)
-        if match is None:
-            continue
-        numbers = iteration_numbers([path.parent.name])
-        if not numbers:
-            continue
-        iteration = numbers[0]
-        if keep is not None and iteration not in keep:
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except Exception:
-            # Missing / permission / decode error -> no evidence of a cause, still an
-            # attempt that was SCANNED (see the `kind` bullet above for why it is
-            # neither dropped nor fatal, and why the recency clock still advances).
-            text = ""
-        stage = match.group("stage")
-        records.append((
-            stage, iteration, int(match.group("attempt")),
-            _stage_output_present(path.parent, stage, iteration),
-            classify_attempt_failure(text)))
-    return tuple(records)
+    future iteration must keep in step."""
+    return tuple(
+        (stage, iteration, attempt, produced, classify_attempt_failure(text))
+        for stage, iteration, attempt, produced, text in _walk_attempt_logs(cfg, limit))
 
 
 def gather_losses(cfg: ProductConfig,

@@ -284,6 +284,7 @@ in the archive.
 - iter 377 -- directions' winner: column splits blank into pending / unparsed (pm.md present) / absent.
 - iter 378 -- watchdog-arm: cron's own "no crontab for" on a failed read is no-schedule; other failures stay UNKNOWN.
 - iter 379 -- roles/pm_scout.md teaches dormancy; role_card_verb_gaps: every verb a card teaches is a live CLI verb.
+- iter 380 -- gather_rescues folds onto the iter-363 attempt-log walk: one _walk_attempt_logs generator, two consumers.
 
 
 ### Migration notes (per §6 self-mod guardrail)

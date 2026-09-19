@@ -1,6 +1,17 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-380
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- the reviewer's mandated test-quality scan still cannot see the FOURTH false-green lens, 57 iterations after it shipped
+    - Candidate A2 -- nine iterations after `foundry stop` shipped, 7 of 9 operator-doc teaching sites still teach `touch STOP`, the action that writes the reason-less sentinel the reader cannot render
+    - Candidate A3 -- `watchdog-arm` is the only read-only VERDICT verb of 59 with no `--json` door, so the framework's sole resilience probe cannot be scripted against
+    - Candidate B1 -- the THIRD attempt-log walker iter 363 left behind: gather_rescues re-implements the walk gather_attempt_records was extracted to own (36 duplicated code lines, 0.75 similarity), and the shipped test names the fold 'a later bite'
+    - Candidate B2 -- (measuring)
+    - Candidate B3 -- (measuring)
+    stubs: 2 of 6 candidate line(s) are write-early placeholders, not measured candidates
+    winner: B1
+    ship: pending (not yet decided)
   iter-379
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- (measuring: a hardening gap in an existing verb or brake)
@@ -10,7 +21,7 @@ foundry directions -- _platform
     - Candidate B2 -- `watchdog-arm` gains `--json` and a seat in the `preflight` composite as a CAUTION-only contributor: the only launch-family verb with neither a machine door nor a consumer
     - Candidate B3 -- de-list roadmap item 3 bite 2 (auto-refresh `AGENTS.md` at ship time) and record WHY on the roadmap: the emitter has had zero consumers for 370 iterations and the shipped launcher cannot auto-load its output
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 5e3d8e9
   iter-378
     lenses: new-capability (iteration 378), hardening/DX (iteration 378)
     - Candidate A1 -- `foundry resume`: the lift half of the STOP contract, which iteration 372's own PM recorded as re-proposable verbatim
@@ -1709,4 +1720,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-170 scouted iterations
+171 scouted iterations

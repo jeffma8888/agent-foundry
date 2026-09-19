@@ -377,16 +377,19 @@ def test_b7_each_thin_caller_is_one_return_over_the_shared_walk(caller) -> None:
         f"{caller} must compose the shared walk exactly once"
 
 
-def test_b7_the_regex_call_site_count_is_exactly_two() -> None:
+def test_b7_the_regex_call_site_count_is_exactly_one() -> None:
     src = FOUNDRY_SRC.read_text(encoding="utf-8")
     n = len(re.findall(r"_ATTEMPT_LOG_RE\.match\(", src))
-    assert n == 2, f"expected 2 attempt-log walks (shared + rescues), found {n}"
+    assert n == 1, f"expected 1 attempt-log walk (shared walk only), found {n}"
 
 
-def test_b7_the_out_of_scope_third_walker_is_untouched(tmp_path) -> None:
-    """`gather_rescues` keeps its OWN walk -- collapsing it is a later bite."""
-    assert "_ATTEMPT_LOG_RE" in _src(RESCUES), \
-        f"{RESCUES} was widened into this bite; the spec puts it out of scope"
+def test_b7_the_third_walker_is_folded(tmp_path) -> None:
+    """`gather_rescues` no longer walks on its own (the later bite: iteration 380).
+
+    It consumes the shared generator, NOT the records tuple -- its lens needs the raw
+    text, which `gather_attempt_records` has already classified away."""
+    assert "_ATTEMPT_LOG_RE" not in _src(RESCUES), \
+        f"{RESCUES} still carries its own copy of the attempt-log walk"
     assert GATHER + "(" not in _src(RESCUES), f"{RESCUES} must stay independent"
     cfg = _three(tmp_path)
     assert _fn(RESCUES)(cfg) is not None

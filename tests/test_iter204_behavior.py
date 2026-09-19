@@ -1037,7 +1037,11 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # swept, converted or added, and the 75-assertion literal class keeps
                 # both sibling checks above. Red ONLY inside the pre-commit window; a
                 # fresh clone at the ship commit is clean.
-                "tests/test_iter362_behavior.py"}
+                "tests/test_iter362_behavior.py",
+                # iter 380: two b7 pins inverted by the fold they were scoped to
+                # permit (`gather_rescues` onto the shared attempt-log walk);
+                # `newest_ness_pin_sites` over that file is `()` at HEAD and worktree.
+                "tests/test_iter363_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the
