@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-378
+    lenses: new-capability (iteration 378), hardening/DX (iteration 378)
+    - Candidate A1 -- `foundry resume`: the lift half of the STOP contract, which iteration 372's own PM recorded as re-proposable verbatim
+    - Candidate A2 -- `foundry enroll`: the scaffolding verb builds a team the dispatcher will never pick up, then tells the operator to hand-paste it
+    - Candidate A3 -- `escalation-check` learns the `--config/--ref` diff mode its sibling `leak-check` shipped 53 iterations ago
+    - Candidate B1 -- the arm probe for the framework's ONLY resilience path reads a scheduler this box does not have, so six iterations after it shipped it has never produced a verdict
+    - Candidate B2 -- the learnings-head WARN fires 221 chars before silent deletion and names no bullet, so its own remedy ("retire the spent directives NOW") cannot be executed
+    - Candidate B3 -- doctor says NOT READY on a machine that has shipped 377 iterations, and the check that does it is the only line in the report with no remedy
+    winner: B1
+    ship: pending (not yet decided)
   iter-377
     lenses: narrative-and-docs (iteration 377), new-capability (iteration 377)
     - Candidate A1 -- the invariant document teaches the OPPOSITE polarity of the switch that started this very stage: ARCHITECTURE and README still call the two-scout phase OPT-IN, 57 iterations after the default flipped to ON
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `company-unfailable-asserts`: the 10th fleet roll-up, so the 4th false-green lens covers all 5 products in one command
     - Candidate B3 -- the decision log's `winner:` column learns the three states its own `ship:` column already distinguishes
     winner: B3
-    ship: pending (not yet decided)
+    ship: PUSHED ec10282
   iter-376
     lenses: performance-and-throughput (iteration 376), narrative-and-docs (iteration 376)
     - Candidate A1 -- (measuring: the scout phase's 1200s/iteration critical path with a 52% placeholder rate)
@@ -1689,4 +1699,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-168 scouted iterations
+169 scouted iterations

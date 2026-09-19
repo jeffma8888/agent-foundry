@@ -282,6 +282,7 @@ in the archive.
 - iter 375 -- b15 stops taxing each iteration a literal row: an ADDED test path leaves its measured set.
 - iter 376 -- ARCHITECTURE §3 holds the FIVE invariants VISION and README name; a pure rule reports count drift.
 - iter 377 -- directions' winner: column splits blank into pending / unparsed (pm.md present) / absent.
+- iter 378 -- watchdog-arm: cron's own "no crontab for" on a failed read is no-schedule; other failures stay UNKNOWN.
 
 
 ### Migration notes (per §6 self-mod guardrail)

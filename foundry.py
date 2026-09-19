@@ -10934,6 +10934,23 @@ def test_touch_drift_line(cfg: "ProductConfig") -> str:
 # behind one verdict would let a silent read failure on either read as a fact.
 WATCHDOG_ARM_LISTING_CMD: tuple[str, ...] = ("crontab", "-l")
 
+# The SECOND SIGNAL iteration 373's probe docstring said it lacked: cron's own
+# sentence for an empty table. `crontab -l` exits NON-ZERO on a box with no
+# crontab at all (a stock macOS install, the VISION's declared platform), so
+# the exit code alone cannot tell "the table is empty" from "the read failed",
+# and the probe read UNKNOWN on exactly the machines it was built for. The
+# SENTENCE is the signal, not the exit code: `crontab: no crontab for <user>`
+# is cron REPORTING THE RESULT OF A LOOKUP IT DID PERFORM (Vixie cron on macOS
+# and cronie on Linux both print it), so it is a completed read that happens to
+# hold nothing. Matched ONLY on the not-ok path, as a case-insensitive
+# substring of the captured output, and NEVER quoted: the verdict is the
+# constant `watchdog_arm_line("")` sentence, so the username cron appends can
+# not reach a report. Every other non-zero result (missing binary, timeout,
+# permission error, garbage) still reads `None` -> UNKNOWN. A TUPLE read at
+# CALL time so `monkeypatch.setattr(foundry, "WATCHDOG_ARM_EMPTY_LISTING_MARKERS", ())`
+# bites and a product on a cron that words it differently can extend it.
+WATCHDOG_ARM_EMPTY_LISTING_MARKERS: tuple[str, ...] = ("no crontab for",)
+
 # Wall-clock ceiling for the ONE read-only schedule listing the arm probe issues.
 # A DIAGNOSTIC MAY NEVER OUTLIVE THE REPORT IT ANNOTATES -- the rule
 # `TEST_TOUCH_TIMEOUT_SECONDS` documents: with no explicit timeout a hung
@@ -11047,21 +11064,49 @@ def probe_watchdog_arm() -> str | None:
     scheduled" off a failed read would be a fail-OPEN gauge, and here the
     fail-open direction is the one that hides an unarmed resilience path.
 
-    HONEST LIMIT, recorded rather than papered over: `crontab -l` exits non-zero
-    on a box with NO crontab at all, so that machine reads UNKNOWN and not
-    `no-schedule`. Guessing the empty listing from a non-zero exit would mean
-    inventing a fact from an error code -- the read genuinely did not happen -- so
-    the two are kept apart, and distinguishing them needs a second signal this
-    iteration deliberately does not ship.
+    THE ONE NOT-OK RESULT THAT IS A FACT: `crontab -l` exits non-zero on a box
+    with NO crontab at all, and an exit code alone cannot tell that empty table
+    from a read that failed -- so iteration 373 read both as UNKNOWN and named
+    the missing second signal. That signal is cron's own sentence, held in
+    `WATCHDOG_ARM_EMPTY_LISTING_MARKERS` and read at CALL time: when the read is
+    not ok AND any marker is a case-insensitive substring of the captured
+    output, cron has reported the result of a lookup it DID perform, so the
+    probe answers `watchdog_arm_line("")` -- the constant `no-schedule`
+    sentence, built from no text of the output, so the username cron appends
+    never reaches a report. The marker is consulted ONLY on the not-ok path (a
+    successful listing that merely mentions the phrase in a comment is still
+    the listing it is), and every other not-ok result -- missing binary,
+    timeout, permission error, garbage -- still returns `None`, because there
+    the read genuinely did not happen.
     """
     try:
         listing = run_cmd(list(WATCHDOG_ARM_LISTING_CMD),
                           timeout=WATCHDOG_ARM_TIMEOUT_SECONDS)
         if not listing.ok:
+            if _is_empty_listing_report(listing.out):
+                return watchdog_arm_line("")  # the constant sentence, never `out`
             return None
         return watchdog_arm_line(listing.out)
     except Exception:
         return None
+
+
+def _is_empty_listing_report(out: object) -> bool:
+    """Say whether a FAILED schedule read is cron reporting an empty table.
+
+    WHY a helper: the marker rule ("case-insensitive substring, read at call
+    time, only ever consulted on the not-ok path") deserves one name and one
+    place, so `probe_watchdog_arm` keeps its single try/except shape and a
+    reviewer can see the whole rule in four lines. Total over any `out`: a
+    non-`str`, `""`, or an unset marker tuple all read `False`, which keeps
+    the fail-SAFE direction -- an unrecognised failure stays UNKNOWN.
+    """
+    if not isinstance(out, str) or not out:
+        return False
+    haystack = out.casefold()
+    markers = WATCHDOG_ARM_EMPTY_LISTING_MARKERS  # read at CALL time -- see the constant
+    return any(isinstance(m, str) and m and m.casefold() in haystack
+               for m in markers)
 
 
 def prose_stripped_source(source: object) -> str:
