@@ -48,6 +48,8 @@ resolved by WALKING history for the newest commit whose index does NOT yet carry
 Behavior 5's two COUNTING pins need the same treatment at the OTHER end, because a
 LATER iteration's own mandatory duty-3 row also moves the live count: they measure
 iteration 365's own commit via `_shipped_index()`, not the worktree (`[ENG iter366]`).
+Behavior 1's SHRINK pin got the same treatment at `[ENG iter381]`: measured live, its
+margin was 63 chars at iteration 380 and one more ~115-char duty-3 row turned it red.
 
 Offline and deterministic apart from local `git show`/`git log` reads of this repo's
 own history: no network, no writes outside `tmp_path`, no sleep.
@@ -277,7 +279,7 @@ def test_b0_the_shipping_modules_still_import():
 # --------------------------------------------------------------------- Behavior 1
 def test_b1_index_shrank_by_at_least_3000_chars():
     _sha, base, _arc = _need_baseline()
-    idx = len(_text(INDEX))
+    idx = len(_shipped_index())
     shrink = len(base) - idx
     assert shrink >= MIN_SHRINK, (
         "index shrank only %d chars (baseline %d -> %d); behavior 1 wants >= %d"

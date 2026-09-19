@@ -2131,6 +2131,80 @@ class LearningsHeadAudit:
     near_wall: bool = False
 
 
+def learnings_head_region(text: str) -> list[str]:
+    """The pinned `## Patterns` head as a list of lines, or `[]`. Pure.
+
+    THE head-region rule the audit sizes, extracted at iteration 381 so the
+    doctor line's two readers (`learnings_head_audit` and `head_unowned_lines`)
+    walk the SAME lines by construction rather than by two copies of a loop.
+    Region: from the line left-stripping to `## Patterns` up to (exclusive) the
+    first later `## ` heading OR the first lesson line (a line left-stripping to
+    `- [`), whichever comes first -- identical to the scan `learnings_digest`
+    performs on the prompt path, and FENCED by the same oracle (test_iter136
+    asserts the audit's numbers equal the digest's own notice). That prompt-path
+    copy is deliberately NOT lifted here: it sits in the hot path of every stage
+    prompt and this is a reporting feature.
+
+    `[]` when there is no `## Patterns` heading (empty text included), so a
+    caller can test "is there a head" with plain truthiness. Never raises; no
+    filesystem, subprocess, network or clock.
+    """
+    lines = text.splitlines()
+    head_start = next(
+        (i for i, ln in enumerate(lines)
+         if ln.lstrip().startswith("## Patterns")),
+        None,
+    )
+    if head_start is None:
+        return []
+    head = [lines[head_start]]
+    for ln in lines[head_start + 1:]:
+        if ln.lstrip().startswith("## ") or ln.lstrip().startswith("- ["):
+            break
+        head.append(ln)
+    return head
+
+
+def head_unowned_lines(head: list[str]) -> tuple[int, ...]:
+    """Indices of head lines that no bullet OWNS. Pure, total, never raises.
+
+    Why: `_split_head_blocks` attaches EVERY line after a `- ` bullet to that
+    bullet until the next one, which is right for the prompt bound but blind to
+    corruption -- a bullet whose own `- **` line was lost leaves its indented
+    body glued to the bullet ABOVE it, and misplaced flush-left prose lands
+    there too. Iteration 362's census counted labelled bullets and could not see
+    901 chars of exactly that shape re-arguing a DE-LISTED roadmap item inside
+    another bullet's block. This is the detector that census lacked.
+
+    Rule, per bullet block from `_split_head_blocks`: walk the lines AFTER the
+    `- ` line, skipping blank ones; the FIRST non-blank line that does not start
+    with whitespace marks the block BROKEN, and that line plus every later
+    non-blank line in the block (indented or not) is unowned -- once a block has
+    lost its thread, an indented line below the break belongs to whatever came
+    before it, not to the bullet on top. Preamble lines (before the first
+    bullet) are never unowned: flush-left prose IS the preamble's shape. Blank
+    lines are never returned.
+
+    Returns ascending indices into `head` (so a caller can size or quote the
+    exact lines); `()` for `[]`, a preamble-only head, or a clean head. Never
+    mutates its input; no filesystem, subprocess, network or clock.
+    """
+    preamble, blocks = _split_head_blocks(head)
+    unowned: list[int] = []
+    offset = len(preamble)
+    for block in blocks:
+        broken = False
+        for j, line in enumerate(block[1:], start=1):
+            if not line.strip():
+                continue
+            if not broken and not line[0].isspace():
+                broken = True
+            if broken:
+                unowned.append(offset + j)
+        offset += len(block)
+    return tuple(unowned)
+
+
 def learnings_head_audit(
     text: str,
     bullet_cap: int | None = PROMPT_LEARNINGS_HEAD_BULLET_CHARS,
@@ -2144,16 +2218,16 @@ def learnings_head_audit(
 
     The BOUNDING MATH IS NOT REIMPLEMENTED: this delegates to `_bound_head`, the
     same helper `learnings_digest` uses, so the numbers reported can never
-    disagree with the numbers the prompt path actually pays. Only the head-REGION
-    extraction is repeated here (12 lines), because the prompt path is read-only
-    in this iteration -- lifting that scan out of `learnings_digest` would edit a
-    function in the hot path of every stage prompt for a reporting feature. The
-    duplication is deliberate and it is FENCED BY AN ORACLE rather than by good
-    intentions: a behavior asserts that for the same text and caps this function's
-    `bullets` / `truncated` / `dropped` equal the three numbers `learnings_digest`
-    renders in its own `> [head bounded: ...]` notice, and that an
-    `over_budget is False` head produces no notice at all. If either scan drifts,
-    that test goes red.
+    disagree with the numbers the prompt path actually pays. The head-REGION
+    scan is `learnings_head_region` (called by its BARE module name, iteration
+    381), which repeats the prompt path's scan rather than lifting it out of
+    `learnings_digest` -- that would edit a function in the hot path of every
+    stage prompt for a reporting feature. The duplication is deliberate and it
+    is FENCED BY AN ORACLE rather than by good intentions: a behavior asserts
+    that for the same text and caps this function's `bullets` / `truncated` /
+    `dropped` equal the three numbers `learnings_digest` renders in its own
+    `> [head bounded: ...]` notice, and that an `over_budget is False` head
+    produces no notice at all. If either scan drifts, that test goes red.
 
     Head region, identical to `learnings_digest`: from the `## Patterns` heading up
     to (exclusive) the first later `## ` heading OR the first lesson line (a line
@@ -2203,13 +2277,8 @@ def learnings_head_audit(
         headroom = head_budget - raw_chars
         return headroom, (not over_budget) and 0 <= headroom <= margin
 
-    lines = text.splitlines()
-    head_start = next(
-        (i for i, ln in enumerate(lines)
-         if ln.lstrip().startswith("## Patterns")),
-        None,
-    )
-    if head_start is None:
+    head = learnings_head_region(text)
+    if not head:
         # No head text to size, so the five original fields stay all-zero -- but the
         # DISTANCE to the wall is still well defined (a head of 0 chars has the whole
         # budget to grow into), exactly as the sibling `roadmap_index_budget` reports
@@ -2218,11 +2287,6 @@ def learnings_head_audit(
         return LearningsHeadAudit(bullets=0, raw_chars=0, truncated=0,
                                   dropped=0, over_budget=False,
                                   headroom=headroom, near_wall=near_wall)
-    head = [lines[head_start]]
-    for ln in lines[head_start + 1:]:
-        if ln.lstrip().startswith("## ") or ln.lstrip().startswith("- ["):
-            break
-        head.append(ln)
     _segments, bullets, truncated, dropped = _bound_head(
         head, bullet_cap, head_budget)
     over_budget = bool(truncated or dropped)
@@ -2273,6 +2337,17 @@ def learnings_head_line(cfg: "ProductConfig") -> str:
       * WARN -- the bounds elide part of the head in EVERY stage prompt, with the
         counts and the remedy. Its text is byte-unchanged from iteration 181.
 
+    Each of the three SIZED outcomes gains ONE trailing clause (iteration 381)
+    exactly when `head_unowned_lines(learnings_head_region(text))` is non-empty:
+    the count and chars of lines sitting inside bullet blocks that no bullet
+    owns (flush-left prose, or the headless body of a bullet whose `- ` line was
+    lost). Sizing alone cannot see that shape -- it is what let a 901-char body
+    re-arguing a DE-LISTED item ride inside another bullet for 200 iterations --
+    and the clause is EMPTY on a clean head, so every existing line is
+    byte-unchanged there. Both helpers are called by bare module name; a seam
+    that raises degrades to UNKNOWN like everything else in this body. The
+    UNKNOWN branch never carries the clause: no text, no lines to own.
+
     ALWAYS returns a non-empty single-line `str` (no embedded newline), never
     `None`, and NEVER raises: a diagnostic that can crash the preflight it
     decorates is worse than no diagnostic.
@@ -2290,6 +2365,16 @@ def learnings_head_line(cfg: "ProductConfig") -> str:
                     f"log at {path.name}; cannot size the pinned `## Patterns` "
                     f"head that every stage prompt carries")
         audit = learnings_head_audit(text, bullet_cap, budget)
+        region = learnings_head_region(text)
+        unowned = head_unowned_lines(region)
+        unowned_clause = ""
+        if unowned:
+            chars = len("\n".join(region[i] for i in unowned))
+            unowned_clause = (
+                f" -- and {len(unowned)} unowned line(s) ({chars} chars) sit "
+                f"inside bullet blocks: flush-left prose or a headless "
+                f"continuation (a bullet whose `- ` line was lost) -- re-attach "
+                f"or archive them")
         # NEAR-WALL is checked FIRST because it is a STRICT SUBSET of
         # `not over_budget`: the head still arrives whole, which is exactly what
         # made the old OK branch report health 221 chars from silent deletion.
@@ -2303,12 +2388,12 @@ def learnings_head_line(cfg: "ProductConfig") -> str:
                     f"{budget}-char total (margin {margin}, cap {bullet_cap} "
                     f"chars/bullet) -- retire or archive the spent directives NOW: "
                     f"past that wall the bound starts eliding head blocks from the "
-                    f"BOTTOM in EVERY stage prompt")
+                    f"BOTTOM in EVERY stage prompt{unowned_clause}")
         if not audit.over_budget:
             return (f"{LEARNINGS_HEAD_PREFIX} OK -- pinned `## Patterns` head is "
                     f"{audit.raw_chars} chars in {audit.bullets} bullet(s) and "
                     f"arrives whole in every stage prompt (bounds: {bullet_cap} "
-                    f"chars/bullet, {budget} total)")
+                    f"chars/bullet, {budget} total){unowned_clause}")
         # The WARN branch, and ONLY it, names the worst loser: the counts alone
         # leave the operator owing a hand re-split of the head to learn WHICH
         # directive to retire. Reuses the audit pass above -- no second audit.
@@ -2324,7 +2409,8 @@ def learnings_head_line(cfg: "ProductConfig") -> str:
                 f"{audit.bullets} bullet(s) and does NOT arrive whole: "
                 f"{audit.truncated} bullet(s) truncated, {audit.dropped} dropped "
                 f"in EVERY stage prompt (bounds: {bullet_cap} chars/bullet, "
-                f"{budget} total){worst_clause} -- retire the spent directives")
+                f"{budget} total){worst_clause} -- retire the spent directives"
+                f"{unowned_clause}")
     except Exception as exc:
         return (f"{LEARNINGS_HEAD_PREFIX} UNKNOWN -- steering-head audit "
                 f"unavailable ({exc!r})")
