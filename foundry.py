@@ -17016,6 +17016,28 @@ class DirectionsEntry:
       * `winner` -- the PM lead's picked candidate id (`"C1"`) or `None`.
       * `action` -- the ship action `"PUSHED"` / `"REVERTED"` / `None`.
       * `sha` -- the pushed sha when `action == "PUSHED"` (else `None`).
+      * `pm_present` -- declared LAST and DEFAULTED to `None`: whether this
+        iteration's `pm.md` EXISTS (`True`/`False`), or `None` when the caller
+        did not measure it. It is render INPUT / provenance, not a decision
+        record, so it is absent from `to_dict()`'s pinned 6-key payload -- the
+        same rule `DirectionsDigest.ship_subjects` documents.
+
+    WHY `pm_present` is an `InitVar` pseudo-field stored by `__post_init__`
+    rather than a 7th real field: `tests/test_iter321_behavior.py::
+    test_b5_directions_entry_declares_exactly_six_fields_in_order` pins
+    `dataclasses.fields(DirectionsEntry)` to EXACTLY the six decision fields, so
+    a 7th real field is a RED suite (measured this iteration: "Left contains one
+    more item: 'pm_present'"). An `InitVar` is excluded from `fields()` /
+    `asdict()` / `repr` / `__eq__` by the stdlib, which is exactly the
+    render-input-not-a-record contract above: the six-field SCHEMA stays frozen,
+    the constructor still accepts `pm_present=` positionally or by keyword, the
+    six pre-existing positional arguments still construct (yielding `None`), and
+    `object.__setattr__` in `__post_init__` -- the repo's documented way to
+    assign on a frozen instance (`DormancyReport.exit_code`) -- publishes it as a
+    normal read-only attribute, so assigning it still raises
+    `dataclasses.FrozenInstanceError`. Two entries differing ONLY in
+    `pm_present` therefore compare equal, which is the honest reading: provenance
+    about the artifact on disk is not part of the decision the row records.
     """
     iteration: int
     lenses: tuple[str, ...]
@@ -17023,6 +17045,17 @@ class DirectionsEntry:
     winner: str | None
     action: str | None
     sha: str | None
+    pm_present: dataclasses.InitVar[bool | None] = None
+
+    def __post_init__(self, pm_present: bool | None) -> None:
+        """Publish the `InitVar` as a read-only instance attribute.
+
+        `object.__setattr__` is the documented way to assign on a FROZEN
+        dataclass (same idiom as `DormancyReport.__post_init__`); it stores the
+        value verbatim, never normalizes it, so `None` (not measured), `True` and
+        `False` stay the three distinguishable states
+        `directions_winner_label` reads."""
+        object.__setattr__(self, "pm_present", pm_present)
 
     @property
     def stub_candidates(self) -> tuple[str, ...]:
@@ -17106,6 +17139,61 @@ def directions_ship_label(entry: "DirectionsEntry",
     return "unknown"
 
 
+def directions_winner_label(entry: "DirectionsEntry",
+                            newest_iteration: int | None = None) -> str:
+    """The `winner:` field text for one decision row, with EVIDENCE as the
+    tie-breaker.
+
+    PURE and total: every input arrives as DATA on the entry, so no filesystem,
+    subprocess, git, network or clock is touched and no combination of
+    `winner` / `pm_present` / `newest_iteration` can raise.
+
+    WHY this exists: a bare `winner if winner is not None else "unknown"` said
+    THREE different things with one word, and `DIRECTIONS.md` is the repetition
+    brake every scout and the PM lead are sent to read, so a label that
+    misinforms is worse than no label. The three states are (a) the iteration has
+    not been decided yet, (b) a `pm.md` IS on disk but `parse_triage_winner`
+    could not read a winner out of it (the harness's own reader failing on a real
+    decision, which is a bug to heal), and (c) no `pm.md` exists at all (the PM
+    stage never wrote a spec -- infrastructure, typically a stage cap kill). This
+    mirrors `directions_ship_label`, which already earned a `pending` tier on the
+    SAME row for the same reason.
+
+    Precedence, highest first:
+      * a recorded `winner` is a DECISION and wins outright -- returned VERBATIM
+        regardless of `pm_present` or newness, exactly as a recorded `action`
+        outranks git inference in `directions_ship_label`;
+      * else `pm_present is True` -> `unparsed (pm.md present)`. WHY EVIDENCE
+        OUTRANKS THE NEWEST-ROW FALLBACK: the artifact EXISTS, so a blank winner
+        is the PARSER's gap, and being the newest row cannot excuse it -- the
+        `pending` tier would quietly absolve a reader bug every time it happened
+        on the newest iteration, which is precisely when it is most visible and
+        most fixable;
+      * else `pm_present is False` AND this row IS `newest_iteration` ->
+        `pending (not yet decided)`: `refresh_directions_file` runs BEFORE the PM
+        of the next iteration, so the newest row legitimately has no spec yet;
+      * else `pm_present is False` -> `absent (no pm.md)`: a settled iteration
+        with no spec on disk is missing infrastructure, not a pending decision;
+      * else (`pm_present is None`) -> `unknown`, byte-identical to the
+        pre-iteration-377 output. `None` means NOT MEASURED, so every existing
+        construction site keeps its old label by construction rather than by an
+        extra branch (the same defaulting contract as `ship_subjects=()`).
+
+    The `pm_present` tests are IDENTITY comparisons (`is True` / `is False`) on
+    purpose: only the two booleans are evidence, so any other value degrades to
+    the honest `unknown` instead of being coerced into a claim.
+    """
+    if entry.winner is not None:
+        return entry.winner
+    if entry.pm_present is True:
+        return "unparsed (pm.md present)"
+    if entry.pm_present is False:
+        if newest_iteration is not None and entry.iteration == newest_iteration:
+            return "pending (not yet decided)"
+        return "absent (no pm.md)"
+    return "unknown"
+
+
 @dataclasses.dataclass(frozen=True)
 class DirectionsDigest:
     """A per-iteration DECISION ledger for one product (the `directions` core).
@@ -17166,8 +17254,11 @@ class DirectionsDigest:
         line and BEFORE its `winner:` line (a `k == 0` block emits no such line
         anywhere, so a fully-measured log contains no `stubs:` substring at all --
         the label is additive and never rewrites a clean row), a `winner: {W}`
-        line (W = the winner id or
-        the literal `unknown`), and a `ship: {S}` line (S from
+        line (W from `directions_winner_label`: the winner id verbatim, else one
+        of `unparsed (pm.md present)` / `pending (not yet decided)` /
+        `absent (no pm.md)` / `unknown` -- and `unknown` for every entry whose
+        `pm_present` was never measured, so a pre-`pm_present` digest renders
+        byte-identically), and a `ship: {S}` line (S from
         `directions_ship_label`, which is `_ship_label`'s output verbatim
         whenever `ship_subjects` is empty);
         and a rollup line `{total} scouted iterations`. When there are NO entries
@@ -17199,8 +17290,11 @@ class DirectionsDigest:
                 lines.append(
                     f"    stubs: {len(stubs)} of {len(e.candidates)} candidate "
                     "line(s) are write-early placeholders, not measured candidates")
-            winner = e.winner if e.winner is not None else "unknown"
-            lines.append(f"    winner: {winner}")
+            # BARE module name so `monkeypatch.setattr(foundry,
+            # "directions_winner_label", ...)` bites on the rendered bytes, and
+            # the same `newest` the `ship:` line below uses -- one notion of
+            # "the row whose outcome cannot exist yet" for both fields.
+            lines.append(f"    winner: {directions_winner_label(e, newest)}")
             # BARE module name so `monkeypatch.setattr(foundry,
             # "directions_ship_label", ...)` bites on the rendered bytes.
             lines.append(
@@ -17258,7 +17352,10 @@ def gather_directions(cfg: ProductConfig,
     then `pm_scout_b.md` (omitting a None/absent one); `candidates` is the
     ordered concatenation of `parse_scout_candidates` over the two scout files;
     `winner` is `parse_triage_winner` over `pm.md`; `action`/`sha` are
-    `parse_ship_action`/`parse_ship_sha` over `final.md`.
+    `parse_ship_action`/`parse_ship_sha` over `final.md`; `pm_present` is whether
+    that `pm.md` EXISTS -- always `True` or `False` from this reader, never the
+    `None` ("not measured") default, so `render()` can report a blank winner as
+    `unparsed (pm.md present)` rather than `absent (no pm.md)`.
 
     `ship_subjects` on the returned digest is git ship-truth for `cfg.repo`
     (`git_ship_subjects`, the ONE I/O seam) so `render()` can override a stale or
@@ -17301,7 +17398,8 @@ def gather_directions(cfg: ProductConfig,
             *(_read_sentinel(scout_a, parse_scout_candidates) or ()),
             *(_read_sentinel(scout_b, parse_scout_candidates) or ()),
         )
-        winner = _read_sentinel(it_dir / "pm.md", parse_triage_winner)
+        pm_path = it_dir / "pm.md"
+        winner = _read_sentinel(pm_path, parse_triage_winner)
         final_path = it_dir / "final.md"
         action = _read_sentinel(final_path, parse_ship_action)
         sha = _read_sentinel(final_path, parse_ship_sha)
@@ -17312,6 +17410,14 @@ def gather_directions(cfg: ProductConfig,
             winner=winner,
             action=action,
             sha=sha,
+            # EXISTENCE, so this reader never reports `None` (= not measured):
+            # a blank `winner` here is always either the parser's gap on a spec
+            # that IS on disk or a spec that was never written, and
+            # `directions_winner_label` can only tell them apart if this probe
+            # commits to True/False. `Path.exists()` swallows OSError (returns
+            # False), keeping the never-raises contract of the reads above; the
+            # SCOUTED gate already relies on that same guarantee.
+            pm_present=pm_path.exists(),
         ))
 
     # NEWEST-FIRST: `numbers` is ascending, so reverse the built entries.
