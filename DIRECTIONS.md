@@ -1,6 +1,15 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-381
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- (placeholder, being measured)
+    - Candidate B1 -- run the two PM scouts concurrently: 30% of the critical path is a phase whose halves are independent, and serializing them costs ~570s per iteration
+    - Candidate B2 -- retire 1,886 chars of dead instruction from the Patterns head: a headless orphan that re-argues a DE-LISTED item, plus two "text was moved" bookkeeping bullets, paid in every one of ~7.5 stage prompts per iteration
+    - Candidate B3 -- make the cap-killed scout stop losing its work: a mid-stage MANDATORY re-checkpoint at minute 5 in `roles/pm_scout.md`, plus `directions` reporting the stub rate it already computes as a per-seat number
+    stubs: 1 of 4 candidate line(s) are write-early placeholders, not measured candidates
+    winner: B1
+    ship: pending (not yet decided)
   iter-380
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- the reviewer's mandated test-quality scan still cannot see the FOURTH false-green lens, 57 iterations after it shipped
@@ -11,7 +20,7 @@ foundry directions -- _platform
     - Candidate B3 -- (measuring)
     stubs: 2 of 6 candidate line(s) are write-early placeholders, not measured candidates
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 3871c4f
   iter-379
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- (measuring: a hardening gap in an existing verb or brake)
@@ -1720,4 +1729,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-171 scouted iterations
+172 scouted iterations
