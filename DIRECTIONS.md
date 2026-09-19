@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-379
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- (measuring: a hardening gap in an existing verb or brake)
+    - Candidate A2 -- (measuring: a DX gap in the builder's tooling)
+    - Candidate A3 -- (measuring: a safety/test-coverage gap)
+    - Candidate B1 -- the `dormancy` verb was built FOR the scout seat and the scout card never names it: 0 of 40 slates since it shipped have run it, 14 hand-rolled the census instead
+    - Candidate B2 -- `watchdog-arm` gains `--json` and a seat in the `preflight` composite as a CAUTION-only contributor: the only launch-family verb with neither a machine door nor a consumer
+    - Candidate B3 -- de-list roadmap item 3 bite 2 (auto-refresh `AGENTS.md` at ship time) and record WHY on the roadmap: the emitter has had zero consumers for 370 iterations and the shipped launcher cannot auto-load its output
+    winner: B1
+    ship: pending (not yet decided)
   iter-378
     lenses: new-capability (iteration 378), hardening/DX (iteration 378)
     - Candidate A1 -- `foundry resume`: the lift half of the STOP contract, which iteration 372's own PM recorded as re-proposable verbatim
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the learnings-head WARN fires 221 chars before silent deletion and names no bullet, so its own remedy ("retire the spent directives NOW") cannot be executed
     - Candidate B3 -- doctor says NOT READY on a machine that has shipped 377 iterations, and the check that does it is the only line in the report with no remedy
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 02f63b2
   iter-377
     lenses: narrative-and-docs (iteration 377), new-capability (iteration 377)
     - Candidate A1 -- the invariant document teaches the OPPOSITE polarity of the switch that started this very stage: ARCHITECTURE and README still call the two-scout phase OPT-IN, 57 iterations after the default flipped to ON
@@ -1699,4 +1709,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-169 scouted iterations
+170 scouted iterations

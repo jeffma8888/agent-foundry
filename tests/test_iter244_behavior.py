@@ -464,7 +464,15 @@ def test_b8_frozen_paths_are_byte_unchanged_against_head():
     # appends to duty 4's existing "Read the line, ignore the status." sentence and
     # deletes nothing, so iteration 139's write-early card audit, the duty-3 ledger
     # contract and every other content brake over this card still hold -- verified green.
-    allowed = {"roles/final.md", "roles/pm.md"}
+    # iter 379: `roles/pm_scout.md` joins the allow-list on the SAME precedent and for the
+    # same reason -- iteration 379's spec makes the edit MANDATORY: Expected Behavior 1
+    # requires a `### Classify a symbol before calling it dead or dormant` sub-section
+    # carrying the `foundry.py dormancy` invocation, and Behavior 5 ASSERTS that
+    # `role_card_verbs(<scout card>)` names `dormancy` (red on HEAD by design).  The
+    # edit is ADDITIVE: an 11-line sub-section inside `## Inputs`, deleting nothing, so
+    # the lens audit, the write-early anchor, the candidate-heading contract and the
+    # iter-81 leak-guard pins over this card all still hold -- verified green.
+    allowed = {"roles/final.md", "roles/pm.md", "roles/pm_scout.md"}
     unexpected = [p for p in changed if p not in allowed]
     assert unexpected == [], f"frozen paths changed: {unexpected}"
 
