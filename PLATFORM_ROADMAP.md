@@ -32,6 +32,7 @@ shipped, so none owes a row; 230 never shipped either -- its work re-landed as 2
 ITERATIONS 245-319 NEVER RAN (a 36.6 h infra outage; no commit exists, so none owes a row) -- verbatim record in the archive.
 STILL OPEN:
 (d), (g)'s rendering half, (j), (k), and (o).
+(g) is CLOSED as of iter 377 -- its rendering half, the last open piece, SHIPPED (`directions_winner_label`); the mention of it on the line above is superseded.
 NEXT UP, in value order: (a) Only the OPTIONAL 25-guard
 CONSOLIDATION remains, and it does NOT unblock strangler steps 2/3 (one guard still freezes
 `dispatcher.py` and the meta-test requires it to); (c) CLOSED -- CONSUMER HALF SHIPPED iter 230 (measurement half, 229): `doctor`'s fifth never-blocking drift line. Read the archive's `- **iter 230` bullet BEFORE proposing any further wiring of this measurement; (d) relax `roles/tester.md`'s
@@ -280,6 +281,7 @@ in the archive.
 - iter 374 -- the nine company roll-up constructors fold onto ONE shared packer: 174 lines, 9 contracts -> 1.
 - iter 375 -- b15 stops taxing each iteration a literal row: an ADDED test path leaves its measured set.
 - iter 376 -- ARCHITECTURE §3 holds the FIVE invariants VISION and README name; a pure rule reports count drift.
+- iter 377 -- directions' winner: column splits blank into pending / unparsed (pm.md present) / absent.
 
 
 ### Migration notes (per §6 self-mod guardrail)

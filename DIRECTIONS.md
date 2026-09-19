@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-377
+    lenses: narrative-and-docs (iteration 377), new-capability (iteration 377)
+    - Candidate A1 -- the invariant document teaches the OPPOSITE polarity of the switch that started this very stage: ARCHITECTURE and README still call the two-scout phase OPT-IN, 57 iterations after the default flipped to ON
+    - Candidate A2 -- the repo's own citation rule is unenforced on the highest-churn prose in the repo: all 4 `foundry.py:<N>` self-citations inside `foundry.py` are wrong today, and the shipped oracle that condemns the shape is pointed only at markdown
+    - Candidate A3 -- ARCHITECTURE's migration-note ledger has been silent for 305 iterations under a charter that forbids the silence, and the doc never says whether the record CLOSED or lapsed
+    - Candidate B1 -- `foundry gate-eval`: the ship-action gate's real-artifact corpus gets its first non-test reader
+    - Candidate B2 -- `company-unfailable-asserts`: the 10th fleet roll-up, so the 4th false-green lens covers all 5 products in one command
+    - Candidate B3 -- the decision log's `winner:` column learns the three states its own `ship:` column already distinguishes
+    winner: B3
+    ship: pending (not yet decided)
   iter-376
     lenses: performance-and-throughput (iteration 376), narrative-and-docs (iteration 376)
     - Candidate A1 -- (measuring: the scout phase's 1200s/iteration critical path with a 52% placeholder rate)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- four artifacts, three different memberships of the list the loop calls "inviolable"; the sentence in VISION miscounts the document it cites
     - Candidate B3 -- the roadmap cites a routing decision at two `foundry.py` line numbers; one is a comment about argument validation, the other is a BLANK LINE, and the census cannot see the blank-line one
     winner: B2
-    ship: pending (not yet decided)
+    ship: PUSHED 473eb4a
   iter-375
     lenses: simplification-and-deletion (iteration 375), performance-and-throughput (iteration 375)
     - Candidate A1 -- (measuring: dead/dormant symbol census in foundry.py)
@@ -1679,4 +1689,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-167 scouted iterations
+168 scouted iterations
