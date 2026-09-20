@@ -17214,6 +17214,19 @@ class DirectionsEntry:
         did not measure it. It is render INPUT / provenance, not a decision
         record, so it is absent from `to_dict()`'s pinned 6-key payload -- the
         same rule `DirectionsDigest.ship_subjects` documents.
+      * `empty_seats` -- NOT a constructor argument: a read-only attribute
+        `__post_init__` publishes as `()` on EVERY construction path and that
+        only `with_empty_seats` re-binds, on a fresh copy. It holds the scout
+        seat letters (`"a"` / `"b"`, in that order) whose `pm_scout_<x>.md`
+        EXISTS but yielded ZERO candidates to `parse_scout_candidates`. Like
+        `pm_present` it is render INPUT, absent from `to_dict()` and `__eq__`,
+        and only `render()`'s `empty:` label reads it. WHY a separate word
+        from `stubs:`: that label needs `n >= 1` candidate lines to count, so
+        a seat that checkpointed a bare `STATUS:` line and was cap-killed is
+        INVISIBLE to it by construction -- the decision log then records the
+        iteration as if no candidate was ever owed (measured iter 382: BOTH
+        seats, 222 and 214 bytes, zero headings, no label). An absent file is
+        NOT an empty seat (the iteration may simply be single-scouted).
 
     WHY `pm_present` is an `InitVar` pseudo-field stored by `__post_init__`
     rather than a 7th real field: `tests/test_iter321_behavior.py::
@@ -17231,6 +17244,16 @@ class DirectionsEntry:
     `dataclasses.FrozenInstanceError`. Two entries differing ONLY in
     `pm_present` therefore compare equal, which is the honest reading: provenance
     about the artifact on disk is not part of the decision the row records.
+    `empty_seats` rides the SAME `object.__setattr__` publication for the same
+    reason, so the six-field schema, the 6-key payload and value equality are
+    all untouched by it -- but it CANNOT be a second `InitVar`:
+    `tests/test_iter377_behavior.py::
+    test_b3_pm_present_is_the_last_constructor_arg_and_defaults_to_none` pins
+    `pm_present` as BOTH the last `inspect.signature` parameter and the 7th
+    POSITIONAL argument, and every extra `__init__` parameter (positional,
+    `InitVar`, `KW_ONLY`) sorts after it while one declared before it steals
+    the 7th slot. So the constructor is frozen at seven parameters and the
+    seat list arrives through `with_empty_seats` instead (iter 382).
     """
     iteration: int
     lenses: tuple[str, ...]
@@ -17241,14 +17264,36 @@ class DirectionsEntry:
     pm_present: dataclasses.InitVar[bool | None] = None
 
     def __post_init__(self, pm_present: bool | None) -> None:
-        """Publish the `InitVar` as a read-only instance attribute.
+        """Publish the `InitVar` and the `empty_seats` default as read-only
+        instance attributes.
 
         `object.__setattr__` is the documented way to assign on a FROZEN
         dataclass (same idiom as `DormancyReport.__post_init__`); it stores the
         value verbatim, never normalizes it, so `None` (not measured), `True` and
         `False` stay the three distinguishable states
-        `directions_winner_label` reads."""
+        `directions_winner_label` reads. `empty_seats` starts as `()` here so
+        EVERY construction path (six positionals, `pm_present=`,
+        `dataclasses.replace`) yields an entry `render()` can read without a
+        guard; only `with_empty_seats` ever binds a non-empty tuple."""
         object.__setattr__(self, "pm_present", pm_present)
+        object.__setattr__(self, "empty_seats", ())
+
+    def with_empty_seats(self, seats: Iterable[str]) -> "DirectionsEntry":
+        """A COPY of this entry whose `empty_seats` is `tuple(seats)`; `self` is
+        never mutated.
+
+        WHY a copying method rather than a constructor argument: see the class
+        docstring -- iter 377 b3 pins the seven-parameter constructor, so the
+        seat list has to arrive after construction. `dataclasses.replace`
+        re-runs `__init__` (hence `__post_init__`, which resets the attribute to
+        `()`), and it does not carry an `InitVar` on its own, so `pm_present` is
+        passed through explicitly; the copy is then published with the same
+        `object.__setattr__` the class already uses. Equality, `fields()`,
+        `to_dict()` and `repr` all ignore the attribute, so the copy compares
+        equal to `self`."""
+        clone = dataclasses.replace(self, pm_present=self.pm_present)
+        object.__setattr__(clone, "empty_seats", tuple(seats))
+        return clone
 
     @property
     def stub_candidates(self) -> tuple[str, ...]:
@@ -17446,7 +17491,13 @@ class DirectionsDigest:
         measured candidates` line, positioned AFTER that block's last candidate
         line and BEFORE its `winner:` line (a `k == 0` block emits no such line
         anywhere, so a fully-measured log contains no `stubs:` substring at all --
-        the label is additive and never rewrites a clean row), a `winner: {W}`
+        the label is additive and never rewrites a clean row), then -- ONLY when
+        the entry's `empty_seats` is non-empty -- EXACTLY ONE
+        `empty: scout a, scout b -- file present, 0 candidate headings` line
+        (the `, `-joined `scout <x>` items in stored order) AFTER any `stubs:`
+        line and BEFORE `winner:`; it never contains `stubs:`, and an entry
+        with `empty_seats == ()` renders byte-identically to the pre-label
+        output, a `winner: {W}`
         line (W from `directions_winner_label`: the winner id verbatim, else one
         of `unparsed (pm.md present)` / `pending (not yet decided)` /
         `absent (no pm.md)` / `unknown` -- and `unknown` for every entry whose
@@ -17483,6 +17534,14 @@ class DirectionsDigest:
                 lines.append(
                     f"    stubs: {len(stubs)} of {len(e.candidates)} candidate "
                     "line(s) are write-early placeholders, not measured candidates")
+            # The EMPTY-SEAT label: a scout file that exists with zero candidate
+            # headings is exactly the case `stubs:` is blind to (n == 0), so it
+            # gets its own word and its own line, emitted only when at least one
+            # seat is empty so a clean row is byte-identical to before.
+            if e.empty_seats:
+                seats = ", ".join(f"scout {s}" for s in e.empty_seats)
+                lines.append(
+                    f"    empty: {seats} -- file present, 0 candidate headings")
             # BARE module name so `monkeypatch.setattr(foundry,
             # "directions_winner_label", ...)` bites on the rendered bytes, and
             # the same `newest` the `ship:` line below uses -- one notion of
@@ -17548,7 +17607,11 @@ def gather_directions(cfg: ProductConfig,
     `parse_ship_action`/`parse_ship_sha` over `final.md`; `pm_present` is whether
     that `pm.md` EXISTS -- always `True` or `False` from this reader, never the
     `None` ("not measured") default, so `render()` can report a blank winner as
-    `unparsed (pm.md present)` rather than `absent (no pm.md)`.
+    `unparsed (pm.md present)` rather than `absent (no pm.md)`; `empty_seats` is
+    the seat letters, in `("a", "b")` order, whose scout file EXISTS yet
+    yielded zero candidates -- an ABSENT file is not an empty seat, and a
+    file with >= 1 candidate is not one either -- so `render()` can say a
+    cap-killed seat left only its write-early placeholder (iter 382).
 
     `ship_subjects` on the returned digest is git ship-truth for `cfg.repo`
     (`git_ship_subjects`, the ONE I/O seam) so `render()` can override a stale or
@@ -17587,10 +17650,21 @@ def gather_directions(cfg: ProductConfig,
             lens = _read_sentinel(scout, parse_scout_lens)
             if lens is not None:
                 lenses.append(lens)
-        candidates: tuple[str, ...] = (
-            *(_read_sentinel(scout_a, parse_scout_candidates) or ()),
-            *(_read_sentinel(scout_b, parse_scout_candidates) or ()),
-        )
+        # ONE parse per seat (a monkeypatched `parse_scout_candidates` still
+        # sees exactly two calls), reused for both the ordered concatenation and
+        # the empty-seat probe below.
+        seats = (("a", scout_a), ("b", scout_b))
+        per_seat = {
+            seat: tuple(_read_sentinel(scout, parse_scout_candidates) or ())
+            for seat, scout in seats
+        }
+        candidates: tuple[str, ...] = (*per_seat["a"], *per_seat["b"])
+        # A seat is EMPTY only when its file is on disk AND parsed to nothing:
+        # that is the cap-killed write-early placeholder `stubs:` cannot see
+        # (it counts candidate LINES, so n == 0 is silence). An absent file is
+        # a single-scouted iteration, not an empty seat.
+        empty_seats = tuple(
+            seat for seat, scout in seats if scout.exists() and not per_seat[seat])
         pm_path = it_dir / "pm.md"
         winner = _read_sentinel(pm_path, parse_triage_winner)
         final_path = it_dir / "final.md"
@@ -17611,7 +17685,7 @@ def gather_directions(cfg: ProductConfig,
             # False), keeping the never-raises contract of the reads above; the
             # SCOUTED gate already relies on that same guarantee.
             pm_present=pm_path.exists(),
-        ))
+        ).with_empty_seats(empty_seats))
 
     # NEWEST-FIRST: `numbers` is ascending, so reverse the built entries.
     entries.reverse()
