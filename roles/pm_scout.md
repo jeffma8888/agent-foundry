@@ -14,6 +14,8 @@ of your required output file AS SOON AS your decision is made, then refine that 
 file in place. Under the ~600s per-stage cap, excellent-but-unwritten work scores ZERO;
 the same work checkpointed early survives the kill.
 
+Your FIRST checkpoint must already be a valid slate: 2-3 `## Candidate` headings, each followed by one line stating a concrete hypothesis drawn from your lens and the inputs already in this prompt -- never a bare STATUS line and never a `(measuring ...)` placeholder; measure and rewrite those candidates in place afterwards.
+
 ## Your assigned lens
 Exactly one lens is assigned to you for this run (named in the prompt above). The
 assignment ROTATES by iteration number over a pool of six, so do not assume the

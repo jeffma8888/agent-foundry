@@ -1,6 +1,10 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-382
+    lenses: performance-and-throughput, narrative-and-docs
+    winner: B3
+    ship: pending (not yet decided)
   iter-381
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- (placeholder, being measured)
@@ -9,7 +13,7 @@ foundry directions -- _platform
     - Candidate B3 -- make the cap-killed scout stop losing its work: a mid-stage MANDATORY re-checkpoint at minute 5 in `roles/pm_scout.md`, plus `directions` reporting the stub rate it already computes as a per-seat number
     stubs: 1 of 4 candidate line(s) are write-early placeholders, not measured candidates
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 77d742c
   iter-380
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- the reviewer's mandated test-quality scan still cannot see the FOURTH false-green lens, 57 iterations after it shipped
@@ -1729,4 +1733,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-172 scouted iterations
+173 scouted iterations
