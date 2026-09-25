@@ -16356,6 +16356,107 @@ def cooldown_claim_scope_gaps(owners: Iterable[str], doc_text: str, *,
     return tuple(sorted(name for name in wanted if name not in item))
 
 
+AUTH_HOLD_FIGURE_RE = re.compile(r"hold\w*\D{0,60}?\b(\d+)\s*min\b")
+"""A word starting with `hold`, then within 60 non-numeric characters `<N> min`.
+
+The hold-figure shape the Resilience claim must carry (iter 412): `holds
+`AUTH_HOLD_SECONDS` (30 min)` matches with N = 30, while `holds 1800 s` does not,
+so a sentence that names the constant but prices it in seconds still reads as a
+missing figure rather than a silently-accepted one. Case-sensitive on purpose:
+`AUTH_HOLD_SECONDS` itself is not a hold WORD, so the constant's name can never
+stand in for the figure it is supposed to carry.
+"""
+
+
+def auth_hold_claim_gaps(doc_text: str, *, anchor: str = "auth:") -> tuple[str, ...]:
+    """Why the doc LIST ITEM that renders the `auth` rung is NOT honest about the hold.
+
+    Companion to `cooldown_claim_scope_gaps` above, for the OTHER half of the
+    Resilience claim. `retry_ladder_lines` pins the ladder FIGURES to `retry_delay`,
+    and since iter 411 those figures are still true while the `auth` rung is never
+    WALKED: `run_stage` makes ONE `auth` attempt and then holds `AUTH_HOLD_SECONDS`.
+    A figure guard cannot see that, so both invariant docs promised four attempts
+    nobody makes under a green drift guard (iter 412). This asks the item holding
+    the rendered ladder line three questions: does it NAME the constant, does it
+    state a hold figure in minutes, and does that figure equal
+    `AUTH_HOLD_SECONDS // 60`?
+
+    Scope is the ITEM, not the file -- the `cooldown_claim_scope_gaps` rule
+    verbatim: the item holding the FIRST occurrence of `anchor` runs from the
+    nearest line at or before it whose STRIPPED form starts with `- `, `* `, `+ `
+    or `<number>. `, through the last following line that is non-blank and does
+    not start such a marker. A correct sentence in a neighbouring bullet does not
+    count, because that is the vacuous fold that lets the claim itself stay false.
+
+    The hold figure is `AUTH_HOLD_FIGURE_RE`; EVERY such figure inside the item
+    must equal the constant's minutes, so a second, stale figure in the same item
+    is a gap too. `AUTH_HOLD_SECONDS` is read by BARE module name on every call,
+    so a re-pricing of the hold -- or a `monkeypatch.setattr` -- reds both live
+    docs the same day (iter 370's pin shape).
+
+    PURE and TOTAL: text in, sorted de-duplicated tuple of `str` out; no
+    filesystem, process, network or clock access, no mutation of its arguments,
+    equal inputs give `==` results. FAIL-CLOSED, never a vacuous pass and never
+    raises: `unusable doc text` for a non-`str` or empty doc and for an anchor
+    that sits in no list item; `anchor absent: <anchor>` for a non-`str`, empty
+    or missing anchor. An unusable doc is maximal debt, not a clean bill.
+
+    VACUITY note: `()` means the item names the constant and every hold figure
+    in it agrees with the constant TODAY. It does not prove the constant is what
+    `run_stage` sleeps (tests/test_iter411_behavior.py pins that), and the caller
+    should also assert the item carries the expected substrings, so a retargeted
+    anchor cannot land on an unrelated bullet and pass.
+
+    DORMANT: zero call site in the running pipeline, like both companions above.
+    """
+    unusable = ("unusable doc text",)
+    if not isinstance(doc_text, str) or not doc_text:
+        return unusable
+    if not isinstance(anchor, str) or not anchor:
+        return ("anchor absent: %s" % (anchor,),)
+    hit = doc_text.find(anchor)
+    if hit < 0:
+        return ("anchor absent: %s" % (anchor,),)
+    lines = doc_text.splitlines()
+    if not lines:
+        return unusable
+
+    def starts_item(stripped: str) -> bool:
+        """True if a stripped line starts a markdown list item (bullet or ordered)."""
+        if stripped[:2] in ("- ", "* ", "+ "):
+            return True
+        lead = stripped[: len(stripped) - len(stripped.lstrip("0123456789"))]
+        return bool(lead) and stripped[len(lead):len(lead) + 2] == ". "
+
+    anchor_line = min(doc_text.count("\n", 0, hit), len(lines) - 1)
+    start = None
+    for idx in range(anchor_line, -1, -1):
+        if starts_item(lines[idx].strip()):
+            start = idx
+            break
+    if start is None:
+        return unusable
+    end = start
+    for idx in range(start + 1, len(lines)):
+        stripped = lines[idx].strip()
+        if not stripped or starts_item(stripped):
+            break
+        end = idx
+    item = "\n".join(lines[start:end + 1])
+
+    gaps: set[str] = set()
+    if "AUTH_HOLD_SECONDS" not in item:
+        gaps.add("AUTH_HOLD_SECONDS unnamed in the claim item")
+    figures = [int(m.group(1)) for m in AUTH_HOLD_FIGURE_RE.finditer(item)]
+    if not figures:
+        gaps.add("hold figure absent")
+    expected = int(AUTH_HOLD_SECONDS) // 60
+    for figure in figures:
+        if figure != expected:
+            gaps.add("hold figure %d min != %d min" % (figure, expected))
+    return tuple(sorted(gaps))
+
+
 # --------------------------------------------------------------------------- #
 # The README section-number CONTRACT, and the scanner for tests that FREEZE it
 # --------------------------------------------------------------------------- #

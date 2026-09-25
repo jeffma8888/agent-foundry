@@ -35,12 +35,16 @@ sleep, so a stop takes effect within ~30s, never mid-git-push.
 
 - Iteration numbering continues across restarts (scans `state/iter-*`), so a
   relaunch never re-does or clobbers a completed iteration.
-- Infra failures (throttle/stall/timeout) are absorbed: 4 attempts/stage with the backoff
-  priced per failure kind (`foundry.retry_ladder_lines`, rendered from `retry_delay`) —
+- Infra failures (throttle/stall/timeout) are absorbed: 4 attempts/stage (`auth`: exactly
+  ONE, see the end of this bullet) with the backoff priced per failure kind
+  (`foundry.retry_ladder_lines`, rendered from `retry_delay`) —
   timeout, cli-error, auth: 1 → 2 → 4 min; stalled: 1 → 5 → 20 min; service, other: 10 → 20 → 40 min —
   then a 30m→1h→2h→4h loop-level cooldown in `foundry.run_continuous` ONLY (the
   supported `launch.sh` → `dispatcher.py` shift loop has no such ladder). The loop does not die on
-  infra problems — only on STOP.
+  infra problems — only on STOP. Since iter 411 the `auth` rung above is rendered but
+  never walked: `run_stage` makes ONE `auth` attempt, then holds `AUTH_HOLD_SECONDS` (30 min)
+  through the STOP-aware sleep seam and returns the stage failed, so recovery after
+  re-authentication is up to 30 min.
 - For extra safety across machine reboots, a `scheduled` watchdog is shipped:
   `watchdog.py` re-launches the dispatcher IFF its process is gone AND no STOP
   file exists (single-brain: never a second dispatcher; STOP-respect: never

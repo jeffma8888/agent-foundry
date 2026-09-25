@@ -288,6 +288,7 @@ in the archive.
 - iter 381 -- head_unowned_lines: doctor names headless bullet bodies; 1,889 dead head chars archived, WARN -> OK.
 - iter 382 -- scout card: first checkpoint is a valid 2-3 heading slate; directions labels zero-heading seats.
 - iter 411 -- run_stage: ONE auth attempt then a 30-min STOP-aware hold; every other kind's ladder byte-unchanged.
+- iter 412 -- auth_hold_claim_gaps: both invariant docs state ONE auth attempt then a 30-min hold; ladder untouched.
 
 
 ### Migration notes (per §6 self-mod guardrail)

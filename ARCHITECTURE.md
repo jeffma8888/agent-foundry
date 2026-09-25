@@ -146,10 +146,16 @@ core stages above byte-for-byte, so the default path is unchanged.
 - **Anti-delegation clause** is appended to every stage prompt (see
   `foundry.ANTI_DELEGATION`). Without it a general-purpose sub-agent inherits the
   heavy-work gate and recursively launches another runner instead of working.
-- **Resilience.** Per stage: up to 4 attempts, with the backoff priced by failure KIND
-  rather than by attempt index alone (`foundry.retry_ladder_lines` renders these
-  straight from `retry_delay`, so this prose cannot drift from the code):
+- **Resilience.** Per stage: up to 4 attempts (`auth`: exactly ONE, see below), with
+  the backoff priced by failure KIND rather than by attempt index alone
+  (`foundry.retry_ladder_lines` renders these straight from `retry_delay`, so the
+  LADDER FIGURES cannot drift from the code; whether a rung is WALKED is a separate
+  claim, policed for `auth` by `foundry.auth_hold_claim_gaps`):
   timeout, cli-error, auth: 1 → 2 → 4 min; stalled: 1 → 5 → 20 min; service, other: 10 → 20 → 40 min.
+  Since iter 411 the `auth` rung is rendered but never walked: `run_stage` makes ONE
+  `auth` attempt, then holds `AUTH_HOLD_SECONDS` (30 min) through the STOP-aware
+  `sleep_interruptible` seam and returns the stage failed -- so recovery after
+  re-authentication takes up to 30 min, not 7.
   Per loop, in `foundry.run_continuous` ONLY: after 2 consecutive infra-failing
   iterations, cool down 30m→1h→2h→4h. The SUPPORTED entry point has NO such
   ladder: `launch.sh` execs `dispatcher.py`, whose shift loop calls
