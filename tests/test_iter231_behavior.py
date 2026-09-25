@@ -412,12 +412,17 @@ def test_b6_the_disarm_is_measured_over_the_live_brake_file():
         "every integer left in the brake's CODE must be below BOTH live counters, "
         f"or a future count can match it again; offenders: {survivors}")
 
-    armed = sorted(value for value in raw_integers if value >= tests_count)
+    # The non-vacuity half is a SET DIFFERENCE (integers the brake's PROSE spells
+    # that stripping blanked), never a comparison against the live tests/ count: a
+    # prose figure is fixed while tests/ grows one module per iteration, so the
+    # former `>= tests_count` form was a time bomb that fired at iteration 412 when
+    # the 249th module crossed the brake's own docstring figure.  Because both sets
+    # come from the same word-bounded DIGITS scan, every member of `armed` is by
+    # construction absent from the searched (stripped) text.
+    armed = sorted(raw_integers - stripped_integers)
     assert armed, (
-        "the RAW source must still spell an integer a future count can reach, "
+        "the RAW source must still spell an integer in PROSE that stripping blanks, "
         "otherwise this measurement proves nothing about the stripping")
-    assert set(armed) - stripped_integers == set(armed), \
-        "every such integer must have been blanked out of the searched text"
 
 
 # ---------------------------------------------------------------- behavior 7

@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-412
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- the suite's #1 and #3 slowest tests are a quadratic trap foundry.py itself already documents and avoids: `ast.get_source_segment` re-splits the 1.49 MB source on EVERY call, and three test modules loop it over 793 top-level nodes
+    - Candidate A2 -- four `live_smoke_on_real_dispatch_config` tests spawn a FLEET roll-up subprocess twice each (human + `--json`), 8 subprocesses = ~34 s of CPU per suite run, and they tax ONLY the operator machine where every gated stage runs
+    - Candidate A3 -- a per-test duration ceiling brake so the suite's tail cannot regrow: `timing` only warns at 120 s for the WHOLE suite, and the suite grew 7.03 s -> 55.62 s with no per-test brake
+    - Candidate B1 -- the inviolable Resilience invariant still promises 4 `auth` attempts on a 1-2-4 min ladder that `run_stage` stopped walking at iter 411, and the drift guard that exists to catch exactly this is green
+    - Candidate B2 -- the roadmap's open-items block says (g) is STILL OPEN, CLOSED, and STILL OPEN again within six lines, and neither shipped roadmap oracle can see it
+    - Candidate B3 -- the ledger jumps 326->334, 339->360 and 382->411 (55 iteration numbers) have no record anywhere a ledger reader looks, while the roadmap explains the 244->320 jump in a full paragraph
+    winner: B1
+    ship: pending (not yet decided)
   iter-411
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- retire the superseded `--dual-pm-scouts` opt-in flag now that dual scouts are the default
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- Mid-stage MANDATORY re-checkpoint at minute 5 for scouts: the cap kills the slate 62% of the time
     - Candidate B3 -- Retire the spent one-shot OPERATOR directives from the digest head (8,243 chars paid 7x per iteration)
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 9d69d63
   iter-383
     lenses: narrative-and-docs
     - Candidate A1 -- the iter-382 ledger records a mechanism that never shipped
@@ -1752,4 +1762,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-175 scouted iterations
+176 scouted iterations
