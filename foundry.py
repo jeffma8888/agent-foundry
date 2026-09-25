@@ -149,15 +149,22 @@ FAST_RETRY_KINDS = ("timeout", "cli-error")   # kinds that draw from the fast la
 # cheaply is wrong. Holding attempt 3 at 20 min buys that mitigation for 0.68h of
 # the otherwise-available reclaim. Short at the front, long at the back.
 #
-# `auth` (iter 196) IS A PRICE-PRESERVING ENTRY, NOT A RE-PRICING -- the opposite
-# of `stalled`, and the reason it must exist at all. An expired session used to
-# fall through the generic `timed out` needle and therefore drew TIMEOUT_BACKOFFS,
-# so giving it its own kind WITHOUT a ladder here would silently drop it to
-# BACKOFFS: 600/1200/2400 against 60/120/240, a TEN-FOLD cost regression on 8.5%
-# of every stage attempt this framework has ever made. This entry exists to make
-# that regression impossible. It is `list(TIMEOUT_BACKOFFS)` rather than a
-# duplicated literal so re-pricing the fast ladder IN SOURCE carries `auth` with
-# it and the two cannot drift apart.
+# `auth` (iter 196) WAS a price-preserving entry: an expired session used to
+# fall through the generic `timed out` needle and drew TIMEOUT_BACKOFFS, so
+# giving it its own kind WITHOUT a ladder here would have dropped it to
+# BACKOFFS, a ten-fold cost regression on 8.5% of all attempts. That premise
+# -- that an outage is short enough for a fast retry to catch its end -- was
+# REFUTED by measurement (iter 411): one 13.6 h expiry (2026-09-19 23:23 ->
+# 09-20 12:58) ran 109 dead iterations, 436 attempts and 293 backoffs (11.35 h
+# asleep), 436 of 436 `failure kind: auth`. SINCE ITER 411 THE ATTEMPT LOOP NO
+# LONGER CONSULTS THIS ENTRY FOR `auth`: `run_stage` makes ONE attempt, then
+# holds `AUTH_HOLD_SECONDS` (below) through the STOP-aware sleep seam and
+# returns the stage as failed. The entry is RETAINED only so
+# `retry_delay("auth", n)` and the `ladders` / `retry_ladder_lines` rendering
+# keep their pinned answers (tests/test_iter196_behavior.py b4/b5,
+# tests/test_iter160_behavior.py); it prices nothing at run time. It stays
+# `list(TIMEOUT_BACKOFFS)` so those renderings cannot drift from the fast
+# ladder they claim to merge onto.
 #
 # IT IS A SNAPSHOT, NOT A LIVE ALIAS, and the asymmetry is load-bearing rather
 # than incidental: the copy is taken at IMPORT, so `monkeypatch.setattr(foundry,
@@ -177,6 +184,23 @@ KIND_RETRY_LADDERS: dict[str, list[int]] = {
     "stalled": [60, 300, 1200],
     "auth": list(TIMEOUT_BACKOFFS),
 }
+# iter 411: how long `run_stage` HOLDS after ONE `auth` attempt instead of
+# walking a ladder. MEASURED BASIS (live dispatcher.out, one 13.6 h session
+# expiry, 2026-09-19 23:23 -> 09-20 12:58): 109 dead iterations minted (27 per
+# product), 436 attempts, 293 backoffs = 11.35 h asleep, 436 of 436 attempts
+# `failure kind: auth` -- a retry ladder against a failure only a human can
+# heal buys nothing and mints a dead iteration every 7.2 min. THE TRADE, priced
+# explicitly: recovery latency after re-authentication becomes <= 30 min
+# instead of <= 7 min; in exchange a dead stage costs one spawn, and a dead
+# hour mints ~2 iterations instead of 8.3. Strictly LONGER than every rung of
+# the ladders it displaces (a hold shorter than the ladder would be a
+# regression, not a hold); read by BARE name at CALL time inside `run_stage`
+# so a monkeypatch re-prices the hold with no re-import.
+# iter 411: a COPY of the `ATTEMPT_FAILURE_MARKERS` key the hold fires on
+# (same idiom as `KIND_RETRY_LADDERS`); deliberately NOT the doctor's
+# `AUTH_LOSS_KIND`, which test_iter336 pins OUT of the control path.
+AUTH_HOLD_KIND = "auth"
+AUTH_HOLD_SECONDS: int = 1800
 ATTEMPT_FAILURE_DEFAULT = "other"
 # Marker table for `classify_attempt_failure`, same shape and convention as
 # EVENT_KIND_RULES: lowercase substrings, FIRST rule wins, so ORDER IS
@@ -23790,15 +23814,38 @@ def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
             return True, out_file
         log(cfg, f"iter {iteration:02d} · {stage} no output file "
             f"(attempt {attempt}/{MAX_ATTEMPTS}); tail: {blob[-160:]!r}")
+        # iter-129: price the wait by WHY the attempt failed, not by its
+        # index. iter-411 lifts the classification above the retry guard so it
+        # runs on EVERY failed attempt, the last one included: an expired
+        # session on attempt 4 must hold too, or the NEXT stage fails the same
+        # way within seconds. Called by BARE name so a monkeypatch bites.
+        kind = classify_attempt_failure(blob)
+        if kind == AUTH_HOLD_KIND:
+            # iter-411: an expired session is the one failure no retry and no
+            # sleep can heal (see ATTEMPT_FAILURE_MARKERS), so it is not
+            # retried at all: one attempt, one STOP-aware hold, then the stage
+            # is handed back as failed. Measured 2026-09-19/20: 436 of 436
+            # attempts across a 13.6 h expiry failed `auth` and minted 109 dead
+            # iterations. `AUTH_HOLD_KIND` and `AUTH_HOLD_SECONDS` are read by
+            # BARE name at CALL time; the sleep goes through the SAME seam the
+            # ladder below uses, so `foundry stop` ends a hold exactly as it
+            # ends a backoff, and the return is unconditional because a hold
+            # may never outlive a STOP. The line keeps its `backing off` token
+            # (same stamp as the ladder line) and its `failure kind:` clause
+            # (the loss digest's grep anchor).
+            log(cfg, f"iter {iteration:02d} · {stage} backing off "
+                f"{AUTH_HOLD_SECONDS // 60} min (failure kind: {kind}) "
+                f"-- auth hold: an expired session is not retried; "
+                f"re-authenticate to resume")
+            sleep_interruptible(cfg, AUTH_HOLD_SECONDS)
+            return False, out_file
         if attempt < MAX_ATTEMPTS:
-            # iter-129: price the wait by WHY the attempt failed, not by its
-            # index. Both seams are called by BARE name so a monkeypatch bites.
-            # The line keeps its `backing off` token (the event-kind rules
-            # stamp it "backoff" -- and iter-26's guard forbids naming that
-            # classifier HERE, even in a comment) and now also names the kind,
-            # so the decision is observable in dispatcher.out / events.jsonl
+            # Both seams are called by BARE name so a monkeypatch bites. The
+            # line keeps its `backing off` token (the event-kind rules stamp
+            # it "backoff" -- and iter-26's guard forbids naming that
+            # classifier HERE, even in a comment) and also names the kind, so
+            # the decision is observable in dispatcher.out / events.jsonl
             # instead of being invisible.
-            kind = classify_attempt_failure(blob)
             delay = retry_delay(kind, attempt)
             log(cfg, f"iter {iteration:02d} · {stage} backing off "
                 f"{delay // 60} min (failure kind: {kind})")

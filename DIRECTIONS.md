@@ -1,10 +1,28 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-411
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- retire the superseded `--dual-pm-scouts` opt-in flag now that dual scouts are the default
+    - Candidate A2 -- delete ~1,500 lines of AST-identical test helpers: 4 functions copied verbatim into 25-41 test files each move to ONE shared `tests/` module
+    - Candidate A3 -- collapse the remaining near-duplicate walker/roll-up pair left after iter 380's `_walk_attempt_logs` fold
+    - Candidate B1 -- One `auth` attempt, then hold: stop retrying and re-minting iterations on an expired session
+    - Candidate B2 -- Mid-stage MANDATORY re-checkpoint at minute 5 for scouts: the cap kills the slate 62% of the time
+    - Candidate B3 -- Retire the spent one-shot OPERATOR directives from the digest head (8,243 chars paid 7x per iteration)
+    winner: A1
+    ship: pending (not yet decided)
+  iter-383
+    lenses: narrative-and-docs
+    - Candidate A1 -- the iter-382 ledger records a mechanism that never shipped
+    - Candidate A2 -- the invariant documents still teach the dual-scout phase as OPT-IN
+    - Candidate A3 -- README's verb census is stale and the shipped census rule cannot see README's phrasing
+    winner: absent (no pm.md)
+    ship: unknown
   iter-382
     lenses: performance-and-throughput, narrative-and-docs
+    empty: scout a, scout b -- file present, 0 candidate headings
     winner: B3
-    ship: pending (not yet decided)
+    ship: PUSHED 553b544
   iter-381
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- (placeholder, being measured)
@@ -250,6 +268,7 @@ foundry directions -- _platform
     - Candidate A1 -- every health surface prices stage TIME and no-output; none prices YIELD, so 8 of 22 scout seats since iter 320 reported SUCCESS while delivering zero candidates
     - Candidate A2 -- 2 of the 43 state-reading verbs have no `--config` door, and getting it wrong prints all 56 verb names without ever naming the flag they want
     - Candidate A3 -- two doctor gauges guard two prompt budgets; only one warns before the wall, and it is the other one that has 221 chars of headroom left
+    empty: scout b -- file present, 0 candidate headings
     winner: A3
     ship: PUSHED 8bc3eb7
   iter-336
@@ -261,7 +280,7 @@ foundry directions -- _platform
     - Candidate B2 -- (measuring)
     - Candidate B3 -- (measuring)
     stubs: 6 of 6 candidate line(s) are write-early placeholders, not measured candidates
-    winner: unknown
+    winner: unparsed (pm.md present)
     ship: PUSHED 6247724
   iter-335
     lenses: narrative-and-docs (iteration 335), new-capability
@@ -823,7 +842,7 @@ foundry directions -- _platform
     - Candidate C1 -- stage-times prices the post-checkpoint tail (wall clock burned after the deliverable's last write)
     - Candidate A1 -- audit the write-early OUTCOME, not the card: the contract holds everywhere except the remediation stages
     - Candidate B1 -- price the digest payload every attempt pays for, and make digest_truncations > 0 visible
-    winner: unknown
+    winner: unparsed (pm.md present)
     ship: PUSHED e63e14b
   iter-194
     lenses: integration-and-adoption, simplification-and-deletion
@@ -903,7 +922,7 @@ foundry directions -- _platform
     - Candidate B2 -- gap-radar phase 1 (`gather_gaps` / `gap_advice` / `pm_gap_block`), read the register JSON directly rather than the uninstalled CLI
     - Candidate B3 -- an adoption ratchet: 45 of 50 shipped CLI verbs have no in-loop consumer
     - Candidate B4 -- inject the test-quality verdict into the tester prompt: 9 scanners the test-writing stage never consults
-    winner: unknown
+    winner: absent (no pm.md)
     ship: unknown
   iter-186
     lenses: new-capability, hardening/DX
@@ -1224,7 +1243,7 @@ foundry directions -- _platform
     - Candidate A1 -- `foundry sentinels [--json]`: make the control plane's CONTENT readable, and give it a consumer
     - Candidate B1 -- A forensic witness block on every no-output attempt log -- plus a MEASURED FALSIFICATION of the standing fix
     - Candidate C1 -- `foundry recover [--json]`: make a reverted iteration's preserved patch findable and its retry decidable
-    winner: unknown
+    winner: unparsed (pm.md present)
     ship: PUSHED c82e5c9
   iter-154
     lenses: performance-and-throughput (iteration 154), narrative-and-docs
@@ -1733,4 +1752,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-173 scouted iterations
+175 scouted iterations
