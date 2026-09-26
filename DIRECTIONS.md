@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-417
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- delete the dead `auth` retry ladder entry (`KIND_RETRY_LADDERS["auth"]`, its 31-line pins-only comment, the "rendered but never walked" prose) -- MEASURED: 30 red pins across 6 shipped test modules
+    - Candidate A2 -- move the 33 AST-identical `_co_names_deep` copies (10 lines each, 41 test files) into ONE `tests/_shared.py` and delete the copies: -320 lines, first bite of a plan two PMs already licensed
+    - Candidate A3 -- retire the superseded `(g)` clauses and the three "Moved to the archive by iter 208/209" stub sections from the LIVE roadmap index
+    - Candidate B1 -- replace the quadratic `ast.get_source_segment` loops in the suite's three slowest in-process tests with one line-cached slicer: 7.84 s -> 0.0009 s, byte-identical
+    - Candidate B2 -- run the FLEET roll-up subprocess once per module, not twice per `live_smoke_on_real_dispatch_config` test: 32.1 s CPU per suite run in four tests
+    - Candidate B3 -- make the final gate skip its LOCAL full-suite run when the tester already passed the identical tree: a `suite-key` (HEAD sha + sha256 of `git diff HEAD` + untracked) recorded in tester.md and re-checked at the gate
+    winner: B1
+    ship: pending (not yet decided)
   iter-416
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- `staged-check` shipped one commit ago with zero consumers: the final-gate card still teaches the manual `git ls-files -s` + `git show :path` pair, so the verb built for the gate is not on the gate's checklist
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- retire the SPENT `OPERATOR 2026-08-30 RETRY iter 205` head bullet (784 of the head's 8,241 chars, 4.4% of every stage prompt) VERBATIM into the archive section iter 381 created
     - Candidate B3 -- fold the two verbatim markdown list-item scopers inside `cooldown_claim_scope_gaps` (iter 322) and `auth_hold_claim_gaps` (iter 412) onto one private helper
     winner: B3
-    ship: pending (not yet decided)
+    ship: PUSHED 3ed6e66
   iter-415
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- `foundry staged-check`: a shipped check for the staged-empty-blob trap (after `git add -A`, no path may hold blob e69de29 while its worktree file is non-empty)
@@ -1802,4 +1812,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-180 scouted iterations
+181 scouted iterations

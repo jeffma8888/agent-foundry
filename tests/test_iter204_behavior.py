@@ -30,6 +30,7 @@ _ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT))
 sys.path.insert(0, str(_ROOT / "tests"))
 import foundry  # noqa: E402
+from _shared import source_segment, split_source_lines  # noqa: E402
 
 THIS_ITER = 204
 TESTS_DIR = _ROOT / "tests"
@@ -531,7 +532,7 @@ def test_b13_the_live_archive_carries_this_iterations_compaction_heading():
 # ==========================================================================
 # Behavior 14 -- a test-only meta-brake keeps the frozen class empty
 # ==========================================================================
-def _assert_probe(src, node):
+def _assert_probe(lines, node):
     """The assert's source, flattened, with every string/bytes literal REMOVED.
 
     A newest-ness marker inside a QUOTED span is a test TALKING ABOUT the
@@ -539,13 +540,13 @@ def _assert_probe(src, node):
     verbatim -- not an assertion making the claim. Counting quoted text makes
     the detector accuse its own documentation, which is a fail-CLOSED bug: it
     reports a defect in a correct file and points at a destructive repair."""
-    seg = ast.get_source_segment(src, node) or ""
+    seg = source_segment(lines, node) or ""
     pieces = []
     for sub in ast.walk(node):
         if isinstance(sub, ast.JoinedStr) or (
                 isinstance(sub, ast.Constant)
                 and isinstance(sub.value, (str, bytes))):
-            piece = ast.get_source_segment(src, sub)
+            piece = source_segment(lines, sub)
             if piece:
                 pieces.append(piece)
     for piece in sorted(pieces, key=len, reverse=True):
@@ -571,18 +572,19 @@ def newest_ness_pin_sites(source_by_name):
             tree = ast.parse(src)
         except SyntaxError:
             continue
+        lines = split_source_lines(src)
         for fn in ast.walk(tree):
             if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             if not fn.name.startswith("test_"):
                 continue
-            body = ast.get_source_segment(src, fn) or ""
+            body = source_segment(lines, fn) or ""
             if not any(tok in body for tok in DOC_TOKENS):
                 continue
             for node in ast.walk(fn):
                 if not isinstance(node, ast.Assert):
                     continue
-                probe = _assert_probe(src, node)
+                probe = _assert_probe(lines, node)
                 if not any(m in probe for m in NEWEST_MARKERS):
                     continue
                 if "==" not in probe and ".startswith(" not in probe:
@@ -1041,7 +1043,19 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # iter 380: two b7 pins inverted by the fold they were scoped to
                 # permit (`gather_rescues` onto the shared attempt-log walk);
                 # `newest_ness_pin_sites` over that file is `()` at HEAD and worktree.
-                "tests/test_iter363_behavior.py"}
+                "tests/test_iter363_behavior.py",
+                # iter 417: two paths, NOT a brake amendment. Iteration 417 swaps
+                # `ast.get_source_segment(src, X)` for the byte-identical, line-cached
+                # `source_segment(lines, X)` from the new `tests/_shared.py` at 4 + 1
+                # call sites (a helper body and one test body); no assertion literal
+                # is touched in either file. Allow-listed on the
+                # iter-212/215/242/320/323/325/334/335/338/366/371/380 precedent and
+                # the same evidence those rows use: `newest_ness_pin_sites` over EACH
+                # file is `()` at HEAD AND in the worktree (measured this iteration
+                # by importing this module's own helper). Red ONLY inside the
+                # pre-commit window; a fresh clone at the ship commit is clean.
+                "tests/test_iter179_behavior.py",
+                "tests/test_iter197_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the
