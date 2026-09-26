@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-415
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- `foundry staged-check`: a shipped check for the staged-empty-blob trap (after `git add -A`, no path may hold blob e69de29 while its worktree file is non-empty)
+    - Candidate A2 -- `readme_flag_gaps`: the README usage-line brake learns FLAGS, not just verbs (measured today: 170 flags across 59 verbs, 0 gaps -- ships green as a regression fence)
+    - Candidate A3 -- `foundry lead`: the write-early margin per seat (seconds between the required output's last write and the stage's end), the number `stage-budget` cannot produce and that separates "passed by design" from "passed by luck"
+    - Candidate B1 -- `directions --topic TERM` shipped at iter 414 with zero consumers: the scout card still teaches `--limit 12` as the only way to check whether a topic already lost, so the drop-repeats rule reads 12 of 235 iterations
+    - Candidate B2 -- the `live-lag` doctor line says "restart the dispatcher to activate" every iteration (4 shipped, not live today) but names no command; the on-ramp from a shipped iteration to a live brain is still a human reading prose
+    - Candidate B3 -- read-only verdict verbs without a `--json` door: the framework's scriptable surface has holes (iter-380 A3 named `watchdog-arm`; census pending)
+    winner: A1
+    ship: pending (not yet decided)
   iter-414
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `foundry outages`, re-proposed in the SMALL shape: per-outage windows from `dispatcher.out` backoff lines (span, attempts, hours asleep, dead iterations per product)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the staged-blob trap (`git add -N` leaves e69de29 as the staged content of a 900-line worktree file) has bitten three iterations and still has no shipped check, only a learnings bullet
     - Candidate B3 -- the state-dir reader is spelling-sensitive (`gather_directions` returned 0 entries for `iter-7`, `[(7,'B1')]` for `iter-07`), so any product whose dispatcher wrote unpadded dirs is silently invisible to `directions`
     winner: A3
-    ship: pending (not yet decided)
+    ship: PUSHED c7a1232
   iter-413
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- the tracked decision log misrecords the winner of 4 iterations (132, 238, 381, 411) because `parse_triage_winner` reads the FIRST candidate id after `## Triage`, not the one the PM labelled `PICK:` -- and 2 of the last 3 labelled `_platform` bodies are among them
@@ -1782,4 +1792,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-178 scouted iterations
+179 scouted iterations

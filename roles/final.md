@@ -62,6 +62,7 @@ while holding a placeholder verdict.
 
 ## If ALL pass -- ship
 - `git -C <repo> add -A`
+- **Staged-empty check (the INDEX is the ship tree; right after `add -A`).** Run `python3 <checkout>/foundry.py staged-check --config PRODUCT_CONFIG` now: it reads `git ls-files -s -z` and names every path whose STAGED blob is the empty blob while its worktree file is non-empty -- the `git add -N` trap (porcelain says `A`, `git diff --cached --name-only` is empty) that shipped or nearly shipped an empty file in iterations 154, 194 and 195. Expected verdict: `CLEAN` (exit 0). `STAGED-EMPTY` (exit 1) = re-run `git add -A` once and re-check; still STAGED-EMPTY = take the revert path ("If ANY fail" below). `UNKNOWN` (exit 2) is evidence about the MACHINE, not the tree (the `ls-files` read did not succeed): record it verbatim in your output file and proceed, exactly as the INCOMPLETE verification result is handled below. The human line carries counts only; `--json` names the paths if you need them. Never `git add -N` a file to measure anything at this gate.
 - **Revertable single-commit contract.** Every ship is exactly ONE commit with a
   one-line conventional message `<type>: <summary> (foundry iter NN)` where
   `type is one of {feat, fix, chore, docs, test}` (e.g. `feat: post-release gate (foundry iter 03)`).
