@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-414
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- `foundry outages`, re-proposed in the SMALL shape: per-outage windows from `dispatcher.out` backoff lines (span, attempts, hours asleep, dead iterations per product)
+    - Candidate A2 -- `foundry directive`: a stamped OPERATOR bullet into the `## Patterns` head, refused when it would cross the prompt wall
+    - Candidate A3 -- `directions --topic TERM`: search the WHOLE decision record for a topic (every slate, winner, and archive bullet naming it), unbounded by `--limit`
+    - Candidate B1 -- the PM lead stage sits AT the 600 s cap (600.0 s median, 0.0 s headroom per stage-budget) and its role card has no write-early checkpoint contract, so every triage passes only by luck
+    - Candidate B2 -- the staged-blob trap (`git add -N` leaves e69de29 as the staged content of a 900-line worktree file) has bitten three iterations and still has no shipped check, only a learnings bullet
+    - Candidate B3 -- the state-dir reader is spelling-sensitive (`gather_directions` returned 0 entries for `iter-7`, `[(7,'B1')]` for `iter-07`), so any product whose dispatcher wrote unpadded dirs is silently invisible to `directions`
+    winner: A3
+    ship: pending (not yet decided)
   iter-413
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- the tracked decision log misrecords the winner of 4 iterations (132, 238, 381, 411) because `parse_triage_winner` reads the FIRST candidate id after `## Triage`, not the one the PM labelled `PICK:` -- and 2 of the last 3 labelled `_platform` bodies are among them
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry wake`: end the current auth hold (or any backoff sleep) the moment the human has paid the remedy, instead of waiting out the rest of the 30 minutes
     - Candidate B3 -- `foundry jumps`: a ledger-jump detector that lists every run of >= 5 missing `(foundry iter N)` tags and whether the roadmap index or archive names its `lo-hi` range
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 8ad712f
   iter-412
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- the suite's #1 and #3 slowest tests are a quadratic trap foundry.py itself already documents and avoids: `ast.get_source_segment` re-splits the 1.49 MB source on EVERY call, and three test modules loop it over 793 top-level nodes
@@ -1772,4 +1782,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-177 scouted iterations
+178 scouted iterations
