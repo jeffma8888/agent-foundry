@@ -59,8 +59,10 @@ import pytest
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT))
+sys.path.insert(0, str(_ROOT / "tests"))
 import foundry  # noqa: E402
 import dispatcher  # noqa: E402  -- Behavior 13's in-process import-safety probe
+from _shared import source_segment, split_source_lines  # noqa: E402
 
 THIS_ITER = 197
 ROLES_DIR = _ROOT / "roles"
@@ -388,12 +390,13 @@ def test_b13_the_new_functions_have_zero_call_site_anywhere_in_the_module():
     so no prompt, artifact or exit code can change this iteration."""
     src = FOUNDRY_PY.read_text(encoding="utf-8")
     tree = ast.parse(src)
+    lines = split_source_lines(src)
     offenders: list[tuple[str, str]] = []
     for node in tree.body:
         owner = getattr(node, "name", None)
         if owner in NEW_NAMES:
             continue
-        segment = ast.get_source_segment(src, node) or ""
+        segment = source_segment(lines, node) or ""
         for name in NEW_NAMES:
             if name in segment:
                 offenders.append((owner or type(node).__name__, name))

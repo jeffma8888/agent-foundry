@@ -53,7 +53,9 @@ import pytest
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT))
+sys.path.insert(0, str(_ROOT / "tests"))
 import foundry  # noqa: E402
+from _shared import source_segment, split_source_lines  # noqa: E402
 
 PER_GIT = "PUSHED (per git)"
 PENDING = "pending (not yet decided)"
@@ -546,6 +548,7 @@ def _repo_root_artifact_reads(src, label="<src>"):
         tree = ast.parse(src)
     except SyntaxError as exc:  # pragma: no cover - the shipped tree parses
         return (label + ": unparseable (" + str(exc) + ")",)
+    lines = split_source_lines(src)
     assigns = []
     for node in ast.walk(tree):
         targets = []
@@ -555,7 +558,7 @@ def _repo_root_artifact_reads(src, label="<src>"):
             targets = [node.target]
         if not targets:
             continue
-        seg = ast.get_source_segment(src, node.value) or ""
+        seg = source_segment(lines, node.value) or ""
         assigns.append((seg, [t.id for t in targets if isinstance(t, ast.Name)]))
     # PHASE 0 -- names proved to hold the REPO ROOT itself.  A name ALSO assigned from a fixture
     # anchor anywhere in this source is NOT a root alias, so a reused local (`p = _ROOT / "x"` in
@@ -579,7 +582,7 @@ def _repo_root_artifact_reads(src, label="<src>"):
             continue
         # `open(<repo-root artifact>)` -- the BUILTIN form, where the path is an ARGUMENT.
         if isinstance(node.func, ast.Name) and node.func.id == "open" and node.args:
-            arg = (ast.get_source_segment(src, node.args[0]) or "").strip()
+            arg = (source_segment(lines, node.args[0]) or "").strip()
             if arg in tainted or _is_repo_root_artifact_expr(arg, roots):
                 findings.append("%s:%d open(%s)" % (label, node.lineno, arg))
             continue
@@ -587,7 +590,7 @@ def _repo_root_artifact_reads(src, label="<src>"):
             continue
         if node.func.attr not in _READERS:
             continue
-        recv = (ast.get_source_segment(src, node.func.value) or "").strip()
+        recv = (source_segment(lines, node.func.value) or "").strip()
         if recv in tainted:
             findings.append("%s:%d %s.%s() -- %s is bound to %s"
                             % (label, node.lineno, recv, node.func.attr, recv, tainted[recv]))
@@ -692,7 +695,8 @@ def test_b16_this_module_binds_no_repo_root_artifact_path_at_all():
 
     src = pathlib.Path(__file__).read_text(encoding="utf-8")
     assert _repo_root_artifact_reads(src, "self") == ()
+    lines = split_source_lines(src)
     bound = [t.id for node in ast.walk(ast.parse(src)) if isinstance(node, ast.Assign)
              for t in node.targets if isinstance(t, ast.Name)
-             and _is_repo_root_artifact_expr(ast.get_source_segment(src, node.value) or "")]
+             and _is_repo_root_artifact_expr(source_segment(lines, node.value) or "")]
     assert bound == [], bound
