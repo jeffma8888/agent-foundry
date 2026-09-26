@@ -17870,6 +17870,115 @@ def directions_cli(cfg: ProductConfig, limit: int | None = None,
     return _thin_gather_cli(gather_directions, cfg, limit, as_json)
 
 
+def filter_directions(digest: DirectionsDigest, term: str) -> DirectionsDigest:
+    """PURE: the digest restricted to entries whose CANDIDATE one-liners contain
+    `term` (case-insensitive substring; iter 414, the `--topic` filter).
+
+    Matches on candidate text ONLY -- never on `winner`, `lenses`, `action` or
+    the ship subjects -- because the question the repetition brake asks is
+    "was this TOPIC ever on a slate?", and a winner id like `B1` says nothing
+    about a subject. Total: `""` keeps every entry with >= 1 candidate, and an
+    entry with `candidates == ()` is dropped for EVERY term (there is no text
+    to match). Order is preserved, `product` / `ship_subjects` ride unchanged,
+    so `total` / `exit_code` re-derive from the kept entries (`2` iff none)."""
+    needle = term.casefold()
+    kept = tuple(e for e in digest.entries
+                 if any(needle in c.casefold() for c in e.candidates))
+    return dataclasses.replace(digest, entries=kept)
+
+
+def archive_topic_hits(archive_text: str, term: str) -> tuple[tuple[int, str], ...]:
+    """PURE: every `- **iter N ` record bullet of the roadmap archive whose text
+    contains `term` (case-insensitive), as `(iteration, line.strip()[:120])` in
+    file order.
+
+    Reuses `_ROADMAP_ARCHIVE_RECORD_RE` (bullet-anchored, iter 122) so the set of
+    lines this reads is EXACTLY the set the ledger brake counts as records;
+    prose lines that merely mention the term are never hits. The 120-char cut
+    keeps a report line-shaped: the archive bullet is where the size ruling that
+    decides a re-proposal lives (iter 380), and its first sentence carries it."""
+    needle = term.casefold()
+    hits: list[tuple[int, str]] = []
+    for line in archive_text.splitlines():
+        m = _ROADMAP_ARCHIVE_RECORD_RE.match(line)
+        if m and needle in line.casefold():
+            hits.append((int(m.group(1)), line.strip()[:120]))
+    return tuple(hits)
+
+
+def read_roadmap_archive(cfg: ProductConfig) -> str:
+    """The ONE I/O seam behind `--topic`: the roadmap ARCHIVE's text, or `""`.
+
+    The archive is the sibling `<stem>_ARCHIVE.md` of `cfg.roadmap` (so
+    `PLATFORM_ROADMAP.md` -> `PLATFORM_ROADMAP_ARCHIVE.md`, `ROADMAP.md` ->
+    `ROADMAP_ARCHIVE.md`). Degrades to `""` and NEVER raises when `cfg.roadmap`
+    is empty (the config default -- guarded first, because
+    `Path("").with_name(...)` itself raises), or the sibling is missing,
+    unreadable, undecodable or a directory. Read-only. Module-level so
+    `monkeypatch.setattr(foundry, "read_roadmap_archive", ...)` scripts it."""
+    if not cfg.roadmap:
+        return ""
+    try:
+        path = pathlib.Path(cfg.roadmap)
+        return path.with_name(path.stem + "_ARCHIVE.md").read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return ""
+
+
+def render_topic_report(digest: DirectionsDigest,
+                        hits: tuple[tuple[int, str], ...], term: str) -> str:
+    """PURE: the human `--topic` report -- one topic line, the (already
+    filtered) digest's own `render()` after a blank line, then the archive block.
+
+    Shape: `topic: "<term>" -- N scouted iteration(s), M archive bullet(s)`;
+    when `digest.total > 0` a blank line and `digest.render()` VERBATIM (so the
+    per-iteration rows read exactly as `directions` prints them); a blank line;
+    then `archive:` followed by one `- iter N -- ...` line per hit (the stored
+    bullet text with its leading `- **iter N ` bold opener rewritten to plain
+    `- iter N `, the trailing `**` left as-is), or the single line
+    `archive: none`. Always ends in exactly one newline. With an empty digest
+    the body is OMITTED -- the `no scouted iterations yet` sentinel would read
+    as "nothing was ever scouted" when it means "nothing matched"."""
+    parts = [f'topic: "{term}" -- {digest.total} scouted iteration(s), '
+             f"{len(hits)} archive bullet(s)"]
+    if digest.total:
+        parts += ["", digest.render()]
+    if hits:
+        parts += ["", "archive:"]
+        parts += [re.sub(r"^- \*\*iter (\d+) ", r"- iter \1 ", text, count=1)
+                  for _iteration, text in hits]
+    else:
+        parts += ["", "archive: none"]
+    return "\n".join(parts) + "\n"
+
+
+def directions_topic_cli(cfg: ProductConfig, topic: str, limit: int | None = None,
+                         as_json: bool = False) -> int:
+    """On-demand CLI behind `directions --topic TERM`: the decision log filtered
+    to one subject plus the archive bullets that name it; exit `0` on >= 1 hit
+    in EITHER source, `2` on none.
+
+    A SIBLING of `directions_cli`, not a parameter on it: that verb's signature
+    and one-statement body are pinned by `tests/test_iter165_behavior.py`
+    (b06/b09), so the old verb stays byte-untouched and `main` routes here only
+    when `--topic` is given. `--limit` composes BEFORE the filter: ONE
+    `gather_directions(cfg, limit)` call (by BARE module name, so a monkeypatch
+    bites), then the pure `filter_directions`; the archive comes through the
+    `read_roadmap_archive` seam, also by bare name. `--json` prints exactly ONE
+    document `{"topic", "directions": <filtered to_dict()>, "archive": [{
+    "iteration", "text"}, ...]}`; the default prints `render_topic_report`.
+    Read-only: writes nothing, creates no directory."""
+    filtered = filter_directions(gather_directions(cfg, limit), topic)
+    hits = archive_topic_hits(read_roadmap_archive(cfg), topic)
+    if as_json:
+        doc = {"topic": topic, "directions": filtered.to_dict(),
+               "archive": [{"iteration": n, "text": t} for n, t in hits]}
+        print(json.dumps(doc, indent=2))
+    else:
+        sys.stdout.write(render_topic_report(filtered, hits, topic))
+    return 0 if (filtered.total or hits) else 2
+
+
 # --------------------------------------------------------------------------- #
 # Live tracked DECISION LOG (`DIRECTIONS.md`) -- discovery bite 4b (roadmap iter
 # 116). Bite 4a shipped the read-only `directions` CLI over EPHEMERAL, gitignored
@@ -27187,6 +27296,15 @@ def main(argv: list[str] | None = None) -> int:
     drc.add_argument("--json", action="store_true",
                      help="emit the decision log as one JSON document (machine-readable) "
                           "instead of the human report; same 0/2 exit code, honours --limit")
+    # `--topic TERM` (iter 414): keep only the scouted iterations whose candidate
+    # one-liners contain TERM (case-insensitive substring) and list the roadmap
+    # ARCHIVE bullets that name it -- "was X ever considered?" in one command.
+    # Exit 0 on any hit in either source, 2 on none; without it the verb is
+    # byte-for-byte unchanged (routes to the pinned `directions_cli`).
+    drc.add_argument("--topic", metavar="TERM", default=None,
+                     help="show only scouted iterations whose candidate one-liners contain "
+                          "TERM (case-insensitive) plus matching roadmap-archive bullets; "
+                          "exit 0 on any hit, 2 on none; composes with --limit and --json")
     # `timing` prints a read-only, offline per-iteration suite-wall-time DIGEST
     # (min/max/avg/last/slow-count) for one product, parsed from each iter's
     # `postrelease.md` `suite_seconds` body line, ascending. `--limit N` shows
@@ -27961,6 +28079,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "outcomes":
         return outcomes_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "directions":
+        # `--topic` routes to the SIBLING printer so the pinned `directions_cli`
+        # (signature + one-statement body, test_iter165) stays byte-untouched.
+        if args.topic is not None:
+            return directions_topic_cli(cfg, args.topic, limit=args.limit,
+                                        as_json=args.json)
         return directions_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "timing":
         return timing_cli(cfg, limit=args.limit, as_json=args.json)
