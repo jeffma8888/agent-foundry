@@ -11033,6 +11033,121 @@ def test_touch_drift_line(cfg: "ProductConfig") -> str:
                 f"iteration's diff either way")
 
 
+# --------------------------------------------------------------------------- #
+# `staged-check`: the INDEX is the shipping tree, and `git add -N` lies about it
+# --------------------------------------------------------------------------- #
+# The SHA-1 of git's EMPTY blob (`git hash-object -t blob /dev/null`), which is
+# what `git add -N` (intent-to-add) records for a path: the path is LISTED in the
+# index while NO content is staged, so `git status --porcelain` shows `A`,
+# `git diff --cached --name-only` shows nothing, and a commit ships an empty
+# file over a 900-line worktree. It bit iterations 154, 194 and 195, and until
+# this verb its only defence was a learnings bullet that rotates out of the
+# digest. Lowercase, and compared lowercase, because `git ls-files -s` prints
+# lowercase hex. SHA-1 only: this framework's repos are SHA-1 repos, and a second
+# constant for the SHA-256 object format would be a guess with no reader.
+EMPTY_BLOB_SHA1 = "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+
+# Wall-clock ceiling for the ONE read-only `git ls-files -s -z` this verb issues,
+# a SIBLING of `TEST_TOUCH_TIMEOUT_SECONDS` rather than a reuse of it for the
+# same reason that knob is a sibling of `WORKTREE_SCOPE_TIMEOUT_SECONDS`: the
+# probes are independent diagnostics, and one shared knob would let a future
+# tune of one silently retime the other. `run_cmd` folds a timeout into
+# `ok is False`, which the CLI reads as UNKNOWN (exit 2), never as CLEAN.
+STAGED_CHECK_TIMEOUT_SECONDS = 20
+
+
+def _staged_index_records(ls_files_text: object) -> list[tuple[str, str]]:
+    """`(sha_lower, path)` for every well-formed `git ls-files -s` record.
+
+    Private because it returns PATH BODIES, which the human report never echoes;
+    it exists so the parsing rule is written ONCE for both public readers
+    (`staged_empty_blob_paths` and `staged_paths_total`), so the finding count
+    and the total can never disagree about what a record is.
+
+    Records are split on `\0` OR `\n`: the verb asks for `-z` (NUL-terminated,
+    so a path holding a newline or a quote survives verbatim), but the same
+    parser must accept a plain newline-separated capture from a test fixture or
+    a hand-run. Each record is `<mode> <sha> <stage>\t<path>`; the FIRST tab is
+    the separator (a path may itself hold a tab under `-z`). A record with no
+    tab, fewer than 3 whitespace-separated fields before it, or an empty path
+    contributes nothing rather than raising. `""`, whitespace-only or a non-`str`
+    yields `[]`.
+    """
+    if not isinstance(ls_files_text, str) or not ls_files_text.strip():
+        return []
+    records: list[tuple[str, str]] = []
+    for record in re.split(r"[\0\n]", ls_files_text):
+        head, sep, path = record.partition("\t")
+        if not sep or not path:
+            continue
+        fields = head.split()
+        if len(fields) < 3:
+            continue
+        records.append((fields[1].lower(), path))
+    return records
+
+
+def staged_empty_blob_paths(ls_files_text: object,
+                            size_of: Callable[[str], object]) -> tuple[str, ...]:
+    """Index paths staged as the EMPTY blob while their worktree file is non-empty.
+
+    PURE over its two arguments: the text of `git ls-files -s [-z]` and a
+    `size_of(path)` callable that answers the worktree size (the CLI passes
+    `worktree_size` bound to the repo; a test passes a dict lookup). A path is a
+    FINDING iff its staged sha is `EMPTY_BLOB_SHA1` AND `size_of` returns an
+    `int > 0`. Sorted and de-duplicated (a conflicted path appears once per
+    stage number in the index; it is one finding).
+
+    The two-sided rule is the whole point: an empty-blob sha over a 0-byte
+    worktree file is CLEAN (a deliberately empty `__init__.py` is a normal
+    ship), and so is one whose `size_of` returns `None` or RAISES (a file
+    deleted from the worktree after `add -N` has nothing to ship). Only "the
+    index says empty, the disk says not" is the trap, and that is the only
+    shape reported. A `bool` is not a size, even though Python counts it as an
+    `int`. Never raises, for any input: a bad `size_of` excludes its path.
+    """
+    findings: set[str] = set()
+    for sha, path in _staged_index_records(ls_files_text):
+        if sha != EMPTY_BLOB_SHA1:
+            continue
+        try:
+            size = size_of(path)
+        except Exception:  # noqa: BLE001 -- an unreadable path is not a finding
+            continue
+        if isinstance(size, int) and not isinstance(size, bool) and size > 0:
+            findings.add(path)
+    return tuple(sorted(findings))
+
+
+def staged_paths_total(ls_files_text: object) -> int:
+    """Number of DISTINCT paths in a `git ls-files -s [-z]` text; `0` when empty.
+
+    The denominator of the human line (`<K> of <N> staged path(s)`), parsed by
+    the SAME private rule as the findings so the two numbers describe the same
+    record set. Distinct because a conflicted path lists once per stage number
+    and is still one path in the shipping tree. `0` for `""`, whitespace-only or
+    a non-`str`, never a raise.
+    """
+    return len({path for _, path in _staged_index_records(ls_files_text)})
+
+
+def worktree_size(repo: object, path: str) -> int | None:
+    """Byte size of `<repo>/<path>` on disk, or `None` when it cannot be read.
+
+    The ONE filesystem seam of the verb, module-level and called by BARE name
+    inside `staged_check_cli` so `monkeypatch.setattr(foundry, "worktree_size",
+    ...)` bites and the whole path is verifiable offline. `None` on ANY `OSError`
+    (missing file, permission, a path that is a directory on some platforms)
+    and on a malformed path; never raises. `None` is deliberately NOT `0`: the
+    caller treats both as clean, but a reader of the seam must be able to tell
+    "empty" from "unreadable".
+    """
+    try:
+        return os.path.getsize(pathlib.Path(repo) / path)
+    except (OSError, TypeError, ValueError):
+        return None
+
+
 # The command that lists this machine's PERIODIC SCHEDULE, as a TUPLE (immutable)
 # and read at CALL time rather than captured at def-time, so
 # `monkeypatch.setattr(foundry, "WATCHDOG_ARM_LISTING_CMD", ...)` bites. ONE
@@ -26624,6 +26739,73 @@ def test_touch_cli(cfg: ProductConfig) -> int:
     return 0
 
 
+def staged_check_cli(cfg: ProductConfig, as_json: bool = False) -> int:
+    """On-demand CLI: name every index path staged EMPTY over a non-empty file.
+
+    Prints exactly ONE line -- `staged-check: CLEAN|STAGED-EMPTY|UNKNOWN --
+    <counts>` -- and returns the fail-CLOSED code (0 clean / 1 >=1 finding / 2
+    the `ls-files` read did not succeed). With `as_json=True` the human line is
+    NOT printed; stdout is ONE `json.dumps(..., indent=2)` object carrying
+    `product, verdict, exit_code, staged, findings`, and the RETURN value is
+    identical in both modes.
+
+    WHY THIS EXISTS: the shipping tree is the INDEX, not the worktree, and the
+    two gauges the gate already has cannot see the `git add -N` trap --
+    `test-touch` reads porcelain (which shows `A` for an intent-to-add path,
+    blind BY DESIGN) and `preship` clones HEAD (blind to anything uncommitted).
+    Iterations 154, 194 and 195 each shipped or nearly shipped an empty file
+    this way. The card pins this verb right AFTER the gate's own `git add -A`,
+    the one moment the invariant must hold; a `STAGED-EMPTY` there means that
+    `add -A` did not replace an intent-to-add entry and the operator must re-run
+    it before committing.
+
+    THE HUMAN LINE IS BUILT FROM COUNTS ONLY -- the `test-touch` constraint: a
+    path body could carry a machine path or a smuggled sentinel into a PUBLIC
+    repo's gate transcript, so the relative paths ride ONLY the JSON channel a
+    caller asked for explicitly. A failed or raising `run_cmd` is UNKNOWN, never
+    CLEAN (fail-SAFE, as `probe_test_touch` returns `None`); `staged` is `None`
+    then, because no count was taken.
+
+    DORMANT -- `run_iteration`, `run_stage`, `build_prompt`, `postrelease_step`
+    and `dispatcher.py` never reach this verb or its helpers; `main()`'s argparse
+    dispatch is the only caller, exactly as with `leak-check` and `preship`. The
+    gate reaches it through its ROLE CARD, so a loop in flight resumes
+    byte-identically. Read-only: it writes nothing and creates no directories.
+    Both seams (`run_cmd`, `worktree_size`) are resolved by BARE name at CALL
+    time so a monkeypatch bites.
+    """
+    findings: tuple[str, ...] = ()
+    staged: int | None = None
+    try:
+        listing = run_cmd(["git", "-C", str(cfg.repo), "ls-files", "-s", "-z"],
+                          timeout=STAGED_CHECK_TIMEOUT_SECONDS)
+        read_ok = bool(listing.ok)
+    except Exception:  # noqa: BLE001 -- fail CLOSED on ANY seam failure
+        read_ok = False
+    if read_ok:
+        findings = staged_empty_blob_paths(
+            listing.out, lambda path: worktree_size(cfg.repo, path))
+        staged = staged_paths_total(listing.out)
+        verdict, code = ("STAGED-EMPTY", 1) if findings else ("CLEAN", 0)
+    else:
+        verdict, code = "UNKNOWN", 2
+    if as_json:
+        print(json.dumps({
+            "product": cfg.name,
+            "verdict": verdict,
+            "exit_code": code,
+            "staged": staged,
+            "findings": list(findings),
+        }, indent=2))
+    elif not read_ok:
+        print("staged-check: UNKNOWN -- the ls-files read did not succeed")
+    else:
+        tail = "; re-run git add -A before committing" if findings else ""
+        print(f"staged-check: {verdict} -- {len(findings)} of {staged} staged "
+              f"path(s) hold the empty blob against a non-empty worktree file{tail}")
+    return code
+
+
 def watchdog_arm_cli() -> int:
     """On-demand CLI: print the watchdog-arm line for this MACHINE, ALWAYS exit 0.
 
@@ -27394,6 +27576,21 @@ def main(argv: list[str] | None = None) -> int:
     ttc = sub.add_parser("test-touch")
     ttc.add_argument("--config", required=True,
                      help="path to product JSON config")
+    # `staged-check` names every INDEX path staged as the EMPTY blob while its
+    # worktree file is non-empty -- the `git add -N` trap that cost iterations
+    # 154, 194 and 195 (porcelain says `A`, `git diff --cached --name-only` is
+    # empty, and `preship` clones HEAD so it cannot see uncommitted work). ONE
+    # read-only `git ls-files -s -z`; the human line carries COUNTS only, the
+    # relative paths ride `--json`. The final gate runs it right after its own
+    # `git add -A`. REPORT-ONLY and DORMANT: the pipeline/gate harness/dispatcher
+    # never call it, it writes nothing. Exit 0 clean / 1 >=1 staged-empty path /
+    # 2 the read did not succeed (fail-CLOSED, never reads as clean).
+    stc = sub.add_parser("staged-check")
+    stc.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    stc.add_argument("--json", action="store_true",
+                     help="emit ONE JSON object (product, verdict, exit_code, staged, "
+                          "findings) instead of the counts-only human line; same 0/1/2 exit code")
     rcv = sub.add_parser("recoverable")
     rcv.add_argument("--config", required=True,
                      help="path to product JSON config")
@@ -28095,6 +28292,8 @@ def main(argv: list[str] | None = None) -> int:
         return recoverable_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "test-touch":
         return test_touch_cli(cfg)
+    if args.cmd == "staged-check":
+        return staged_check_cli(cfg, as_json=args.json)
     if args.cmd == "live-lag":
         return live_lag_cli(cfg, log_path=args.log,
                             as_json=args.json)
