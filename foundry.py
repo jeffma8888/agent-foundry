@@ -17214,21 +17214,46 @@ def scout_candidate_is_stub(candidate: object) -> bool:
     return all(word in _STUB_CANDIDATE_WORDS for word in words)
 
 
+# Rule 0 of `parse_triage_winner`: a line whose stripped form OPENS with the
+# uppercase label `PICK` -- behind any run of bullet, bold, blockquote or heading
+# markers -- names the winner as the first `[A-Z][0-9]` id within 24 chars of the
+# label. The `\b` after `PICK` keeps `PICKED` prose out; the label is
+# uppercase-only ON PURPOSE (a case-insensitive spelling was measured at 19 flips,
+# 15 of them WRONG, over the same 871 bodies); `[^\n]` keeps the window on the
+# label's own line; `re.MULTILINE` anchors `^` at every line after the heading.
+_TRIAGE_PICK_LABEL_RE = re.compile(
+    r"^[ \t\-*#>]*PICK\b[^\n]{0,24}?\b([A-Z][0-9])\b", re.MULTILINE)
+
+
 def parse_triage_winner(text: str) -> str | None:
     """Extract the PM lead's WINNER candidate id from a `pm.md` body (pure, total).
 
     Best-effort: locates the FIRST line whose stripped form starts with
-    ``## Triage`` (case-insensitive), then applies TWO rules IN ORDER to the text
-    AFTER that heading line -- the first that matches wins. Requiring every match
-    to follow the ``## Triage`` heading avoids misreading a candidate id mentioned
-    earlier in the spec.
+    ``## Triage`` (case-insensitive), then applies THREE rules IN ORDER to the
+    text AFTER that heading line -- the first that matches wins. Requiring every
+    match to follow the ``## Triage`` heading avoids misreading a candidate id
+    mentioned earlier in the spec.
 
-    Rule 1 (unchanged, and it runs FIRST): the first token matching
-    ``\\b[ABC][0-9]\\b``, uppercased (already uppercase for the literal class, so a
-    no-op that documents intent) -- so a Triage section naming "Pick: C1" yields
-    ``C1``. Running it first is WHY the widening below cannot regress: every body
-    that resolved before Rule 2 existed still takes exactly the path it took then,
-    even when a scout-qualified phrase sits in the same text.
+    Rule 0 (the label, tried FIRST): the first line whose stripped form starts
+    with the UPPERCASE label ``PICK`` -- behind any run of bullet, bold, blockquote
+    or heading markers -- yields the first ``\\b[A-Z][0-9]\\b`` id within 24 chars
+    of the label, on that same line (:data:`_TRIAGE_PICK_LABEL_RE`). WHY: since
+    iter 382 the PM lead opens Triage with a pool-summary bullet that names ids
+    BEFORE its own pick, so Rule 1 read the wrong winner into the tracked decision
+    log every scout is sent to as a repetition brake. Measured over 871 real
+    ``pm.md`` bodies: 443 carry the label, honouring it flips exactly 4 winners
+    and every flip is a real misrecord healed, none wrong. The label is
+    uppercase-only because ``Pick``/``pick`` is prose (a case-insensitive label
+    flipped 19, 15 of them WRONG), ``PICKED`` fails the word boundary, and a label
+    line with no id in its window falls through to the rules below unchanged.
+
+    Rule 1 (unchanged; it ran first before Rule 0 existed): the first token
+    matching ``\\b[ABC][0-9]\\b``, uppercased (already uppercase for the literal
+    class, so a no-op that documents intent) -- so a Triage section naming
+    "Pick: C1" yields ``C1``. Running it ahead of Rule 2 is WHY the widening
+    below cannot regress: every body that resolved before Rule 2 existed still
+    takes exactly the path it took then, even when a scout-qualified phrase sits
+    in the same text.
 
     Rule 2 (the widening): a SCOUT-QUALIFIED reference -- a ``scout`` keyword, one
     or more separators, and a single-letter designator -- followed on the SAME line
@@ -17272,6 +17297,9 @@ def parse_triage_winner(text: str) -> str | None:
     if heading_idx is None:
         return None
     rest = "\n".join(lines[heading_idx + 1:])
+    labelled = _TRIAGE_PICK_LABEL_RE.search(rest)
+    if labelled:
+        return labelled.group(1)
     match = re.search(r"\b[ABC][0-9]\b", rest)
     if match:
         return match.group(0).upper()
