@@ -289,6 +289,7 @@ in the archive.
 - iter 382 -- scout card: first checkpoint is a valid 2-3 heading slate; directions labels zero-heading seats.
 - iter 411 -- run_stage: ONE auth attempt then a 30-min STOP-aware hold; every other kind's ladder byte-unchanged.
 - iter 412 -- auth_hold_claim_gaps: both invariant docs state ONE auth attempt then a 30-min hold; ladder untouched.
+- iter 413 -- parse_triage_winner Rule 0: a line-anchored uppercase PICK label outranks the first id; 4 misrecords heal.
 
 
 ### Migration notes (per §6 self-mod guardrail)

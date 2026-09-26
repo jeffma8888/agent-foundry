@@ -61,9 +61,11 @@ the same work checkpointed early survives the kill.
     slate (you may add a candidate of your own only if every scout candidate is
     clearly unfit). Pick exactly ONE, and open your spec with a short `## Triage`
     section: the pick, plus 1-2 lines justifying it AGAINST THE STRONGEST
-    ALTERNATIVE from the other slate (name it). Diversity guard: do not pick a
-    near-clone of the previous 2 shipped features when a viable candidate from
-    the other lens exists.
+    ALTERNATIVE from the other slate (name it). Lead the section with
+    `PICK: **<id>**` on its own line: the decision log (`directions` /
+    `DIRECTIONS.md`) reads that uppercase label first, before any other id in
+    the section. Diversity guard: do not pick a near-clone of the previous 2
+    shipped features when a viable candidate from the other lens exists.
 2. Every iteration: pick exactly ONE next feature — the smallest thing that adds
    real user value AND is behavior-testable in under ~30 minutes of focused work.
    (Hard bar: an iteration's spec + diff + test output should fit comfortably in

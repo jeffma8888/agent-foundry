@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-413
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- the tracked decision log misrecords the winner of 4 iterations (132, 238, 381, 411) because `parse_triage_winner` reads the FIRST candidate id after `## Triage`, not the one the PM labelled `PICK:` -- and 2 of the last 3 labelled `_platform` bodies are among them
+    - Candidate A2 -- iter 411 deleted the `--dual-pm-scouts` flag, but the operator docs and role cards may still teach it as the way to turn the two-scout phase on
+    - Candidate A3 -- a role card states a constant (cap, pool size, attempt count) that the code no longer matches
+    - Candidate B1 -- `foundry outages`: turn `dispatcher.out`'s `backing off ... (failure kind: K)` lines into per-outage windows (span, attempts, hours asleep, dead iterations minted per product)
+    - Candidate B2 -- `foundry wake`: end the current auth hold (or any backoff sleep) the moment the human has paid the remedy, instead of waiting out the rest of the 30 minutes
+    - Candidate B3 -- `foundry jumps`: a ledger-jump detector that lists every run of >= 5 missing `(foundry iter N)` tags and whether the roadmap index or archive names its `lo-hi` range
+    winner: A1
+    ship: pending (not yet decided)
   iter-412
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- the suite's #1 and #3 slowest tests are a quadratic trap foundry.py itself already documents and avoids: `ast.get_source_segment` re-splits the 1.49 MB source on EVERY call, and three test modules loop it over 793 top-level nodes
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the roadmap's open-items block says (g) is STILL OPEN, CLOSED, and STILL OPEN again within six lines, and neither shipped roadmap oracle can see it
     - Candidate B3 -- the ledger jumps 326->334, 339->360 and 382->411 (55 iteration numbers) have no record anywhere a ledger reader looks, while the roadmap explains the 244->320 jump in a full paragraph
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED e4ae5f7
   iter-411
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- retire the superseded `--dual-pm-scouts` opt-in flag now that dual scouts are the default
@@ -1762,4 +1772,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-176 scouted iterations
+177 scouted iterations
