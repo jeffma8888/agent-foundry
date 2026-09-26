@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-416
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- `staged-check` shipped one commit ago with zero consumers: the final-gate card still teaches the manual `git ls-files -s` + `git show :path` pair, so the verb built for the gate is not on the gate's checklist
+    - Candidate A2 -- the `live-lag` WARN (5 shipped iterations not live today) tells the operator to "restart the dispatcher" but names no verb; `doctor` should print the exact relaunch command the repo already ships
+    - Candidate A3 -- the scout card's DIRECTIONS step reaches 12 of ~236 scouted iterations while `directions --topic TERM` (iter 414) has zero role-card consumers; add the `--topic` step to `roles/pm_scout.md` so the drop-repeats rule reads the whole record
+    - Candidate B1 -- delete the dead `auth` retry ladder: `KIND_RETRY_LADDERS["auth"]`, its 31-line "retained only for the pins" comment, and the "rendered but never walked" sentence in both invariant docs
+    - Candidate B2 -- retire the SPENT `OPERATOR 2026-08-30 RETRY iter 205` head bullet (784 of the head's 8,241 chars, 4.4% of every stage prompt) VERBATIM into the archive section iter 381 created
+    - Candidate B3 -- fold the two verbatim markdown list-item scopers inside `cooldown_claim_scope_gaps` (iter 322) and `auth_hold_claim_gaps` (iter 412) onto one private helper
+    winner: B3
+    ship: pending (not yet decided)
   iter-415
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- `foundry staged-check`: a shipped check for the staged-empty-blob trap (after `git add -A`, no path may hold blob e69de29 while its worktree file is non-empty)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the `live-lag` doctor line says "restart the dispatcher to activate" every iteration (4 shipped, not live today) but names no command; the on-ramp from a shipped iteration to a live brain is still a human reading prose
     - Candidate B3 -- read-only verdict verbs without a `--json` door: the framework's scriptable surface has holes (iter-380 A3 named `watchdog-arm`; census pending)
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 2b4d0ca
   iter-414
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `foundry outages`, re-proposed in the SMALL shape: per-outage windows from `dispatcher.out` backoff lines (span, attempts, hours asleep, dead iterations per product)
@@ -1792,4 +1802,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-179 scouted iterations
+180 scouted iterations
