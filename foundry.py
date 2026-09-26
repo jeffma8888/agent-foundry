@@ -16392,6 +16392,51 @@ def infra_cooldown_owners(source_text: str) -> tuple[str, ...]:
     return tuple(sorted(owners))
 
 
+def _list_item_around(doc_text: str, anchor: str) -> str | None:
+    """The markdown LIST ITEM holding the FIRST occurrence of `anchor`, or `None`.
+
+    The one scoper behind `cooldown_claim_scope_gaps` and `auth_hold_claim_gaps`
+    below, which each carried a drifting copy (iters 322, 412). The item runs from
+    the nearest line at or before the anchor's whose STRIPPED form starts with
+    `- `, `* `, `+ ` or `<number>. `, through the last following non-blank line
+    that starts no such marker, joined by newlines. `None`, never an exception, for
+    a non-`str` or empty argument, an absent anchor or an anchor in no list item;
+    WHICH fail-closed sentinel that deserves stays each CALLER's decision. PURE and
+    TOTAL: no I/O or clock, no mutation of arguments, equal inputs give `==` results.
+    """
+    if not isinstance(doc_text, str) or not isinstance(anchor, str):
+        return None
+    if not doc_text or not anchor:
+        return None
+    hit = doc_text.find(anchor)
+    if hit < 0:
+        return None
+    lines = doc_text.splitlines()
+
+    def starts_item(stripped: str) -> bool:
+        """True if a stripped line starts a markdown list item (bullet or ordered)."""
+        if stripped[:2] in ("- ", "* ", "+ "):
+            return True
+        lead = stripped[: len(stripped) - len(stripped.lstrip("0123456789"))]
+        return bool(lead) and stripped[len(lead):len(lead) + 2] == ". "
+
+    anchor_line = min(doc_text.count("\n", 0, hit), len(lines) - 1)
+    start: int | None = None
+    for idx in range(anchor_line, -1, -1):
+        if starts_item(lines[idx].strip()):
+            start = idx
+            break
+    if start is None:
+        return None
+    end = start
+    for idx in range(start + 1, len(lines)):
+        stripped = lines[idx].strip()
+        if not stripped or starts_item(stripped):
+            break
+        end = idx
+    return "\n".join(lines[start:end + 1])
+
+
 def cooldown_claim_scope_gaps(owners: Iterable[str], doc_text: str, *,
                               anchor: str) -> tuple[str, ...]:
     """Owner names NOT named inside the doc LIST ITEM that makes the cooldown claim.
@@ -16439,35 +16484,9 @@ def cooldown_claim_scope_gaps(owners: Iterable[str], doc_text: str, *,
         return tuple(sorted(wanted))
     if not isinstance(anchor, str) or not anchor:
         return tuple(sorted(wanted))
-    hit = doc_text.find(anchor)
-    if hit < 0:
+    item = _list_item_around(doc_text, anchor)
+    if item is None:
         return tuple(sorted(wanted))
-    lines = doc_text.splitlines()
-    if not lines:
-        return tuple(sorted(wanted))
-
-    def starts_item(stripped: str) -> bool:
-        """True if a stripped line opens a markdown list item (bullet or ordered)."""
-        if stripped[:2] in ("- ", "* ", "+ "):
-            return True
-        digits = stripped[: len(stripped) - len(stripped.lstrip("0123456789"))]
-        return bool(digits) and stripped[len(digits):len(digits) + 2] == ". "
-
-    anchor_line = min(doc_text.count("\n", 0, hit), len(lines) - 1)
-    start = None
-    for idx in range(anchor_line, -1, -1):
-        if starts_item(lines[idx].strip()):
-            start = idx
-            break
-    if start is None:
-        return tuple(sorted(wanted))
-    end = start
-    for idx in range(start + 1, len(lines)):
-        stripped = lines[idx].strip()
-        if not stripped or starts_item(stripped):
-            break
-        end = idx
-    item = "\n".join(lines[start:end + 1])
     return tuple(sorted(name for name in wanted if name not in item))
 
 
@@ -16496,11 +16515,11 @@ def auth_hold_claim_gaps(doc_text: str, *, anchor: str = "auth:") -> tuple[str, 
     state a hold figure in minutes, and does that figure equal
     `AUTH_HOLD_SECONDS // 60`?
 
-    Scope is the ITEM, not the file -- the `cooldown_claim_scope_gaps` rule
-    verbatim: the item holding the FIRST occurrence of `anchor` runs from the
-    nearest line at or before it whose STRIPPED form starts with `- `, `* `, `+ `
-    or `<number>. `, through the last following line that is non-blank and does
-    not start such a marker. A correct sentence in a neighbouring bullet does not
+    Scope is the ITEM, not the file -- `_list_item_around` is the one scoper it
+    shares with `cooldown_claim_scope_gaps`: the item holding the FIRST occurrence
+    of `anchor` runs from the nearest line at or before it whose STRIPPED form
+    starts with `- `, `* `, `+ ` or `<number>. `, through the last following line
+    that is non-blank and does not start such a marker. A correct sentence in a neighbouring bullet does not
     count, because that is the vacuous fold that lets the claim itself stay false.
 
     The hold figure is `AUTH_HOLD_FIGURE_RE`; EVERY such figure inside the item
@@ -16532,32 +16551,9 @@ def auth_hold_claim_gaps(doc_text: str, *, anchor: str = "auth:") -> tuple[str, 
     hit = doc_text.find(anchor)
     if hit < 0:
         return ("anchor absent: %s" % (anchor,),)
-    lines = doc_text.splitlines()
-    if not lines:
+    item = _list_item_around(doc_text, anchor)
+    if item is None:
         return unusable
-
-    def starts_item(stripped: str) -> bool:
-        """True if a stripped line starts a markdown list item (bullet or ordered)."""
-        if stripped[:2] in ("- ", "* ", "+ "):
-            return True
-        lead = stripped[: len(stripped) - len(stripped.lstrip("0123456789"))]
-        return bool(lead) and stripped[len(lead):len(lead) + 2] == ". "
-
-    anchor_line = min(doc_text.count("\n", 0, hit), len(lines) - 1)
-    start = None
-    for idx in range(anchor_line, -1, -1):
-        if starts_item(lines[idx].strip()):
-            start = idx
-            break
-    if start is None:
-        return unusable
-    end = start
-    for idx in range(start + 1, len(lines)):
-        stripped = lines[idx].strip()
-        if not stripped or starts_item(stripped):
-            break
-        end = idx
-    item = "\n".join(lines[start:end + 1])
 
     gaps: set[str] = set()
     if "AUTH_HOLD_SECONDS" not in item:

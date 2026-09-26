@@ -292,6 +292,7 @@ in the archive.
 - iter 413 -- parse_triage_winner Rule 0: a line-anchored uppercase PICK label outranks the first id; 4 misrecords heal.
 - iter 414 -- directions --topic TERM: filter slates by candidate text + archive bullets; exit 2 on no hit.
 - iter 415 -- staged-check: names paths staged as the EMPTY blob over a non-empty worktree file; exit 0/1/2.
+- iter 416 -- _list_item_around: one pure scoper under both claim guards (-4 L); spent RETRY-205 head bullet archived.
 
 
 ### Migration notes (per §6 self-mod guardrail)
