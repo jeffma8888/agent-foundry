@@ -97,7 +97,7 @@ LEDGER_SUBSTRINGS = (
     "never put progress in the",
 )
 LAST_LINE = "Append lessons to the foundry learnings log as `- [FINAL iterNN] ...`."
-EXPECTED_VERBS = ("leak-check", "preship", "staged-check")
+EXPECTED_VERBS = ("leak-check", "ledger-key", "preship", "staged-check")
 
 
 # --------------------------------------------------------------------------
@@ -595,11 +595,16 @@ def test_b9_last_non_blank_line_is_unchanged():
 
 
 # --------------------------------------------------------------------------
-# Acceptance criterion -- the ledger paragraph is ONE contiguous block, 8-10 lines,
-# and invokes no `foundry.py <verb>`
+# Acceptance criterion -- the ledger paragraph is ONE contiguous block of 10-15 lines
+# and invokes exactly the key verb. Iteration 419 pinned 8-10 lines and NO
+# `foundry.py <verb>` as a scope guard for THAT iteration ("the new paragraph
+# teaches no verb"); iteration 420 added the one sentence naming `ledger-key`, so
+# the bound admits the wrapped sentence and the verb assertion is inverted.
 # --------------------------------------------------------------------------
-def test_ac_ledger_paragraph_is_one_contiguous_block_of_8_to_10_lines():
+def test_ac_ledger_paragraph_is_one_contiguous_block_naming_ledger_key():
     para = _paragraph_lines(_card_text(), DEFAULT_ANCHOR)
-    assert 8 <= len(para) <= 10, len(para)
+    assert 10 <= len(para) <= 15, len(para)
     assert all(ln.strip() for ln in para), "blank line inside the paragraph"
-    assert "foundry.py" not in "\n".join(para), "the paragraph must not invoke a verb"
+    joined = "\n".join(para)
+    assert "foundry.py ledger-key" in joined, "the paragraph must name the ledger-key verb"
+    assert foundry.role_card_verbs(joined) == ("ledger-key",), foundry.role_card_verbs(joined)

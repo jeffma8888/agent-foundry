@@ -45,11 +45,12 @@ VERDICT_TOKENS = ("verdict: DUAL", "verdict: SINGLE")
 
 # Every verb the CLI is allowed to expose (iteration 362's Acceptance Criteria
 # pinned "the same 57-verb set"; iteration 371 added the 58th verb, `stop`, and
-# iteration 373 the 59th, `watchdog-arm`).
+# iteration 373 the 59th, `watchdog-arm`, iteration 415 the 60th,
+# `staged-check`, and iteration 420 the 61st, `ledger-key`).
 # Counted, not enumerated, so the check stays about the INVARIANT rather than
 # re-typing a table the census already owns -- keep it an EXACT equality, never
 # `>=`, so an accidental verb still reds.
-EXPECTED_VERB_COUNT = 60
+EXPECTED_VERB_COUNT = 61
 
 
 def _cap(fn):

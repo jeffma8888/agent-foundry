@@ -11148,6 +11148,163 @@ def worktree_size(repo: object, path: str) -> int | None:
         return None
 
 
+# --------------------------------------------------------------------------- #
+# `ledger-key`: ONE pinned recipe for the final gate's `VERIFIED:` ledger key
+# --------------------------------------------------------------------------- #
+# The hex half of the key a PROVABLY CLEAN tree produces: the first 16 hex chars
+# of sha256 over EMPTY input (no `git diff HEAD` text, no untracked path). It is
+# a constant on purpose -- a reader of a gate transcript can recognise a clean
+# post-commit segment by eye, and a dirty tree can never hash to it, so a gate
+# that carried its pre-commit hash through its post-commit lines (five of the
+# nine gates 411-419 did) is caught by comparison rather than by trust. 16 chars
+# because that is the recipe's digest width (`ledger_key`), and the recipe is
+# the only reader; a second width would be a second recipe.
+LEDGER_KEY_CLEAN_HEX = "e3b0c44298fc1c14"
+
+# The line prefix a gate report uses for one ledger entry, matched after
+# `str.strip()` so an indented or trailing-space line still counts as a ledger
+# line. Read at CALL time inside `classify_ledger_lines`.
+LEDGER_LINE_PREFIX = "VERIFIED:"
+
+# A usable HEAD: 7-40 LOWERCASE hex chars, exactly what `git rev-parse HEAD`
+# prints (40) and what a key carries (the first 7). Uppercase is rejected rather
+# than folded, because a key is compared by `==` and a folded head would let
+# two spellings of one tree read as two keys.
+_LEDGER_HEAD_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
+
+# The SHAPE of any key this recipe -- or a sibling gate's hand-rolled one --
+# could have produced: `<7-40 hex>+<8-64 hex>`. A `VERIFIED:` token of this
+# shape that is not the current key was measured at some OTHER tree and is
+# `voided`; a token of any other shape (`f`, a 1-char hash, no `key=` at all)
+# was never a key and is `malformed`. Wider than the recipe on purpose, so the
+# pre-420 ledgers classify as voided (a closed gate) rather than malformed.
+_LEDGER_KEY_TOKEN_RE = re.compile(r"^[0-9a-f]{7,40}\+[0-9a-f]{8,64}$")
+
+
+def _ledger_head(head_sha: object) -> str:
+    """The normalised 7-40 hex HEAD from a `rev-parse` capture, or `""`.
+
+    Private because it is the ONE validation rule written once for both public
+    readers (`ledger_key` and `ledger_key_cli`), so the recipe and the CLI's
+    fail-closed branch can never disagree about what a usable head is. Strips
+    the trailing newline `git rev-parse HEAD` prints; a non-`str`, an empty or
+    whitespace-only string, or anything that is not 7-40 lowercase hex chars
+    yields `""` rather than raising.
+    """
+    if not isinstance(head_sha, str):
+        return ""
+    head = head_sha.strip()
+    return head if _LEDGER_HEAD_SHA_RE.match(head) else ""
+
+
+def _ledger_untracked_pairs(untracked: object) -> list[tuple[str, bytes]] | None:
+    """The `(path, blob)` pairs of an untracked set, validated and SORTED, or `None`.
+
+    `None` -- never a raise -- when `untracked` is not iterable or any member is
+    not a `(str, bytes)` pair (a `bytearray` is not `bytes`; a `bool`, `int` or
+    a 3-tuple is not a pair). Validation runs BEFORE the sort so a mixed-type
+    member can never surface as a `TypeError` from inside `sorted`. Sorted so the
+    caller's iteration order can never change the digest: the gate reads the
+    untracked set from `git ls-files`, a test builds it by hand, and both must
+    produce one key for one tree.
+    """
+    pairs: list[tuple[str, bytes]] = []
+    try:
+        for member in untracked:
+            path, blob = member
+            if not isinstance(path, str) or not isinstance(blob, bytes):
+                return None
+            pairs.append((path, blob))
+    except (TypeError, ValueError):
+        return None
+    return sorted(pairs)
+
+
+def ledger_key(head_sha: object, diff_text: object, untracked: object) -> str:
+    """The final gate's `VERIFIED:` ledger key for one tree: `<head[:7]>+<sha256[:16]>`.
+
+    PURE and TOTAL over its three arguments: no filesystem, subprocess, clock or
+    network access, no mutation, equal inputs give `==` results, and it never
+    raises. The digest is sha256 over `diff_text` encoded UTF-8 followed by the
+    SORTED untracked set serialised as `path\0contents\0` per member, so member
+    ORDER never changes the result; the key is the first 7 chars of the
+    validated head (`_ledger_head`) plus `+` plus the first 16 hex chars of that
+    digest. Returns `""` -- never a raise -- when the head is not 7-40 lowercase
+    hex after `strip()`, when `diff_text` is not a `str`, or when any untracked
+    member is not a `(str, bytes)` pair.
+
+    WHY ONE PINNED RECIPE: `roles/final.md` names the key only as `<HEAD sha>+
+    <sha256 of git diff HEAD plus every untracked file>`, and every gate since
+    then invented its own -- measured over iterations 411-419: hash width 16 in
+    six gates, 12 in one, 64 in one, a 1-char hash in another, a 40-char head
+    in one, and 7 of 105 `VERIFIED:` lines with no parseable `key=` at all. A
+    retry that hand-rolls a DIFFERENT recipe mismatches every existing key, the
+    card's void-on-mismatch rule fires, and the gate re-verifies from zero --
+    the exact loss the ledger exists to prevent. This function is the recipe;
+    `ledger_key_cli` reads the tree and calls it, so the key is never typed.
+
+    DORMANT: zero call site in the running pipeline -- no orchestrator,
+    dispatcher, stage or config field references it; `ledger_key_cli` behind
+    `main()`'s argparse dispatch is the only caller -- so resume semantics for
+    an in-flight loop are byte-identical.
+    """
+    head = _ledger_head(head_sha)
+    if not head or not isinstance(diff_text, str):
+        return ""
+    pairs = _ledger_untracked_pairs(untracked)
+    if pairs is None:
+        return ""
+    digest = hashlib.sha256(
+        diff_text.encode("utf-8")
+        + b"".join(path.encode("utf-8") + b"\0" + blob + b"\0" for path, blob in pairs)
+    ).hexdigest()
+    return f"{head[:7]}+{digest[:16]}"
+
+
+def classify_ledger_lines(text: object, key: object) -> tuple[tuple[int, str, str], ...]:
+    """`(line_no, status, token)` for every `VERIFIED:` line of a gate report.
+
+    PURE and TOTAL: report TEXT and the current key in, a tuple in file order
+    out; no I/O, no mutation, equal inputs give `==` results, never raises. A
+    non-`str` `text` or `key` yields `()`. Lines are split on `"\n"` and
+    numbered from 1, so the reported number is the one an editor shows; a line
+    counts when its `strip()`ped form starts with `LEDGER_LINE_PREFIX`, and every
+    other line (`ACTION:`, prose, blanks) is skipped. `token` is the text after
+    the FIRST `key=` up to the next whitespace or end of line, `""` when the
+    line carries no `key=`. `status` is `current` iff `token == key`, else
+    `voided` iff the token has the SHAPE of a key (`_LEDGER_KEY_TOKEN_RE`: it
+    was measured at some other tree, so the card's void rule applies), else
+    `malformed` (never a key at all).
+
+    WHY THREE WORDS rather than a boolean: the card tells a retry to carry
+    forward lines whose key still matches and to void a segment on mismatch,
+    but it cannot tell a retry that a line was never comparable in the first
+    place -- and 7 of 105 measured lines were exactly that. `voided` is
+    information about the TREE (it moved); `malformed` is information about the
+    WRITER (the previous attempt did not use the recipe). The verb reports;
+    the gate still decides what to reuse.
+
+    DORMANT: zero call site in the running pipeline; `ledger_key_cli` behind
+    `main()`'s argparse dispatch is the only caller.
+    """
+    if not isinstance(text, str) or not isinstance(key, str):
+        return ()
+    rows: list[tuple[int, str, str]] = []
+    for line_no, line in enumerate(text.split("\n"), start=1):
+        if not line.strip().startswith(LEDGER_LINE_PREFIX):
+            continue
+        marker = line.find("key=")
+        token = re.match(r"\S*", line[marker + 4:]).group(0) if marker >= 0 else ""
+        if token == key:
+            status = "current"
+        elif _LEDGER_KEY_TOKEN_RE.match(token):
+            status = "voided"
+        else:
+            status = "malformed"
+        rows.append((line_no, status, token))
+    return tuple(rows)
+
+
 # The command that lists this machine's PERIODIC SCHEDULE, as a TUPLE (immutable)
 # and read at CALL time rather than captured at def-time, so
 # `monkeypatch.setattr(foundry, "WATCHDOG_ARM_LISTING_CMD", ...)` bites. ONE
@@ -27000,6 +27157,159 @@ def staged_check_cli(cfg: ProductConfig, as_json: bool = False) -> int:
     return code
 
 
+def _ledger_check_report(check_path: object, key: str) -> dict:
+    """The `--check` half of `ledger-key`: classify one existing gate report.
+
+    Returns the JSON-shaped record the CLI prints in both modes: `path`,
+    `present`, `lines` (one `{line, status, token}` per `VERIFIED:` line) and
+    the three counts. `present` is `False` -- with `lines == []` and every count
+    0 -- when the file does not exist or cannot be read as UTF-8 text, which on
+    attempt 1 is the NORMAL case (no report exists yet), so an absent report is
+    information, never a failure. Private because it is one shape written once
+    for the human block and the JSON object, so the two can never disagree
+    about a line's status.
+    """
+    try:
+        text = pathlib.Path(str(check_path)).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError, ValueError):
+        return {"path": str(check_path), "present": False, "lines": [],
+                "current": 0, "voided": 0, "malformed": 0}
+    rows = classify_ledger_lines(text, key)
+    statuses = [status for _, status, _ in rows]
+    return {
+        "path": str(check_path),
+        "present": True,
+        "lines": [{"line": line_no, "status": status, "token": token}
+                  for line_no, status, token in rows],
+        "current": statuses.count("current"),
+        "voided": statuses.count("voided"),
+        "malformed": statuses.count("malformed"),
+    }
+
+
+def _ledger_tree_reading(cfg: ProductConfig) -> tuple[str, int, int] | str:
+    """Read the tree through `run_cmd` and return `(key, diff_chars, untracked)` or a reason.
+
+    The ONE place the three git reads happen, in the pinned order -- `rev-parse
+    HEAD`, `diff HEAD`, `ls-files --others --exclude-standard -z` -- each
+    through `run_cmd` resolved by BARE name at call time so a monkeypatch bites,
+    then every untracked path as `pathlib.Path(cfg.repo, rel).read_bytes()`.
+    A `str` return is the fail-CLOSED reason naming the step that did not
+    succeed (`rev-parse failed`, `rev-parse yielded no valid head`, `diff
+    failed`, `ls-files failed`, `read failed: <rel>`); the caller maps it to
+    `UNKNOWN` / exit 2 and never prints a key on that path. The head is
+    validated BEFORE the second read so a garbage `rev-parse` stops the verb
+    early rather than hashing a tree it cannot label. `diff_chars` is
+    `len(diff.out)` -- the combined stdout+stderr TEXT `run_cmd` returns is
+    exactly the text hashed, never a second read through another call.
+    """
+    repo = str(cfg.repo)
+    head_res = run_cmd(["git", "-C", repo, "rev-parse", "HEAD"])
+    if not head_res.ok:
+        return "rev-parse failed"
+    if not _ledger_head(head_res.out):
+        return "rev-parse yielded no valid head"
+    diff_res = run_cmd(["git", "-C", repo, "diff", "HEAD"])
+    if not diff_res.ok:
+        return "diff failed"
+    ls_res = run_cmd(["git", "-C", repo, "ls-files", "--others", "--exclude-standard", "-z"])
+    if not ls_res.ok:
+        return "ls-files failed"
+    rels = [rel for rel in ls_res.out.split("\0") if rel]
+    pairs: list[tuple[str, bytes]] = []
+    for rel in rels:
+        try:
+            pairs.append((rel, pathlib.Path(cfg.repo, rel).read_bytes()))
+        except Exception:  # noqa: BLE001 -- an unreadable untracked file is not a key
+            return f"read failed: {rel}"
+    key = ledger_key(head_res.out, diff_res.out, pairs)
+    if not key:  # pragma: no cover - contract-impossible belt after the checks above
+        return "key recipe rejected its inputs"
+    return key, len(diff_res.out), len(rels)
+
+
+def ledger_key_cli(cfg: ProductConfig, check_path: object = None,
+                   as_json: bool = False) -> int:
+    """On-demand CLI: compute the gate's `VERIFIED:` ledger key from the LIVE tree.
+
+    Prints exactly ONE line -- `ledger-key: <key> -- clean (diff 0 chars, 0
+    untracked)` or `ledger-key: <key> -- dirty (diff <N> chars, <M> untracked)`
+    -- and returns 0, where `clean` holds iff N == 0 and M == 0 (and the hex
+    half is then `LEDGER_KEY_CLEAN_HEX`). Fail-CLOSED: when any of the three
+    `run_cmd` reads is not `.ok`, the head is unusable, or an untracked file
+    cannot be read, the one line is `ledger-key: UNKNOWN -- <reason>` and the
+    return is 2; no key is ever printed on that path and `UNKNOWN` is never
+    `clean`. With `check_path` (exit 0 only) the key line is followed by one
+    `  L<line_no>: <status>` line per `VERIFIED:` line of that file and a
+    summary `ledger-check: <c> current, <v> voided, <m> malformed`, or by the
+    single line `ledger-check: ABSENT -- <path>` when the file cannot be read;
+    the return stays 0 either way, because a voided or malformed line is
+    information for the retry, not a failure. With `as_json=True` the human
+    lines are NOT printed; stdout is ONE `json.dumps(..., indent=2)` object with
+    `product, key, head, digest, clean, diff_chars, untracked, exit_code,
+    check` (plus `reason` on exit 2, where `key`, `head`, `digest`,
+    `diff_chars` and `untracked` are `null` and `clean` is `false`), and the
+    RETURN value is identical in both modes.
+
+    WHY THIS EXISTS: iteration 419 gave the gate a resumable ledger whose only
+    integrity mechanism is this key, and left the recipe to each gate's hand --
+    five formats in nine gates, 7 unparseable lines, and a retry path that has
+    never run because all nine gates were single-attempt. On the first real
+    retry a fresh gate's hand-rolled key mismatches every line, the card's
+    void-on-mismatch rule fires, and the ledger's whole purpose is lost at the
+    moment it matters most. A verb that reads the tree itself makes the key
+    impossible to mistype and makes a dirty tree impossible to label with the
+    clean hash, which five of nine gates did by carrying their pre-commit hash
+    through their post-commit lines.
+
+    THE HUMAN LINE CARRIES NO PATH BODY except the relative `<rel>` of an
+    unreadable untracked file and the `--check` path the caller itself passed
+    -- the `test-touch` constraint against machine paths in a public gate
+    transcript.
+
+    DORMANT -- `run_iteration`, `run_stage`, `build_prompt`, `postrelease_step`,
+    `run_continuous` and `dispatcher.py` never reach this verb or its helpers;
+    `main()`'s argparse dispatch is the only caller, exactly as with
+    `staged-check`. The gate reaches it through its ROLE CARD, so a loop in
+    flight resumes byte-identically. Read-only: it writes nothing, creates no
+    directory and mutates no git state; the `run_cmd` seam is resolved by BARE
+    name at CALL time so a monkeypatch bites.
+    """
+    reading = _ledger_tree_reading(cfg)
+    if isinstance(reading, str):
+        if as_json:
+            print(json.dumps({
+                "product": cfg.name, "key": None, "head": None, "digest": None,
+                "clean": False, "diff_chars": None, "untracked": None,
+                "exit_code": 2, "check": None, "reason": reading,
+            }, indent=2))
+        else:
+            print(f"ledger-key: UNKNOWN -- {reading}")
+        return 2
+    key, diff_chars, untracked = reading
+    head, digest = key.split("+", 1)
+    clean = diff_chars == 0 and untracked == 0
+    check = _ledger_check_report(check_path, key) if check_path is not None else None
+    if as_json:
+        print(json.dumps({
+            "product": cfg.name, "key": key, "head": head, "digest": digest,
+            "clean": clean, "diff_chars": diff_chars, "untracked": untracked,
+            "exit_code": 0, "check": check,
+        }, indent=2))
+        return 0
+    state = "clean" if clean else "dirty"
+    print(f"ledger-key: {key} -- {state} (diff {diff_chars} chars, {untracked} untracked)")
+    if check is not None:
+        if not check["present"]:
+            print(f"ledger-check: ABSENT -- {check['path']}")
+        else:
+            for row in check["lines"]:
+                print(f"  L{row['line']}: {row['status']}")
+            print(f"ledger-check: {check['current']} current, {check['voided']} voided, "
+                  f"{check['malformed']} malformed")
+    return 0
+
+
 def watchdog_arm_cli() -> int:
     """On-demand CLI: print the watchdog-arm line for this MACHINE, ALWAYS exit 0.
 
@@ -27785,6 +28095,25 @@ def main(argv: list[str] | None = None) -> int:
     stc.add_argument("--json", action="store_true",
                      help="emit ONE JSON object (product, verdict, exit_code, staged, "
                           "findings) instead of the counts-only human line; same 0/1/2 exit code")
+    # `ledger-key` computes the final gate's resumable `VERIFIED:` ledger key
+    # from the LIVE tree with ONE pinned recipe (`<HEAD sha[:7]>+<sha256[:16]>`
+    # over `git diff HEAD` text plus the sorted untracked set), so the key is
+    # never typed by hand -- nine gates (411-419) hand-rolled five formats, and a
+    # retry that rolls a sixth voids every line it should have reused. Three
+    # read-only git reads through `run_cmd`; `--check FILE` classifies each
+    # `VERIFIED:` line of an existing report as current / voided / malformed
+    # for the retry to decide on. REPORT-ONLY and DORMANT: the pipeline/gate
+    # harness/dispatcher never call it, it writes nothing. Exit 0 key printed /
+    # 2 UNKNOWN (fail-CLOSED, never prints a key or reads as clean).
+    lkc = sub.add_parser("ledger-key")
+    lkc.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    lkc.add_argument("--check", default=None, metavar="FILE",
+                     help="an existing gate report (final.md) whose VERIFIED: lines are "
+                          "classified current / voided / malformed against the computed key")
+    lkc.add_argument("--json", action="store_true",
+                     help="emit ONE JSON object (product, key, head, digest, clean, diff_chars, "
+                          "untracked, exit_code, check) instead of the human lines; same 0/2 exit code")
     rcv = sub.add_parser("recoverable")
     rcv.add_argument("--config", required=True,
                      help="path to product JSON config")
@@ -28488,6 +28817,8 @@ def main(argv: list[str] | None = None) -> int:
         return test_touch_cli(cfg)
     if args.cmd == "staged-check":
         return staged_check_cli(cfg, as_json=args.json)
+    if args.cmd == "ledger-key":
+        return ledger_key_cli(cfg, check_path=args.check, as_json=args.json)
     if args.cmd == "live-lag":
         return live_lag_cli(cfg, log_path=args.log,
                             as_json=args.json)

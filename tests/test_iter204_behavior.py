@@ -1055,7 +1055,19 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # by importing this module's own helper). Red ONLY inside the
                 # pre-commit window; a fresh clone at the ship commit is clean.
                 "tests/test_iter179_behavior.py",
-                "tests/test_iter197_behavior.py"}
+                "tests/test_iter197_behavior.py",
+                # iter 420: `foundry ledger-key` is a new CLI verb, and the card
+                # sentence that names it flips two iter-419 pins that were scope
+                # guards for THAT iteration: `EXPECTED_VERBS` gains `ledger-key`
+                # (the exact-equality verb set the card teaches) and the ledger-
+                # paragraph pin (8-10 lines, no `foundry.py <verb>`) is widened and
+                # inverted to name the verb. Neither is a newest-ness pin: on the
+                # iter-212/215/242/320/323/325/334/335/338/366/371/380/417 precedent
+                # and the same evidence, `newest_ness_pin_sites` over that file is
+                # `()` at HEAD AND in the worktree (measured this iteration by
+                # importing this module's own helper). Red ONLY inside the
+                # pre-commit window; a fresh clone at the ship commit is clean.
+                "tests/test_iter419_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

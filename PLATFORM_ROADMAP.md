@@ -296,6 +296,7 @@ in the archive.
 - iter 417 -- tests/_shared.py source_segment: O(1) byte-identical get_source_segment; 3 slow tests 16.3 s -> <0.1 s.
 - iter 418 -- dual_scout_default_claim_gaps: docs say scouts default ON since 320, not OPT-IN; 4 sites re-worded.
 - iter 419 -- roles/final.md teaches the VERIFIED: ledger (2-segment key, retry reuse); final_ledger_claim_gaps dormant.
+- iter 420 -- ledger-key verb: one pinned VERIFIED: key recipe + --check current/voided/malformed; card names it.
 
 
 ### Migration notes (per §6 self-mod guardrail)
