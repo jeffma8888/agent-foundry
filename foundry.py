@@ -16923,6 +16923,104 @@ def final_ledger_claim_gaps(card_text: str, *, anchor: str = "VERIFIED:") -> tup
     return tuple(sorted(gaps))
 
 
+CHEATSHEET_DEAD_TARGETS: tuple[str, ...] = ("STATUS_REPORT.md",)
+"""Artifacts the USAGE.md cheat-sheet may never point a returning operator at.
+
+`STATUS_REPORT.md` is written only by `narrative_report` / `mechanical_report`,
+which only `run_continuous` calls; `dispatcher.py` calls `run_iteration`
+directly, so under `./launch.sh` (the supported way in) no product has ever
+produced one -- measured at iter 422 as 0 files across 18 product dirs. A
+cheat-sheet row naming it is a dead on-ramp, and the guard below needs the name
+spelled out because such a row carries no `foundry.py <verb>` token to fail on.
+"""
+
+_CHEATSHEET_VERB_RE = re.compile(r"foundry\.py\s+([a-z][a-z0-9-]*)")
+_CHEATSHEET_HEADING = "## Controls cheat-sheet"
+
+
+def _cheatsheet_cells(line: str) -> tuple[str, ...]:
+    """The `strip()`ed cells of one markdown table row, outer pipes removed.
+
+    A line is passed in only when its stripped form starts with `|`; a trailing
+    pipe is optional in markdown, so it is dropped when present rather than
+    producing a phantom empty last cell.
+    """
+    inner = line.strip()[1:]
+    if inner.endswith("|"):
+        inner = inner[:-1]
+    return tuple(cell.strip() for cell in inner.split("|"))
+
+
+def usage_cheatsheet_row_gaps(
+    usage_text: str,
+    verbs,
+    *,
+    dead_targets=CHEATSHEET_DEAD_TARGETS,
+) -> tuple[str, ...]:
+    """`Want` cells of cheat-sheet rows whose `Do` cell names an unshipped verb or a dead artifact.
+
+    Companion to `readme_verb_index_gaps` and `final_ledger_claim_gaps` above,
+    for the on-ramp a returning human consults FIRST: the `## Controls
+    cheat-sheet` table in USAGE.md. Iter 422 measured its "See a team's status"
+    row pointing at `products/<name>/STATUS_REPORT.md`, a file 0 of 18 product
+    dirs had ever held, while the live `status` verb sat one line away in the
+    README. A row is a gap when its `Do` cell either (a) carries a token
+    matching `_CHEATSHEET_VERB_RE` (`foundry.py <verb>`) whose verb is NOT in `verbs`
+    (the tuple `foundry_cli_verbs` returns, or any iterable of `str`), or (b)
+    contains any string in `dead_targets`. Rows with neither shape (`./launch.sh`,
+    `touch STOP`, prose) are never reported: the guard asks whether what IS
+    named still exists, not whether every row names a verb.
+
+    Scope is the SECTION, not the file: from the `## Controls cheat-sheet` line
+    to the next line starting with `## ` or EOF. Data rows are lines whose
+    stripped form starts with `|`, minus the header (the first table line) and
+    any separator row whose cells hold only `-`, `:` and spaces. Cells are
+    `strip()`ed after splitting on `|` with the outer pipes removed; `Want` is
+    cell 0 and `Do` is cell 1, in document order.
+
+    PURE and TOTAL: text in, tuple of `str` out in document order; no
+    filesystem, process, network or clock access, no mutation of any argument,
+    equal inputs give `==` results. Never raises: a non-`str` or empty
+    `usage_text`, or a text with no cheat-sheet heading, returns `()` -- here
+    the absence of the table is not a documented dead end, so there is nothing
+    to report (unlike the fail-closed companions above, whose ANCHOR is the
+    contract).
+
+    DORMANT: zero call site in the running pipeline, like its companions;
+    wiring it into `doctor` or `preship` is a later bite, if ever.
+    """
+    if not isinstance(usage_text, str) or not usage_text:
+        return ()
+    known = frozenset(verbs)
+    dead = tuple(dead_targets)
+    lines = usage_text.split("\n")
+    try:
+        start = next(i for i, line in enumerate(lines) if line.rstrip() == _CHEATSHEET_HEADING)
+    except StopIteration:
+        return ()
+    gaps: list[str] = []
+    header_seen = False
+    for line in lines[start + 1:]:
+        if line.startswith("## "):
+            break
+        if not line.strip().startswith("|"):
+            continue
+        cells = _cheatsheet_cells(line)
+        if not header_seen:
+            header_seen = True
+            continue
+        if all(not cell.strip("-: ") for cell in cells):
+            continue
+        if len(cells) < 2:
+            continue
+        want, do = cells[0], cells[1]
+        unknown_verb = any(m.group(1) not in known for m in _CHEATSHEET_VERB_RE.finditer(do))
+        dead_hit = any(target in do for target in dead)
+        if unknown_verb or dead_hit:
+            gaps.append(want)
+    return tuple(gaps)
+
+
 # --------------------------------------------------------------------------- #
 # The README section-number CONTRACT, and the scanner for tests that FREEZE it
 # --------------------------------------------------------------------------- #

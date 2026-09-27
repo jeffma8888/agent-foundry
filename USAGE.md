@@ -95,6 +95,7 @@ Once this repo exists you can just say things like:
 | One iteration only | `foundry.py once --config <cfg>` |
 | Scaffold a new product config | `foundry.py new-product --name X --repo ~/projects/X` |
 | Dry-run (no push) | set `"push_enabled": false` in the product config |
-| See a team's status | `cat products/<name>/STATUS_REPORT.md` |
+| See a team's status | `foundry.py status --config <cfg>` |
+| Re-ground after an absence | `foundry.py history --config <cfg> --limit 12` |
 | See what shipped | `git -C <product repo> log --oneline` |
 | See the shift log | `cat DISPATCH_LOG.md` |

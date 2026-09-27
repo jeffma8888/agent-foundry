@@ -31,7 +31,7 @@ reusable, repo-agnostic org.
 | 4c| Tester retry x2 max (only if `UNFINISHED`: report carries `PROGRESS: CHECKPOINT`) | `tester.md` | `tester2.md`, `tester3.md` | no |
 | 5 | Final Reviewer (gate) | `final.md` | `final.md` (`ACTION:` line) | **YES — only role** |
 | 6 | Post-release verify (deterministic; **not** an agent) | — (`postrelease_step`) | `state/iter-NN/postrelease.md` (`POSTRELEASE:` line) | no — read-only clone/verify |
-| — | Reporter (every 5 iters) | `reporter.md` | `reporter_done_NN.md` + STATUS_REPORT | no |
+| — | Reporter (every 5 iters; `run` verb via `run_continuous` only, never under `dispatcher.py`) | `reporter.md` | `reporter_done_NN.md` + STATUS_REPORT | no |
 
 The loop reads the `VERDICT:` / `RESULT:` / `ACTION:` sentinel lines to branch,
 plus the one mandated marker line `PROGRESS: CHECKPOINT`, which separates a tester

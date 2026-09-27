@@ -298,6 +298,7 @@ in the archive.
 - iter 419 -- roles/final.md teaches the VERIFIED: ledger (2-segment key, retry reuse); final_ledger_claim_gaps dormant.
 - iter 420 -- ledger-key verb: one pinned VERIFIED: key recipe + --check current/voided/malformed; card names it.
 - iter 421 -- roles/tester.md duty 1b runs test-quality --files on its own module; reviewer PRECONDITION hands it over.
+- iter 422 -- USAGE cheat-sheet status row -> live status verb (+history row); ARCH reporter caveat; dormant row guard.
 
 
 ### Migration notes (per §6 self-mod guardrail)

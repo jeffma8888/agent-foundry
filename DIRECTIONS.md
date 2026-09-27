@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-422
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- USAGE.md's "See a team's status" row sends the operator to `STATUS_REPORT.md`, a file the supported launch path never writes (0 of 18 products have one); migrate the on-ramp to the live `status` verb and pin that the row names a shipped verb
+    - Candidate A2 -- `launch.sh` consumes only `single-brain`; wire it to `preflight`, the composite launch verdict the README already addresses to the "launch-wrapper", so a launch on battery, with a bogus `FOUNDRY_AGENT_BIN`, missing `uv` or a dead remote is refused before it detaches
+    - Candidate A3 -- give `tests/_shared.py` its first card mention: one sentence in `roles/tester.md`'s test-writing duty names the module and its two helpers, now that iter 421 put tester.md on the iter-244 allow-list (so the edit costs zero shipped-test amendments)
+    - Candidate B1 -- Collapse the `*_claim_gaps` prose-guard family onto one generic helper
+    - Candidate B2 -- Retire the never-produced STATUS_REPORT path (`run_continuous` / `narrative_report` / `mechanical_report` / `REPORT_EVERY`)
+    - Candidate B3 -- Retire `foundry preship` in favour of the shipped `ledger-key` + `staged-check` verbs
+    winner: A1
+    ship: pending (not yet decided)
   iter-421
     lenses: hardening/DX
     - Candidate A1 -- `doctor live-lag` reports reachable-symbol lag, not commit count
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- give `tests/_shared.py` an on-ramp: no role card names it, 3 of 250 test modules import it, and iter 420 copied three idioms verbatim from iter 415 instead
     - Candidate B3 -- put `directions --topic TERM` in the scout card: this stage's `--limit 12` window (iters 410-421) hid 5 reporter losses and 11 preflight slates, and `--topic` killed both in one call each
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 348864f
   iter-420
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `live-lag` learns which lagging iterations the running brain can REACH: measured today, 2 of the 9 "NOT LIVE" iterations change a control-path symbol; 7 are inert to the brain
@@ -1852,4 +1862,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-185 scouted iterations
+186 scouted iterations
