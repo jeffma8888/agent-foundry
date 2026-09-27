@@ -20,6 +20,19 @@ the decision is real -- never as a placeholder you intend to overwrite. Four ite
 already-green work were lost exactly that way, each killed AFTER its own gates passed
 while holding a placeholder verdict.
 
+## Resumable evidence ledger
+
+As each checklist item below completes, append ONE line of your own ABOVE the `ACTION:`
+line, never inside it: `VERIFIED: <check>=<result> key=<key>`, where the key is
+`<HEAD sha>+<sha256 of git diff HEAD plus every untracked file>`. The commit voids that
+key (HEAD moves, the diff and the untracked set go empty), so the ledger has TWO segments,
+each labelled with the key it was measured at: the pre-commit segment (items 1-5) and the
+post-commit segment (the ship-flow checks: staged-check, leak-guard, preship, push). On
+attempt 2 or later, READ the existing output file FIRST and carry forward every `VERIFIED:`
+line whose key still matches the tree you find, skipping exactly those checks; any key
+mismatch voids that whole segment. Never truncate the file, and never put progress in the
+`ACTION:` line -- a partial token there reads as REVERTED.
+
 ## Gate checklist (ALL must hold to ship)
 1. Reviewer verdict is APPROVE, or a fix pass addressed every BLOCKING item
    (verify yourself in the code).
