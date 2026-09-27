@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-420
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- `live-lag` learns which lagging iterations the running brain can REACH: measured today, 2 of the 9 "NOT LIVE" iterations change a control-path symbol; 7 are inert to the brain
+    - Candidate A2 -- `foundry changelog --config CFG [--limit N] [--json]`: render release notes for the PRODUCT from its ship-tagged conventional commits -- 654 ship commits across 5 products, 100% typed, zero rendered changelogs
+    - Candidate A3 -- `notify_cmd`: a product-config hook fired by BARE-name seam from exactly ONE event, the iter-411 auth hold, so the 30-minute sleep that says "re-authenticate to resume" reaches a human instead of a log file
+    - Candidate B1 -- `foundry ledger-key [--check FILE] [--json]`: pin ONE recipe for the `VERIFIED:` key the final gate has hand-rolled in FIVE formats across nine gates, and refuse the empty-input hash unless the tree is provably clean
+    - Candidate B2 -- `foundry roadmap-brake --config CFG --iter N`: run the in-process HEAD-vs-worktree flip of `roadmap_ledger_gaps` that the OPERATOR 2026-08-24 directive prescribes and every gate since re-types in a Python heredoc
+    - Candidate B3 -- `tests/_shared.py::without(text, marker)`: a shared single-deletion mutation helper that asserts `text.count(marker) == 1` before deleting, then migrate the unguarded call sites
+    winner: B1
+    ship: pending (not yet decided)
   iter-419
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- the final gate's `VERIFIED:` ledger (11-14 lines per gate, live at iters 415/417/418) is taught by NO role card: `rg -c 'VERIFIED:' roles/final.md` = 0, and its two-segment key rule lives only at LEARNINGS line 3499
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry reverts`: an inventory of every REVERTED iteration with the gate's named reason and a retry class (environmental vs review defect)
     - Candidate B3 -- per-stage cap override in the product config (`stage_caps`), additive-dormant, so a seat that sits AT the 600 s median (pm_scout_b today, 0.0 s headroom) can be given a measured budget instead of passing by luck
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 10ad7f7
   iter-418
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- the suite's top-4 slow tests are still the four `live_smoke_on_real_dispatch_config` subprocess pairs (31.9 s CPU per run) and the SUBPROCESS they spawn, the fleet `company-weak-tests` roll-up, is the thing to make cheap, not the tests
@@ -1832,4 +1842,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-183 scouted iterations
+184 scouted iterations

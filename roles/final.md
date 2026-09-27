@@ -31,7 +31,11 @@ post-commit segment (the ship-flow checks: staged-check, leak-guard, preship, pu
 attempt 2 or later, READ the existing output file FIRST and carry forward every `VERIFIED:`
 line whose key still matches the tree you find, skipping exactly those checks; any key
 mismatch voids that whole segment. Never truncate the file, and never put progress in the
-`ACTION:` line -- a partial token there reads as REVERTED.
+`ACTION:` line -- a partial token there reads as REVERTED. Compute the key with
+`python3 <checkout>/foundry.py ledger-key --config PRODUCT_CONFIG` (never by hand; the same
+PRODUCT_CONFIG path as the other gate verbs), and on attempt 2 or later add
+`--check <your output file>` so each existing `VERIFIED:` line is reported current, voided
+or malformed before you decide what to carry forward.
 
 ## Gate checklist (ALL must hold to ship)
 1. Reviewer verdict is APPROVE, or a fix pass addressed every BLOCKING item
