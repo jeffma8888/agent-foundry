@@ -488,7 +488,12 @@ def test_b7_iter244_brake_is_widened_not_weakened() -> None:
     assert m, "iter-244 allow-list literal vanished"
     listed = set(re.findall(r'"roles/([a-z_]+)\.md"', m.group(1)))
     assert "pm_scout" in listed
-    for stem in ("engineer", "fix", "reporter", "reviewer", "tester"):
+    # iter 421: `reviewer` and `tester` leave this negative arm because iteration 421's
+    # spec edits BOTH cards (tester duty 1b runs the scoped `test-quality` scan; the
+    # reviewer PRECONDITION hands it over) and the 244 brake was widened by exactly those
+    # two stems on the 325/364/379 precedent. The arm stays two-sided over the three
+    # cards no spec has touched, so a wholesale loosening of the 244 brake still reds here.
+    for stem in ("engineer", "fix", "reporter"):
         assert stem not in listed, f"roles/{stem}.md must stay frozen in the 244 brake"
 
 

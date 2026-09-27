@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-421
+    lenses: hardening/DX
+    - Candidate A1 -- `doctor live-lag` reports reachable-symbol lag, not commit count
+    - Candidate A2 -- pm_scout_b at a 600.0s median: pre-compute the scout brief as a verb
+    - Candidate A3 -- pin that `EXPECTED_VERBS` and every sorted-position literal are actually sorted
+    - Candidate B1 -- move the `test-quality` consumer to a seat that can run it: the reviewer's scan is SKIPPED in 25 of 27 reviews because the tester has not written the file yet
+    - Candidate B2 -- give `tests/_shared.py` an on-ramp: no role card names it, 3 of 250 test modules import it, and iter 420 copied three idioms verbatim from iter 415 instead
+    - Candidate B3 -- put `directions --topic TERM` in the scout card: this stage's `--limit 12` window (iters 410-421) hid 5 reporter losses and 11 preflight slates, and `--topic` killed both in one call each
+    winner: B1
+    ship: pending (not yet decided)
   iter-420
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `live-lag` learns which lagging iterations the running brain can REACH: measured today, 2 of the 9 "NOT LIVE" iterations change a control-path symbol; 7 are inert to the brain
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry roadmap-brake --config CFG --iter N`: run the in-process HEAD-vs-worktree flip of `roadmap_ledger_gaps` that the OPERATOR 2026-08-24 directive prescribes and every gate since re-types in a Python heredoc
     - Candidate B3 -- `tests/_shared.py::without(text, marker)`: a shared single-deletion mutation helper that asserts `text.count(marker) == 1` before deleting, then migrate the unguarded call sites
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED a2260e4
   iter-419
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- the final gate's `VERIFIED:` ledger (11-14 lines per gate, live at iters 415/417/418) is taught by NO role card: `rg -c 'VERIFIED:' roles/final.md` = 0, and its two-segment key rule lives only at LEARNINGS line 3499
@@ -1842,4 +1852,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-184 scouted iterations
+185 scouted iterations

@@ -930,6 +930,16 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # other four frozen paths stay frozen. Red ONLY inside the pre-commit
                 # window; a fresh clone at the ship commit is clean.
                 "tests/test_iter244_behavior.py",
+                # iter 421: FORCED brake amendment, second layer. Spec Behaviors 1 and 6
+                # edit `roles/tester.md` and `roles/reviewer.md`, so the iter-244 brake's
+                # allow-list widened by those two stems (row above) -- and iteration 379's
+                # `test_b7_iter244_brake_is_widened_not_weakened` pinned that exactly those
+                # stems stay OUT of it, an unwindowed scope check that reds BY CONSTRUCTION
+                # for any later spec editing either card. Its negative arm was narrowed to
+                # the three untouched cards rather than deleted; `newest_ness_pin_sites`
+                # over that file is `()` at HEAD AND in the worktree, so no newest-ness pin
+                # was swept, converted or added. Red ONLY inside the pre-commit window.
+                "tests/test_iter379_behavior.py",
                 # iter 334: FORCED brake amendment, three paths. Re-landing
                 # iteration 333's `practice_register` config field REQUIRES its four
                 # frozen config-schema guards to be EXTENDED (a field count, a
