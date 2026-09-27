@@ -16695,6 +16695,77 @@ def dual_scout_default_claim_gaps(doc_text: str, default: bool, *,
     return tuple(sorted(gaps))
 
 
+FINAL_LEDGER_CLAIMS: tuple[tuple[str, re.Pattern], ...] = (
+    ("VERIFIED: token", re.compile(r"VERIFIED:")),
+    ("HEAD sha", re.compile(r"\bHEAD sha\b", re.IGNORECASE)),
+    ("sha256", re.compile(r"\bsha256\b", re.IGNORECASE)),
+    ("untracked", re.compile(r"\buntracked\b", re.IGNORECASE)),
+    ("ACTION: placement", re.compile(r"\bACTION:", re.IGNORECASE)),
+    ("pre-commit segment", re.compile(r"\bpre-commit\b", re.IGNORECASE)),
+    ("post-commit segment", re.compile(r"\bpost-commit\b", re.IGNORECASE)),
+    ("carry forward", re.compile(r"\bcarr(?:y|ied) forward\b", re.IGNORECASE)),
+    ("void on mismatch", re.compile(r"\bvoids?\b", re.IGNORECASE)),
+)
+"""`(label, compiled pattern)` for each element the final gate's ledger paragraph must state.
+
+Reporting order. The token row is case-SENSITIVE because `VERIFIED:` is the
+literal a gate writes and a retry greps for; every other row is a word-bounded,
+case-insensitive vocabulary check, so `pre-committed`, `voided` and the hyphenated
+`carry-forward` satisfy nothing while `head SHA` and `Carried Forward` do. Read
+INSIDE the guard on every call, so a test can `monkeypatch.setattr` it.
+"""
+
+
+def final_ledger_claim_gaps(card_text: str, *, anchor: str = "VERIFIED:") -> tuple[str, ...]:
+    """Every element of the resumable `VERIFIED:` ledger the gate card's paragraph fails to state.
+
+    Companion to `dual_scout_default_claim_gaps` above, for a fourth kind of
+    drift: a PROCESS CONTRACT that lived nowhere the seat reads. Every final
+    gate since 2026-08-15 wrote a `VERIFIED: <check>=<result> key=...` ledger
+    above its `ACTION:` line so a cap-killed retry resumes instead of
+    re-verifying from zero, and iter 321 split the key into a pre-commit and a
+    post-commit segment; for a hundred iterations `roles/final.md` never said so
+    (iter 419), because the rule lived only in a retirable head bullet of the
+    learnings log. This asks the paragraph holding `anchor` whether it states
+    each row of `FINAL_LEDGER_CLAIMS`: the literal token, both halves of the key
+    (the HEAD sha and a sha256 over the uncommitted tree plus the untracked
+    set), the placement relative to `ACTION:`, both key segments, the
+    carry-forward rule and the void-on-mismatch rule. Each missing row is one
+    gap, `ledger claim unstated: <label>`.
+
+    Scope is the PARAGRAPH, not the file -- `_paragraph_around`: the contiguous
+    run of non-blank lines holding the FIRST occurrence of `anchor`. A required
+    phrase one blank line away does not count, because that is the vacuous fold
+    that lets the paragraph itself stay silent.
+
+    PURE and TOTAL: text in, sorted de-duplicated tuple of `str` out; no
+    filesystem, process, network or clock access, no mutation of its argument,
+    equal inputs give `==` results. FAIL-CLOSED, never a vacuous pass and never
+    raises, in this order: `unusable doc text` for a non-`str` or empty card;
+    `anchor absent: <anchor>` for a non-`str`, empty or missing anchor;
+    `unusable doc text` again for an anchor whose hit sits on no text line. An
+    unusable card is maximal debt, not a clean bill.
+
+    VACUITY note: `()` means the paragraph carries every row's vocabulary. It
+    does not prove a gate honours the ledger, and the caller should also assert
+    the paragraph holds the expected literal substrings, so a retargeted anchor
+    cannot land on an unrelated paragraph and pass.
+
+    DORMANT: zero call site in the running pipeline, like its three companions.
+    """
+    unusable = ("unusable doc text",)
+    if not isinstance(card_text, str) or not card_text:
+        return unusable
+    if not isinstance(anchor, str) or not anchor or card_text.find(anchor) < 0:
+        return ("anchor absent: %s" % (anchor,),)
+    paragraph = _paragraph_around(card_text, anchor)
+    if paragraph is None:
+        return unusable
+    gaps = {"ledger claim unstated: %s" % label
+            for label, pattern in FINAL_LEDGER_CLAIMS if not pattern.search(paragraph)}
+    return tuple(sorted(gaps))
+
+
 # --------------------------------------------------------------------------- #
 # The README section-number CONTRACT, and the scanner for tests that FREEZE it
 # --------------------------------------------------------------------------- #

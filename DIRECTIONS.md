@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-419
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- the final gate's `VERIFIED:` ledger (11-14 lines per gate, live at iters 415/417/418) is taught by NO role card: `rg -c 'VERIFIED:' roles/final.md` = 0, and its two-segment key rule lives only at LEARNINGS line 3499
+    - Candidate A2 -- ARCHITECTURE.md's final-gate paragraph reports a present-tense figure frozen at iter 194: "8 rounds are still recoverable from the attempt logs on disk" (line 71), 225 iterations later, in the vocabulary of a verb (`recoverable`, iter 215) that measures something else
+    - Candidate A3 -- `dispatcher.py`'s module docstring teaches the launch command the docs call unsupported (`uv run python -X utf8 dispatcher.py --config foundry.config.json`, line 26-27) while USAGE.md says "`./launch.sh` is the supported way in -- do not run `dispatcher.py` in the foreground" because only `launch.sh` gates on `single-brain`
+    - Candidate B1 -- `foundry relaunch --when-idle`: perform the restart the `live-lag` WARN has asked a human to do for 8 shipped iterations, gated on `inflight` reporting no stage running
+    - Candidate B2 -- `foundry reverts`: an inventory of every REVERTED iteration with the gate's named reason and a retry class (environmental vs review defect)
+    - Candidate B3 -- per-stage cap override in the product config (`stage_caps`), additive-dormant, so a seat that sits AT the 600 s median (pm_scout_b today, 0.0 s headroom) can be given a measured budget instead of passing by luck
+    winner: A1
+    ship: pending (not yet decided)
   iter-418
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- the suite's top-4 slow tests are still the four `live_smoke_on_real_dispatch_config` subprocess pairs (31.9 s CPU per run) and the SUBPROCESS they spawn, the fleet `company-weak-tests` roll-up, is the thing to make cheap, not the tests
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the roadmap index's `STATUS (iter 323)` paragraph says the ledger is "current through 323" with 38 iterations shipped since, and names no post-323 jump while three (327-333, 340-359, 383-410 = 55 numbers) are named in neither index nor archive; the two tests that read the line pin `>= 185` / `>= 202` under a comment claiming "every later iteration advances this line", so the guard is green on a 94-iteration-stale sentence
     - Candidate B3 -- (being measured: a role card or doc that states a figure the code no longer matches)
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED fa350ae
   iter-417
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- delete the dead `auth` retry ladder entry (`KIND_RETRY_LADDERS["auth"]`, its 31-line pins-only comment, the "rendered but never walked" prose) -- MEASURED: 30 red pins across 6 shipped test modules
@@ -1822,4 +1832,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-182 scouted iterations
+183 scouted iterations
