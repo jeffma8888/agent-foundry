@@ -21,7 +21,7 @@ reusable, repo-agnostic org.
 
 | # | Stage | Role file | Output file (success = it exists) | Can touch git? |
 |---|---|---|---|---|
-| 0 | Dual PM scouts (OPT-IN: `dual_pm_scouts` in config) | `pm_scout.md` x2 | `pm_scout_a.md`, `pm_scout_b.md` -- one assigned lens each, ROTATED per iteration by `select_scout_lenses` over the six-entry `PM_SCOUT_LENS_POOL` | no |
+| 0 | Dual PM scouts (default ON since iter 320; `"dual_pm_scouts": false` in config opts out) | `pm_scout.md` x2 | `pm_scout_a.md`, `pm_scout_b.md` -- one assigned lens each, ROTATED per iteration by `select_scout_lenses` over the six-entry `PM_SCOUT_LENS_POOL` | no |
 | 1 | PM / TPM (triages the scout slates when present) | `pm.md` | `pm.md` (the spec) | no |
 | 2 | Engineer | `engineer.md` | `engineer.md` | no |
 | 3 | Reviewer | `reviewer.md` | `reviewer.md` (`VERDICT:` line) | no |
@@ -103,9 +103,11 @@ no-ship iteration. It is a deterministic inline step, not an agent-CLI run
 deterministic + offline-testable — an agent stage is neither). It never touches
 git write state: its only git is the read-only clone inside `verify_fresh_clone`.
 
-Stage 0 (dual-PM-scout pre-stage, wired 2026-08-04 with operator sign-off) runs
-ONLY when a product opts in via `"dual_pm_scouts": true` in its config.json; the
-default-off path is byte-identical to the pre-wiring pipeline. Two scouts run
+Stage 0 (dual-PM-scout pre-stage, wired 2026-08-04 with operator sign-off) is
+default ON since iter 320: `dual_pm_scouts` defaults to `true` in `ProductConfig`,
+and a product opts out with `"dual_pm_scouts": false` in its config.json, which
+runs the single-PM pipeline (this paragraph's stated polarity is policed against
+the live default by `foundry.dual_scout_default_claim_gaps`). Two scouts run
 SEQUENTIALLY (single-brain concurrency preserved), each proposing 2-3 candidates
 in its assigned lens; they decide nothing. The PM lead then triages the combined
 slate and picks exactly ONE feature, justifying it against the strongest

@@ -16568,6 +16568,133 @@ def auth_hold_claim_gaps(doc_text: str, *, anchor: str = "auth:") -> tuple[str, 
     return tuple(sorted(gaps))
 
 
+SCOUT_DEFAULT_ON_RE = re.compile(r"\b(?:opt-out|opts out|default[ -]on)\b", re.IGNORECASE)
+"""The vocabulary that states the dual-scout pre-stage is ON by default.
+
+`opt-out`, `opts out`, `default on` and `default-on`, case-insensitive and
+word-bounded, so `by default only` and `opt-outs` match nothing: the claim guard
+below reports what a paragraph STATES, and a near-miss that read as a statement
+would be the vacuous pass it exists to refuse (iter 418).
+"""
+
+SCOUT_DEFAULT_OFF_RE = re.compile(r"\b(?:opt-in|opts in|default[ -]off)\b", re.IGNORECASE)
+"""The vocabulary that states the dual-scout pre-stage is OFF by default.
+
+`opt-in`, `opts in`, `default off` and `default-off`: the phrases both invariant
+docs carried from iter 320 (when `ProductConfig.dual_pm_scouts` flipped to
+`True`) until iter 418 re-worded them; word-bounded so `opt-ins` is not a
+statement either.
+"""
+
+
+def _paragraph_around(doc_text: str, anchor: str) -> str | None:
+    """The markdown PARAGRAPH holding the first occurrence of `anchor`, or `None`.
+
+    Sibling of `_list_item_around` for prose that starts no list marker (a table
+    row, a fenced diagram, a plain paragraph): the contiguous run of non-blank
+    lines around the line where `anchor` is first found, joined by newlines.
+    Lines are split on the newline character alone rather than `str.splitlines`,
+    which also breaks on form feeds and Unicode separators, so the index derived
+    from counting newlines before the hit always names the line the hit sits on.
+    `None`, never an exception, for a non-`str` or empty argument, an absent
+    anchor, a whitespace-only anchor (its hit names no text) or a hit on a blank
+    line; WHICH fail-closed sentinel that deserves stays each CALLER's decision.
+    PURE and TOTAL: no I/O or clock, no mutation of arguments, equal inputs give
+    `==` results.
+    """
+    if not isinstance(doc_text, str) or not isinstance(anchor, str):
+        return None
+    if not doc_text or not anchor.strip():
+        return None
+    hit = doc_text.find(anchor)
+    if hit < 0:
+        return None
+    lines = doc_text.split("\n")
+    anchor_line = doc_text.count("\n", 0, hit)
+    if not lines[anchor_line].strip():
+        return None
+    start = anchor_line
+    while start > 0 and lines[start - 1].strip():
+        start -= 1
+    end = anchor_line
+    while end + 1 < len(lines) and lines[end + 1].strip():
+        end += 1
+    return "\n".join(lines[start:end + 1])
+
+
+def dual_scout_default_claim_gaps(doc_text: str, default: bool, *,
+                                  anchor: str = "dual_pm_scouts") -> tuple[str, ...]:
+    """Why the doc PARAGRAPH about the dual-scout pre-stage disagrees with the live default.
+
+    Companion to `cooldown_claim_scope_gaps` and `auth_hold_claim_gaps` above, for
+    a third kind of drift: a POLARITY. Iter 320 flipped
+    `ProductConfig.dual_pm_scouts` to `True`, and for 98 iterations both invariant
+    docs kept calling Stage 0 "opt-in" and its absence "the default-off path"
+    under every green figure guard, because no guard read the sentence (iter 418).
+    This asks the paragraph holding `anchor` three questions: does it NAME
+    `dual_pm_scouts`, does it state the polarity `default` has
+    (`SCOUT_DEFAULT_ON_RE` for `True`, `SCOUT_DEFAULT_OFF_RE` for `False`), and
+    does it also state the OPPOSITE one? Each opposite phrase is its own gap,
+    `stale wording for default=<default>: <phrase>` with the matched text
+    lower-cased, so a paragraph that says both is a contradiction, never a pass.
+
+    Scope is the PARAGRAPH, not the file -- `_paragraph_around`: the contiguous
+    run of non-blank lines holding the FIRST occurrence of `anchor`. A table row,
+    a fenced diagram and a prose paragraph all scope that way, which is why this
+    guard does not share `_list_item_around` with its companions: three of the
+    four live sites start no list marker. A correct sentence one blank line away
+    does not count, because that is the vacuous fold that lets the claim itself
+    stay false.
+
+    `default` is an argument rather than read here so the guard stays a pure
+    rule over text; the caller hands it
+    `ProductConfig.__dataclass_fields__["dual_pm_scouts"].default`, and a flip of
+    that default reds both live docs the same day.
+
+    PURE and TOTAL: text and a bool in, sorted de-duplicated tuple of `str` out;
+    no filesystem, process, network or clock access, no mutation of its
+    arguments, equal inputs give `==` results. FAIL-CLOSED, never a vacuous pass
+    and never raises, in this order: `unusable doc text` for a non-`str` or empty
+    doc; `default not a bool: <repr>` for a `default` that is not a `bool`
+    instance (`1` and `0` included: a polarity typed as an int is a bug
+    upstream); `anchor absent: <anchor>` for a non-`str`, empty or missing
+    anchor; `unusable doc text` again for an anchor whose hit sits on no text
+    line. An unusable doc is maximal debt, not a clean bill.
+
+    VACUITY note: `()` means the paragraph names `dual_pm_scouts`, states the
+    polarity `default` has and never states the opposite. It does not prove the
+    default is what `run_iteration` honours (`resolve_dual_pm_scouts` and its
+    tests do), and the caller should also assert the paragraph carries the
+    expected substrings, so a retargeted anchor cannot land on an unrelated
+    paragraph and pass.
+
+    DORMANT: zero call site in the running pipeline, like both companions above.
+    """
+    unusable = ("unusable doc text",)
+    if not isinstance(doc_text, str) or not doc_text:
+        return unusable
+    if not isinstance(default, bool):
+        return ("default not a bool: %r" % (default,),)
+    if not isinstance(anchor, str) or not anchor or doc_text.find(anchor) < 0:
+        return ("anchor absent: %s" % (anchor,),)
+    paragraph = _paragraph_around(doc_text, anchor)
+    if paragraph is None:
+        return unusable
+
+    stated_re, stale_re = (
+        (SCOUT_DEFAULT_ON_RE, SCOUT_DEFAULT_OFF_RE) if default
+        else (SCOUT_DEFAULT_OFF_RE, SCOUT_DEFAULT_ON_RE)
+    )
+    gaps: set[str] = set()
+    if "dual_pm_scouts" not in paragraph:
+        gaps.add("dual_pm_scouts unnamed in the claim paragraph")
+    if not stated_re.search(paragraph):
+        gaps.add("default %s unstated" % ("ON" if default else "OFF"))
+    for match in stale_re.finditer(paragraph):
+        gaps.add("stale wording for default=%s: %s" % (default, match.group(0).lower()))
+    return tuple(sorted(gaps))
+
+
 # --------------------------------------------------------------------------- #
 # The README section-number CONTRACT, and the scanner for tests that FREEZE it
 # --------------------------------------------------------------------------- #

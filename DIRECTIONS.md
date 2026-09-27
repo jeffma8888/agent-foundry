@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-418
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- the suite's top-4 slow tests are still the four `live_smoke_on_real_dispatch_config` subprocess pairs (31.9 s CPU per run) and the SUBPROCESS they spawn, the fleet `company-weak-tests` roll-up, is the thing to make cheap, not the tests
+    - Candidate A2 -- test_iter132's five "live population" freeze-guard tests re-derive the same census five times (22.9 s CPU: 9.64 + 4.17 + 4.16 + 2.62 + 2.28 s); compute it once per module
+    - Candidate A3 -- the suite's wall floor is collection, not tests: 12 xdist workers each collect ~10.8k tests from 256 modules before the first test runs; measure and cut the per-worker collection cost
+    - Candidate B1 -- ARCHITECTURE.md still declares the dual-scout pre-stage "OPT-IN" with a "default-off path", and README's pipeline diagram says "scouts = opt-in", 98 iterations after iter 320 flipped `dual_pm_scouts` to default TRUE; no test pins either wording and no guard ties the docs' claim to the default
+    - Candidate B2 -- the roadmap index's `STATUS (iter 323)` paragraph says the ledger is "current through 323" with 38 iterations shipped since, and names no post-323 jump while three (327-333, 340-359, 383-410 = 55 numbers) are named in neither index nor archive; the two tests that read the line pin `>= 185` / `>= 202` under a comment claiming "every later iteration advances this line", so the guard is green on a 94-iteration-stale sentence
+    - Candidate B3 -- (being measured: a role card or doc that states a figure the code no longer matches)
+    winner: B1
+    ship: pending (not yet decided)
   iter-417
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- delete the dead `auth` retry ladder entry (`KIND_RETRY_LADDERS["auth"]`, its 31-line pins-only comment, the "rendered but never walked" prose) -- MEASURED: 30 red pins across 6 shipped test modules
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- run the FLEET roll-up subprocess once per module, not twice per `live_smoke_on_real_dispatch_config` test: 32.1 s CPU per suite run in four tests
     - Candidate B3 -- make the final gate skip its LOCAL full-suite run when the tester already passed the identical tree: a `suite-key` (HEAD sha + sha256 of `git diff HEAD` + untracked) recorded in tester.md and re-checked at the gate
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 7885191
   iter-416
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- `staged-check` shipped one commit ago with zero consumers: the final-gate card still teaches the manual `git ls-files -s` + `git show :path` pair, so the verb built for the gate is not on the gate's checklist
@@ -1812,4 +1822,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-181 scouted iterations
+182 scouted iterations
