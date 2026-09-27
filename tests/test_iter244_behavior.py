@@ -472,7 +472,20 @@ def test_b8_frozen_paths_are_byte_unchanged_against_head():
     # edit is ADDITIVE: an 11-line sub-section inside `## Inputs`, deleting nothing, so
     # the lens audit, the write-early anchor, the candidate-heading contract and the
     # iter-81 leak-guard pins over this card all still hold -- verified green.
-    allowed = {"roles/final.md", "roles/pm.md", "roles/pm_scout.md"}
+    # iter 421: `roles/reviewer.md` and `roles/tester.md` join the allow-list on the SAME
+    # precedent and for the same reason -- iteration 421's spec makes BOTH edits MANDATORY:
+    # Expected Behavior 1 inserts duty `1b.` (the scoped `foundry.py test-quality --files`
+    # scan) into the tester card and Behavior 2 ASSERTS `role_card_verbs(<tester card>) ==
+    # ("test-quality",)` (red on HEAD by design); Behavior 6 REPLACES the reviewer card's
+    # PRECONDITION bullet so it hands the scan to the seat that runs after the module
+    # exists (`run_stage` order: reviewer BEFORE tester -- 9 of 9 reviewer reports at
+    # iters 411-420 wrote SKIPPED). Both edits are ADDITIVE in effect: no duty is
+    # renumbered, the reviewer invocation line is byte-identical, and every pin over
+    # either card (iters 126/139/211/242/379/419) still holds -- verified green. Zero
+    # `foundry.py` / `dispatcher.py` lines move. `dispatcher.py`, `scripts/`, `.gitignore`,
+    # `launch.sh` and the three remaining cards stay byte-frozen.
+    allowed = {"roles/final.md", "roles/pm.md", "roles/pm_scout.md",
+               "roles/reviewer.md", "roles/tester.md"}
     unexpected = [p for p in changed if p not in allowed]
     assert unexpected == [], f"frozen paths changed: {unexpected}"
 

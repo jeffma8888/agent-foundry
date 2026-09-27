@@ -37,12 +37,14 @@ code nobody touched this iteration:
   is the path on the `- Product config` line of your prompt's `## Context` block -- take it
   verbatim. Add `--json` for a machine-readable document (`clean`, `total_findings`,
   per-lens counts); either way the exit code is the same.
-- PRECONDITION: if that file does not exist under `<checkout>/tests/` yet, SKIP the scan and
-  say so in your notes. A path the scanner cannot open is reported as a `parse errors:` line
-  and exits 1 -- a false alarm about the absent Tester deliverable this card already tells you
-  is not blocking. Keep `--files` ABSOLUTE: `run_stage` passes no `cwd=`, so a relative path
-  raises that identical ABSENT signature from any stage cwd and this SKIP would then hide a
-  scan that never ran.
+- PRECONDITION: the pipeline runs you BEFORE the Tester (`run_stage` order: engineer ->
+  reviewer -> tester -> final), so in a normal review that module does not exist yet and
+  the scan is the TESTER's step (`roles/tester.md`, duty 1b), not yours. When the file is
+  absent, skip the scan WITHOUT a finding and WITHOUT a SKIPPED note: nothing was missed.
+  Run it here ONLY when the module already exists on disk. A path the scanner cannot open
+  is reported as a `parse errors:` line and exits 1 -- a false alarm, never a finding. Keep
+  `--files` ABSOLUTE: `run_stage` passes no `cwd=`, so a relative path raises that identical
+  ABSENT signature from any stage cwd and would hide a scan that never ran.
 - Exit 0 (`verdict: clean`) means nothing to report. Exit 1 names each finding as
   `[assertion-free]`, `[constant-assert]` or `[always-skipped]` with `<file> :: <test>`.
 - A finding here is ALWAYS a `[NIT]` -- never a `[BLOCKING]` finding, and never on its own

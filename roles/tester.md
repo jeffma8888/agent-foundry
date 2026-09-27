@@ -37,6 +37,20 @@ the tool result behind every claim or cut the claim.
    the #1 measured loss source, so assume you may be cut short: a killed round
    that left the file behind can be finished by the next round, while unwritten
    tests score zero and cost the whole iteration.
+1b. SCAN THE MODULE, do not eyeball it -- once the file covers the behaviors and
+   BEFORE you write the `RESULT:` line, run the foundry's offline scan for tests
+   that cannot fail (assertion-free, constant assert, always skipped), SCOPED to
+   your own module and never repo-wide:
+   `python3 <checkout>/foundry.py test-quality --config <PRODUCT_CONFIG> --files <checkout>/tests/test_iterNN_behavior.py`
+   `<checkout>` is the PARENT of the `roles/` directory this card lives in;
+   `<PRODUCT_CONFIG>` is the path on the `- Product config` line of your prompt's
+   `## Context` block, taken verbatim; keep `--files` ABSOLUTE (`run_stage` passes
+   no `cwd=`). Exit 0 prints `verdict: clean` -- quote that line in your report.
+   Exit 1 names each finding as `<file> :: <test>`: fix every one in YOUR module
+   before reporting, because a test that cannot fail verifies nothing. Running
+   the product's CLI is inside your isolation contract; reading its source is
+   not. The scan takes under a second on one module, so it never delays a
+   checkpoint, and the Reviewer runs BEFORE you, so this scan is yours alone.
 2. Run the FULL suite (the quality-check command from Context).
 3. Write your output file (`tester.md` in the state dir):
    - the isolation statement
