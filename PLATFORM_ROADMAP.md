@@ -299,6 +299,7 @@ in the archive.
 - iter 420 -- ledger-key verb: one pinned VERIFIED: key recipe + --check current/voided/malformed; card names it.
 - iter 421 -- roles/tester.md duty 1b runs test-quality --files on its own module; reviewer PRECONDITION hands it over.
 - iter 422 -- USAGE cheat-sheet status row -> live status verb (+history row); ARCH reporter caveat; dormant row guard.
+- iter 423 -- dormancy_reference_names: lru_cache per-source parse under symbol_dormancy_class; census 129 s -> ~1 s.
 
 
 ### Migration notes (per §6 self-mod guardrail)

@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-423
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- first bite of the `_co_names_deep` consolidation: add `co_names_deep` to `tests/_shared.py` and delete the 14-file identical cluster (-~140 lines), the "smaller bite next iteration" the iter-417 PM triage explicitly licensed
+    - Candidate A2 -- retire the two LEARNINGS.md head OPERATOR bullets whose mandate now lives in `roles/final.md` (08-15 `VERIFIED:` ledger, 08-14 staged-empty-blob) VERBATIM into the existing archive section: -1,566 B from every stage prompt (~8.8% of this stage's 17,714 B prompt)
+    - Candidate A3 -- retire the periodic STATUS_REPORT branch inside `run_continuous` (`REPORT_EVERY`, `narrative_report`, `mechanical_report`, `cfg.report`, `roles/reporter.md`): the artifact no product has ever produced, now that iter 422 A1 removed its last operator on-ramp
+    - Candidate B1 -- `dormancy` re-parses 7.7 MB of source PER SYMBOL; parse once, build reference sets once, answer 547 symbols in ~1 s instead of 129 s
+    - Candidate B2 -- the four `live_smoke_on_real_dispatch_config` tests are 35.0 s of the suite's 49.4 s call time; run the fleet roll-up ONCE per session and share the document
+    - Candidate B3 -- `test_iter132` re-walks the live test population three times (9.70 + 4.36 + 4.27 s); compute the census once per module
+    winner: B1
+    ship: pending (not yet decided)
   iter-422
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- USAGE.md's "See a team's status" row sends the operator to `STATUS_REPORT.md`, a file the supported launch path never writes (0 of 18 products have one); migrate the on-ramp to the live `status` verb and pin that the row names a shipped verb
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- Retire the never-produced STATUS_REPORT path (`run_continuous` / `narrative_report` / `mechanical_report` / `REPORT_EVERY`)
     - Candidate B3 -- Retire `foundry preship` in favour of the shipped `ledger-key` + `staged-check` verbs
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED d0a5bea
   iter-421
     lenses: hardening/DX
     - Candidate A1 -- `doctor live-lag` reports reachable-symbol lag, not commit count
@@ -1862,4 +1872,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-186 scouted iterations
+187 scouted iterations
