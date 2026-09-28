@@ -36,6 +36,7 @@ import ast
 import dataclasses
 import datetime as dt
 import difflib
+import functools
 import hashlib
 import json
 import os
@@ -12887,6 +12888,82 @@ def ship_decision(*, action: str | None, head_moved: bool,
 # unchanged input.
 SENTINEL_DORMANCY_WINDOW_CHARS = 400
 
+# Bound on how many DISTINCT source texts `_dormancy_reference_names_cached` keeps
+# parsed at once. WHY a memo at all: `gather_dormancy` calls
+# `symbol_dormancy_class` ONCE PER SYMBOL, and before iteration 423 the classifier
+# ran `ast.parse` over every source of the corpus inside its own body on every
+# call -- so a census of foundry.py's 547 top-level defs re-parsed 265 sources 547
+# times: 128.8 s measured, 21% of a 600 s scout stage whose median already sat AT
+# the cap. Parsing each source ONCE per process gives the same 547 words in ~1 s.
+# WHY bounded: `maxsize=None` would pin every source text a long-lived process
+# ever classified; 1024 is ~4x the tracked corpus (265 sources) so a whole census
+# fits, and a corpus LARGER than the bound stays correct and merely re-parses.
+# Read at DECORATION time (an `lru_cache` bound is fixed when its function is
+# defined), so unlike `SENTINEL_DORMANCY_WINDOW_CHARS` a monkeypatch of this name
+# does NOT resize the live cache -- assert on `cache_info().maxsize` instead.
+DORMANCY_PARSE_CACHE_SIZE = 1024
+
+
+@functools.lru_cache(maxsize=DORMANCY_PARSE_CACHE_SIZE)
+def _dormancy_reference_names_cached(source: str) -> frozenset[str] | None:
+    """Every name `source` REFERENCES, parsed once per distinct text; None if broken.
+
+    The memoized core behind `dormancy_reference_names`; call THAT wrapper, not
+    this, unless you are reading `cache_info()` or calling `cache_clear()` from a
+    test. `functools.lru_cache` keys on its argument, so `source` must already be a
+    hashable `str` here -- the wrapper owns the coercion that keeps this boundary
+    from ever raising `TypeError` on an unhashable input.
+
+    A reference is one of the three shapes `symbol_dormancy_class` documents: an
+    `ast.Name` (its `id`), an `ast.Attribute` (its `attr`), or an `ast.Constant`
+    whose value is a `str` (the string-dispatch case). Name/Attribute unwrapping is
+    delegated to `_callee_trailing_name`, deliberately NOT re-implemented here --
+    one owner for that rule, per that helper's own docstring. A non-`str` constant
+    (`5`, `None`, bytes) contributes nothing: a symbol is never named by an int.
+
+    Undecidable is None and never an empty set, mirroring `call_site_count`:
+    `SyntaxError`, `ValueError` (embedded NUL) and `RecursionError` (pathological
+    nesting) all fold to None, which the classifier reads as `unparseable`, so a
+    broken source can never SATISFY a dormancy claim. `""` parses to an empty
+    module and returns an empty frozenset. The None is cached like any other
+    answer -- a text that failed to parse once fails identically every time.
+    """
+    try:
+        tree = ast.parse(source)
+        names: set[str] = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Name, ast.Attribute)):
+                name = _callee_trailing_name(node)
+                if name is not None:
+                    names.add(name)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                names.add(node.value)
+    except (SyntaxError, ValueError, RecursionError):
+        return None
+    return frozenset(names)
+
+
+def dormancy_reference_names(source: str | None) -> frozenset[str] | None:
+    """The names `source` references, memoized per distinct text; None if broken.
+
+    TOTAL wrapper over `_dormancy_reference_names_cached`: `source` is read as its
+    `str()` text (None reads as `""`), so an unhashable or non-`str` input -- a
+    list, an int -- reaches the `lru_cache` boundary as a plain string and can
+    never raise `TypeError` there. WHAT counts as a reference, and why the
+    unwrapping rule belongs to `_callee_trailing_name`, is documented on the cached
+    core; this function adds only the coercion and the public name.
+
+    WHY a separate public seam: `symbol_dormancy_class` resolves this name by BARE
+    module name at call time, so a test can `monkeypatch.setattr(foundry,
+    "dormancy_reference_names", ...)` to script a verdict with no real parse -- the
+    same idiom `gather_dormancy` already offers for the classifier itself.
+
+    Pure and transparent: equal inputs give equal frozensets; the memo changes only
+    how often a text is parsed (once per process, bounded by
+    `DORMANCY_PARSE_CACHE_SIZE`), never what is returned. Never raises.
+    """
+    return _dormancy_reference_names_cached(str(source if source is not None else ""))
+
 
 def _min_span_gap(text: str, first: str, second: str) -> int | None:
     """Fewest characters BETWEEN an occurrence of `first` and one of `second`.
@@ -13037,6 +13114,15 @@ def symbol_dormancy_class(*, symbol: str | None,
     text; `""` parses to an empty module and contributes no reference. Equal inputs
     always give the same word.
 
+    MEMOIZED per source since iteration 423: the per-source parse-and-walk is
+    delegated to `dormancy_reference_names`, which caches each DISTINCT source
+    text's reference set behind a bound of `DORMANCY_PARSE_CACHE_SIZE` entries, so
+    a census that asks about many symbols parses each source ONCE per process
+    rather than once per symbol (547 symbols over 265 sources: ~1 s, not 129 s).
+    The memo is transparent -- equal inputs still give the same word, and a corpus
+    larger than the bound stays correct and only re-parses. The helper is resolved
+    by BARE module name at call time, so a monkeypatch of it scripts this verdict.
+
     LIVE since iteration 338: `gather_dormancy` calls this function by BARE name
     to classify each symbol the `dormancy` CLI verb was asked about, so the
     classifier that exists to prevent false dormancy findings is no longer itself
@@ -13058,19 +13144,13 @@ def symbol_dormancy_class(*, symbol: str | None,
     unparseable = False
     test_reference = False
     for is_production, source in sources:
-        try:
-            tree = ast.parse(source)
-            found = any(
-                (isinstance(node, (ast.Name, ast.Attribute))
-                 and _callee_trailing_name(node) == wanted)
-                or (isinstance(node, ast.Constant)
-                    and isinstance(node.value, str)
-                    and node.value == wanted)
-                for node in ast.walk(tree)
-            )
-        except (SyntaxError, ValueError, RecursionError):
+        # Resolved by BARE module name at call time (monkeypatchable) and memoized
+        # per distinct source text -- see `DORMANCY_PARSE_CACHE_SIZE`.
+        names = dormancy_reference_names(source)
+        if names is None:
             unparseable = True
             continue
+        found = wanted in names
         if found:
             if is_production:
                 # A positive production finding is decisive -- it cannot be
