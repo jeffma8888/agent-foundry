@@ -1082,7 +1082,13 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # key not in the 7510487 snapshot; the exact-equality assertion
                 # on `_EXPECTED_KEYS` was relaxed to allow `setup_cmd` as an
                 # optional key. No newest-ness pin touched.
-                "tests/test_iter431_behavior.py"}
+                "tests/test_iter431_behavior.py",
+                # iter 433: `StatusSummary` gains `last_ship_iter` and
+                # `iters_since_last_ship` (14 -> 16 keys in to_dict, 9 -> 10
+                # render lines). iter 217 owns the key-count/order pin and the
+                # line-count pin on those payloads, so the re-pin is FORCED.
+                # No newest-ness pin touched.
+                "tests/test_iter217_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

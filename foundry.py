@@ -11861,14 +11861,11 @@ class StatusSummary:
       * `prd_line` -- the `dispatch_progress_line` text, or `None` when there is
         no `prd.json`.
       * `lag_line` -- the item-43 live-lag sentence (`live_lag_status(cfg).render()`),
-        or `None` when the liveness probe could not be run. REPORT-ONLY: it is
-        the FOURTH operator signal in the `hotfix` / `speed_story` / `prd_line`
-        family, and deliberately the only one that feeds NEITHER `attention` nor
-        `exit_code` -- a brain that is behind its own shipped code is a restart
-        the human owes, not a broken product, so promoting it would make every
-        existing operator script alarm on a new condition. Positioned LAST with a
-        default so the eight-argument POSITIONAL construction the iter-16/19/30
-        tests use stays valid.
+        or `None` when the liveness probe could not be run. REPORT-ONLY.
+      * `last_ship_iter` -- the most recent iteration that PUSHED, or `None` when
+        no PUSHED outcome exists. REPORT-ONLY.
+      * `iters_since_last_ship` -- `latest_iter - last_ship_iter`, or `None` when
+        no PUSHED outcome exists. REPORT-ONLY.
     """
     product: str
     repo: str
@@ -11879,6 +11876,8 @@ class StatusSummary:
     speed_story: bool
     prd_line: str | None
     lag_line: str | None = None
+    last_ship_iter: int | None = None
+    iters_since_last_ship: int | None = None
 
     @property
     def attention(self) -> bool:
@@ -11965,6 +11964,9 @@ class StatusSummary:
         # global at call time, matching how the rest of the family sources it.
         lag = (self.lag_line if isinstance(self.lag_line, str) and self.lag_line
                else f"  {LIVE_LAG_PREFIX} unknown")
+        ship = (f"  last ship: iter {self.last_ship_iter}"
+                f" ({self.iters_since_last_ship} iterations ago)"
+                if self.last_ship_iter is not None else "  last ship: none")
         verdict = self.verdict
         return "\n".join([
             f"foundry status -- {self.product}",
@@ -11975,6 +11977,7 @@ class StatusSummary:
             f"  speed-story flag: {'RAISED' if self.speed_story else 'clear'}",
             f"  prd: {prd}",
             lag,
+            ship,
             f"verdict: {verdict}",
         ])
 
@@ -11982,17 +11985,16 @@ class StatusSummary:
         """A pure, JSON-safe health snapshot for machine consumers -- dashboards
         / cron alerts / the reporter (roadmap item 10's "machine-readable status").
 
-        Returns EXACTLY 14 keys in a fixed order: the nine STORED fields
+        Returns EXACTLY 16 keys in a fixed order: the eleven STORED fields
         verbatim (`product`/`repo`/`branch`/`latest_iter`/`postrelease`/`hotfix`/
-        `speed_story`/`prd_line`/`lag_line`) followed by the five DERIVED values,
+        `speed_story`/`prd_line`/`lag_line`/`last_ship_iter`/
+        `iters_since_last_ship`) followed by the five DERIVED values,
         each REUSING the frozen properties -- `attention`/`ok`/`exit_code`/
         `verdict`/`lag_verdict` -- so the JSON payload can never disagree with
-        what `render()` prints or the exit code returns. `lag_verdict` is derived
-        and sits with the derived block, NOT next to `lag_line`, because a
-        consumer that wants the raw sentence and one that wants the token are
-        different consumers and the stored/derived split is the contract. Every value is JSON-native (str / int / bool /
-        None), so `json.dumps(...)` never raises and the dict round-trips
-        through `json.loads(json.dumps(...))`. Pure: touches no filesystem, only
+        what `render()` prints or the exit code returns. Every value is
+        JSON-native (str / int / bool / None), so `json.dumps(...)` never
+        raises and the dict round-trips through
+        `json.loads(json.dumps(...))`. Pure: touches no filesystem, only
         the already-gathered snapshot."""
         return {
             "product": self.product,
@@ -12004,6 +12006,8 @@ class StatusSummary:
             "speed_story": self.speed_story,
             "prd_line": self.prd_line,
             "lag_line": self.lag_line,
+            "last_ship_iter": self.last_ship_iter,
+            "iters_since_last_ship": self.iters_since_last_ship,
             "attention": self.attention,
             "ok": self.ok,
             "exit_code": self.exit_code,
@@ -12015,23 +12019,25 @@ class StatusSummary:
 def summarize_status(*, product: str, repo: str, branch: str, latest_iter: int,
                      postrelease: str | None, hotfix: bool, speed_story: bool,
                      prd_line: str | None,
-                     lag_line: str | None = None) -> StatusSummary:
+                     lag_line: str | None = None,
+                     last_ship_iter: int | None = None,
+                     iters_since_last_ship: int | None = None) -> StatusSummary:
     """Pure keyword-only constructor for a `StatusSummary` (item 12).
 
     A thin, total wrapper that just packs the gathered signals into the frozen
-    snapshot -- keyword-only so a caller can never transpose the nine fields by
+    snapshot -- keyword-only so a caller can never transpose the fields by
     position, and it never raises. Kept separate from `status_cli` so the
     decision core stays a pure function the tester can drive without any
     filesystem (Behavior 7).
 
-    `lag_line` is DEFAULTED rather than required: it is the advisory item-43
-    liveness sentence, so every caller predating it (and every test building a
-    summary by keyword) keeps working and reads back `lag_line is None`, which
-    renders as `live-lag: unknown` and yields the empty `lag_verdict`."""
+    `lag_line`, `last_ship_iter`, `iters_since_last_ship` are DEFAULTED rather
+    than required so every caller predating them keeps working."""
     return StatusSummary(
         product=product, repo=repo, branch=branch, latest_iter=latest_iter,
         postrelease=postrelease, hotfix=hotfix, speed_story=speed_story,
-        prd_line=prd_line, lag_line=lag_line)
+        prd_line=prd_line, lag_line=lag_line,
+        last_ship_iter=last_ship_iter,
+        iters_since_last_ship=iters_since_last_ship)
 
 
 def gather_status(cfg: ProductConfig) -> StatusSummary:
@@ -12060,8 +12066,12 @@ def gather_status(cfg: ProductConfig) -> StatusSummary:
         surface an operator SCRIPTS said nothing: `live_lag_status` computed the
         7-day inert window over iterations 188-192 correctly the whole time and
         no consumer read it.
-    REPORT-ONLY: the lag sentence lands in `lag_line`/`lag_verdict` and touches
-    `attention`/`ok`/`exit_code`/`verdict` in NO way, so `status` and
+      * the "since the last ship" fields via `gather_outcomes(cfg)` -- walks the
+        outcomes ledger in reverse to find the most recent PUSHED iteration,
+        yielding `last_ship_iter` and `iters_since_last_ship` (both None when no
+        PUSHED outcome exists). GUARDED: an exception degrades to None/None.
+    REPORT-ONLY: the lag sentence and last-ship fields land in the snapshot and
+    touch `attention`/`ok`/`exit_code`/`verdict` in NO way, so `status` and
     `company-status` keep their published exit codes byte-for-byte.
     Returns a frozen `StatusSummary`; writes NOTHING to disk (read-only)."""
     latest_iter = next_iteration(cfg) - 1
@@ -12085,13 +12095,27 @@ def gather_status(cfg: ProductConfig) -> StatusSummary:
         # empty verdict -- the same no-news-is-good-news direction as the
         # postrelease read above. Never UPGRADES to an alarm.
         lag_line = None
+    last_ship_iter: int | None = None
+    iters_since_last_ship: int | None = None
+    try:
+        outcomes = gather_outcomes(cfg)
+        for rec in reversed(outcomes.records):
+            if rec.action == "PUSHED":
+                last_ship_iter = rec.iteration
+                iters_since_last_ship = latest_iter - rec.iteration
+                break
+    except Exception:
+        last_ship_iter = None
+        iters_since_last_ship = None
     return summarize_status(
         product=cfg.name, repo=cfg.repo, branch=cfg.branch,
         latest_iter=latest_iter, postrelease=postrelease,
         hotfix=hotfix_flag_path(cfg).exists(),
         speed_story=speed_story_flag_path(cfg).exists(),
         prd_line=dispatch_progress_line(cfg),
-        lag_line=lag_line)
+        lag_line=lag_line,
+        last_ship_iter=last_ship_iter,
+        iters_since_last_ship=iters_since_last_ship)
 
 
 def status_cli(cfg: ProductConfig, as_json: bool = False) -> int:

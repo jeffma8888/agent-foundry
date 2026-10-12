@@ -50,7 +50,7 @@ SHIPPED_FIELDS = (
     "product", "repo", "branch", "latest_iter",
     "postrelease", "hotfix", "speed_story", "prd_line",
 )
-STORED_KEYS = SHIPPED_FIELDS + ("lag_line",)
+STORED_KEYS = SHIPPED_FIELDS + ("lag_line", "last_ship_iter", "iters_since_last_ship")
 DERIVED_KEYS = ("attention", "ok", "exit_code", "verdict", "lag_verdict")
 EXPECTED_KEY_ORDER = list(STORED_KEYS) + list(DERIVED_KEYS)     # Behavior 4
 
@@ -187,8 +187,8 @@ def test_b1_lag_line_is_the_ninth_and_last_field_in_order():
     assert names[:8] == SHIPPED_FIELDS, (
         "the eight shipped fields moved -- positional construction in the "
         "iter-16/19/30 modules would silently transpose: %r" % (names,))
-    assert names[8:] == ("lag_line",), (
-        "lag_line must be the ninth and LAST field, got %r" % (names,))
+    assert names[8] == "lag_line", (
+        "lag_line must be the ninth field, got %r" % (names,))
 
 
 def test_b1_ninth_positional_arg_populates_lag_line():
@@ -285,8 +285,8 @@ def test_b3_exactly_one_additional_line_and_the_count_never_moves():
     the same whether lag_line is set or None, and the two renders differ at
     exactly ONE index -- the slot right after `  prd:`."""
     base = _lines(_mk8(prd_line="demoprod: 1/2 pass"))
-    assert len(base) == 9, (
-        "expected the 8 iter-16 lines + exactly 1 live-lag line, got %d:\n%s"
+    assert len(base) == 10, (
+        "expected the 8 iter-16 lines + 1 live-lag line + 1 last-ship line, got %d:\n%s"
         % (len(base), "\n".join(base)))
     for value in (LAG_WARN, LAG_OK, LAG_UNKNOWN):
         got = _lines(_mk9(value, prd_line="demoprod: 1/2 pass"))
@@ -334,7 +334,7 @@ def test_b4_to_dict_has_exactly_fourteen_keys_in_order():
         assert list(d.keys()) == EXPECTED_KEY_ORDER, (
             "to_dict keys/order wrong for lag_line=%r.\n got: %s\nwant: %s"
             % (value, list(d.keys()), EXPECTED_KEY_ORDER))
-        assert len(d) == 14
+        assert len(d) == 16
 
 
 def test_b4_new_keys_mirror_the_stored_field_and_the_property():
@@ -560,7 +560,7 @@ def test_b8_status_json_equals_gather_status_to_dict(tmp_path, monkeypatch):
     assert parsed == expected
     assert parsed["lag_line"] == LAG_WARN
     assert parsed["lag_verdict"] == "WARN"
-    assert len(parsed) == 14
+    assert len(parsed) == 16
     assert rc == expected["exit_code"], (
         "the JSON path must return the summary's own exit code: %r != %r"
         % (rc, expected["exit_code"]))
@@ -609,7 +609,7 @@ def test_b8_company_status_json_products_carry_both_new_keys(
             "per-product payload for %s lacks the new keys: %s"
             % (name, sorted(p)))
         assert list(p.keys()) == EXPECTED_KEY_ORDER
-        assert len(p) == 14
+        assert len(p) == 16
     assert by_name["alpha"]["lag_verdict"] == "WARN"
     assert by_name["alpha"]["lag_line"] == LAG_WARN
     assert by_name["beta"]["lag_verdict"] == ""
