@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-433
+    lenses: unknown
+    - Candidate A1 -- fix the 2 unowned lines in the LEARNINGS `## Patterns` head so doctor reads `learnings-head: OK` with 0 unowned
+    - Candidate A2 -- update the roadmap STATUS paragraph from "current through 323" to "current through 432" and add a dormant `roadmap_status_currency` guard
+    - Candidate A3 -- archive the CLOSED Item 23 body (2,898 chars) from the roadmap index to reclaim headroom before the 54,000-char hard wall
+    - Candidate B1 -- `launch.sh` gates on `preflight` instead of bare `single-brain`
+    - Candidate B2 -- `watchdog-arm --json`: close the last `--json` gap among read-only verdict verbs
+    - Candidate B3 -- `foundry status` shows "since the last ship": elapsed iterations and time since the most recent PUSHED outcome
+    winner: B3
+    ship: pending (not yet decided)
   iter-432
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `notify_cmd`: a product-config hook fired on human-required holds so the 30-min auth sleep reaches a human
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- archive the CLOSED Item 23 body (2,898 chars) from the roadmap index to reclaim 53% of the headroom before the 54,000-char hard wall
     - Candidate B3 -- update the roadmap STATUS paragraph from "current through 323" to "current through 431" and add a dormant `roadmap_status_currency` guard that fails when the gap exceeds 10 iterations
     winner: B2
-    ship: pending (not yet decided)
+    ship: PUSHED 5da31b1
   iter-431
     lenses: unknown
     - Candidate A1 -- roadmap STATUS paragraph says "current through 323" while the Done ledger is at 430
@@ -1943,4 +1953,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-195 scouted iterations
+196 scouted iterations

@@ -302,12 +302,13 @@ in the archive.
 - iter 430 -- ARCHITECTURE.md stale recovery claim -> past-tense note; dormant architecture_gate_recovery_claim_gaps.
 - iter 431 -- restore reflect-mcp + graphql-rest-gateway configs deleted by 429 revert; repo field tilde form.
 - iter 432 -- graphql config: setup_cmd npm ci, test_cmd sh -c wrapper for shlex.
+- iter 433 -- status last-ship: two fields, render line, JSON keys via gather_outcomes.
 
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
 - items 2, 5, 7, 12, 13 (COMPLETED table rows) — prose ARCHIVED verbatim by iter 204 under `## Compacted from the index by iter 204`; 4-column stubs remain.
-- iter-242 -- the `RESULT:` sentinel contract gains a THIRD token, `BLOCKED` (logged here because the guardrail below names that contract by name). ADDITIVE ONLY, so no migration step is owed and no restart: `RESULT: PASS` / `RESULT: FAIL` parse exactly as before, `TEST_GATE_REPAIR_DISPOSITIONS` is the unchanged `("UNFINISHED", "RED")`, and under the OLD module a `RESULT: BLOCKED` body already classified `NONE`, which is deliberately OUTSIDE that repair set -- so `needs_test_repair` is False before AND after and the routing at `foundry.py:5145` / `:20601` is byte-identical either way. The checkpoint marker OUTRANKS the new token, so a cap-killed round still buys its `UNFINISHED` retry rounds. Detail in `PLATFORM_ROADMAP_ARCHIVE.md`.
+- iter-242 -- `RESULT: BLOCKED` third sentinel token; additive, no migration. Detail in `PLATFORM_ROADMAP_ARCHIVE.md`.
 - iter-243 -- INDEX LAYOUT: items 11 and 14 (both COMPLETED) lose their prose to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 243`; 4-column stubs remain, per the iter-204 precedent for items 2/5/7/12/13. Done-ROW deletion is EXHAUSTED as a paydown: `tests/test_iter122_behavior.py`'s `FROZEN` needs exactly one row HERE for each of 98 iterations <= 119, so only 2 of the 163 rows are unpinned -- the next paydown must use a different mechanism (options in the archive section).
 
 ## Guardrails for self-modification
