@@ -17101,6 +17101,61 @@ def usage_cheatsheet_row_gaps(
     return tuple(gaps)
 
 
+_RECOVERABLE_DIGIT_RE = re.compile(
+    r"\d[^.!?]*\brecoverable\b|\brecoverable\b[^.!?]*\d", re.IGNORECASE,
+)
+"""A digit and the word 'recoverable' co-occurring within the same sentence fragment.
+
+The sentence boundary is approximated by the `[^.!?]*` gap: if a period, exclamation
+or question mark sits between the digit and the word, the pattern does not match.
+Case-insensitive because the word may be capitalised at the start of a sentence.
+"""
+
+
+def architecture_gate_recovery_claim_gaps(
+    doc: str,
+    *,
+    anchor: str = "ACTION: REVERTED",
+) -> tuple[str, ...]:
+    """Whether the ARCHITECTURE.md paragraph about the old absent-sentinel gap carries a stale claim.
+
+    The paragraph anchored by `anchor` once said "8 rounds are still recoverable
+    from the attempt logs on disk" -- a present-tense count frozen at iter 194,
+    in a word (`recoverable`) that now names a different verb (iter 215). Iter 430
+    replaced it with a past-tense note. This guard ties the replacement to the
+    code: it checks (a) that the word `recoverable` does NOT co-occur with a digit
+    in any sentence fragment of the paragraph (a present-tense count claim), and
+    (b) that the paragraph references either `FINAL_GATE_MAX_ROUNDS` or the retry
+    mechanism (`ship_decision`) by name, so a future edit cannot silently remove
+    the link to the code.
+
+    Scope is the PARAGRAPH, not the file -- `_paragraph_around`.
+
+    PURE and TOTAL: text in, sorted de-duplicated tuple of `str` out; no
+    filesystem, process, network or clock access, no mutation of its argument,
+    equal inputs give `==` results. FAIL-CLOSED, never a vacuous pass and never
+    raises, in this order: `unusable doc text` for a non-`str` or empty doc;
+    `anchor absent: <anchor>` for a non-`str`, empty or missing anchor;
+    `unusable doc text` again for an anchor whose hit sits on no text line.
+
+    DORMANT: zero call site in the running pipeline, like its companions above.
+    """
+    unusable = ("unusable doc text",)
+    if not isinstance(doc, str) or not doc:
+        return unusable
+    if not isinstance(anchor, str) or not anchor or doc.find(anchor) < 0:
+        return ("anchor absent: %s" % (anchor,),)
+    paragraph = _paragraph_around(doc, anchor)
+    if paragraph is None:
+        return unusable
+    gaps: list[str] = []
+    if _RECOVERABLE_DIGIT_RE.search(paragraph):
+        gaps.append("stale present-tense recoverable-count claim in paragraph")
+    if "FINAL_GATE_MAX_ROUNDS" not in paragraph and "ship_decision" not in paragraph:
+        gaps.append("paragraph does not reference FINAL_GATE_MAX_ROUNDS or ship_decision")
+    return tuple(sorted(gaps))
+
+
 # --------------------------------------------------------------------------- #
 # The README section-number CONTRACT, and the scanner for tests that FREEZE it
 # --------------------------------------------------------------------------- #

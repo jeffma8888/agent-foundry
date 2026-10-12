@@ -525,10 +525,10 @@ def test_b8_no_call_site_outside_its_own_def_block():
     assert remainder.count(f"{FN_NAME}(") == 0, f"{FN_NAME}( referenced outside its def -- not dormant"
 
 
-def test_b8_helper_token_counts_list_item_three_paragraph_three():
+def test_b8_helper_token_counts_list_item_three_paragraph_four():
     module_src = _module_src("foundry.py")
     assert module_src.count("_list_item_around(") == 3, module_src.count("_list_item_around(")
-    assert module_src.count("_paragraph_around(") == 3, module_src.count("_paragraph_around(")
+    assert module_src.count("_paragraph_around(") == 4, module_src.count("_paragraph_around(")
 
 
 def test_b8_dispatcher_never_names_the_guard_or_the_table():

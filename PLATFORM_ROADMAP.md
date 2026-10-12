@@ -300,6 +300,7 @@ in the archive.
 - iter 421 -- roles/tester.md duty 1b runs test-quality --files on its own module; reviewer PRECONDITION hands it over.
 - iter 422 -- USAGE cheat-sheet status row -> live status verb (+history row); ARCH reporter caveat; dormant row guard.
 - iter 423 -- dormancy_reference_names: lru_cache per-source parse under symbol_dormancy_class; census 129 s -> ~1 s.
+- iter 430 -- ARCHITECTURE.md stale recovery claim -> past-tense note; dormant architecture_gate_recovery_claim_gaps.
 
 
 ### Migration notes (per §6 self-mod guardrail)
