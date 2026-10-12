@@ -68,8 +68,8 @@ role-card edit is a gate FAILURE, not a ship.
 gate has written no verdict yet" (it was cut off) and "the gate wrote a malformed one".
 Until iteration 194 the final gate collapsed both into the same answer as an explicit
 `ACTION: REVERTED`, so a gate killed at the hard per-stage cap mid-verification destroyed
-an otherwise-green iteration -- which happened nine times, and 8 rounds are still
-recoverable from the attempt logs on disk. That answer is right for a stage that RAN TO
+an otherwise-green iteration -- which happened nine times before iteration 194 closed
+the gap; the attempt logs from that era are still on disk. That answer is right for a stage that RAN TO
 COMPLETION (no verdict is evidence about the artifact) and lossy for one that was KILLED
 (evidence about the machine). Iteration 189 shipped the successor: the pure
 `ship_decision` + frozen `ShipDecision` pair, whose vocabulary `SHIP_DECISION_TOKENS` is

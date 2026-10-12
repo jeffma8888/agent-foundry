@@ -1,6 +1,57 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-430
+    lenses: unknown
+    - Candidate A1 — `_guard_nodes` result cached per `tests_dir`: cut 11 redundant 260-file AST parses (~10s of 63.6s suite)
+    - Candidate A2 — per-file AST parse cache inside `_gather_test_scan`: parse each product's test files ONCE across all 8 `company-*` fleet roll-ups (~43s call time → ~14s)
+    - Candidate A3 — `_delegated_signal_names` memoized per AST node id: halve the per-file walk cost inside `find_assertionless_tests` (~5.6s of 12.6s per fleet roll-up)
+    - Candidate B1 -- ARCHITECTURE.md line 71's "8 rounds are still recoverable" is a present-tense figure frozen at iter 194, 229 iterations stale, in a word that now means something else
+    - Candidate B2 -- dispatcher.py lines 26-27 teach the launch recipe USAGE.md calls unsupported, with no mention of launch.sh
+    - Candidate B3 -- roadmap STATUS paragraph says "current through 323" with 100 iterations shipped since; the test floor is 124
+    winner: B1
+    ship: pending (not yet decided)
+  iter-429
+    lenses: unknown
+    - Candidate A1 -- consolidate the 38-file `_co_names_deep` dominant cluster into `tests/_shared.py` (-~340 lines)
+    - Candidate A2 -- retire the two SPENT OPERATOR head bullets (08-15 VERIFIED: ledger, 08-14 staged-empty-blob) VERBATIM into the LEARNINGS archive section (-1,563 chars from every stage prompt)
+    - Candidate A3 -- archive the CLOSED Item 23 body (dead-stdout, 2,898 chars) from the roadmap index to free ledger-row runway
+    - Candidate B1 -- `_delegated_signal_names` memoized per AST node id: halve the per-file walk cost inside `find_assertionless_tests` (5.6s of 12.6s per fleet roll-up)
+    - Candidate B2 -- `freeze_guards()` result cached per `tests_dir` via module-level memo: cut test_iter132's 5 redundant 260-file parses (5.0s of 10.6s)
+    - Candidate B3 -- single-pass AST walk inside `find_assertionless_tests`: extract test nodes AND delegation names in ONE `ast.walk` instead of two (9.9s of 12.6s per fleet roll-up)
+    winner: A1
+    ship: REVERTED
+  iter-428
+    lenses: integration-and-adoption
+    - Candidate A1 -- `directions --undecided`: list the scouted-but-never-triaged iterations, and make their candidates part of the next PM lead's pool
+    - Candidate A2 -- `foundry status` learns "since the last ship": one line from the shipped `outcomes` reader so the operator's status surface stops saying `verdict: OK` about a loop that has shipped nothing in 4 iterations and died at the first stage 3 times
+    - Candidate A3 -- `watchdog-arm --json`: close the last `--json` gap among the read-only verdict verbs (census complete this run: 1 of 58)
+    winner: absent (no pm.md)
+    ship: unknown
+  iter-427
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- empty the transient half of the `other` bucket: classify `database is locked` and `model-provider stopped sending data`, 23 measured failures that all healed on the next attempt yet slept on the 10/20 ladder (216 min idle vs 24)
+    - Candidate A2 -- `permission` failure kind: one attempt, then a STOP-aware hold whose log line names the only fix, instead of 70 min of ladder per stage on a process that can never spawn again
+    - Candidate A3 -- `launch.sh --foreground`: the supported launcher keeps its single-brain gate and log plumbing but `exec`s the dispatcher in the caller instead of double-fork + `setsid`, formalising the workaround that is running iter 427 right now
+    - Candidate B1 -- `foundry stop` reports what it is waiting on: append the `inflight` line for the stopped team, so the operator who writes the STOP sentinel learns which stage is mid-flight and how long until the sentinel can be honoured
+    - Candidate B2 -- `launch.sh` gates on `preflight` (GO/NO-GO/CAUTION) instead of bare `single-brain`, now that the launcher is on the table (Scout A's A3 proposes a `--foreground` path this iteration)
+    - Candidate B3 -- put `directions --topic TERM` in the scout card's DIRECTIONS section (smallest bite: one command line + one sentence), because the `--limit 12` window hid every prior loss of two topics I nearly re-proposed this run
+    winner: absent (no pm.md)
+    ship: unknown
+  iter-426
+    lenses: new-capability
+    - Candidate A1 -- `permission` failure kind: one attempt, one hold, and a log line that names the ONLY fix (relaunch from a live ACT turn)
+    - Candidate A2 -- `notify_cmd`: a product-config hook fired from the human-only holds, so a 30-minute "a human must act" sleep reaches a human
+    - Candidate A3 -- launch-dead self-STOP: when the failure is `permission`, write the product STOP file with the reason instead of holding, so the loop halts in one spawn and `foundry status` says why
+    winner: absent (no pm.md)
+    ship: unknown
+  iter-425
+    lenses: narrative-and-docs
+    - Candidate A1 -- ARCHITECTURE.md's final-gate paragraph still reports the present-tense figure frozen at iter 194 ("8 rounds are still recoverable from the attempt logs on disk"), 231 iterations later; lost at iter 419 only because A1 (the VERIFIED: ledger card) outranked it, and that winner has now shipped
+    - Candidate A2 -- a role card states a constant the code no longer matches: `roles/pm_scout.md` quotes the dormancy classifier at "~2s" after iter 423 changed its cost profile, and the "~600s per-stage cap" / "pool of six" lenses lines are unpinned against `foundry.py`
+    - Candidate A3 -- the iter-424 death ("Cannot spawn Act sub-agent: parent permission ceiling is Auto") left NO record anywhere a future reader looks: no slate, no DIRECTIONS row, no roadmap line, and the failure string is absent from ARCHITECTURE.md's Resilience section
+    winner: absent (no pm.md)
+    ship: unknown
   iter-423
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- first bite of the `_co_names_deep` consolidation: add `co_names_deep` to `tests/_shared.py` and delete the 14-file identical cluster (-~140 lines), the "smaller bite next iteration" the iter-417 PM triage explicitly licensed
@@ -10,7 +61,7 @@ foundry directions -- _platform
     - Candidate B2 -- the four `live_smoke_on_real_dispatch_config` tests are 35.0 s of the suite's 49.4 s call time; run the fleet roll-up ONCE per session and share the document
     - Candidate B3 -- `test_iter132` re-walks the live test population three times (9.70 + 4.36 + 4.27 s); compute the census once per module
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 94ffd3d
   iter-422
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- USAGE.md's "See a team's status" row sends the operator to `STATUS_REPORT.md`, a file the supported launch path never writes (0 of 18 products have one); migrate the on-ramp to the live `status` verb and pin that the row names a shipped verb
@@ -129,7 +180,7 @@ foundry directions -- _platform
     - Candidate B1 -- One `auth` attempt, then hold: stop retrying and re-minting iterations on an expired session
     - Candidate B2 -- Mid-stage MANDATORY re-checkpoint at minute 5 for scouts: the cap kills the slate 62% of the time
     - Candidate B3 -- Retire the spent one-shot OPERATOR directives from the digest head (8,243 chars paid 7x per iteration)
-    winner: A1
+    winner: B1
     ship: PUSHED 9d69d63
   iter-383
     lenses: narrative-and-docs
@@ -150,7 +201,7 @@ foundry directions -- _platform
     - Candidate B2 -- retire 1,886 chars of dead instruction from the Patterns head: a headless orphan that re-argues a DE-LISTED item, plus two "text was moved" bookkeeping bullets, paid in every one of ~7.5 stage prompts per iteration
     - Candidate B3 -- make the cap-killed scout stop losing its work: a mid-stage MANDATORY re-checkpoint at minute 5 in `roles/pm_scout.md`, plus `directions` reporting the stub rate it already computes as a per-seat number
     stubs: 1 of 4 candidate line(s) are write-early placeholders, not measured candidates
-    winner: B1
+    winner: B2
     ship: PUSHED 77d742c
   iter-380
     lenses: integration-and-adoption, simplification-and-deletion
@@ -579,7 +630,7 @@ foundry directions -- _platform
     - Candidate B2 -- two committed docs give the operator opposite instructions for the one action that can violate single-brain
     - Candidate B3 -- the doc every stage prompt is sent to for the invariants names 5 of the 6 prompt budgets, and the one it omits is the newest
     stubs: 3 of 6 candidate line(s) are write-early placeholders, not measured candidates
-    winner: A1
+    winner: B3
     ship: PUSHED 4cc876a
   iter-237
     lenses: simplification-and-deletion (iteration 237), performance-and-throughput (iteration 237)
@@ -1594,7 +1645,7 @@ foundry directions -- _platform
     - B1 -- Re-anchor the every-suite freeze-guard meta-test on guard BEHAVIOR, not the exact guard name
     - B2 -- Define the 4 undefined scout lenses in roles/pm_scout.md, bound to the pool by a suite test
     - B3 -- Ground-truth the test gate: an earned PASS with no oracle file on disk
-    winner: A1
+    winner: B1
     ship: PUSHED 65c428e
   iter-131
     lenses: narrative-and-docs, new-capability
@@ -1872,4 +1923,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-187 scouted iterations
+193 scouted iterations
