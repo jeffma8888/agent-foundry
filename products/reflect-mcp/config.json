@@ -1,0 +1,16 @@
+{
+  "_comment": "Scaffolded by 'foundry new-product'. Next: set vision (and optionally roadmap, quality_ref, quality_bar), then set push_enabled true when you want the final gate to push. Keys starting with '_' are comments; any OTHER unrecognised key aborts the run (the loader fails closed).",
+  "name": "reflect-mcp",
+  "repo": "~/projects/reflect-mcp",
+  "allowed_push_repo": "reflect-mcp",
+  "branch": "main",
+  "vision": "~/projects/reflect-mcp/VISION.md",
+  "roadmap": "~/projects/reflect-mcp/PRODUCT.md",
+  "quality_ref": "~/projects/proactive-loop-agent",
+  "test_cmd": "uv run pytest -q",
+  "roles_dir": "{FOUNDRY}/roles",
+  "work_root": "{FOUNDRY}/products/reflect-mcp",
+  "quality_bar": "Offline-testable: no network and no secrets in tests or make eval; model calls behind one stubbable provider seam. Critic stays a decorrelated grader; heuristics only lower scores. Every verification/gate change ships golden-set coverage; make eval keeps its threshold exit. Python >=3.10, MCP-compliant tool surface, small deps, MIT, publication-safe (generic identifiers, no machine paths).",
+  "push_enabled": true,
+  "dual_pm_scouts": true
+}

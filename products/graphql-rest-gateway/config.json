@@ -1,0 +1,16 @@
+{
+  "_comment": "Scaffolded by 'foundry new-product'. Next: set vision (and optionally roadmap, quality_ref, quality_bar), then set push_enabled true when you want the final gate to push. Keys starting with '_' are comments; any OTHER unrecognised key aborts the run (the loader fails closed).",
+  "name": "graphql-rest-gateway",
+  "repo": "~/projects/graphql-rest-gateway",
+  "allowed_push_repo": "graphql-rest-gateway",
+  "branch": "main",
+  "vision": "~/projects/graphql-rest-gateway/VISION.md",
+  "roadmap": "~/projects/graphql-rest-gateway/PRODUCT.md",
+  "quality_ref": "~/projects/graphql-rest-gateway",
+  "test_cmd": "npm test --silent && npm run typecheck --silent",
+  "roles_dir": "{FOUNDRY}/roles",
+  "work_root": "{FOUNDRY}/products/graphql-rest-gateway",
+  "quality_bar": "TypeScript strict on Node >=20; vitest + tsc --noEmit must stay green and fast; everything boots in-process with the bundled Fastify REST backend (no network, Docker, or accounts in tests). Schema-first: SDL is the contract, generated types via codegen never hand-edited. Resolver/loader changes ship a downstream call-count assertion; the N+1 regression test may never be weakened. MIT, publication-safe (generic identifiers, no machine paths).",
+  "push_enabled": true,
+  "dual_pm_scouts": true
+}
