@@ -68,9 +68,9 @@ product team, one iteration at a time, until you `touch STOP`. This is the
 quota-safe way to have more than one team "always on."
 
 `./launch.sh` is the supported way in — do not run `dispatcher.py` in the
-foreground. It gates the launch on `foundry.py single-brain` (refusing on both
-CONFLICT and UNKNOWN, so a second brain can never starve the first of token
-budget), then detaches: no controlling terminal, stdin on `/dev/null`, and both
+foreground. It gates the launch on `foundry.py preflight` (refusing on both
+NO-GO and CAUTION, so a broken environment or a second brain can never slip
+through), then detaches: no controlling terminal, stdin on `/dev/null`, and both
 output streams appended to `$FOUNDRY_LOG` (default: a file under `$TMPDIR`).
 That is what stops a reaped terminal killing a healthy run, which it once did
 after 68 shifts. Override `FOUNDRY_CONFIG` / `FOUNDRY_LOG` to move either path.

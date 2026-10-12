@@ -237,7 +237,10 @@ def test_b5_three_exit_status_branches_each_with_a_distinct_message():
     text = _launch_text()
     lines = _numbered(text)
     per_token = {}
-    for token in ("SAFE", "CONFLICT", "UNKNOWN"):
+    # iter 434: launch.sh gates on composite `preflight` (GO/NO-GO/CAUTION)
+    # instead of bare `single-brain` (SAFE/CONFLICT/UNKNOWN). "preflight: GO"
+    # disambiguates from the substring match on "NO-GO".
+    for token in ("preflight: GO", "NO-GO", "CAUTION"):
         hits = [(n, ln) for n, ln in lines if token in ln]
         assert hits, "token %s does not appear in launch.sh (Behavior 5)" % token
         per_token[token] = hits
@@ -260,7 +263,9 @@ def test_b5_both_nonzero_codes_refuse_before_any_launch():
         None,
     )
     assert launch_line, "no `python3 -c '` launch line found in launch.sh"
-    for token in ("CONFLICT", "UNKNOWN"):
+    # iter 434: launch.sh gates on composite `preflight` (NO-GO/CAUTION)
+    # instead of bare `single-brain` (CONFLICT/UNKNOWN).
+    for token in ("NO-GO", "CAUTION"):
         msg_at = [n for n, ln in lines if token in ln and re.search(r"\b(echo|printf)\b", ln)]
         assert msg_at, "no message line for %s" % token
         first = min(msg_at)

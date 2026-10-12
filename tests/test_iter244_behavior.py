@@ -484,8 +484,10 @@ def test_b8_frozen_paths_are_byte_unchanged_against_head():
     # either card (iters 126/139/211/242/379/419) still holds -- verified green. Zero
     # `foundry.py` / `dispatcher.py` lines move. `dispatcher.py`, `scripts/`, `.gitignore`,
     # `launch.sh` and the three remaining cards stay byte-frozen.
+    # iter 434: launch.sh gates on composite `preflight` instead of bare
+    # `single-brain`; the header comment and the gate block both change.
     allowed = {"roles/final.md", "roles/pm.md", "roles/pm_scout.md",
-               "roles/reviewer.md", "roles/tester.md"}
+               "roles/reviewer.md", "roles/tester.md", "launch.sh"}
     unexpected = [p for p in changed if p not in allowed]
     assert unexpected == [], f"frozen paths changed: {unexpected}"
 
