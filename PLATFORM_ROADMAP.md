@@ -31,8 +31,7 @@ STATUS (iter 323): ledger and archive are current through 323 (193/194/199/201/2
 shipped, so none owes a row; 230 never shipped either -- its work re-landed as 231 -- and keeps its row).
 ITERATIONS 245-319 NEVER RAN (a 36.6 h infra outage; no commit exists, so none owes a row) -- verbatim record in the archive.
 STILL OPEN:
-(d), (g)'s rendering half, (j), (k), and (o).
-(g) is CLOSED as of iter 377 -- its rendering half, the last open piece, SHIPPED (`directions_winner_label`); the mention of it on the line above is superseded.
+(d), (j), (k), and (o).
 NEXT UP, in value order: (a) Only the OPTIONAL 25-guard
 CONSOLIDATION remains, and it does NOT unblock strangler steps 2/3 (one guard still freezes
 `dispatcher.py` and the meta-test requires it to); (c) CLOSED -- CONSUMER HALF SHIPPED iter 230 (measurement half, 229): `doctor`'s fifth never-blocking drift line. Read the archive's `- **iter 230` bullet BEFORE proposing any further wiring of this measurement; (d) relax `roles/tester.md`'s
@@ -301,6 +300,7 @@ in the archive.
 - iter 422 -- USAGE cheat-sheet status row -> live status verb (+history row); ARCH reporter caveat; dormant row guard.
 - iter 423 -- dormancy_reference_names: lru_cache per-source parse under symbol_dormancy_class; census 129 s -> ~1 s.
 - iter 430 -- ARCHITECTURE.md stale recovery claim -> past-tense note; dormant architecture_gate_recovery_claim_gaps.
+- iter 431 -- restore reflect-mcp + graphql-rest-gateway configs deleted by 429 revert; repo field tilde form.
 
 
 ### Migration notes (per §6 self-mod guardrail)
