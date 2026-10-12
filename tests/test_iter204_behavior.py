@@ -1077,7 +1077,12 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # `()` at HEAD AND in the worktree (measured this iteration by
                 # importing this module's own helper). Red ONLY inside the
                 # pre-commit window; a fresh clone at the ship commit is clean.
-                "tests/test_iter419_behavior.py"}
+                "tests/test_iter419_behavior.py",
+                # iter 432: adds `setup_cmd` to graphql config, which is a new
+                # key not in the 7510487 snapshot; the exact-equality assertion
+                # on `_EXPECTED_KEYS` was relaxed to allow `setup_cmd` as an
+                # optional key. No newest-ness pin touched.
+                "tests/test_iter431_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

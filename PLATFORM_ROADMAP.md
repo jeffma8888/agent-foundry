@@ -301,6 +301,7 @@ in the archive.
 - iter 423 -- dormancy_reference_names: lru_cache per-source parse under symbol_dormancy_class; census 129 s -> ~1 s.
 - iter 430 -- ARCHITECTURE.md stale recovery claim -> past-tense note; dormant architecture_gate_recovery_claim_gaps.
 - iter 431 -- restore reflect-mcp + graphql-rest-gateway configs deleted by 429 revert; repo field tilde form.
+- iter 432 -- graphql config: setup_cmd npm ci, test_cmd sh -c wrapper for shlex.
 
 
 ### Migration notes (per §6 self-mod guardrail)

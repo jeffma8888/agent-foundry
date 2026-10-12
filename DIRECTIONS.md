@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-432
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- `notify_cmd`: a product-config hook fired on human-required holds so the 30-min auth sleep reaches a human
+    - Candidate A2 -- `foundry changelog --config CFG [--limit N] [--json]`: render per-product release notes from ship commits
+    - Candidate A3 -- `foundry reverts --config CFG [--limit N] [--json]`: inventory of every REVERTED iteration with the gate's named reason and a retry class
+    - Candidate B1 -- fix the 2 unowned lines in the LEARNINGS `## Patterns` head and add a dormant `learnings_head_unowned_gaps` guard so they cannot reappear
+    - Candidate B2 -- archive the CLOSED Item 23 body (2,898 chars) from the roadmap index to reclaim 53% of the headroom before the 54,000-char hard wall
+    - Candidate B3 -- update the roadmap STATUS paragraph from "current through 323" to "current through 431" and add a dormant `roadmap_status_currency` guard that fails when the gap exceeds 10 iterations
+    winner: B2
+    ship: pending (not yet decided)
   iter-431
     lenses: unknown
     - Candidate A1 -- roadmap STATUS paragraph says "current through 323" while the Done ledger is at 430
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry changelog --config CFG [--limit N] [--json]`: render per-product release notes from conventional ship commits
     - Candidate B3 -- `foundry reverts --config CFG [--limit N] [--json]`: an inventory of every REVERTED iteration with the gate's named reason and a retry class
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 123629d
   iter-430
     lenses: unknown
     - Candidate A1 — `_guard_nodes` result cached per `tests_dir`: cut 11 redundant 260-file AST parses (~10s of 63.6s suite)
@@ -1933,4 +1943,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-194 scouted iterations
+195 scouted iterations

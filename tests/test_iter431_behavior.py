@@ -30,6 +30,7 @@ _EXPECTED_KEYS = {
     "roadmap", "quality_ref", "test_cmd", "roles_dir", "work_root",
     "quality_bar", "push_enabled", "dual_pm_scouts",
 }
+_OPTIONAL_KEYS = {"setup_cmd"}
 
 
 # EB1 & EB2: configs exist and are valid JSON with correct repo field
@@ -42,9 +43,12 @@ def test_b1b2_config_exists_and_valid_json(product, path):
     assert data["repo"] == f"~/projects/{product}", (
         f"repo must be tilde form ~/projects/{product}"
     )
-    assert set(data.keys()) == _EXPECTED_KEYS, (
-        f"keys must match 7510487 exactly; extra={set(data.keys()) - _EXPECTED_KEYS}, "
-        f"missing={_EXPECTED_KEYS - set(data.keys())}"
+    actual = set(data.keys())
+    unexpected = actual - _EXPECTED_KEYS - _OPTIONAL_KEYS
+    missing = _EXPECTED_KEYS - actual
+    assert not unexpected and not missing, (
+        f"keys must be the 7510487 base set plus allowed optional keys; "
+        f"extra={unexpected}, missing={missing}"
     )
 
 
