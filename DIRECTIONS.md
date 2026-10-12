@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-434
+    lenses: unknown
+    - Candidate A1 -- `launch.sh` gates on `preflight` instead of bare `single-brain`
+    - Candidate A2 -- ARCHITECTURE.md §2 reporter row names STATUS_REPORT, a file 0 of 18 products have ever produced
+    - Candidate A3 -- USAGE.md cheat-sheet names 8 of 61 verbs; add a `doctor` row so the operator's first diagnostic tool has an on-ramp
+    - Candidate B1 -- consolidate the 40-file `_co_names_deep(fn)` cluster into `tests/_shared.py` (-~360 lines)
+    - Candidate B2 -- retire the periodic STATUS_REPORT branch: `REPORT_EVERY`, `mechanical_report`, `narrative_report`, `cfg.report`, `roles/reporter.md`
+    - Candidate B3 -- retire the `CHEATSHEET_DEAD_TARGETS` constant and its guard infrastructure now that its sole consumer is gone
+    winner: A1
+    ship: pending (not yet decided)
   iter-433
     lenses: unknown
     - Candidate A1 -- fix the 2 unowned lines in the LEARNINGS `## Patterns` head so doctor reads `learnings-head: OK` with 0 unowned
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `watchdog-arm --json`: close the last `--json` gap among read-only verdict verbs
     - Candidate B3 -- `foundry status` shows "since the last ship": elapsed iterations and time since the most recent PUSHED outcome
     winner: B3
-    ship: pending (not yet decided)
+    ship: PUSHED 30c70e8
   iter-432
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `notify_cmd`: a product-config hook fired on human-required holds so the 30-min auth sleep reaches a human
@@ -60,7 +70,7 @@ foundry directions -- _platform
     ship: unknown
   iter-427
     lenses: hardening/DX, integration-and-adoption
-    - Candidate A1 -- empty the transient half of the `other` bucket: classify `database is locked` and `model-provider stopped sending data`, 23 measured failures that all healed on the next attempt yet slept on the 10/20 ladder (216 min idle vs 24)
+    - Candidate A1 -- empty the transient half of the `other` bucket: classify `database is locked` and `[provider] stopped sending data`, 23 measured failures that all healed on the next attempt yet slept on the 10/20 ladder (216 min idle vs 24)
     - Candidate A2 -- `permission` failure kind: one attempt, then a STOP-aware hold whose log line names the only fix, instead of 70 min of ladder per stage on a process that can never spawn again
     - Candidate A3 -- `launch.sh --foreground`: the supported launcher keeps its single-brain gate and log plumbing but `exec`s the dispatcher in the caller instead of double-fork + `setsid`, formalising the workaround that is running iter 427 right now
     - Candidate B1 -- `foundry stop` reports what it is waiting on: append the `inflight` line for the stopped team, so the operator who writes the STOP sentinel learns which stage is mid-flight and how long until the sentinel can be honoured
@@ -1953,4 +1963,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-196 scouted iterations
+197 scouted iterations

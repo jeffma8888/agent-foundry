@@ -1488,6 +1488,43 @@ def preflight_cli(cfg: ProductConfig, pattern: str = "dispatcher.py",
     return summary.exit_code
 
 
+def launch_preflight_gaps(launch_text: str) -> tuple[str, ...]:
+    """Dormant guard: non-empty when ``launch.sh`` does NOT gate on ``preflight``.
+
+    Returns a tuple of human-readable gap descriptions when the launch script
+    invokes bare ``single-brain`` instead of the composite ``preflight --config``
+    gate as its pre-launch check.  An empty tuple means the script correctly
+    consults the composite preflight before detaching.
+
+    The check is intentionally simple: the text must contain a line that invokes
+    ``foundry.py preflight --config`` (the composite gate) in the pre-launch
+    section.  If it instead invokes only ``foundry.py single-brain`` without a
+    ``preflight`` call, that is the gap this guard was built to catch.
+
+    PURE and TOTAL: ``str`` in, ``tuple[str, ...]`` out.  No filesystem, no
+    subprocess, no network.  Never raises.
+
+    DORMANT: zero call sites in the running pipeline (iter 434).
+    """
+    if not isinstance(launch_text, str) or not launch_text:
+        return ("launch text is empty or not a string",)
+    has_preflight = "foundry.py preflight --config" in launch_text
+    has_bare_single_brain_gate = (
+        "foundry.py single-brain" in launch_text
+        and "foundry.py preflight" not in launch_text
+    )
+    gaps: list[str] = []
+    if not has_preflight:
+        gaps.append(
+            "launch.sh does not invoke 'foundry.py preflight --config'"
+        )
+    if has_bare_single_brain_gate:
+        gaps.append(
+            "launch.sh gates on bare 'single-brain' instead of composite 'preflight'"
+        )
+    return tuple(gaps)
+
+
 # --------------------------------------------------------------------------- #
 # Bounded learnings digest (roadmap item 2, bite 1/2).
 #

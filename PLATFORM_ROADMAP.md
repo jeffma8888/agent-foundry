@@ -303,6 +303,7 @@ in the archive.
 - iter 431 -- restore reflect-mcp + graphql-rest-gateway configs deleted by 429 revert; repo field tilde form.
 - iter 432 -- graphql config: setup_cmd npm ci, test_cmd sh -c wrapper for shlex.
 - iter 433 -- status last-ship: two fields, render line, JSON keys via gather_outcomes.
+- iter 434 -- launch.sh gates on preflight (GO/NO-GO/CAUTION) instead of bare single-brain.
 
 
 ### Migration notes (per §6 self-mod guardrail)

@@ -14,13 +14,13 @@
 #   * detaches with a double fork plus a new session, reparenting the brain away
 #     from the launching shell so it survives that shell being torn down (macOS
 #     ships no setsid(1), which is why the detach is an inline Python program);
-#   * REFUSES to start unless the shipped "foundry.py single-brain" preflight
-#     reports SAFE. The vision names single-brain as a hard constraint: two
-#     brains on one model-API account starve each other of token budget, which
-#     is the single most common observed unattended-run failure. Gating on the
-#     verb rather than re-typing a process scan keeps ONE definition of "a brain
-#     is already running", and gives that verb its documented 0/1/2 exit-code
-#     contract a real machine consumer.
+#   * REFUSES to start unless the shipped "foundry.py preflight" composite gate
+#     reports GO. The composite folds `doctor` (power, agent CLI, uv, remote)
+#     and `single-brain` into ONE three-way GO / NO-GO / CAUTION verdict, so a
+#     launch on battery, with a missing agent CLI, or with a dead remote is
+#     caught BEFORE detaching -- not silently after. Gating on the composite
+#     rather than bare `single-brain` closes the gap where 3 of the 4 shipped
+#     preflight checks were skipped on every launch.
 #
 # Every machine-specific value is read from the ENVIRONMENT, so this file is
 # byte-identical in every clone and contains no absolute filesystem path:
@@ -63,23 +63,28 @@ if [ -n "${FOUNDRY_AGENT_ARGS:-}" ]; then
     export FOUNDRY_AGENT_ARGS
 fi
 
-# The single-brain gate. Fail-SHUT on every non-zero code: CONFLICT is a proven
-# second brain, and UNKNOWN means the scan could not rule one out -- neither is
-# a licence to launch.
-python3 foundry.py single-brain
-brain_status=$?
-case "$brain_status" in
+# The composite preflight gate. Fail-SHUT on every non-zero code: NO-GO is a
+# hard blocker (env not ready or a confirmed second brain), and CAUTION means
+# the scan could not rule out a competitor -- neither is a licence to launch.
+python3 foundry.py preflight --config "$FOUNDRY_CONFIG"
+preflight_status=$?
+case "$preflight_status" in
     0)
-        echo "single-brain: SAFE -- no dispatcher running; launching one brain."
+        echo "preflight: GO -- environment ready, no dispatcher running; launching."
         ;;
     1)
-        echo "REFUSING: single-brain reports CONFLICT -- a dispatcher is already"
-        echo "  running (its pid is listed above). Stop it first, or let it run."
+        echo "REFUSING: preflight reports NO-GO -- a hard blocker was found"
+        echo "  (environment not ready or a competing brain is confirmed)."
+        echo "  Fix the issue listed above, then re-run ./launch.sh"
+        exit 1
+        ;;
+    2)
+        echo "REFUSING: preflight reports CAUTION -- the brain scan could not"
+        echo "  rule out a competing dispatcher. Check by hand, then re-run."
         exit 1
         ;;
     *)
-        echo "REFUSING: single-brain reports UNKNOWN (exit $brain_status) -- the"
-        echo "  process scan failed, so a competing brain cannot be ruled out."
+        echo "REFUSING: preflight returned unexpected exit $preflight_status."
         echo "  Check by hand, then re-run ./launch.sh"
         exit 1
         ;;
