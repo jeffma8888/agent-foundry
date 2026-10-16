@@ -1092,7 +1092,17 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # iter 434: launch.sh gates on composite `preflight` instead of
                 # bare `single-brain`, so the b5 token pins (SAFE/CONFLICT/UNKNOWN)
                 # advance to (GO/NO-GO/CAUTION). No newest-ness pin touched.
-                "tests/test_iter236_behavior.py"}
+                "tests/test_iter236_behavior.py",
+                # iter 446: FORCED count-word advance. Doctor grew a SEVENTH drift
+                # line (watchdog-arm), so every prior-iteration test that pinned
+                # "SIX drift lines" in README or docstring must step to SEVEN.
+                # iter-373 also needed DORMANT_HOSTS narrowed (run_doctor_cli
+                # removed), and iter-375's retirement count stepped 8 -> 7.
+                # No newest-ness pin touched.
+                "tests/test_iter337_behavior.py",
+                "tests/test_iter361_behavior.py",
+                "tests/test_iter373_behavior.py",
+                "tests/test_iter375_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

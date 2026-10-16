@@ -783,9 +783,11 @@ def test_ac_run_doctor_cli_docstring_announces_four_drift_lines():
     # purpose: iteration 230's AC-G reads THIS file's source and requires that
     # exact-case phrase alongside the current one, and every other spelling of
     # it left in this file is uppercase.
-    assert re.search(r"(?i)\bsix drift lines\b", doc), \
-        "docstring does not announce SIX drift lines: %r" % doc[:200]
-    assert not re.search(r"(?i)\bfive drift lines\b", doc), \
-        "docstring still claims FIVE drift lines: %r" % doc[:200]
+    # ADVANCED iter 446: doctor grew a SEVENTH drift line (the watchdog-arm line),
+    # so both count words step once more.
+    assert re.search(r"(?i)\bseven drift lines\b", doc), \
+        "docstring does not announce SEVEN drift lines: %r" % doc[:200]
+    assert not re.search(r"(?i)\bsix drift lines\b", doc), \
+        "docstring still claims SIX drift lines: %r" % doc[:200]
     assert str(THIS_ITER) in doc, \
         "docstring does not attribute the fourth line to iter 164"

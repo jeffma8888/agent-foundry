@@ -750,9 +750,10 @@ def test_b10_doctor_writes_nothing_to_disk(monkeypatch, tmp_path) -> None:
 # ========================================================================== #
 def test_b11_readme_announces_six_drift_lines() -> None:
     text = " ".join(README.read_text(encoding="utf-8").split())
-    assert "PLUS SIX drift lines" in text, \
-        "README `# 0.` must advance its count word to SIX"
-    assert "PLUS FIVE drift lines" not in text, "the retired count word must be gone"
+    # ADVANCED iter 446: doctor grew a SEVENTH drift line (watchdog-arm).
+    assert "PLUS SEVEN drift lines" in text, \
+        "README `# 0.` must advance its count word to SEVEN"
+    assert "PLUS SIX drift lines" not in text, "the retired count word must be gone"
 
 
 def test_b11_readme_names_this_line_and_its_remedy() -> None:
@@ -947,16 +948,18 @@ def _readme_count_word_gaps(text: str) -> tuple:
     """The README count-word check as a FUNCTION, so it can be proved on both arms."""
     flat = " ".join(text.split())
     gaps = []
-    if "PLUS SIX drift lines" not in flat:
-        gaps.append("README `# 0.` does not announce SIX drift lines")
-    if "PLUS FIVE drift lines" in flat:
-        gaps.append("README still claims FIVE drift lines")
+    # ADVANCED iter 446: doctor grew a SEVENTH drift line (watchdog-arm).
+    if "PLUS SEVEN drift lines" not in flat:
+        gaps.append("README `# 0.` does not announce SEVEN drift lines")
+    if "PLUS SIX drift lines" in flat:
+        gaps.append("README still claims SIX drift lines")
     return tuple(gaps)
 
 
 def test_b12_the_readme_count_word_predicate_fires_on_the_retired_word() -> None:
     real = README.read_text(encoding="utf-8")
     assert _readme_count_word_gaps(real) == (), _readme_count_word_gaps(real)
-    reverted = real.replace("PLUS SIX drift lines", "PLUS FIVE drift lines")
+    # ADVANCED iter 446: retirement target is now SIX -> FIVE.
+    reverted = real.replace("PLUS SEVEN drift lines", "PLUS SIX drift lines")
     assert reverted != real, "the mutation was a no-op, so the good arm proves nothing"
     assert len(_readme_count_word_gaps(reverted)) == 2, _readme_count_word_gaps(reverted)

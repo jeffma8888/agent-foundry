@@ -967,24 +967,36 @@ def doctor_ok(checks: list[Check]) -> bool:
 
 
 def run_doctor_cli(cfg: ProductConfig) -> int:
-    """CLI entry: print one line per check, SIX drift lines, and a summary.
+    """CLI entry: print one line per check, SEVEN drift lines, and a summary.
 
     Exit code is 0 iff all four checks pass -- UNCHANGED by ANY drift line (the
     live-lag line, iter 130; the steering-head line, iter 136; the roadmap-index
     line, iter 145; the stage-budget line, iter 164; the test-touch line,
-    iter 230; the auth-loss line, iter 336). None of the six is an environment
-    fault: a stale brain is a restart the operator owes, an over-budget steering
-    head is an edit the operator owes, a roadmap index near its hard wall is an
-    ARCHIVE the operator owes, a stage median at the hard per-stage cap is a
-    SMALLER BITE the PM owes, a diff that has touched no test directory is a
-    BEHAVIOR MODULE this iteration owes, and stage attempts destroyed by an
-    expired session are a RE-AUTHENTICATION a HUMAN owes -- so all six WARN where
-    they will be seen (this is the surface run before every launch) without ever
-    blocking a run. `run_doctor` itself stays a 4-`Check` function, since its
-    shape is pinned by the iter-01 tests, which is exactly why these six
-    diagnostics live HERE and not as fifth through tenth checks.
+    iter 230; the auth-loss line, iter 336; the watchdog-arm line, iter 446).
+    None of the seven is an environment fault: a stale brain is a restart the
+    operator owes, an over-budget steering head is an edit the operator owes, a
+    roadmap index near its hard wall is an ARCHIVE the operator owes, a stage
+    median at the hard per-stage cap is a SMALLER BITE the PM owes, a diff that
+    has touched no test directory is a BEHAVIOR MODULE this iteration owes,
+    stage attempts destroyed by an expired session are a RE-AUTHENTICATION a
+    HUMAN owes, and an unarmed watchdog is a SCHEDULE ENTRY this machine owes
+    -- so all seven WARN where they will be seen (this is the surface run before
+    every launch) without ever blocking a run. `run_doctor` itself stays a
+    4-`Check` function, since its shape is pinned by the iter-01 tests, which
+    is exactly why these seven diagnostics live HERE and not as fifth through
+    eleventh checks.
 
-    The newest line (iter 336) is the only one of the six whose remedy lives
+    The newest line (iter 446) is the SECOND of the seven whose remedy lives
+    OUTSIDE this loop: `probe_watchdog_arm` (iter 373) answers whether a
+    periodic schedule arms the resurrection watchdog, but it was dormant --
+    nothing in `doctor` or any other orchestrator read it. Now it is this
+    function's seventh drift line, called INSIDE this body by bare module
+    name (so `monkeypatch.setattr(foundry, "probe_watchdog_arm", ...)` bites)
+    and double-guarded against any error the probe or the print could raise.
+    A `None` or non-`str` probe degrades to UNKNOWN, matching the fail-SAFE
+    asymmetry every prior drift line uses.
+
+    The iter-336 line is the FIRST of the seven whose remedy lives
     OUTSIDE this loop: `ATTEMPT_FAILURE_MARKERS` has held since iter 196 that
     `auth` is the one failure kind NO retry and NO sleep can heal, and `losses`
     has counted it per product since iter 173, yet that verdict reached no
@@ -1047,6 +1059,16 @@ def run_doctor_cli(cfg: ProductConfig) -> int:
         print(auth_loss_line(cfg, limit=AUTH_LOSS_RECENT_ITERATIONS))
     except Exception as exc:  # pragma: no cover - contract-impossible belt
         print(f"{AUTH_LOSS_PREFIX} UNKNOWN -- auth-loss line errored: {exc!r}")
+    try:
+        body = probe_watchdog_arm()
+        if not isinstance(body, str) or not body.strip():
+            print(f"{WATCHDOG_ARM_PREFIX} UNKNOWN -- the schedule listing did not "
+                  f"read, so nothing is claimed about this machine either way")
+        else:
+            print(f"{WATCHDOG_ARM_PREFIX} {' '.join(body.split())}")
+    except Exception as exc:  # pragma: no cover - contract-impossible belt
+        print(f"{WATCHDOG_ARM_PREFIX} UNKNOWN -- watchdog-arm line errored: "
+              f"{exc!r}")
     ok = doctor_ok(checks)
     passed = sum(1 for c in checks if c.ok)
     print(f"doctor: {passed}/{len(checks)} checks ok — "
@@ -11392,12 +11414,11 @@ WATCHDOG_ARM_TIMEOUT_SECONDS = 20
 WATCHDOG_ARM_TOKEN = "watchdog.py"
 
 # Stable grep anchor for the ONE line this verb prints, and deliberately distinct
-# from the SIX drift prefixes `run_doctor_cli` already emits (`live-lag:`,
+# from the other drift prefixes `run_doctor_cli` emits (`live-lag:`,
 # `learnings-head:`, `roadmap-index:`, `stage-budget:`, `test-touch:`,
 # `auth-loss:`): an operator must be able to grep exactly one report out of a
-# stdout by PREFIX rather than by line position. NOT wired into `doctor` here --
-# that seat is its own bite, priced in this iteration's spec -- so this prefix is
-# the whole surface today.
+# stdout by PREFIX rather than by line position. Wired into `doctor` as the
+# SEVENTH drift line since iter 446.
 WATCHDOG_ARM_PREFIX = "watchdog-arm:"
 
 
@@ -27621,14 +27642,11 @@ def watchdog_arm_cli() -> int:
     which likewise probes the box rather than a product), so it is dispatched
     before `load_config` and also works in a fresh clone.
 
-    DORMANT on purpose -- the additive-dormant pattern that keeps a loop in flight
-    resumable: nothing in `run_iteration`, `run_stage`, `build_prompt`,
-    `run_continuous`, `postrelease_step`, the final gate, `run_doctor`,
-    `run_doctor_cli` or `dispatcher.py` reaches any watchdog-arm symbol; this
-    function is their only caller and `main()`'s dispatch is its only caller.
-    Giving the answer a seat in `doctor` is a SEVENTH drift line, whose real cost
-    (four pinned test modules and a retired-phrase trap) is measured in this
-    iteration's spec and left as its own bite.
+    NO LONGER DORMANT since iter 446, which wired `probe_watchdog_arm` into
+    `run_doctor_cli` as the SEVENTH drift line. This standalone verb remains
+    the config-free entry point for scripts that want the watchdog-arm answer
+    without running the full preflight, and `main()`'s dispatch is its only
+    caller.
 
     An unread listing prints its own explicit UNKNOWN sentence, sharing no leading
     verdict word with the three real bodies, for the reason `probe_watchdog_arm`

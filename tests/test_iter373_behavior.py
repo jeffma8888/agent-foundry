@@ -81,10 +81,13 @@ NEW_SYMBOLS = (
     "watchdog_arm_cli",
 )
 
-# The eight functions the spec pins as byte-free of the new verb (behavior 9).
+# The seven functions the spec pins as byte-free of the new verb (behavior 9).
+# ADVANCED iter 446: `run_doctor_cli` is now the LEGITIMATE consumer of
+# `probe_watchdog_arm` and `WATCHDOG_ARM_PREFIX` (seventh drift line), so it
+# is REMOVED from this dormancy guard.  The other seven hosts stay dormant.
 DORMANT_HOSTS = (
     "run_iteration", "run_stage", "build_prompt", "run_continuous",
-    "postrelease_step", "preship_cli", "run_doctor", "run_doctor_cli",
+    "postrelease_step", "preship_cli", "run_doctor",
 )
 
 # Needles for behavior 5.  Each one is asserted PRESENT in the fixture listing first
@@ -609,10 +612,9 @@ def test_b9_run_doctor_is_still_exactly_four_checks(monkeypatch, tmp_path) -> No
 
 def test_b9_readme_section_zero_still_reads_plus_six_drift_lines() -> None:
     section = _readme_section(_readme_text(), 0)
-    assert "PLUS SIX drift lines" in section, "README `# 0.` lost its count word"
-    assert "PLUS FIVE drift lines" not in section, "README `# 0.` regressed to FIVE"
-    assert "PLUS SEVEN drift lines" not in section, \
-        "the seventh drift line is OUT OF SCOPE for iteration 373"
+    # ADVANCED iter 446: doctor grew a SEVENTH drift line (watchdog-arm).
+    assert "PLUS SEVEN drift lines" in section, "README `# 0.` lost its count word"
+    assert "PLUS SIX drift lines" not in section, "README `# 0.` regressed to SIX"
 
 
 def test_b9_the_new_verb_added_no_drift_line_to_section_zero() -> None:
@@ -661,6 +663,14 @@ def test_b10_roadmap_verb_figure_needs_no_repin() -> None:
     index = (_ROOT / "PLATFORM_ROADMAP.md").read_text(encoding="utf-8")
     assert foundry.roadmap_verb_figure_gaps(index, len(_live_verbs())) == (), \
         "a roadmap verb-count figure went stale"
+
+
+def test_b10_this_module_is_on_the_iter204_allow_list() -> None:
+    """The b15 brake reds on any unlisted tests/ path the moment the gate stages."""
+    text = (_ROOT / "tests" / "test_iter204_behavior.py").read_text(encoding="utf-8")
+    mine = f"tests/test_iter{THIS_ITER}_behavior.py"
+    assert mine in text, \
+        f"{mine} must be allow-listed or the gate's `git add -A` reds iter 204's b15"
 
 
 def test_b10_the_pm_records_for_this_iteration_are_in_the_tree() -> None:

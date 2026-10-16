@@ -807,10 +807,10 @@ def test_b12_no_older_record_was_evicted(older) -> None:
 
 
 def test_b12_the_readme_count_word_stays_six() -> None:
-    """This iteration changed one ARM of an existing line; there is no seventh line."""
+    """ADVANCED iter 446: doctor grew a SEVENTH drift line (watchdog-arm)."""
     text = " ".join(README.read_text(encoding="utf-8").split())
-    assert "PLUS SIX drift lines" in text, text[:200]
-    assert "PLUS SEVEN drift lines" not in text, "no seventh drift line was added"
+    assert "PLUS SEVEN drift lines" in text, text[:200]
+    assert "PLUS SIX drift lines" not in text, "the retired count word must be gone"
 
 
 def test_b12_the_roadmap_index_is_inside_its_own_budget() -> None:
@@ -875,9 +875,10 @@ def test_b14_the_ledger_oracle_fires_when_this_iterations_row_is_removed() -> No
 
 def test_b14_the_readme_count_predicate_reads_real_text() -> None:
     text = " ".join(README.read_text(encoding="utf-8").split())
-    mutated = text.replace("PLUS SIX drift lines", "PLUS SEVEN drift lines")
+    # ADVANCED iter 446: the mutation target is now SEVEN -> EIGHT.
+    mutated = text.replace("PLUS SEVEN drift lines", "PLUS EIGHT drift lines")
     assert mutated != text, "the count-word check is reading text that is not there"
-    assert "PLUS SEVEN drift lines" in mutated
+    assert "PLUS EIGHT drift lines" in mutated
 
 
 @pytest.mark.parametrize("symbol", NEW_SYMBOLS)

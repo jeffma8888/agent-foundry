@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-446
+    lenses: unknown
+    - Candidate A1 -- USAGE.md cheat-sheet gains a `doctor` row so the operator's first diagnostic tool has a discoverable on-ramp
+    - Candidate A2 -- ARCHITECTURE.md §2 reporter row's output column names STATUS_REPORT, a file 0 of 18 products have ever produced; replace it with the actual artifact name
+    - Candidate A3 -- `watchdog-arm` is dormant: wire it into `doctor` as its seventh drift line so the resilience path has its first human-facing consumer
+    - Candidate B1 -- consolidate the 41-file `_co_names_deep` cluster into `tests/_shared.py` (-~370 lines)
+    - Candidate B2 -- archive the CLOSED Item 23 body from the roadmap index (-~2,900 chars)
+    - Candidate B3 -- retire the periodic STATUS_REPORT branch: `REPORT_EVERY`, `mechanical_report`, `narrative_report`, `cfg.report`, `roles/reporter.md`
+    winner: A3
+    ship: pending (not yet decided)
   iter-434
     lenses: unknown
     - Candidate A1 -- `launch.sh` gates on `preflight` instead of bare `single-brain`
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- retire the periodic STATUS_REPORT branch: `REPORT_EVERY`, `mechanical_report`, `narrative_report`, `cfg.report`, `roles/reporter.md`
     - Candidate B3 -- retire the `CHEATSHEET_DEAD_TARGETS` constant and its guard infrastructure now that its sole consumer is gone
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 5664ca9
   iter-433
     lenses: unknown
     - Candidate A1 -- fix the 2 unowned lines in the LEARNINGS `## Patterns` head so doctor reads `learnings-head: OK` with 0 unowned
@@ -1963,4 +1973,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-197 scouted iterations
+198 scouted iterations
