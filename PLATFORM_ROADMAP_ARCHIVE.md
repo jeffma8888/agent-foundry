@@ -1057,3 +1057,4 @@ future attempt needs a documented LAST-RESORT truncation and its own iteration.
 ## Compacted from the index by iter 431
 
 (d), (g)'s rendering half, (j), (k), and (o).
+- **iter 446 -- doctor seventh drift line: wire the dormant `probe_watchdog_arm` (iter 373) into `run_doctor_cli` as its seventh drift line `watchdog-arm:`, giving the resilience probe its first consumer inside the operator's primary diagnostic surface. Three verdicts: `armed`, `no-schedule`, `UNKNOWN`. Report-only (no Check, no exit-code change). Nine prior-iteration count-word pins advanced SIX->SEVEN. Five forced brake amendments: iter-204 b15 staging window, iter-373 DORMANT_HOSTS, iter-373 allow-list witness, iter-375 retired/free/witnessed counts, iter-375 self-status narrowing. Reviewer NIT fixed (docstring "the only one" -> "the FIRST"). DIRECTIONS.md iter-427 A1 needle redacted.**

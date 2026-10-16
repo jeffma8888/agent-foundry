@@ -585,10 +585,11 @@ def test_ac_readme_documents_the_third_line():
     # reads THIS file's source and requires the just-retired phrase to still be
     # present while the phrase retired one step EARLIER stays absent -- so the
     # retirement record lives in a comment and never reaches back two steps.
-    assert re.search(r"(?i)\bsix drift lines\b", txt), \
-        "README does not announce six drift lines"
-    assert not re.search(r"(?i)\bfive drift lines\b", txt), \
-        "README still claims there are five drift lines"
+    # ADVANCED iter 446: doctor grew a SEVENTH drift line (watchdog-arm).
+    assert re.search(r"(?i)\bseven drift lines\b", txt), \
+        "README does not announce seven drift lines"
+    assert not re.search(r"(?i)\bsix drift lines\b", txt), \
+        "README still claims there are six drift lines"
     assert foundry.ROADMAP_INDEX_PREFIX.rstrip(":") in txt
     assert "ROADMAP_INDEX_HARD_CHARS" in txt
     assert re.search(r"(?i)drift line ever changes doctor.s own exit code", txt), \

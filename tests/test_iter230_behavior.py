@@ -630,8 +630,9 @@ def test_ac_a_run_doctor_cli_docstring_announces_five_drift_lines() -> None:
     # ADVANCED iter 336: doctor grew a SIXTH drift line, so both count words step
     # once more.  The test KEEPS its name -- iteration 231 and this module's own
     # AC-G pin names as literal tokens, so a rename retires live brakes silently.
-    assert re.search(r"(?i)\bsix drift lines\b", doc), doc[:200]
-    assert not re.search(r"(?i)\bfive drift lines\b", doc), doc[:200]
+    # ADVANCED iter 446: doctor grew a SEVENTH drift line (watchdog-arm).
+    assert re.search(r"(?i)\bseven drift lines\b", doc), doc[:200]
+    assert not re.search(r"(?i)\bsix drift lines\b", doc), doc[:200]
     assert str(THIS_ITER) in doc, doc[:200]
     assert "all four checks pass" in doc, doc[:400]
     assert "164" in doc, doc[:400]
@@ -648,8 +649,9 @@ def _readme() -> str:
 def test_ac_b_readme_entry_zero_advances_to_five_drift_lines() -> None:
     entry = _readme_entry(0)
     # ADVANCED iter 336: same SIXTH drift line, same two-sided shape.
-    assert "PLUS SIX drift lines" in entry
-    assert "PLUS FIVE drift lines" not in entry
+    # ADVANCED iter 446: same SEVENTH drift line, same two-sided shape.
+    assert "PLUS SEVEN drift lines" in entry
+    assert "PLUS SIX drift lines" not in entry
 
 
 def test_ac_b_readme_entry_zero_frozen_tail_sentence_survives_byte_unchanged() -> None:
@@ -902,7 +904,8 @@ IT164 = _ROOT / "tests" / "test_iter164_behavior.py"
 
 def test_ac_g_iter145_readme_regexes_advanced_and_the_stale_phrase_is_gone() -> None:
     src = IT145.read_text(encoding="utf-8")
-    assert "five drift lines" in src
+    # ADVANCED iter 446: the just-retired phrase is now "six", not "five".
+    assert "six drift lines" in src
     assert "four drift lines" in src
     assert "three drift lines" not in src, "the retired phrase still pins the README"
 
@@ -926,7 +929,8 @@ def test_ac_g_iter164_docstring_regexes_are_phrase_scoped_not_bare_words() -> No
     """The bare-word form would pass VACUOUSLY once the docstring keeps `all four checks
     pass`, silently retiring a live brake -- so the phrases must be present."""
     src = IT164.read_text(encoding="utf-8")
-    assert "five drift lines" in src
+    # ADVANCED iter 446: the just-retired phrase is now "six", not "five".
+    assert "six drift lines" in src
     assert "four drift lines" in src
 
 

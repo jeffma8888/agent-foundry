@@ -665,9 +665,9 @@ def test_b12_readme_entry_zero_describes_the_near_wall_outcome():
 
 def test_b12_readme_entry_zero_keeps_its_six_drift_line_count_word():
     entry = _readme_entry(0)
-    assert "PLUS SIX drift lines" in entry, entry[:200]
-    assert "PLUS FIVE drift lines" not in entry, entry[:200]
-    assert "seventh drift line" not in entry.lower(), entry[:200]
+    # ADVANCED iter 446: doctor grew a SEVENTH drift line (watchdog-arm).
+    assert "PLUS SEVEN drift lines" in entry, entry[:200]
+    assert "PLUS SIX drift lines" not in entry, entry[:200]
 
 
 def test_b12_iteration_230_frozen_tail_sentence_survives_byte_unchanged():
