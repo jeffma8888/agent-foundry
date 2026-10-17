@@ -305,6 +305,7 @@ in the archive.
 - iter 433 -- status last-ship: two fields, render line, JSON keys via gather_outcomes.
 - iter 434 -- launch.sh gates on preflight (GO/NO-GO/CAUTION) instead of bare single-brain.
 - iter 446 -- doctor seventh drift line: wire dormant probe_watchdog_arm into doctor as watchdog-arm.
+- iter 447 -- archive Item 23 body from roadmap index to archive (headroom recovery).
 
 
 ### Migration notes (per §6 self-mod guardrail)
@@ -483,44 +484,7 @@ Moved VERBATIM to the archive by iter 209.
 
 ## Item 23 -- dispatcher survives a dead stdout (SMALL, incident-driven 2026-08-03)
 
-**Problem.** A 68-shift dispatcher session died at 09:18 on `OSError(5, 'Input/output
-error')` raised during a product shift and again on shutdown logging. Root cause: the
-hosting terminal/PTY was torn down while the process kept running, so every later
-`print()`/console write raised `OSError` -- the per-shift handler logged "continuing"
-but the next console write killed the outer loop anyway. The durable log file
-(`DISPATCH_LOG.md`) was fine; only the console stream was dead. An always-on brain must
-not die because its terminal did.
-
-**What ships.**
-- A tiny safe-console-write helper in `dispatcher.py` (and `foundry.py` if it prints on
-  the control path): wrap console writes so `OSError`/`ValueError` (closed stream) is
-  swallowed after the first failure and console output is disabled for the rest of the
-  session -- file logging is untouched and remains the record.
-- The shutdown path ("dispatcher down; shifts this session=N") writes to the log FILE
-  first, console second, so the summary always lands.
-- Unit tests: a stream whose `write` raises `OSError` neither propagates nor stops shift
-  scheduling; the log file still receives every line; console re-disable is one-shot
-  (no per-line retry storm).
-
-**Done when.**
-- [x] All dispatcher/foundry control-path console writes go through the helper; a dead
-      stdout mid-session cannot terminate the loop (regression test simulates it).
-      (dispatcher half 2026-08-03 via `dlog`; `foundry.py` half by iter 235 on `log()`.)
-- [x] Shutdown summary reaches the log file even with a dead console; `tests/` green.
-      (`dispatcher.py:149` writes it through `dlog`, which is file-first/console-second.)
-
-**CLOSED by iter 235 -- shipped shape differs from the prose above, deliberately.** The
-parenthetical "(and `foundry.py` if it prints on the control path)" was a conditional nobody
-re-evaluated after the dispatcher half landed, so this item read as a closed 2026-08-03 incident
-while half of it was still open. Iter 235 answered the conditional by AST census: `run_stage` and
-`run_iteration` contain ZERO bare `print` calls, so `log()` was the ONLY unguarded control-path
-console writer in `foundry.py` -- one function, not a sweep. TWO NARROWINGS, both on purpose:
-(1) no "helper" symbol and no module-level session latch -- `log()` got `dlog`'s per-call
-`except OSError` / `except (OSError, ValueError)` pair inline, because a global that latches on
-first failure is order-coupling in a shared pytest process and would need a reset seam; the
-per-line cost of re-attempting a failing write is one syscall, not the "retry storm" this item
-feared. (2) `dispatcher.py:85` and `:91` keep bare prints and are OUT of scope: both are pre-loop
-startup refusals that `return 1` immediately, so a dead stdout there cannot orphan a running loop.
+Moved VERBATIM to the archive by iter 447.
 
 ## Item 24 -- docs/code status-drift brakes
 
