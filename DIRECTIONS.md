@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-448
+    lenses: unknown
+    - Candidate A1 -- `_guard_nodes` result cached per `tests_dir`: cut 10 redundant 267-file AST parses in test_iter132 + test_control_path_freeze_scope (-9.4 s of 41 s suite, 23%)
+    - Candidate A2 -- the 8 `live_smoke_on_real_dispatch_config` tests invoke `foundry.main` for the same fleet roll-up verbs redundantly: share the invocations via a session-scoped fixture (-15 s of 41 s suite, 37%)
+    - Candidate A3 -- `test_iter132`'s 5 live-population tests re-derive the freeze-guard census via `scope.freeze_guards()`: inject a module-scoped fixture to compute once (-4.2 s of the module's 10.7 s, or -4.2 s of the 41 s suite)
+    - Candidate B1 -- README quickstart step #3 teaches the unsupported dispatcher launch recipe while USAGE.md explicitly warns against it
+    - Candidate B2 -- roadmap STATUS paragraph says "current through 323" while the Done ledger is at 447 — 124 iterations stale
+    - Candidate B3 -- ARCHITECTURE.md §2 reporter row's output column names STATUS_REPORT, a file 0 of 18 products have ever produced
+    winner: A1
+    ship: pending (not yet decided)
   iter-447
     lenses: unknown
     - Candidate A1 -- consolidate the 41-file `_co_names_deep` cluster into `tests/_shared.py` (-~400 lines)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the four `live_smoke_on_real_dispatch_config` tests spawn 8 subprocesses; share one invocation per verb across the module
     - Candidate B3 -- `test_iter132` re-walks the 267-file test census three times; compute it once per module with a module-scoped fixture
     winner: A2
-    ship: pending (not yet decided)
+    ship: PUSHED b4b1d40
   iter-446
     lenses: unknown
     - Candidate A1 -- USAGE.md cheat-sheet gains a `doctor` row so the operator's first diagnostic tool has a discoverable on-ramp
@@ -1983,4 +1993,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-199 scouted iterations
+200 scouted iterations
