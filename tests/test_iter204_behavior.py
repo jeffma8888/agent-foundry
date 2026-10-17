@@ -1111,7 +1111,12 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # `README.md` appears only in the module-level `FORBIDDEN` constant,
                 # not inside any test function body), so no newest-ness pin was
                 # swept, converted or added. No newest-ness pin touched.
-                "tests/test_control_path_freeze_scope.py"}
+                "tests/test_control_path_freeze_scope.py",
+                # iter 449: `changelog` is a new CLI verb (the 62nd), so the
+                # iter-362 verb census pin advances 61 -> 62, and iter-420's
+                # `test_b12_readme_has_exactly_one_62_and_no_63` section-count
+                # guard admits `# 63.`. No newest-ness pin touched.
+                "tests/test_iter420_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the
