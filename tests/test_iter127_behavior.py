@@ -649,7 +649,9 @@ def test_b12_no_new_config_field():
     # which is what 127 actually forbade) is untouched and still passes.
     # EXTENDED again by iteration 334 on the same 188 precedent: `practice_register`,
     # the PM seat's second external evidence feed (21 -> 22).
-    assert len(fields) == 22, fields
+    # EXTENDED again by iteration 450: `notify_cmd`, the operator notification hook
+    # (22 -> 23).
+    assert len(fields) == 23, fields
     for f in fields:
         low = f.lower()
         assert "disposition" not in low and "repair" not in low, f

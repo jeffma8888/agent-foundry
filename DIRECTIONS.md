@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-450
+    lenses: new-capability)
+    - Candidate A1 -- `foundry reverts --config CFG [--limit N] [--json]`: a revert inventory with reason and retry class
+    - Candidate A2 -- `notify_cmd`: a product-config hook fired on human-required holds
+    - Candidate A3 -- `foundry company-changelog --config <dispatch> [--limit N] [--json]`: the company-wide changelog roll-up
+    - Candidate B1 -- consolidate the 41-file `_co_names_deep` cluster into `tests/_shared.py` (-~400 lines, 41 duplicate definitions -> 1 shared helper)
+    - Candidate B2 -- share the 8 `live_smoke_on_real_dispatch_config` tests via a session-scoped fixture (-14.55 s of the 38.41 s suite, 38%)
+    - Candidate B3 -- fix the 2 unowned lines in the LEARNINGS `## Patterns` head + dormant `learnings_head_unowned_gaps` guard
+    winner: A2
+    ship: pending (not yet decided)
   iter-449
     lenses: new-capability
     - Candidate A1 -- ARCHITECTURE.md §2 reporter row output column names STATUS_REPORT.md, a file 0 of 18 products have ever produced
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `notify_cmd`: a product-config hook fired on human-required holds
     - Candidate B3 -- `foundry reverts --config CFG [--limit N] [--json]`: a revert inventory with reason and retry class
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED e2d6389
   iter-448
     lenses: unknown
     - Candidate A1 -- `_guard_nodes` result cached per `tests_dir`: cut 10 redundant 267-file AST parses in test_iter132 + test_control_path_freeze_scope (-9.4 s of 41 s suite, 23%)
@@ -2003,4 +2013,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-201 scouted iterations
+202 scouted iterations
