@@ -765,10 +765,10 @@ def test_b12_readme_61_section_unchanged_two_line_shape():
     assert sec61[1] == README_61_USAGE
 
 
-def test_b12_readme_has_exactly_one_62_and_no_63():
+def test_b12_readme_has_exactly_one_62_and_one_63():
     text = README.read_text(encoding="utf-8")
     assert len(re.findall(r"^#\s*62\.", text, flags=re.M)) == 1
-    assert not re.search(r"^#\s*63\.", text, flags=re.M)
+    assert len(re.findall(r"^#\s*63\.", text, flags=re.M)) == 1  # +1 for `changelog` (iter 449)
 
 
 def test_b12_readme_verb_index_two_way_clean():

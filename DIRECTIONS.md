@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-449
+    lenses: new-capability
+    - Candidate A1 -- ARCHITECTURE.md §2 reporter row output column names STATUS_REPORT.md, a file 0 of 18 products have ever produced
+    - Candidate A2 -- roadmap STATUS paragraph says "current through 323" while the Done ledger is at iter 448 — 125 iterations stale
+    - Candidate A3 -- dispatcher.py docstring and README.md both teach the bare `dispatcher.py` launch recipe that USAGE.md calls unsupported
+    - Candidate B1 -- `foundry changelog --config CFG [--limit N] [--json]`: per-product release notes from conventional ship commits
+    - Candidate B2 -- `notify_cmd`: a product-config hook fired on human-required holds
+    - Candidate B3 -- `foundry reverts --config CFG [--limit N] [--json]`: a revert inventory with reason and retry class
+    winner: B1
+    ship: pending (not yet decided)
   iter-448
     lenses: unknown
     - Candidate A1 -- `_guard_nodes` result cached per `tests_dir`: cut 10 redundant 267-file AST parses in test_iter132 + test_control_path_freeze_scope (-9.4 s of 41 s suite, 23%)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- roadmap STATUS paragraph says "current through 323" while the Done ledger is at 447 — 124 iterations stale
     - Candidate B3 -- ARCHITECTURE.md §2 reporter row's output column names STATUS_REPORT, a file 0 of 18 products have ever produced
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED f5e4300
   iter-447
     lenses: unknown
     - Candidate A1 -- consolidate the 41-file `_co_names_deep` cluster into `tests/_shared.py` (-~400 lines)
@@ -1993,4 +2003,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-200 scouted iterations
+201 scouted iterations

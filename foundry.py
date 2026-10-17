@@ -17820,6 +17820,118 @@ def outcomes_cli(cfg: ProductConfig, limit: int | None = None,
 
 
 # --------------------------------------------------------------------------- #
+# Per-product changelog (`changelog`) -- roadmap iteration 449.
+#
+# A read-only, offline verb that turns the product repo's conventional-commit
+# ship subjects into a stakeholder-readable release-notes list. Every ship
+# commit already uses `<prefix>: <description> (foundry iter N)` -- 100%
+# machine-parseable. This verb surfaces WHAT shipped, complementing the
+# operator-facing `history` verb which surfaces WHETHER each iteration shipped.
+#
+# Purely ADDITIVE + OFF the control path: it only READS git log and prints;
+# `run_iteration` / `run_continuous` / `run_stage` / the dispatcher NEVER
+# call it and it writes NOTHING. Same "frozen dataclass + pure gather seam +
+# thin CLI via `_thin_gather_cli`" pattern as `outcomes` (iter 100).
+# --------------------------------------------------------------------------- #
+
+_CHANGELOG_TAG_RE = re.compile(r"\(foundry iter (\d+)\)\s*$")
+_CHANGELOG_PREFIX_RE = re.compile(r"^([a-z]+):\s*")
+
+
+@dataclasses.dataclass(frozen=True)
+class ChangelogEntry:
+    """One ship commit parsed into its structured parts."""
+    iter_num: int
+    prefix: str
+    subject: str
+
+
+@dataclasses.dataclass(frozen=True)
+class ChangelogSummary:
+    """A per-product changelog for machine and human consumers."""
+    product: str
+    entries: tuple[ChangelogEntry, ...]
+
+    @property
+    def total(self) -> int:
+        return len(self.entries)
+
+    @property
+    def exit_code(self) -> int:
+        return 2 if self.total == 0 else 0
+
+    def render(self) -> str:
+        header = f"foundry changelog -- {self.product}"
+        if not self.entries:
+            return "\n".join([header, "  no entries yet"])
+        rows = [
+            f"  iter-{e.iter_num:02d}  [{e.prefix}]  {e.subject}"
+            for e in self.entries
+        ]
+        return "\n".join([header, *rows, f"{self.total} entries"])
+
+    def to_dict(self) -> dict:
+        return {
+            "product": self.product,
+            "total": self.total,
+            "exit_code": self.exit_code,
+            "entries": [
+                {"iter": e.iter_num, "prefix": e.prefix, "subject": e.subject}
+                for e in self.entries
+            ],
+        }
+
+
+def summarize_changelog(*, product: str,
+                        entries: Iterable[ChangelogEntry]) -> ChangelogSummary:
+    """Pure keyword-only constructor for a `ChangelogSummary`."""
+    return ChangelogSummary(product=product, entries=tuple(entries))
+
+
+def gather_changelog(cfg: ProductConfig,
+                     limit: int | None = None) -> ChangelogSummary:
+    """Gather one product's release notes from conventional ship commits.
+
+    Walks `git log --oneline` for the product's repo, filtering to commits
+    whose subject matches the `(foundry iter N)` tag, and parses the
+    conventional-commit prefix and description from each matching line.
+    Returns newest-first. When `limit` is a positive int, returns at most
+    `limit` entries. A repo with no matching commits yields an empty summary
+    (never raising). Reads through the module-level `git` seam by BARE name
+    so a `monkeypatch.setattr(foundry, "git", ...)` bites."""
+    raw = git(cfg, "log", "--oneline", "--no-decorate", f"--format=%s")
+    entries: list[ChangelogEntry] = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        tag_match = _CHANGELOG_TAG_RE.search(line)
+        if tag_match is None:
+            continue
+        iter_num = int(tag_match.group(1))
+        before_tag = line[:tag_match.start()].strip()
+        prefix_match = _CHANGELOG_PREFIX_RE.match(before_tag)
+        if prefix_match is None:
+            continue
+        prefix = prefix_match.group(1)
+        subject = before_tag[prefix_match.end():].strip()
+        entries.append(ChangelogEntry(iter_num=iter_num, prefix=prefix,
+                                      subject=subject))
+    if isinstance(limit, int) and limit > 0:
+        entries = entries[:limit]
+    return summarize_changelog(product=cfg.name, entries=entries)
+
+
+def changelog_cli(cfg: ProductConfig, limit: int | None = None,
+                  as_json: bool = False) -> int:
+    """On-demand CLI: print a per-product changelog + a 0/2 exit code.
+
+    Gathers the changelog through the `gather_changelog(cfg, limit)` seam
+    then prints the pure `ChangelogSummary` core. Writes NOTHING to disk."""
+    return _thin_gather_cli(gather_changelog, cfg, limit, as_json)
+
+
+# --------------------------------------------------------------------------- #
 # Decision-log render (`directions`) -- discovery bite 4a (roadmap iter 115).
 #
 # The operator needs to read, in ONE place, WHAT each scouted iteration
@@ -28278,6 +28390,14 @@ def main(argv: list[str] | None = None) -> int:
     outc.add_argument("--json", action="store_true",
                       help="emit the ledger as one JSON document (machine-readable) "
                            "instead of the human report; same 0/2 exit code, honours --limit")
+    clg = sub.add_parser("changelog")
+    clg.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    clg.add_argument("--limit", type=int, default=None,
+                     help="show only the most-recent N entries (default: all)")
+    clg.add_argument("--json", action="store_true",
+                     help="emit the changelog as a JSON array (machine-readable) "
+                          "instead of the human report; same 0/2 exit code, honours --limit")
     # `directions` prints a read-only, offline per-iteration DECISION log for
     # one product: the scout lenses + candidate one-liners considered, the PM
     # lead's picked winner, and the ship action/sha, ONE block per SCOUTED
@@ -29110,6 +29230,8 @@ def main(argv: list[str] | None = None) -> int:
         return novelty_check_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "outcomes":
         return outcomes_cli(cfg, limit=args.limit, as_json=args.json)
+    if args.cmd == "changelog":
+        return changelog_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "directions":
         # `--topic` routes to the SIBLING printer so the pinned `directions_cli`
         # (signature + one-statement body, test_iter165) stays byte-untouched.
