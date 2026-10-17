@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-447
+    lenses: unknown
+    - Candidate A1 -- consolidate the 41-file `_co_names_deep` cluster into `tests/_shared.py` (-~400 lines)
+    - Candidate A2 -- archive the CLOSED Item 23 body from the roadmap index (-2,898 chars, +5.3% headroom)
+    - Candidate A3 -- retire the periodic STATUS_REPORT branch: `REPORT_EVERY`, `mechanical_report`, `narrative_report`, `cfg.report`, `roles/reporter.md`
+    - Candidate B1 -- preship's fresh-clone test suite is 39 s of the final gate's 661 s median; skip when the tester already proved the identical tree
+    - Candidate B2 -- the four `live_smoke_on_real_dispatch_config` tests spawn 8 subprocesses; share one invocation per verb across the module
+    - Candidate B3 -- `test_iter132` re-walks the 267-file test census three times; compute it once per module with a module-scoped fixture
+    winner: A2
+    ship: pending (not yet decided)
   iter-446
     lenses: unknown
     - Candidate A1 -- USAGE.md cheat-sheet gains a `doctor` row so the operator's first diagnostic tool has a discoverable on-ramp
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- archive the CLOSED Item 23 body from the roadmap index (-~2,900 chars)
     - Candidate B3 -- retire the periodic STATUS_REPORT branch: `REPORT_EVERY`, `mechanical_report`, `narrative_report`, `cfg.report`, `roles/reporter.md`
     winner: A3
-    ship: pending (not yet decided)
+    ship: PUSHED 365fd4a
   iter-434
     lenses: unknown
     - Candidate A1 -- `launch.sh` gates on `preflight` instead of bare `single-brain`
@@ -1973,4 +1983,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-198 scouted iterations
+199 scouted iterations
