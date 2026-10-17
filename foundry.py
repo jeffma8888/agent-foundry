@@ -425,6 +425,7 @@ class ProductConfig:
     # 333). Defaults OFF for the same reason as `gap_register` above: every
     # existing config must load UNCHANGED and pay no I/O until a product opts in.
     practice_register: str = ""         # dir holding DIGEST.md ("" => feed off)
+    notify_cmd: str = ""                # shell command fired on human-required holds
 
     def resolve(self) -> "ProductConfig":
         def expand(p: str) -> str:
@@ -741,6 +742,27 @@ def sleep_interruptible(cfg: ProductConfig, seconds: int) -> bool:
             return True
         time.sleep(min(30, max(1, end - time.monotonic())))
     return stopping(cfg)
+
+
+def _notify_human_hold(cfg: ProductConfig, kind: str, detail: str) -> None:
+    """Fire the operator's notification command before a human-required hold.
+
+    Fail-open: a missing, broken, or slow command is logged and swallowed so
+    the hold proceeds exactly as if no command were configured.  Called by BARE
+    module name so ``monkeypatch.setattr(foundry, "_notify_human_hold", ...)``
+    seams it for tests.
+    """
+    cmd = cfg.notify_cmd
+    if not cmd:
+        return
+    env = {**os.environ, "FOUNDRY_HOLD_KIND": kind, "FOUNDRY_HOLD_DETAIL": detail}
+    try:
+        result = subprocess.run(cmd, shell=True, env=env, timeout=30,
+                                capture_output=True, text=True)
+        if result.returncode != 0:
+            log(cfg, f"notify_cmd exited {result.returncode}; continuing")
+    except Exception as exc:
+        log(cfg, f"notify_cmd failed ({exc!r}); continuing")
 
 
 def power_state() -> str:
@@ -24968,6 +24990,9 @@ def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
                 f"{AUTH_HOLD_SECONDS // 60} min (failure kind: {kind}) "
                 f"-- auth hold: an expired session is not retried; "
                 f"re-authenticate to resume")
+            _notify_human_hold(cfg, kind,
+                               f"auth hold: re-authenticate to resume "
+                               f"(stage {stage}, iter {iteration})")
             sleep_interruptible(cfg, AUTH_HOLD_SECONDS)
             return False, out_file
         if attempt < MAX_ATTEMPTS:

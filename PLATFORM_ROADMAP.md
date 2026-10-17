@@ -308,6 +308,7 @@ in the archive.
 - iter 447 -- archive Item 23 body from roadmap index to archive (headroom recovery).
 - iter 448 -- cache _guard_nodes by resolved path (9.4s suite saving).
 - iter 449 -- changelog verb surfaces what shipped per product.
+- iter 450 -- notify_cmd hold-notification.
 
 
 ### Migration notes (per §6 self-mod guardrail)

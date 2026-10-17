@@ -63,6 +63,8 @@ FROZEN_FIELDS = (
     "dual_pm_scouts", "gap_register", "gap_layers",
     # EXTENDED by iteration 334: `practice_register`, appended in declaration order.
     "practice_register",
+    # EXTENDED by iteration 450: `notify_cmd`, appended in declaration order.
+    "notify_cmd",
 )
 
 # behavior 10 -- the state-dir-relative derivation clause the spec retires.
