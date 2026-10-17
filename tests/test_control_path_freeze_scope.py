@@ -116,6 +116,9 @@ def guard_names_in_source(source: str) -> list[str]:
             for node in sorted(guards, key=lambda n: (n.lineno, n.col_offset))]
 
 
+_guard_nodes_cache: dict[str, list[tuple[pathlib.Path, ast.AST]]] = {}
+
+
 def _guard_nodes(
     tests_dir: pathlib.Path | None = None,
 ) -> list[tuple[pathlib.Path, ast.AST]]:
@@ -131,6 +134,9 @@ def _guard_nodes(
     which is the exact fail-open class this module exists to catch.
     """
     root = pathlib.Path(TESTS_DIR if tests_dir is None else tests_dir)
+    cache_key = str(root.resolve())
+    if cache_key in _guard_nodes_cache:
+        return _guard_nodes_cache[cache_key]
     found: list[tuple[pathlib.Path, ast.AST]] = []
     for path in sorted(root.glob("test_*.py")):
         try:
@@ -141,6 +147,7 @@ def _guard_nodes(
                   if isinstance(node, _FUNCTION_NODES) and is_freeze_guard(node)]
         for node in sorted(guards, key=lambda n: (n.lineno, n.col_offset)):
             found.append((path, node))
+    _guard_nodes_cache[cache_key] = found
     return found
 
 

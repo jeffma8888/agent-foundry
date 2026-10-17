@@ -306,6 +306,7 @@ in the archive.
 - iter 434 -- launch.sh gates on preflight (GO/NO-GO/CAUTION) instead of bare single-brain.
 - iter 446 -- doctor seventh drift line: wire dormant probe_watchdog_arm into doctor as watchdog-arm.
 - iter 447 -- archive Item 23 body from roadmap index to archive (headroom recovery).
+- iter 448 -- cache _guard_nodes by resolved path (9.4s suite saving).
 
 
 ### Migration notes (per §6 self-mod guardrail)
