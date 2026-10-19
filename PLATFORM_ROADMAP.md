@@ -27,7 +27,7 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 323): ledger and archive are current through 323 (193/194/199/201/203/205/221-225 and 241 never
+STATUS (iter 450): ledger and archive are current through 450 (193/194/199/201/203/205/221-225 and 241 never
 shipped, so none owes a row; 230 never shipped either -- its work re-landed as 231 -- and keeps its row).
 ITERATIONS 245-319 NEVER RAN (a 36.6 h infra outage; no commit exists, so none owes a row) -- verbatim record in the archive.
 STILL OPEN:
@@ -305,10 +305,11 @@ in the archive.
 - iter 433 -- status last-ship: two fields, render line, JSON keys via gather_outcomes.
 - iter 434 -- launch.sh gates on preflight (GO/NO-GO/CAUTION) instead of bare single-brain.
 - iter 446 -- doctor seventh drift line: wire dormant probe_watchdog_arm into doctor as watchdog-arm.
-- iter 447 -- archive Item 23 body from roadmap index to archive (headroom recovery).
-- iter 448 -- cache _guard_nodes by resolved path (9.4s suite saving).
+- iter 447 -- archive Item 23 body (headroom).
+- iter 448 -- cache _guard_nodes by resolved path (9.4s saving).
 - iter 449 -- changelog verb surfaces what shipped per product.
 - iter 450 -- notify_cmd hold-notification.
+- iter 457 -- STATUS currency + dormant guard.
 
 
 ### Migration notes (per §6 self-mod guardrail)
