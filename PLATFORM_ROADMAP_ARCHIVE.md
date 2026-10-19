@@ -1062,6 +1062,7 @@ future attempt needs a documented LAST-RESORT truncation and its own iteration.
 - **iter 448 -- cache `_guard_nodes` by resolved path: module-level `_guard_nodes_cache` dict in `test_control_path_freeze_scope.py` eliminates 9 redundant 267-file AST parses (9.4s / 23% of suite). Cache key is `str(root.resolve())` for tmp_path isolation. iter-204 b15 staging-window allowlist amended. DIRECTIONS.md iter-427 A1 needle redacted.**
 - **iter 449 -- `changelog` verb: `gather_changelog` walks `git log` for `(foundry iter N)` tagged commits, parses conventional-commit prefix and subject into frozen `ChangelogEntry`/`ChangelogSummary` dataclasses. CLI renders human-readable or `--json`; `--limit N` caps entries newest-first. Thin CLI via `_thin_gather_cli`. README section 63 added. iter-362 verb count 61->62, iter-420 section-63 guard amended, iter-204 b15 allowlist amended. Reviewer NIT fixed (stale name `no_63` -> `one_63`). DIRECTIONS.md iter-427 A1 needle redacted.**
 - **iter 450 -- `notify_cmd` config hook: `_notify_human_hold(cfg, kind, detail)` module-level seam fires before the 30-min auth hold sleep. Shells out to `cfg.notify_cmd` with `FOUNDRY_HOLD_KIND`/`FOUNDRY_HOLD_DETAIL` env vars, fail-open (blanket `except Exception`, 30s timeout). Empty default spawns no subprocess. Three brake amendments: iter-127 field count 22->23, iter-157 FROZEN_FIELDS extended, iter-188 declaration-order tail widened. DIRECTIONS.md iter-427 A1 needle redacted.**
+- **iter 457 -- roadmap STATUS currency repair + dormant guard: STATUS paragraph updated from "current through 323" to "current through 450" (134-iteration staleness). Dormant pure function `roadmap_status_currency_gaps(index_text, latest_iter)` returns gap descriptions when stated iteration lags latest Done-ledger row by >10. Old STATUS line archived under `## Updated in the index by iter 457` (iter-365 brake). DIRECTIONS.md iter-427 A1 needle redacted.**
 
 ## Moved from the index by iter 447
 
@@ -1105,3 +1106,8 @@ first failure is order-coupling in a shared pytest process and would need a rese
 per-line cost of re-attempting a failing write is one syscall, not the "retry storm" this item
 feared. (2) `dispatcher.py:85` and `:91` keep bare prints and are OUT of scope: both are pre-loop
 startup refusals that `return 1` immediately, so a dead stdout there cannot orphan a running loop.
+
+## Updated in the index by iter 457
+
+STATUS (iter 323): ledger and archive are current through 323 (193/194/199/201/203/205/221-225 and 241 never
+shipped, so none owes a row; 230 never shipped either -- its work re-landed as 231 -- and keeps its row).

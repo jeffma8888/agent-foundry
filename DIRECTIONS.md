@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-457
+    lenses: unknown
+    - Candidate A1 -- roadmap STATUS paragraph currency: update "current through 323" to "current through 450" and add a dormant `roadmap_status_currency_gaps` guard
+    - Candidate A2 -- fix the 2 unowned lines in the LEARNINGS Patterns head and add a dormant `learnings_head_unowned_gaps` guard
+    - Candidate A3 -- `_notify_human_hold` logs stderr/stdout detail on non-zero exit
+    - Candidate B1 -- USAGE cheat-sheet "See what shipped" row names the raw `git log` recipe while `foundry changelog` (iter 449) does this job better
+    - Candidate B2 -- `company-changelog` CLI: the iter-449 per-product changelog lacks its company-wide roll-up
+    - Candidate B3 -- `_notify_human_hold` includes stderr/stdout detail in the non-zero exit log line
+    winner: A1
+    ship: pending (not yet decided)
   iter-450
     lenses: new-capability)
     - Candidate A1 -- `foundry reverts --config CFG [--limit N] [--json]`: a revert inventory with reason and retry class
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- share the 8 `live_smoke_on_real_dispatch_config` tests via a session-scoped fixture (-14.55 s of the 38.41 s suite, 38%)
     - Candidate B3 -- fix the 2 unowned lines in the LEARNINGS `## Patterns` head + dormant `learnings_head_unowned_gaps` guard
     winner: A2
-    ship: pending (not yet decided)
+    ship: PUSHED 69b228f
   iter-449
     lenses: new-capability
     - Candidate A1 -- ARCHITECTURE.md §2 reporter row output column names STATUS_REPORT.md, a file 0 of 18 products have ever produced
@@ -2013,4 +2023,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-202 scouted iterations
+203 scouted iterations

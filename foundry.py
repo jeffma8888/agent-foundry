@@ -3272,6 +3272,41 @@ def roadmap_ledger_gaps(index_text: str, archive_text: str,
     return sorted(want - have)
 
 
+# STATUS-paragraph currency guard (DORMANT -- iter 457).
+#
+# The roadmap STATUS line says "current through N".  When N falls more than
+# 10 iterations behind the latest Done-ledger row, this guard fires.  DORMANT:
+# no call site in foundry.py, dispatcher.py, or any role card.  A future
+# iteration may wire it into `doctor` as a drift line.
+#
+# PURE and TOTAL: text in, gaps out; no filesystem, subprocess, network or
+# clock; never raises for any `str`.
+
+_STATUS_ITER_RE = re.compile(r"STATUS\s*\(iter\s+(\d+)\)")
+
+
+def roadmap_status_currency_gaps(
+    index_text: str, latest_iter: int,
+) -> list[str]:
+    """Gap descriptions when the STATUS paragraph lags the ledger by >10 iters.
+
+    Returns ``[]`` when the stated iteration is within 10 of `latest_iter`
+    (inclusive), or when no STATUS line is found in `index_text`.  Non-empty
+    when the lag exceeds the threshold.
+    """
+    m = _STATUS_ITER_RE.search(index_text or "")
+    if m is None:
+        return []
+    stated = int(m.group(1))
+    lag = latest_iter - stated
+    if lag <= 10:
+        return []
+    return [
+        f"STATUS paragraph says 'current through {stated}' but the latest "
+        f"Done-ledger row is {latest_iter} (lag {lag} > 10)"
+    ]
+
+
 # --------------------------------------------------------------------------- #
 # The roadmap INDEX HARD WALL (`doctor`'s `roadmap-index:` line) -- iter 145.
 #
