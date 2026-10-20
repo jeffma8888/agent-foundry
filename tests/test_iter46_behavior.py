@@ -729,15 +729,9 @@ def test_b8_running_writes_nothing_via_main(tmp_path, monkeypatch):
         "running company-events created/modified files (read-only violation)"
 
 
-def test_b8_live_smoke_on_real_dispatch_config():
-    froot = pathlib.Path(foundry.__file__).resolve().parent
-    if not (froot / "foundry.config.json").exists():
-        pytest.skip(
-            "machine-local foundry.config.json absent at repo root (gitignored); "
-            "live smoke needs the operator's real dispatch config"
-        )
-    rc_h, _, _ = _run_main(["company-events"])
-    rc_j, out_j, _ = _run_main(["company-events", "--json"])
+def test_b8_live_smoke_on_real_dispatch_config(live_smoke_result):
+    rc_h, _ = live_smoke_result("company-events", as_json=False)
+    rc_j, out_j = live_smoke_result("company-events")
     doc = json.loads(out_j.strip())  # ONE parseable JSON document
     assert rc_j == rc_h == doc["exit_code"], "json/human exit codes must agree"
     assert doc["verdict"] == _VERDICT_FOR_CODE[doc["exit_code"]]

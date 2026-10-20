@@ -299,8 +299,8 @@ in the archive.
 - iter 421 -- tester.md duty 1b runs test-quality --files on its own module; reviewer PRECONDITION.
 - iter 422 -- USAGE status row -> live verb (+history); ARCH reporter caveat; dormant row guard.
 - iter 423 -- dormancy_reference_names: lru_cache per-source parse under symbol_dormancy_class; census 129 s -> ~1 s.
-- iter 430 -- ARCHITECTURE.md stale recovery claim -> past-tense note; dormant architecture_gate_recovery_claim_gaps.
-- iter 431 -- restore reflect-mcp + graphql-rest-gateway configs deleted by 429 revert; repo field tilde form.
+- iter 430 -- ARCHITECTURE.md stale recovery -> past tense; dormant gate gaps.
+- iter 431 -- restore reflect-mcp + graphql configs from 429 revert.
 - iter 432 -- graphql config: setup_cmd npm ci, test_cmd sh -c wrapper for shlex.
 - iter 433 -- status last-ship: two fields, render line, JSON keys via gather_outcomes.
 - iter 434 -- launch.sh gates on preflight (GO/NO-GO/CAUTION) instead of bare single-brain.
@@ -311,6 +311,7 @@ in the archive.
 - iter 450 -- notify_cmd hold-notification.
 - iter 457 -- STATUS currency + dormant guard.
 - iter 458 -- consolidate `_snapshot_tree` into `_shared.py`.
+- iter 460 -- session-scoped conftest smoke fixture.
 
 
 ### Migration notes (per §6 self-mod guardrail)

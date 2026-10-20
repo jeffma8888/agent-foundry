@@ -730,15 +730,9 @@ def test_b8_help_lists_company_weak_tests_after_siblings(capsys):
         assert sub in out, f"subcommand {sub!r} missing from --help:\n{out}"
 
 
-def test_b8_live_smoke_on_real_dispatch_config():
-    froot = pathlib.Path(foundry.__file__).resolve().parent
-    if not (froot / "foundry.config.json").exists():
-        pytest.skip(
-            "machine-local foundry.config.json absent at repo root (gitignored); "
-            "live smoke needs the operator's real dispatch config"
-        )
-    rc_h, _ = _run_cli(["company-weak-tests"])
-    rc_j, out_j = _run_cli(["company-weak-tests", "--json"])
+def test_b8_live_smoke_on_real_dispatch_config(live_smoke_result):
+    rc_h, _ = live_smoke_result("company-weak-tests", as_json=False)
+    rc_j, out_j = live_smoke_result("company-weak-tests")
     doc = json.loads(out_j.strip())  # ONE parseable JSON document
     assert rc_j == rc_h == doc["exit_code"], "json/human exit codes must agree"
     assert doc["verdict"] == _VERDICT_FOR_CODE[doc["exit_code"]]

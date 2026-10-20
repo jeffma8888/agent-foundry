@@ -728,15 +728,19 @@ def test_b13_dispatched_before_load_config(monkeypatch):
     assert foundry.main(["company-history", "--config", "whatever.json"]) == 0
 
 
-def test_b13_live_smoke_on_real_dispatch_config():
+def test_b13_live_smoke_on_real_dispatch_config(live_smoke_result=None):
     froot = pathlib.Path(foundry.__file__).resolve().parent
     if not (froot / "foundry.config.json").exists():
         pytest.skip(
             "machine-local foundry.config.json absent at repo root (gitignored); "
             "live smoke needs the operator's real dispatch config"
         )
-    rc_h, _ = _run_cli(["company-history"])
-    rc_j, out_j = _run_cli(["company-history", "--json"])
+    if live_smoke_result is not None:
+        rc_h, _ = live_smoke_result("company-history", as_json=False)
+        rc_j, out_j = live_smoke_result("company-history")
+    else:
+        rc_h, _ = _run_cli(["company-history"])
+        rc_j, out_j = _run_cli(["company-history", "--json"])
     doc = json.loads(out_j.strip())  # ONE parseable JSON document
     assert rc_j == rc_h == doc["exit_code"], "json/human exit codes must agree"
     assert doc["verdict"] == _VERDICT_FOR_CODE[doc["exit_code"]]

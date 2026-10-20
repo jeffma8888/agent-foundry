@@ -1013,19 +1013,8 @@ def test_b9_shipped_public_files_scan_clean_and_no_home_path():
         assert home_prefix not in txt, f"{rel} contains an absolute home-directory path"
 
 
-def test_b9_live_smoke_on_real_dispatch_config():
-    froot = pathlib.Path(foundry.__file__).resolve().parent
-    if not (froot / "foundry.config.json").exists():
-        pytest.skip(
-            "machine-local foundry.config.json absent at repo root (gitignored); "
-            "live smoke needs the operator's real dispatch config")
-    out = io.StringIO()
-    old_out, old_err = sys.stdout, sys.stderr
-    sys.stdout = sys.stderr = out
-    try:
-        rc = foundry.main([SUBCMD, "--json"])
-    finally:
-        sys.stdout, sys.stderr = old_out, old_err
-    doc = json.loads(out.getvalue().strip())  # ONE parseable JSON document
+def test_b9_live_smoke_on_real_dispatch_config(live_smoke_result):
+    rc, captured = live_smoke_result(SUBCMD)
+    doc = json.loads(captured.strip())  # ONE parseable JSON document
     assert rc == doc["exit_code"]
     assert doc["verdict"] == _VERDICT_FOR_CODE[doc["exit_code"]]
