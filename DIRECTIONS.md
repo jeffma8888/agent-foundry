@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-460
+    lenses: performance-and-throughput
+    - Candidate A1 -- share the 8 `live_smoke_on_real_dispatch_config` tests via a session-scoped conftest fixture (-27 s of the 56 s suite, 48%)
+    - Candidate A2 -- consolidate 41 `_co_names_deep` copies into `tests/_shared.py` (-411 lines, 9 hash-distinct variants -> 1 canonical)
+    - Candidate A3 -- consolidate the 25-file `_module_names_consts` + 28-file `_fn_names_consts` pair into `tests/_shared.py` (-840 lines, 7 variants -> 2 canonical)
+    - Candidate B1 -- CONTINUOUS.md "Health checks" section teaches `pgrep` and `tail` while `doctor`, `preflight`, and `launch.sh` exist
+    - Candidate B2 -- ARCHITECTURE.md §2 reporter row output column says `STATUS_REPORT` while no product has ever produced that file
+    - Candidate B3 -- USAGE.md cheat-sheet "See what shipped" row names `git log` while `foundry changelog` (iter 449) does this job
+    winner: A1
+    ship: pending (not yet decided)
   iter-458
     lenses: unknown
     - Candidate A1 -- USAGE cheat-sheet "See what shipped" row names `git log` while `foundry changelog` (iter 449) does this job
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- consolidate the 41-file `_snapshot_tree` cluster into `tests/_shared.py` (-~425 duplicated lines)
     - Candidate B3 -- delete the dispatcher.py docstring's unsupported bare launch recipe and align README.md line 181
     winner: B2
-    ship: pending (not yet decided)
+    ship: PUSHED a149401
   iter-457
     lenses: unknown
     - Candidate A1 -- roadmap STATUS paragraph currency: update "current through 323" to "current through 450" and add a dormant `roadmap_status_currency_gaps` guard
@@ -2033,4 +2043,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-204 scouted iterations
+205 scouted iterations

@@ -1169,7 +1169,12 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # functions, because _snapshot_tree (I/O helper) now lives in
                 # _shared.py. No assertion is weakened: the two pure functions
                 # keep their full ban. No newest-ness pin touched.
-                "tests/test_iter417_behavior.py"}
+                "tests/test_iter417_behavior.py",
+                # iter 460: session-scoped conftest smoke fixture replaces inline
+                # `foundry.main` invocations. No assertion literal is touched --
+                # only the invocation source changes. `newest_ness_pin_sites`
+                # over this file is `()` at HEAD AND in the worktree.
+                "tests/test_iter61_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the
