@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-458
+    lenses: unknown
+    - Candidate A1 -- USAGE cheat-sheet "See what shipped" row names `git log` while `foundry changelog` (iter 449) does this job
+    - Candidate A2 -- `company-changelog` CLI: the iter-449 per-product changelog lacks its company-wide roll-up
+    - Candidate A3 -- dispatcher.py docstring and README.md teach the unsupported bare launch recipe
+    - Candidate B1 -- consolidate the 41-file `_co_names_deep` + `_module_deep_names` cluster into `tests/_shared.py` (-~508 duplicated lines)
+    - Candidate B2 -- consolidate the 41-file `_snapshot_tree` cluster into `tests/_shared.py` (-~425 duplicated lines)
+    - Candidate B3 -- delete the dispatcher.py docstring's unsupported bare launch recipe and align README.md line 181
+    winner: B2
+    ship: pending (not yet decided)
   iter-457
     lenses: unknown
     - Candidate A1 -- roadmap STATUS paragraph currency: update "current through 323" to "current through 450" and add a dormant `roadmap_status_currency_gaps` guard
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `company-changelog` CLI: the iter-449 per-product changelog lacks its company-wide roll-up
     - Candidate B3 -- `_notify_human_hold` includes stderr/stdout detail in the non-zero exit log line
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 9ad290b
   iter-450
     lenses: new-capability)
     - Candidate A1 -- `foundry reverts --config CFG [--limit N] [--json]`: a revert inventory with reason and retry class
@@ -2023,4 +2033,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-203 scouted iterations
+204 scouted iterations

@@ -41,6 +41,7 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import foundry  # noqa: E402
 import dispatcher  # noqa: E402
+from _shared import _snapshot_tree
 
 
 # em-dash constructed rather than embedded so the source stays pure-ASCII bytes.
@@ -86,18 +87,6 @@ def _write_cfg(tmp_path, **over):
 
 def _cfg(tmp_path, **over):
     return foundry.load_config(str(_write_cfg(tmp_path, **over)))
-
-
-def _snapshot_tree(root):
-    """Map {relative-path: bytes} for every file under root (no-write proof)."""
-    root = pathlib.Path(root)
-    if not root.exists():
-        return {}
-    return {
-        str(p.relative_to(root)): p.read_bytes()
-        for p in root.rglob("*") if p.is_file()
-    }
-
 
 def _entry(**over):
     base = dict(iteration=5, lenses=("new-capability", "hardening/DX"),

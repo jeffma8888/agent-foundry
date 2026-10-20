@@ -51,6 +51,7 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import foundry  # noqa: E402
 import dispatcher  # noqa: E402  (import-safety probe)
+from _shared import _snapshot_tree
 
 
 # --------------------------------------------------------------------------
@@ -117,15 +118,6 @@ def _cfg_with_prd(tmp_path, prd_text=None):
     if prd_text is not None:
         prd_path.write_text(prd_text)
     return foundry.load_config(str(cfg_path)), cfg_path
-
-
-def _snapshot_tree(root):
-    root = pathlib.Path(root)
-    if not root.exists():
-        return {}
-    return {str(p.relative_to(root)): p.read_bytes()
-            for p in root.rglob("*") if p.is_file()}
-
 
 def _cap(fn):
     """Run a callable, capturing stdout + the returned code."""

@@ -27,7 +27,7 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 450): ledger and archive are current through 450 (193/194/199/201/203/205/221-225 and 241 never
+STATUS (iter 458): ledger and archive are current through 458 (193/194/199/201/203/205/221-225 and 241 never
 shipped, so none owes a row; 230 never shipped either -- its work re-landed as 231 -- and keeps its row).
 ITERATIONS 245-319 NEVER RAN (a 36.6 h infra outage; no commit exists, so none owes a row) -- verbatim record in the archive.
 STILL OPEN:
@@ -294,10 +294,10 @@ in the archive.
 - iter 416 -- _list_item_around: one pure scoper under both claim guards (-4 L); spent RETRY-205 head bullet archived.
 - iter 417 -- tests/_shared.py source_segment: O(1) byte-identical get_source_segment; 3 slow tests 16.3 s -> <0.1 s.
 - iter 418 -- dual_scout_default_claim_gaps: docs say scouts default ON since 320, not OPT-IN; 4 sites re-worded.
-- iter 419 -- roles/final.md teaches the VERIFIED: ledger (2-segment key, retry reuse); final_ledger_claim_gaps dormant.
+- iter 419 -- final.md VERIFIED: ledger (2-segment key, retry reuse); final_ledger_claim_gaps dormant.
 - iter 420 -- ledger-key verb: one pinned VERIFIED: key recipe + --check current/voided/malformed; card names it.
-- iter 421 -- roles/tester.md duty 1b runs test-quality --files on its own module; reviewer PRECONDITION hands it over.
-- iter 422 -- USAGE cheat-sheet status row -> live status verb (+history row); ARCH reporter caveat; dormant row guard.
+- iter 421 -- tester.md duty 1b runs test-quality --files on its own module; reviewer PRECONDITION.
+- iter 422 -- USAGE status row -> live verb (+history); ARCH reporter caveat; dormant row guard.
 - iter 423 -- dormancy_reference_names: lru_cache per-source parse under symbol_dormancy_class; census 129 s -> ~1 s.
 - iter 430 -- ARCHITECTURE.md stale recovery claim -> past-tense note; dormant architecture_gate_recovery_claim_gaps.
 - iter 431 -- restore reflect-mcp + graphql-rest-gateway configs deleted by 429 revert; repo field tilde form.
@@ -310,6 +310,7 @@ in the archive.
 - iter 449 -- changelog verb surfaces what shipped per product.
 - iter 450 -- notify_cmd hold-notification.
 - iter 457 -- STATUS currency + dormant guard.
+- iter 458 -- consolidate `_snapshot_tree` into `_shared.py`.
 
 
 ### Migration notes (per §6 self-mod guardrail)

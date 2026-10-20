@@ -50,6 +50,7 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import foundry  # noqa: E402
 import dispatcher  # noqa: E402
+from _shared import _snapshot_tree
 
 
 # fixed exit-code <-> verdict mapping asserted throughout (Behavior 2)
@@ -93,18 +94,6 @@ def _run_cwt(dispatch_path, as_json=False):
     finally:
         sys.stdout, sys.stderr = old_out, old_err
     return rc, out.getvalue() + err.getvalue()
-
-
-def _snapshot_tree(root):
-    """Map {relative-path: bytes} for every file under root (no-write proof)."""
-    root = pathlib.Path(root)
-    if not root.exists():
-        return {}
-    return {
-        str(p.relative_to(root)): p.read_bytes()
-        for p in root.rglob("*") if p.is_file()
-    }
-
 
 def _write_dispatch(tmp_path, work_items, name="foundry.config.json"):
     """Write a minimal DISPATCH config (a `work_items` list) to tmp."""
