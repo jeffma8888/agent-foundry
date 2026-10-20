@@ -44,6 +44,7 @@ _ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT))
 
 import foundry  # noqa: E402
+from _shared import _snapshot_tree
 
 
 # --------------------------------------------------------------------------
@@ -119,17 +120,6 @@ def _repo(tmp_path):
     cfg = _prodcfg(tmp_path, repo=str(repo))
     files = sorted((repo / "tests").glob("test_*.py"), key=str)
     return cfg, files
-
-
-def _snapshot_tree(root):
-    root = pathlib.Path(root)
-    if not root.exists():
-        return {}
-    return {
-        str(p.relative_to(root)): p.read_bytes()
-        for p in root.rglob("*") if p.is_file()
-    }
-
 
 def _marker_summary():
     """A known composite carrying literals no real scan of the fixtures can

@@ -50,15 +50,6 @@ def _write_cfg(tmp_path, **over):
 def _iter_dir(cfg, iteration):
     return pathlib.Path(cfg.state) / f"iter-{iteration:02d}"
 
-
-def _snapshot_tree(root):
-    root = pathlib.Path(root)
-    if not root.exists():
-        return {}
-    return {str(p.relative_to(root)): p.read_bytes()
-            for p in root.rglob("*") if p.is_file()}
-
-
 def _write_scouted(cfg, iteration, cands, winner):
     d = _iter_dir(cfg, iteration)
     d.mkdir(parents=True, exist_ok=True)
@@ -544,6 +535,7 @@ def test_t12_ledger_rows_for_this_iteration_are_in_tracked_text():
 # =========================================================================== #
 
 import os  # noqa: E402
+from _shared import _snapshot_tree
 
 
 def _product3(tmp_path, monkeypatch, *, roadmap=None, archive_text=None, scouted=()):

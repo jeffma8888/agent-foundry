@@ -40,6 +40,7 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import foundry  # noqa: E402
 import dispatcher  # noqa: E402
+from _shared import _snapshot_tree
 
 
 # --------------------------------------------------------------------------
@@ -49,18 +50,6 @@ DICT_KEYS = ("pids", "scan_error", "unknown", "conflict", "safe", "verdict", "ex
 DERIVED = ("unknown", "conflict", "safe", "verdict", "exit_code")
 # the four control-flow / pipeline fns that must stay off the single-brain surface
 CONTROL_FLOW_FNS = ("build_prompt", "run_stage", "run_iteration", "run_continuous")
-
-
-def _snapshot_tree(root):
-    """Map {relative-path: bytes} for every file under root (no-write proof)."""
-    root = pathlib.Path(root)
-    if not root.exists():
-        return {}
-    return {
-        str(p.relative_to(root)): p.read_bytes()
-        for p in root.rglob("*") if p.is_file()
-    }
-
 
 def _capture(fn):
     """Run fn() with stdout/stderr captured SEPARATELY; return (rc, out, err)."""

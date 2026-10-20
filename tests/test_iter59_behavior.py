@@ -67,6 +67,7 @@ _ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT))
 import foundry  # noqa: E402
 import dispatcher  # noqa: E402
+from _shared import _snapshot_tree
 
 _LEAK_GUARD = _ROOT / "scripts" / "leak_guard.py"
 _DENYLIST = _ROOT / "scripts" / "leak_denylist.txt"
@@ -129,15 +130,6 @@ def _run_ctq(dispatch_path, as_json=False):
     finally:
         sys.stdout, sys.stderr = old_out, old_err
     return rc, out.getvalue() + err.getvalue()
-
-
-def _snapshot_tree(root):
-    root = pathlib.Path(root)
-    if not root.exists():
-        return {}
-    return {str(p.relative_to(root)): p.read_bytes()
-            for p in root.rglob("*") if p.is_file()}
-
 
 def _write_dispatch(tmp_path, work_items, name="foundry.config.json"):
     p = pathlib.Path(tmp_path) / name

@@ -54,6 +54,7 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import foundry  # noqa: E402
 import dispatcher  # noqa: E402  (import-safety probe)
+from _shared import _snapshot_tree
 
 
 # --------------------------------------------------------------------------
@@ -141,15 +142,6 @@ def _write_spec(dir_path, text, name="spec.md"):
     p = pathlib.Path(dir_path) / name
     p.write_text(text)
     return str(p)
-
-
-def _snapshot_tree(root):
-    root = pathlib.Path(root)
-    if not root.exists():
-        return {}
-    return {str(p.relative_to(root)): p.read_bytes()
-            for p in root.rglob("*") if p.is_file()}
-
 
 def _cap(fn):
     """Run a callable, capturing stdout + the returned code."""

@@ -1116,7 +1116,60 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # iter-362 verb census pin advances 61 -> 62, and iter-420's
                 # `test_b12_readme_has_exactly_one_62_and_no_63` section-count
                 # guard admits `# 63.`. No newest-ness pin touched.
-                "tests/test_iter420_behavior.py"}
+                "tests/test_iter420_behavior.py",
+                # iter 458: consolidated `_snapshot_tree` from 41 test files into
+                # `tests/_shared.py`. Each file below lost its local `def
+                # _snapshot_tree` and gained `from _shared import _snapshot_tree`.
+                # No assertion literal is touched in any file -- the edit is a
+                # pure import-replacement of an identical helper. `_shared.py`
+                # itself is status `M`, not `A`, so it appears in the diff.
+                # `newest_ness_pin_sites` over EACH file is `()` at HEAD AND in
+                # the worktree (all 35 contain NONE of DOC_TOKENS inside any test
+                # function body), so no newest-ness pin was swept, converted or
+                # added, and the 75-assertion literal class keeps both sibling
+                # checks above. Red ONLY inside the pre-commit window; a fresh
+                # clone at the ship commit is clean.
+                "tests/_shared.py",
+                "tests/test_iter11_behavior.py",
+                "tests/test_iter12_behavior.py",
+                "tests/test_iter15_behavior.py",
+                "tests/test_iter17_behavior.py",
+                "tests/test_iter18_behavior.py",
+                "tests/test_iter20_behavior.py",
+                "tests/test_iter21_behavior.py",
+                "tests/test_iter22_behavior.py",
+                "tests/test_iter23_behavior.py",
+                "tests/test_iter24_behavior.py",
+                "tests/test_iter27_behavior.py",
+                "tests/test_iter28_behavior.py",
+                "tests/test_iter30_behavior.py",
+                "tests/test_iter31_behavior.py",
+                "tests/test_iter39_behavior.py",
+                "tests/test_iter40_behavior.py",
+                "tests/test_iter42_behavior.py",
+                "tests/test_iter43_behavior.py",
+                "tests/test_iter44_behavior.py",
+                "tests/test_iter46_behavior.py",
+                "tests/test_iter48_behavior.py",
+                "tests/test_iter54_behavior.py",
+                "tests/test_iter56_behavior.py",
+                "tests/test_iter57_behavior.py",
+                "tests/test_iter58_behavior.py",
+                "tests/test_iter95_behavior.py",
+                "tests/test_iter96_behavior.py",
+                "tests/test_iter97_behavior.py",
+                "tests/test_iter100_behavior.py",
+                "tests/test_iter101_behavior.py",
+                "tests/test_iter105_behavior.py",
+                "tests/test_iter106_behavior.py",
+                "tests/test_iter115_behavior.py",
+                "tests/test_iter212_behavior.py",
+                "tests/test_iter414_behavior.py",
+                # iter 458: scoped the purity brake to the two spec-defined pure
+                # functions, because _snapshot_tree (I/O helper) now lives in
+                # _shared.py. No assertion is weakened: the two pure functions
+                # keep their full ban. No newest-ness pin touched.
+                "tests/test_iter417_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

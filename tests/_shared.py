@@ -21,6 +21,7 @@ happens on the encoded line), and nodes with no position (-> None).
 from __future__ import annotations
 
 import ast
+import pathlib
 import re
 from typing import Sequence
 
@@ -63,3 +64,14 @@ def source_segment(lines: Sequence[str], node: ast.AST) -> str | None:
     first = lines[lineno].encode()[col_offset:].decode()
     last = lines[end_lineno].encode()[:end_col_offset].decode()
     return "".join([first, *lines[lineno + 1:end_lineno], last])
+
+
+def _snapshot_tree(root: str | pathlib.Path) -> dict[str, bytes]:
+    """Map {relative-path: bytes} for every file under root (no-write proof)."""
+    root = pathlib.Path(root)
+    if not root.exists():
+        return {}
+    return {
+        str(p.relative_to(root)): p.read_bytes()
+        for p in root.rglob("*") if p.is_file()
+    }

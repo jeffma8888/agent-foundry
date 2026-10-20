@@ -46,6 +46,7 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import foundry  # noqa: E402
 import dispatcher  # noqa: E402
+from _shared import _snapshot_tree
 
 
 # em-dash constructed rather than embedded so the source stays pure-ASCII bytes.
@@ -72,18 +73,6 @@ def _write_cfg(tmp_path, **over):
     p = tmp_path / "config.json"
     p.write_text(json.dumps(data))
     return p
-
-
-def _snapshot_tree(root):
-    """Map {relative-path: bytes} for every file under root (no-write proof)."""
-    root = pathlib.Path(root)
-    if not root.exists():
-        return {}
-    return {
-        str(p.relative_to(root)): p.read_bytes()
-        for p in root.rglob("*") if p.is_file()
-    }
-
 
 def _run_cli(argv):
     """Drive foundry.main capturing (rc, stdout, stderr)."""

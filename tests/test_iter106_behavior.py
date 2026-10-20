@@ -38,6 +38,7 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import foundry  # noqa: E402
 import dispatcher  # noqa: E402
+from _shared import _snapshot_tree
 
 
 # --------------------------------------------------------------------------
@@ -88,17 +89,6 @@ def _rut_report():
 
 def _varied_report():
     return _report(["alpha", "beta"], [])
-
-
-def _snapshot_tree(root):
-    root = pathlib.Path(root)
-    if not root.exists():
-        return {}
-    return {
-        str(p.relative_to(root)): p.read_bytes()
-        for p in root.rglob("*") if p.is_file()
-    }
-
 
 def _deep(code, names):
     """Recursively collect co_names over nested code objects."""

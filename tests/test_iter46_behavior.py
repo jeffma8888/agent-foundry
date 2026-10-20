@@ -46,6 +46,7 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import foundry  # noqa: E402
 import dispatcher  # noqa: E402
+from _shared import _snapshot_tree
 
 
 # fixed exit-code <-> verdict mapping asserted throughout (Behavior 2)
@@ -108,18 +109,6 @@ def _write_dispatch(tmp_path, work_items, name="foundry.config.json"):
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps({"work_items": work_items}))
     return p
-
-
-def _snapshot_tree(root):
-    """Map {relative-path: bytes} for every file under root (no-write proof)."""
-    root = pathlib.Path(root)
-    if not root.exists():
-        return {}
-    return {
-        str(p.relative_to(root)): p.read_bytes()
-        for p in root.rglob("*") if p.is_file()
-    }
-
 
 def _final_verdict_token(text):
     """Return the token after the final `verdict:` line."""

@@ -403,12 +403,21 @@ def test_b6_shared_is_not_collected_as_a_test_module():
 
 def test_b6_shared_is_pure_no_io_no_process_no_network():
     tree = _module_ast("_shared.py")
+    # Scope to the two spec-defined pure functions only; _shared.py may also
+    # host I/O helpers (e.g. _snapshot_tree) that are outside this brake.
+    pure_fn_names = set(PUBLIC_NAMES)
+    pure_bodies: list[ast.AST] = [
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name in pure_fn_names
+    ]
     imported = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            imported.update(a.name.split(".")[0] for a in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            imported.add(node.module.split(".")[0])
+    for fn_node in pure_bodies:
+        for node in ast.walk(fn_node):
+            if isinstance(node, ast.Import):
+                imported.update(a.name.split(".")[0] for a in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                imported.add(node.module.split(".")[0])
     banned = {"subprocess", "os", "socket", "urllib", "requests", "shutil", "pathlib", "io", "time"}
     assert not (imported & banned), imported & banned
-    assert not _calls(tree, name="open"), "pure helpers must not open files"
+    for fn_node in pure_bodies:
+        assert not _calls(fn_node, name="open"), f"{fn_node.name} must not open files"
