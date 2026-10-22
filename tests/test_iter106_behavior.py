@@ -105,7 +105,7 @@ def _it_dir(tmp_path):
     return d
 
 
-NON_PM_STAGES = ("engineer", "reviewer", "tester", "final", "reporter",
+NON_PM_STAGES = ("engineer", "reviewer", "tester", "final",
                  "pm_scout_a", "pm_scout_b")
 
 PRIMITIVES = (

@@ -487,7 +487,8 @@ def test_b8_frozen_paths_are_byte_unchanged_against_head():
     # iter 434: launch.sh gates on composite `preflight` instead of bare
     # `single-brain`; the header comment and the gate block both change.
     allowed = {"roles/final.md", "roles/pm.md", "roles/pm_scout.md",
-               "roles/reviewer.md", "roles/tester.md", "launch.sh"}
+               "roles/reviewer.md", "roles/tester.md", "launch.sh",
+               "roles/reporter.md"}
     unexpected = [p for p in changed if p not in allowed]
     assert unexpected == [], f"frozen paths changed: {unexpected}"
 

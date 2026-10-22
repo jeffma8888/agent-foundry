@@ -54,7 +54,6 @@ ROLE_FILE = {
     "tester": "tester.md",
     "final": "final.md",
     "fix": "fix.md",
-    "reporter": "reporter.md",
     "pm_scout_a": "pm_scout.md",
     "pm_scout_b": "pm_scout.md",
     "fix-review": "reviewer.md",

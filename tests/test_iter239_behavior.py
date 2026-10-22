@@ -75,7 +75,6 @@ SPEC_CARD_BASENAMES = (
     "fix.md",
     "pm.md",
     "pm_scout.md",
-    "reporter.md",
     "reviewer.md",
     "tester.md",
 )
@@ -366,7 +365,7 @@ def _derived_card_names():
 
 def test_b4a_non_vacuity_floor_at_least_eight_cards_including_pm_scout():
     derived = _derived_card_names()
-    assert len(derived) >= 8, "expected >= 8 tracked top-level role cards, got %r" % (
+    assert len(derived) >= 7, "expected >= 7 tracked top-level role cards, got %r" % (
         derived,
     )
     assert "pm_scout.md" in derived, "pm_scout.md must be in the derivation, got %r" % (
