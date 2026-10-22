@@ -24299,6 +24299,15 @@ PROMPT_DRIFT_BLOCK_CHARS = 2000
 # inclusion by pattern.
 PROMPT_DRIFT_STAGES: tuple[str, ...] = ("pm", "pm_scout_a", "pm_scout_b")
 
+# Per-iteration cache for `drift_prompt_block` keyed on cfg.name + renderer ids.
+# Cleared at the top of every `run_iteration` call via `clear_drift_cache()`.
+_drift_cache: dict[tuple, str] = {}
+
+
+def clear_drift_cache() -> None:
+    """Empty the per-iteration drift prompt cache."""
+    _drift_cache.clear()
+
 
 def drift_line_verdict(line: object, prefix: str) -> str:
     """Recover a drift line's verdict token BY FIXED POSITION, for any prefix.
@@ -24411,6 +24420,11 @@ def drift_prompt_block(cfg: "ProductConfig") -> str:
     real git, subprocess, clock or log. Reads only what the renderers read and
     writes NOTHING.
     """
+    _key = (cfg.name, id(live_lag_line), id(roadmap_index_line),
+            id(stage_budget_line), PROMPT_DRIFT_BLOCK_CHARS)
+    cached = _drift_cache.get(_key)
+    if cached is not None:
+        return cached
     lines: list[str] = []
     # `doctor`'s own print order, so the block reads as a SUBSET of the preflight
     # rather than as a second, re-ordered report. Each renderer is wrapped in a
@@ -24432,7 +24446,9 @@ def drift_prompt_block(cfg: "ProductConfig") -> str:
     # `max(..., 0)` so a cap of 0 or 1 yields "" instead of `body[:-1]`, which
     # would silently drop a character rather than the whole block.
     body = body[:max(int(PROMPT_DRIFT_BLOCK_CHARS) - 1, 0)]
-    return f"{body}\n" if body else ""
+    result = f"{body}\n" if body else ""
+    _drift_cache[_key] = result
+    return result
 
 
 def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
@@ -25047,6 +25063,7 @@ def run_iteration(cfg: ProductConfig, iteration: int | None = None) -> dict:
 
     result['status'] in {'shipped', 'no-ship', 'infra-fail', 'stopped'}
     """
+    clear_drift_cache()
     if iteration is None:
         iteration = next_iteration(cfg)
     base = head_of_branch(cfg)

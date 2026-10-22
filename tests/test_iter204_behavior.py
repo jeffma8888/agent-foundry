@@ -1185,7 +1185,11 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 "tests/test_iter239_behavior.py",
                 "tests/test_iter333_behavior.py",
                 "tests/test_iter339_behavior.py",
-                "tests/test_iter422_behavior.py"}
+                "tests/test_iter422_behavior.py",
+                # iter 465: autouse fixture clears per-iteration drift prompt
+                # cache between tests. No assertion literal is touched.
+                # No newest-ness pin touched.
+                "tests/conftest.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the
