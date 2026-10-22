@@ -7,6 +7,15 @@ import sys
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _clear_drift_cache():
+    """Reset the per-iteration drift prompt cache between tests."""
+    import foundry
+    foundry.clear_drift_cache()
+    yield
+    foundry.clear_drift_cache()
+
+
 def _invoke_main(argv: list[str]) -> tuple[int, str]:
     """Invoke foundry.main(argv), capturing stdout+stderr as a single string."""
     import foundry

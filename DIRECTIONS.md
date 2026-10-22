@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-465
+    lenses: simplification-and-deletion
+    - Candidate A1 -- consolidate 41-file `_co_names_deep` cluster into `tests/_shared.py` (-~410 lines, 9 hash-distinct variants -> 1 canonical)
+    - Candidate A2 -- consolidate the 28-file `_fn_names_consts` + 25-file `_module_names_consts` pair into `tests/_shared.py` (-~53 definition lines, 53 files -> 2 shared functions)
+    - Candidate A3 -- retire completed `docs/DUAL_PM_SCOUT_SPEC.md` (40 lines): the feature shipped across iters 80-84 + 320 and its spec is now a stale artifact
+    - Candidate B1 -- cache `drift_prompt_block` per `(cfg.name)` within a single `run_iteration` call, cutting 2 of 3 redundant I/O reads (-208ms/iteration, -~5s/suite)
+    - Candidate B2 -- share the iter-155 hermetic-repo fixture across its 7 expensive tests via a module-scoped fixture (-~1.5s wall-clock)
+    - Candidate B3 -- consolidate 41-file `_co_names_deep` cluster into `tests/_shared.py` (-~410 lines, 9 hash-distinct variants -> 1 canonical)
+    winner: B1
+    ship: pending (not yet decided)
   iter-464
     lenses: unknown
     - A1 -- Wire `events --kind` into the reviewer card as a regression-check step
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- retire the periodic STATUS_REPORT branch: delete `REPORT_EVERY`, `mechanical_report`, `narrative_report`, their call sites in `run_continuous`, `roles/reporter.md`, `CHEATSHEET_DEAD_TARGETS`, and `cfg.report`
     - Candidate B3 -- consolidate the 25-file `_module_names_consts` + 29-file `_fn_names_consts` pair into `tests/_shared.py` (-~53 definition lines, 54 files -> 2 shared functions)
     winner: B2
-    ship: pending (not yet decided)
+    ship: PUSHED 4ba941f
   iter-460
     lenses: performance-and-throughput
     - Candidate A1 -- share the 8 `live_smoke_on_real_dispatch_config` tests via a session-scoped conftest fixture (-27 s of the 56 s suite, 48%)
@@ -2053,4 +2063,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-206 scouted iterations
+207 scouted iterations

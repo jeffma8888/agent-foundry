@@ -298,21 +298,22 @@ in the archive.
 - iter 420 -- ledger-key verb: one pinned VERIFIED: key recipe + --check current/voided/malformed; card names it.
 - iter 421 -- tester.md duty 1b runs test-quality --files on its own module; reviewer PRECONDITION.
 - iter 422 -- USAGE status row -> live verb (+history); ARCH reporter caveat; dormant row guard.
-- iter 423 -- dormancy_reference_names: lru_cache per-source parse under symbol_dormancy_class; census 129 s -> ~1 s.
+- iter 423 -- lru_cache dormancy_reference_names (129s -> 1s).
 - iter 430 -- ARCHITECTURE.md stale recovery -> past tense; dormant gate gaps.
 - iter 431 -- restore reflect-mcp + graphql configs from 429 revert.
 - iter 432 -- graphql config: setup_cmd npm ci, test_cmd sh -c wrapper for shlex.
 - iter 433 -- status last-ship: fields, render line, JSON keys.
-- iter 434 -- launch.sh gates on preflight (GO/NO-GO/CAUTION) instead of bare single-brain.
-- iter 446 -- doctor seventh drift line: wire dormant probe_watchdog_arm into doctor as watchdog-arm.
+- iter 434 -- launch.sh preflight gate (GO/NO-GO/CAUTION).
+- iter 446 -- doctor: wire watchdog-arm drift probe.
 - iter 447 -- archive Item 23 body (headroom).
 - iter 448 -- cache _guard_nodes by resolved path (9.4s saving).
-- iter 449 -- changelog verb surfaces what shipped per product.
+- iter 449 -- changelog verb: per-product ship list.
 - iter 450 -- notify_cmd hold-notification.
 - iter 457 -- STATUS currency + dormant guard.
 - iter 458 -- consolidate `_snapshot_tree` into `_shared.py`.
 - iter 460 -- session-scoped conftest smoke fixture.
 - iter 464 -- retire periodic reporter concept.
+- iter 465 -- cache drift_prompt_block per cfg.name.
 
 
 ### Migration notes (per §6 self-mod guardrail)
