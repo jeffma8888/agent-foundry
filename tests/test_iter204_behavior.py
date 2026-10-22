@@ -1174,7 +1174,18 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # `foundry.main` invocations. No assertion literal is touched --
                 # only the invocation source changes. `newest_ness_pin_sites`
                 # over this file is `()` at HEAD AND in the worktree.
-                "tests/test_iter61_behavior.py"}
+                "tests/test_iter61_behavior.py",
+                # iter 464: periodic reporter retirement removes reporter.md
+                # references from known-card lists and role-file maps.
+                # No newest-ness pin touched in any of these files.
+                "tests/test_iter02_behavior.py",
+                "tests/test_iter112_behavior.py",
+                "tests/test_iter139_behavior.py",
+                "tests/test_iter192_behavior.py",
+                "tests/test_iter239_behavior.py",
+                "tests/test_iter333_behavior.py",
+                "tests/test_iter339_behavior.py",
+                "tests/test_iter422_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

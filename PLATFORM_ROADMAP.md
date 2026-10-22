@@ -302,7 +302,7 @@ in the archive.
 - iter 430 -- ARCHITECTURE.md stale recovery -> past tense; dormant gate gaps.
 - iter 431 -- restore reflect-mcp + graphql configs from 429 revert.
 - iter 432 -- graphql config: setup_cmd npm ci, test_cmd sh -c wrapper for shlex.
-- iter 433 -- status last-ship: two fields, render line, JSON keys via gather_outcomes.
+- iter 433 -- status last-ship: fields, render line, JSON keys.
 - iter 434 -- launch.sh gates on preflight (GO/NO-GO/CAUTION) instead of bare single-brain.
 - iter 446 -- doctor seventh drift line: wire dormant probe_watchdog_arm into doctor as watchdog-arm.
 - iter 447 -- archive Item 23 body (headroom).
@@ -312,6 +312,7 @@ in the archive.
 - iter 457 -- STATUS currency + dormant guard.
 - iter 458 -- consolidate `_snapshot_tree` into `_shared.py`.
 - iter 460 -- session-scoped conftest smoke fixture.
+- iter 464 -- retire periodic reporter concept.
 
 
 ### Migration notes (per §6 self-mod guardrail)

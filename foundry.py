@@ -90,7 +90,7 @@ MAX_ATTEMPTS = 4               # attempts per stage
 FINAL_GATE_MAX_ROUNDS = 2      # final-gate rounds per iteration (1 retry)
 BACKOFFS = [600, 1200, 2400]    # 10 -> 20 -> 40 min between attempts
 COOLDOWNS = [1800, 3600, 7200, 14400]  # infra cooldown 30m -> 1h -> 2h -> 4h
-REPORT_EVERY = 5               # periodic status report cadence (iterations)
+
 
 # Attempt-aware retry (iter 119). `run_stage` builds the stage prompt ONCE and
 # re-substitutes that BYTE-IDENTICAL string on every attempt of its
@@ -17142,16 +17142,6 @@ def final_ledger_claim_gaps(card_text: str, *, anchor: str = "VERIFIED:") -> tup
     return tuple(sorted(gaps))
 
 
-CHEATSHEET_DEAD_TARGETS: tuple[str, ...] = ("STATUS_REPORT.md",)
-"""Artifacts the USAGE.md cheat-sheet may never point a returning operator at.
-
-`STATUS_REPORT.md` is written only by `narrative_report` / `mechanical_report`,
-which only `run_continuous` calls; `dispatcher.py` calls `run_iteration`
-directly, so under `./launch.sh` (the supported way in) no product has ever
-produced one -- measured at iter 422 as 0 files across 18 product dirs. A
-cheat-sheet row naming it is a dead on-ramp, and the guard below needs the name
-spelled out because such a row carries no `foundry.py <verb>` token to fail on.
-"""
 
 _CHEATSHEET_VERB_RE = re.compile(r"foundry\.py\s+([a-z][a-z0-9-]*)")
 _CHEATSHEET_HEADING = "## Controls cheat-sheet"
@@ -17174,7 +17164,7 @@ def usage_cheatsheet_row_gaps(
     usage_text: str,
     verbs,
     *,
-    dead_targets=CHEATSHEET_DEAD_TARGETS,
+    dead_targets=(),
 ) -> tuple[str, ...]:
     """`Want` cells of cheat-sheet rows whose `Do` cell names an unshipped verb or a dead artifact.
 
@@ -24950,7 +24940,7 @@ def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
     prompt = build_prompt(cfg, iteration, stage, role_file, out_file,
                           it_dir, extra)
     for attempt in range(1, MAX_ATTEMPTS + 1):
-        if stopping(cfg) and stage != "reporter":
+        if stopping(cfg):
             log(cfg, f"iter {iteration:02d} · {stage} STOP requested; abandoning")
             return False, out_file
         log(cfg, f"iter {iteration:02d} · **{stage}** attempt {attempt} started")
@@ -25265,32 +25255,6 @@ def run_iteration(cfg: ProductConfig, iteration: int | None = None) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Reporting
-# --------------------------------------------------------------------------- #
-def mechanical_report(cfg: ProductConfig, iters_done: int,
-                      pushes: list[str]) -> None:
-    lines = [
-        f"# {cfg.name} — Foundry Status (mechanical fallback)", "",
-        f"- Generated: {dt.datetime.now():%Y-%m-%d %H:%M}",
-        f"- Iterations attempted this session: {iters_done}",
-        f"- Commits pushed this session: {len(pushes)}", "",
-        "## Pushed", *[f"- {p}" for p in (pushes or ["(none)"])], "",
-        "See NIGHT_LOG.md for the timeline and LEARNINGS.md for lessons.",
-    ]
-    cfg.report.write_text("\n".join(lines) + "\n")
-
-
-def narrative_report(cfg: ProductConfig, iteration: int) -> None:
-    run_stage(cfg, iteration, "reporter", "reporter.md",
-              f"reporter_done_{iteration:02d}.md",
-              f"CONTINUOUS MODE: the loop is still running; this is a periodic "
-              f"status report, not a final one. Write the narrative report to "
-              f"{cfg.report} (overwrite it). Cover everything since the previous "
-              f"report (check NIGHT_LOG.md session markers). Also write your "
-              f"required output file when done.")
-
-
-# --------------------------------------------------------------------------- #
 # Continuous single-product loop
 # --------------------------------------------------------------------------- #
 def run_continuous(cfg: ProductConfig) -> int:
@@ -25331,15 +25295,12 @@ def run_continuous(cfg: ProductConfig) -> int:
                 if sleep_interruptible(cfg, delay):
                     break
 
-            if session_iters % REPORT_EVERY == 0 and not stopping(cfg):
-                mechanical_report(cfg, session_iters, pushes)
-                narrative_report(cfg, res["iteration"])
 
         log(cfg, f"STOP honored: session iters={session_iters}, "
             f"pushes={len(pushes)}")
     finally:
-        mechanical_report(cfg, session_iters, pushes)
-        log(cfg, f"foundry stopped for '{cfg.name}'; report at {cfg.report}")
+        log(cfg, f"foundry stopped for '{cfg.name}'; "
+            f"session iters={session_iters}, pushes={len(pushes)}")
     return 0
 
 
@@ -25890,13 +25851,12 @@ ATTEMPT_KILL_TOKENS: tuple[str, ...] = ("agent run timed out after",)
 
 # The stage label names the ATTEMPT LOG; it does NOT always name the stage's OUTPUT
 # file. `run_stage(cfg, iteration, stage, role_file, out_name)` takes `out_name` as a
-# SEPARATE argument, and six call sites pass a name that is not `f"{stage}.md"` -- so
+# SEPARATE argument, and five call sites pass a name that is not `f"{stage}.md"` -- so
 # without this map `produced` is unconditionally False for every one of their attempts.
 # Iteration 168 measured that miscount before it shipped: a 100.0% rescue rate reported
 # as 0.0% for `fix-review` and `fix-tests`, and a product-wide `lost` inflated 14 vs 9.
 # Module-level and patchable like the two constants above, because it mirrors call
-# sites a future iteration may add to. `{iteration}` is substituted (`reporter` alone
-# needs it). Audited against every `run_stage` call site: all the others, including the
+# sites a future iteration may add to. Audited against every `run_stage` call site: all the others, including the
 # scout specs (`ScoutStageSpec(out_name=f"{name}.md")`) and the bench specs, pass the
 # default, so an absent key is the CORRECT answer for them rather than an oversight.
 STAGE_OUTPUT_NAMES: dict[str, str] = {
@@ -25905,7 +25865,6 @@ STAGE_OUTPUT_NAMES: dict[str, str] = {
     "tester-rerun": "tester2.md",      # foundry.py:15383, 4411
     "tester-retry": "tester2.md",      # UNFINISHED_TEST_RETRY_STAGES -> 15369, 4396
     "tester-retry2": "tester3.md",     # UNFINISHED_TEST_RETRY_STAGES -> 15369, 4396
-    "reporter": "reporter_done_{iteration:02d}.md",   # foundry.py:15441
 }
 
 # `<stage>.attempt<N>.log`, the exact shape `run_stage` writes. `stage` is greedy and

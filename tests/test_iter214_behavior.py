@@ -265,11 +265,21 @@ def _population_and_tracked_or_skip(
     pair of read-only git queries. Deliberately not two calls -- re-querying git
     for the tracked half would open a window in which the two answers disagree,
     which is the very race this brake now has to report accurately.
+
+    Files deleted in the working tree (tracked but physically absent) are excluded
+    from both halves: they are not part of the shipping tree and trying to read
+    them would cause a false fatal in ``_classify_missing``.
     """
     try:
         tracked, untracked = _enumerate_split(root)
     except (OSError, subprocess.SubprocessError) as exc:
         pytest.skip(f"cannot enumerate the shipping population: {exc}")
+    try:
+        deleted = frozenset(_split_nul(
+            _run_git_ls(["diff", "--name-only", "--diff-filter=D", "-z"], root=root)))
+    except (OSError, subprocess.SubprocessError):
+        deleted = frozenset()
+    tracked = tuple(p for p in tracked if p not in deleted)
     population = tuple(sorted(set(tracked) | set(untracked)))
     if not population:
         pytest.skip("the shipping population is empty (not a git work tree?)")

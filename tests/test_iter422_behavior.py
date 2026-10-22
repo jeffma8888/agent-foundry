@@ -247,19 +247,6 @@ def test_b2_foreground_launch_form_is_absent_from_usage() -> None:
 # ---------------------------------------------------------------- behavior 3
 
 
-def _reporter_row() -> list[str]:
-    hits = []
-    for ln in _arch_text().splitlines():
-        s = ln.strip()
-        if not s.startswith("|"):
-            continue
-        cells = [c.strip() for c in s.strip("|").split("|")]
-        if len(cells) >= 3 and cells[2] == REPORTER_ROLE_CELL:
-            hits.append(cells)
-    assert len(hits) == 1, f"expected exactly one `reporter.md` row, got {hits}"
-    return hits[0]
-
-
 def test_b3_architecture_table_header_still_names_stage_and_role_file() -> None:
     lines = [ln for ln in _arch_text().splitlines() if ln.startswith("| # | Stage | Role file |")]
     assert len(lines) == 1, lines
@@ -268,45 +255,28 @@ def test_b3_architecture_table_header_still_names_stage_and_role_file() -> None:
     assert len(cells) == 5, cells
 
 
-def test_b3_reporter_row_stage_cell_is_the_spec_string() -> None:
-    row = _reporter_row()
-    assert row[1] == REPORTER_STAGE_CELL, row[1]
+def test_b3_reporter_row_is_absent_from_architecture() -> None:
+    hits = []
+    for ln in _arch_text().splitlines():
+        s = ln.strip()
+        if not s.startswith("|"):
+            continue
+        cells = [c.strip() for c in s.strip("|").split("|")]
+        if len(cells) >= 3 and cells[2] == REPORTER_ROLE_CELL:
+            hits.append(cells)
+    assert len(hits) == 0, f"reporter row should have been retired by iter 464, got {hits}"
 
 
-def test_b3_reporter_row_stage_cell_is_ascii() -> None:
-    row = _reporter_row()
-    assert row[1].isascii(), [c for c in row[1] if not c.isascii()]
-
-
-def test_b3_reporter_row_still_has_five_cells() -> None:
-    row = _reporter_row()
-    assert len(row) == 5, row
-
-
-def test_b3_old_bare_stage_wording_is_gone_from_the_reporter_row() -> None:
-    row = _reporter_row()
-    assert row[1] != REPORTER_OLD_STAGE_CELL, row[1]
-    assert row[1].startswith("Reporter (every 5 iters;"), row[1]
-    assert REPORTER_OLD_STAGE_CELL not in _arch_text(), "the bare `(every 5 iters)` wording survives somewhere"
-
-
-def test_b3_reporter_row_names_both_the_run_verb_and_the_dispatcher() -> None:
-    row = _reporter_row()
-    assert "`run` verb" in row[1] and "run_continuous" in row[1] and "dispatcher.py" in row[1], row[1]
-
-
-def test_b3_architecture_names_the_reporter_reachability_exactly_once() -> None:
+def test_b3_architecture_does_not_name_the_reporter_reachability() -> None:
     text = _arch_text()
-    assert text.count(REPORTER_STAGE_CELL) == 1, text.count(REPORTER_STAGE_CELL)
+    assert text.count(REPORTER_STAGE_CELL) == 0, text.count(REPORTER_STAGE_CELL)
 
 
 # ---------------------------------------------------------------- behavior 4
 
 
 def test_b4_constant_is_the_spec_tuple() -> None:
-    value = getattr(foundry, CONSTANT)
-    assert isinstance(value, tuple), type(value)
-    assert value == ("STATUS_REPORT.md",), value
+    assert not hasattr(foundry, CONSTANT), f"{CONSTANT} should have been retired by iter 464"
 
 
 def test_b4_guard_is_a_module_level_function_of_foundry() -> None:
@@ -327,11 +297,10 @@ def test_b4_signature_parameters_names_and_kinds() -> None:
     assert params[1].default is inspect.Parameter.empty
 
 
-def test_b4_dead_targets_default_is_the_constant() -> None:
+def test_b4_dead_targets_default_is_empty() -> None:
     sig = inspect.signature(_guard())
     default = sig.parameters["dead_targets"].default
-    assert default == getattr(foundry, CONSTANT), default
-    assert default == ("STATUS_REPORT.md",), default
+    assert default == (), default
 
 
 def test_b4_annotations_via_type_hints() -> None:
@@ -364,21 +333,13 @@ def test_b4_guard_sits_between_its_two_named_neighbours() -> None:
     assert b_end < g_start < g_end < a_start, (b_end, g_start, g_end, a_start)
 
 
-def test_b4_constant_is_defined_directly_after_final_ledger_claim_gaps() -> None:
+def test_b4_constant_is_retired() -> None:
     import re
 
     lines = _foundry_text().splitlines()
     define = re.compile(rf"^{CONSTANT}\b")
     hits = [n for n, ln in enumerate(lines, 1) if define.match(ln)]
-    assert len(hits) == 1, hits
-    _b, b_start = inspect.getsourcelines(foundry.final_ledger_claim_gaps)
-    b_end = b_start + len(_b) - 1
-    _g, g_start = inspect.getsourcelines(_guard())
-    _a, a_start = inspect.getsourcelines(foundry.pytest_addopts_plugin_gaps)
-    assert b_end < hits[0] < g_start < a_start, (b_end, hits[0], g_start, a_start)
-    # "directly after": no other top-level def sits between the neighbour's end and the constant.
-    between = [ln for ln in lines[b_end:hits[0] - 1] if ln.startswith("def ")]
-    assert between == [], between
+    assert len(hits) == 0, f"{CONSTANT} should have been retired by iter 464, found at {hits}"
 
 
 # ---------------------------------------------------------------- behavior 5
@@ -397,24 +358,24 @@ def test_b5_returns_a_tuple_of_str() -> None:
 
 @pytest.mark.parametrize("wrap", [tuple, list, set, frozenset, iter])
 def test_b5_verbs_may_be_any_iterable_of_str(wrap) -> None:
-    assert _guard()(SPEC_TABLE, wrap(SPEC_VERBS)) == ("X", "Y")
+    assert _guard()(SPEC_TABLE, wrap(SPEC_VERBS), dead_targets=["STATUS_REPORT.md"]) == ("X", "Y")
 
 
 def test_b5_deterministic_on_equal_inputs() -> None:
-    first = _guard()(SPEC_TABLE, SPEC_VERBS)
-    second = _guard()(str(SPEC_TABLE), tuple(SPEC_VERBS))
+    dead = ["STATUS_REPORT.md"]
+    first = _guard()(SPEC_TABLE, SPEC_VERBS, dead_targets=dead)
+    second = _guard()(str(SPEC_TABLE), tuple(SPEC_VERBS), dead_targets=dead)
     assert first == second == ("X", "Y")
 
 
 def test_b5_arguments_are_not_mutated() -> None:
     verbs = list(SPEC_VERBS)
-    dead = list(getattr(foundry, CONSTANT))
+    dead = ["STATUS_REPORT.md"]
     text = SPEC_TABLE
     _guard()(text, verbs, dead_targets=dead)
     assert verbs == list(SPEC_VERBS)
-    assert dead == list(getattr(foundry, CONSTANT))
+    assert dead == ["STATUS_REPORT.md"]
     assert text == SPEC_TABLE
-    assert getattr(foundry, CONSTANT) == ("STATUS_REPORT.md",)
 
 
 def test_b5_reaches_no_filesystem_subprocess_or_clock(monkeypatch) -> None:
@@ -432,7 +393,7 @@ def test_b5_reaches_no_filesystem_subprocess_or_clock(monkeypatch) -> None:
     monkeypatch.setattr(subprocess, "check_output", _boom)
     monkeypatch.setattr(time, "time", _boom)
     monkeypatch.setattr(time, "monotonic", _boom)
-    assert _guard()(SPEC_TABLE, SPEC_VERBS) == ("X", "Y")
+    assert _guard()(SPEC_TABLE, SPEC_VERBS, dead_targets=["STATUS_REPORT.md"]) == ("X", "Y")
     assert _guard()("", ()) == ()
 
 
@@ -460,7 +421,7 @@ def test_b6_regressing_the_status_row_in_memory_flips_the_guard() -> None:
     live_row = f"| {STATUS_WANT} | {STATUS_DO} |"
     assert text.count(live_row) == 1, text.count(live_row)
     regressed = text.replace(live_row, f"| {STATUS_WANT} | `cat products/<name>/STATUS_REPORT.md` |")
-    assert _guard()(regressed, _live_verbs()) == (STATUS_WANT,)
+    assert _guard()(regressed, _live_verbs(), dead_targets=["STATUS_REPORT.md"]) == (STATUS_WANT,)
 
 
 def test_b6_an_unknown_verb_in_any_live_row_is_reported_by_want() -> None:
@@ -480,15 +441,13 @@ def test_b6_every_cheatsheet_verb_token_is_a_live_verb() -> None:
     for row in _cheatsheet_rows():
         for m in token.finditer(row[1]):
             assert m.group(1) in verbs, (row, m.group(1))
-        for dead in getattr(foundry, CONSTANT):
-            assert dead not in row[1], row
 
 
 # ---------------------------------------------------------------- behavior 7
 
 
 def test_b7_spec_table_reports_the_unknown_verb_and_the_dead_target() -> None:
-    assert _guard()(SPEC_TABLE, SPEC_VERBS) == ("X", "Y")
+    assert _guard()(SPEC_TABLE, SPEC_VERBS, dead_targets=["STATUS_REPORT.md"]) == ("X", "Y")
 
 
 def test_b7_spec_table_with_no_dead_targets_reports_only_the_unknown_verb() -> None:
@@ -498,21 +457,21 @@ def test_b7_spec_table_with_no_dead_targets_reports_only_the_unknown_verb() -> N
 @pytest.mark.parametrize("key,expected", [("X", ("X",)), ("Y", ("Y",)), ("Z", ()), ("W", ()), ("V", ())])
 def test_b7_each_spec_row_alone_has_its_own_verdict(key, expected) -> None:
     table = TABLE_HEAD + SPEC_ROWS[key] + "\n"
-    assert _guard()(table, SPEC_VERBS) == expected
+    assert _guard()(table, SPEC_VERBS, dead_targets=["STATUS_REPORT.md"]) == expected
 
 
 @pytest.mark.parametrize("key,expected", [("X", ("Y",)), ("Y", ("X",)), ("Z", ("X", "Y")), ("W", ("X", "Y")), ("V", ("X", "Y"))])
 def test_b7_deleting_one_row_removes_exactly_its_verdict(key, expected) -> None:
-    assert _guard()(_without_row(SPEC_TABLE, key), SPEC_VERBS) == expected
+    assert _guard()(_without_row(SPEC_TABLE, key), SPEC_VERBS, dead_targets=["STATUS_REPORT.md"]) == expected
 
 
 def test_b7_results_are_in_document_order() -> None:
     swapped = TABLE_HEAD + SPEC_ROWS["Y"] + "\n" + SPEC_ROWS["X"] + "\n"
-    assert _guard()(swapped, SPEC_VERBS) == ("Y", "X")
+    assert _guard()(swapped, SPEC_VERBS, dead_targets=["STATUS_REPORT.md"]) == ("Y", "X")
 
 
 def test_b7_known_verb_becomes_a_gap_when_removed_from_verbs() -> None:
-    assert _guard()(SPEC_TABLE, ("status", "history")) == ("X", "Y", "V")
+    assert _guard()(SPEC_TABLE, ("status", "history"), dead_targets=["STATUS_REPORT.md"]) == ("X", "Y", "V")
 
 
 def test_b7_header_row_is_never_reported() -> None:
@@ -565,7 +524,7 @@ def test_b8_rows_under_another_heading_are_out_of_scope() -> None:
 
 def test_b8_a_row_after_the_next_h2_heading_is_not_reported() -> None:
     text = SPEC_TABLE + "\n## Next\n\n| Want | Do |\n|---|---|\n| Q | `foundry.py bogus` |\n"
-    assert _guard()(text, SPEC_VERBS) == ("X", "Y")
+    assert _guard()(text, SPEC_VERBS, dead_targets=["STATUS_REPORT.md"]) == ("X", "Y")
 
 
 def test_b8_only_the_next_h2_ends_the_section() -> None:
@@ -586,7 +545,7 @@ def test_b8_heading_with_no_table_returns_empty() -> None:
 
 def test_b8_table_before_the_heading_is_out_of_scope() -> None:
     text = "| Want | Do |\n|---|---|\n| P | `foundry.py bogus` |\n\n" + SPEC_TABLE
-    assert _guard()(text, SPEC_VERBS) == ("X", "Y")
+    assert _guard()(text, SPEC_VERBS, dead_targets=["STATUS_REPORT.md"]) == ("X", "Y")
 
 
 # ---------------------------------------------------------------- behavior 9

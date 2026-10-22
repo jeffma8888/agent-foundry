@@ -38,7 +38,6 @@ KNOWN_CARDS = (
     "fix.md",
     "pm.md",
     "pm_scout.md",
-    "reporter.md",
     "reviewer.md",
     "tester.md",
 )

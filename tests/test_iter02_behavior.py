@@ -439,7 +439,7 @@ def test_b12_new_names_and_pipeline_names_coexist():
                  "PostReleaseResult"):
         assert hasattr(foundry, name), f"missing new name {name}"
     for name in ("run_iteration", "run_continuous", "run_stage",
-                 "narrative_report", "mechanical_report", "main"):
+                 "main"):
         assert hasattr(foundry, name), f"pipeline name {name} vanished"
 
 

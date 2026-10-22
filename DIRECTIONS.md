@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-464
+    lenses: unknown
+    - A1 -- Wire `events --kind` into the reviewer card as a regression-check step
+    - A2 -- Add `events` row to USAGE.md cheat-sheet so the operator's front door names the verb
+    - A3 -- Wire `changelog` into the PM card as a prior-art check before scouting
+    - Candidate B1 -- consolidate 41-file `_co_names_deep` cluster into `tests/_shared.py` (-~410 lines, 9 hash-distinct variants -> 1 canonical)
+    - Candidate B2 -- retire the periodic STATUS_REPORT branch: delete `REPORT_EVERY`, `mechanical_report`, `narrative_report`, their call sites in `run_continuous`, `roles/reporter.md`, `CHEATSHEET_DEAD_TARGETS`, and `cfg.report`
+    - Candidate B3 -- consolidate the 25-file `_module_names_consts` + 29-file `_fn_names_consts` pair into `tests/_shared.py` (-~53 definition lines, 54 files -> 2 shared functions)
+    winner: B2
+    ship: pending (not yet decided)
   iter-460
     lenses: performance-and-throughput
     - Candidate A1 -- share the 8 `live_smoke_on_real_dispatch_config` tests via a session-scoped conftest fixture (-27 s of the 56 s suite, 48%)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- ARCHITECTURE.md §2 reporter row output column says `STATUS_REPORT` while no product has ever produced that file
     - Candidate B3 -- USAGE.md cheat-sheet "See what shipped" row names `git log` while `foundry changelog` (iter 449) does this job
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 519cfeb
   iter-458
     lenses: unknown
     - Candidate A1 -- USAGE cheat-sheet "See what shipped" row names `git log` while `foundry changelog` (iter 449) does this job
@@ -2043,4 +2053,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-205 scouted iterations
+206 scouted iterations
