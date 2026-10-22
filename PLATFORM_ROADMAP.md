@@ -316,6 +316,7 @@ in the archive.
 - iter 465 -- cache drift_prompt_block per cfg.name.
 - iter 466 -- launch recipe: docstring+README -> launch.sh.
 - iter 467 -- company-changelog: fleet-wide ship roll-up.
+- iter 468 -- per-product reverts verb with keyword classification.
 
 
 ### Migration notes (per §6 self-mod guardrail)

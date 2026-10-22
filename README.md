@@ -352,6 +352,9 @@ uv run python foundry.py changelog --config products/repolens/config.json  # [--
 # 64. Company-wide CHANGELOG roll-up (#63 changelog across the WHOLE company): read the DISPATCH config and fold every ENABLED product team's iter-63 `changelog` entries into ONE company total-entries + a per-product breakdown with indented entry lists + a scriptable exit code (0 at-least-one-entry / 1 errors-or-all-empty / 2 no-enabled-products); read-only, writes nothing:
 uv run python foundry.py company-changelog  # --config points at the DISPATCH config (foundry.config.json), NOT a product config (default: the repo's foundry.config.json); a disabled work item is never loaded; one bad team is recorded and the roll-up continues [--limit N per team] [--json for one machine-readable company changelog doc: dashboards/cron; same 0/1/2 exit code, honours --limit]
 
+# 65. Per-product REVERT INVENTORY with retry classification (`reverts`): walks state dirs, reads each `final.md`, selects REVERTED iterations, extracts reason text and classifies via keyword heuristic (`environmental` / `review` / `test` / `unknown`). The learnings pattern says "a reverted iteration is a RETRY candidate -- read WHY first." This verb makes that a structured one-command lookup. Frozen `RevertRecord` + `RevertSummary` dataclasses, pure `gather_reverts` seam, thin CLI via `_thin_gather_cli`. Additive-dormant: the pipeline, the gate harness and the dispatcher never call it and it writes nothing (exit 0 reverts found / 1 no reverts / 2 nothing scanned):
+uv run python foundry.py reverts --config products/_platform/config.json  # [--limit N most-recent iterations] [--json for one machine-readable revert inventory doc; same 0/1/2 exit code, honours --limit]
+
 ```
 
 Stop any time with #59 above -- `uv run python foundry.py stop --config
