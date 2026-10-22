@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-468
+    lenses: unknown
+    - Candidate A1 -- `foundry company-outcomes`: the company-wide roll-up of the per-product outcomes ledger
+    - Candidate A2 -- `foundry reverts`: a per-product revert inventory with reason and retry class
+    - Candidate A3 -- `foundry company-rescues`: the company-wide roll-up of the per-product rescues ledger
+    - Candidate B1 -- fix the 2 unowned lines in the LEARNINGS Patterns head + dormant guard
+    - Candidate B2 -- `watchdog-arm --install`: arm the resurrection cron entry from inside the framework
+    - Candidate B3 -- `foundry reverts`: a per-product revert inventory with reason and retry class
+    winner: A2
+    ship: done
   iter-467
     lenses: unknown
     - Candidate A1 -- CONTINUOUS.md "Health checks" teaches raw shell while doctor/preflight/status exist
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry reverts`: a per-product revert inventory with reason and retry class
     - Candidate B3 -- `foundry company-outcomes`: the company-wide roll-up of the per-product outcomes ledger
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 0dc2bf3
   iter-466
     lenses: performance-and-throughput
     - Candidate A1 -- scope _gather_weak_test_files to "test" alongside "tests" (-1.7 s/suite, -433 ms per company CLI call)
@@ -2083,4 +2093,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-209 scouted iterations
+210 scouted iterations

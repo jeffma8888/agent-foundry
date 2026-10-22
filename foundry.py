@@ -18022,6 +18022,183 @@ def changelog_cli(cfg: ProductConfig, limit: int | None = None,
 
 
 # --------------------------------------------------------------------------- #
+# Per-product revert inventory (`reverts`) -- roadmap iteration 468.
+#
+# A read-only, offline verb that lists every REVERTED iteration for one product,
+# extracts the reason text from the `ACTION: REVERTED <reason>` sentinel, and
+# classifies each revert via a keyword heuristic into retry-relevant buckets
+# (`environmental`, `review`, `test`, `unknown`).  The learnings pattern says
+# "a reverted iteration is a RETRY candidate -- read WHY first: distinguish an
+# external/environmental interruption from a real review defect."  This verb
+# makes that a structured one-command lookup.
+#
+# Purely ADDITIVE + OFF the control path: it only READS state dirs and prints;
+# `run_iteration` / `run_continuous` / `run_stage` / the dispatcher NEVER
+# call it and it writes NOTHING. Same "frozen dataclass + pure gather seam +
+# thin CLI via `_thin_gather_cli`" pattern as `changelog` (iter 449).
+# --------------------------------------------------------------------------- #
+
+_REVERT_ENV_KEYWORDS: tuple[str, ...] = (
+    "stall", "kill", "timeout", "expired", "session", "credential", "auth",
+)
+_REVERT_REVIEW_KEYWORDS: tuple[str, ...] = (
+    "review", "defect", "blocking-finding",
+)
+_REVERT_TEST_KEYWORDS: tuple[str, ...] = (
+    "test", "fail", "assertion",
+)
+
+
+def _classify_revert(reason: str) -> str:
+    """Classify a revert reason into a retry-relevant bucket (pure, total)."""
+    lower = reason.lower()
+    if any(kw in lower for kw in _REVERT_ENV_KEYWORDS):
+        return "environmental"
+    if any(kw in lower for kw in _REVERT_REVIEW_KEYWORDS):
+        return "review"
+    if any(kw in lower for kw in _REVERT_TEST_KEYWORDS):
+        return "test"
+    return "unknown"
+
+
+@dataclasses.dataclass(frozen=True)
+class RevertRecord:
+    """One reverted iteration with its reason and retry classification."""
+    iteration: int
+    reason: str
+    retry_class: str
+
+
+@dataclasses.dataclass(frozen=True)
+class RevertSummary:
+    """A per-product revert inventory for machine and human consumers."""
+    product: str
+    records: tuple[RevertRecord, ...]
+    scanned: int
+
+    @property
+    def total(self) -> int:
+        return len(self.records)
+
+    @property
+    def exit_code(self) -> int:
+        if self.scanned == 0:
+            return 2
+        if self.total == 0:
+            return 1
+        return 0
+
+    @property
+    def verdict(self) -> str:
+        if self.scanned == 0:
+            return "nothing scanned"
+        if self.total == 0:
+            return "no reverts"
+        return "reverts found"
+
+    def render(self) -> str:
+        header = f"foundry reverts -- {self.product}"
+        if self.scanned == 0:
+            return "\n".join([header, "  nothing scanned",
+                              f"verdict: {self.verdict}"])
+        if not self.records:
+            return "\n".join([header, "  no reverts",
+                              f"verdict: {self.verdict}"])
+        env = sum(1 for r in self.records if r.retry_class == "environmental")
+        rev = sum(1 for r in self.records if r.retry_class == "review")
+        tst = sum(1 for r in self.records if r.retry_class == "test")
+        unk = sum(1 for r in self.records if r.retry_class == "unknown")
+        totals = (f"  total {self.total}  environmental {env}  review {rev}"
+                  f"  test {tst}  unknown {unk}")
+        rows = [
+            f"  [iter {r.iteration:03d}] {r.retry_class}  {r.reason}"
+            for r in self.records
+        ]
+        return "\n".join([header, totals, *rows,
+                          f"verdict: {self.verdict}"])
+
+    def to_dict(self) -> dict:
+        return {
+            "product": self.product,
+            "total": self.total,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+            "records": [
+                {"iteration": r.iteration, "reason": r.reason,
+                 "retry_class": r.retry_class}
+                for r in self.records
+            ],
+        }
+
+
+def summarize_reverts(*, product: str,
+                      records: Iterable[RevertRecord],
+                      scanned: int) -> RevertSummary:
+    """Pure keyword-only constructor for a `RevertSummary`."""
+    return RevertSummary(product=product, records=tuple(records),
+                         scanned=scanned)
+
+
+def gather_reverts(cfg: ProductConfig,
+                   limit: int | None = None) -> RevertSummary:
+    """Gather one product's reverted iterations into a `RevertSummary`.
+
+    Walks `cfg.state`'s dir names via `iteration_numbers`, reads each
+    `final.md` via `parse_ship_action`, selects iterations whose action
+    is `"REVERTED"`, extracts the reason text (everything after the
+    `ACTION: REVERTED` token on the sentinel line), classifies via
+    `_classify_revert`, and returns newest-first.
+
+    Read-only, creates no directories. A missing or unreadable `cfg.state`
+    yields a summary with no records and exit_code 2. Reads through the
+    module-level seams by BARE name so a `monkeypatch.setattr(foundry, ...)`
+    bites."""
+    state = cfg.state
+    try:
+        names = [p.name for p in state.iterdir()] if state.exists() else []
+    except OSError:
+        names = []
+    numbers = iteration_numbers(names)
+    if isinstance(limit, int) and limit > 0:
+        numbers = numbers[-limit:]
+    records: list[RevertRecord] = []
+    for n in numbers:
+        final_path = state / f"iter-{n:02d}" / "final.md"
+        try:
+            if not final_path.exists():
+                continue
+            text = final_path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        action = parse_ship_action(text)
+        if action != "REVERTED":
+            continue
+        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+        reason = ""
+        if lines:
+            last = lines[-1]
+            prefix = "ACTION: REVERTED"
+            if last.startswith(prefix):
+                reason = last[len(prefix):].strip()
+        records.append(RevertRecord(
+            iteration=n, reason=reason,
+            retry_class=_classify_revert(reason)))
+    records.reverse()
+    return summarize_reverts(product=cfg.name, records=records,
+                             scanned=len(numbers))
+
+
+def reverts_cli(cfg: ProductConfig, limit: int | None = None,
+                as_json: bool = False) -> int:
+    """On-demand CLI: print a per-product revert inventory + exit code.
+
+    Gathers the inventory through the `gather_reverts(cfg, limit)` seam
+    then prints the pure `RevertSummary` core. Writes NOTHING to disk.
+    DORMANT -- no control path calls it; only `main()`'s argparse dispatch."""
+    return _thin_gather_cli(gather_reverts, cfg, limit, as_json)
+
+
+# --------------------------------------------------------------------------- #
 # Company-wide CHANGELOG roll-up (`company-changelog`) -- roadmap iter 467.
 #
 # The fleet-wide complement of the per-product `changelog` (iter 449):
@@ -28632,6 +28809,18 @@ def main(argv: list[str] | None = None) -> int:
     clg.add_argument("--json", action="store_true",
                      help="emit the changelog as a JSON array (machine-readable) "
                           "instead of the human report; same 0/2 exit code, honours --limit")
+    # `reverts` prints a read-only, offline per-product revert inventory with
+    # reason text and retry classification.  `--limit N` scans only the most-
+    # recent N iterations.  On-demand only -- the pipeline/dispatcher NEVER call
+    # it; it writes nothing.  Exit 0 (reverts found) / 1 (no reverts).
+    rvt = sub.add_parser("reverts")
+    rvt.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    rvt.add_argument("--limit", type=int, default=None,
+                     help="scan only the most-recent N iterations (default: all)")
+    rvt.add_argument("--json", action="store_true",
+                     help="emit the inventory as one JSON document (machine-readable) "
+                          "instead of the human report; same 0/1 exit code, honours --limit")
     # `directions` prints a read-only, offline per-iteration DECISION log for
     # one product: the scout lenses + candidate one-liners considered, the PM
     # lead's picked winner, and the ship action/sha, ONE block per SCOUTED
@@ -29490,6 +29679,8 @@ def main(argv: list[str] | None = None) -> int:
         return outcomes_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "changelog":
         return changelog_cli(cfg, limit=args.limit, as_json=args.json)
+    if args.cmd == "reverts":
+        return reverts_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "directions":
         # `--topic` routes to the SIBLING printer so the pinned `directions_cli`
         # (signature + one-statement body, test_iter165) stays byte-untouched.
