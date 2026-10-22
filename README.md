@@ -349,6 +349,9 @@ uv run python foundry.py ledger-key --config products/<name>/config.json  # [--c
 # 63. Per-product CHANGELOG from conventional ship commits (`changelog`): every ship commit uses `<prefix>: <description> (foundry iter N)` -- 100% machine-parseable. This verb surfaces WHAT shipped in a stakeholder-readable form, complementing #10 `history` (WHETHER each iteration shipped). Walks `git log --oneline` for the product's repo, filters to `(foundry iter N)` tagged commits, parses the conventional-commit prefix and short description, and renders newest-first. `--limit N` caps to N entries; `--json` emits a JSON array of `{iter, prefix, subject}` objects. Pure `gather_changelog` seam over the bare-name `git` helper, frozen `ChangelogSummary` + `ChangelogEntry` dataclasses, thin CLI via `_thin_gather_cli`. Additive-dormant: the pipeline, the gate harness and the dispatcher never call it and it writes nothing (exit 0 has entries / 2 none):
 uv run python foundry.py changelog --config products/repolens/config.json  # [--limit N] [--json for one machine-readable changelog doc; same 0/2 exit code, honours --limit]
 
+# 64. Company-wide CHANGELOG roll-up (#63 changelog across the WHOLE company): read the DISPATCH config and fold every ENABLED product team's iter-63 `changelog` entries into ONE company total-entries + a per-product breakdown with indented entry lists + a scriptable exit code (0 at-least-one-entry / 1 errors-or-all-empty / 2 no-enabled-products); read-only, writes nothing:
+uv run python foundry.py company-changelog  # --config points at the DISPATCH config (foundry.config.json), NOT a product config (default: the repo's foundry.config.json); a disabled work item is never loaded; one bad team is recorded and the roll-up continues [--limit N per team] [--json for one machine-readable company changelog doc: dashboards/cron; same 0/1/2 exit code, honours --limit]
+
 ```
 
 Stop any time with #59 above -- `uv run python foundry.py stop --config
