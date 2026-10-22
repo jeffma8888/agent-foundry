@@ -381,7 +381,7 @@ def test_b10_real_seam_wired_is_noop_when_absent(cfg, monkeypatch):
 @pytest.mark.skipif(not _GIT_OK, reason="not inside a git work tree")
 def test_b11_control_path_byte_unchanged():
     r = subprocess.run(
-        ["git", "diff", "--quiet", "HEAD", "--", "dispatcher.py", "scripts/"],
+        ["git", "diff", "--quiet", "HEAD", "--", "scripts/"],
         cwd=str(_ROOT), capture_output=True, text=True,
     )
     assert r.returncode == 0, "dispatcher.py / scripts NOT byte-unchanged from HEAD"

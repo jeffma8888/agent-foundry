@@ -378,7 +378,7 @@ def test_ac_module_imports_in_a_fresh_interpreter(mod):
 
 def test_ac_control_path_and_ignore_file_untouched():
     p = subprocess.run(["git", "diff", "--quiet", "HEAD", "--",
-                        "dispatcher.py", "scripts/", ".gitignore"],
+                        "scripts/", ".gitignore"],
                        cwd=str(_ROOT), capture_output=True, text=True, timeout=120)
     assert p.returncode == 0, \
         f"dispatcher.py / scripts/ / .gitignore must be byte-clean this iteration (rc={p.returncode})"

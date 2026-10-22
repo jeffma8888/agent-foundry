@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-466
+    lenses: performance-and-throughput
+    - Candidate A1 -- scope _gather_weak_test_files to "test" alongside "tests" (-1.7 s/suite, -433 ms per company CLI call)
+    - Candidate A2 -- session-scoped TEST_TREE_CACHE in conftest (-3.5 s/suite, 9 % wall-clock)
+    - Candidate A3 -- exclude node_modules from _gather_weak_test_files walk (-1.7 s/suite, future-proof for JS/TS products)
+    - Candidate B1 -- dispatcher.py docstring and README quickstart teach the bare launch recipe USAGE.md calls unsupported
+    - Candidate B2 -- USAGE cheat-sheet "See what shipped" row names `git log` while `foundry changelog` does this job
+    - Candidate B3 -- CONTINUOUS.md "Health checks" teaches raw shell recipes while `doctor`, `preflight`, and `status` exist
+    winner: B1
+    ship: pending (not yet decided)
   iter-465
     lenses: simplification-and-deletion
     - Candidate A1 -- consolidate 41-file `_co_names_deep` cluster into `tests/_shared.py` (-~410 lines, 9 hash-distinct variants -> 1 canonical)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- share the iter-155 hermetic-repo fixture across its 7 expensive tests via a module-scoped fixture (-~1.5s wall-clock)
     - Candidate B3 -- consolidate 41-file `_co_names_deep` cluster into `tests/_shared.py` (-~410 lines, 9 hash-distinct variants -> 1 canonical)
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 1753413
   iter-464
     lenses: unknown
     - A1 -- Wire `events --kind` into the reviewer card as a regression-check step
@@ -2063,4 +2073,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-207 scouted iterations
+208 scouted iterations

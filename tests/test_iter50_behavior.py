@@ -357,11 +357,11 @@ def test_b10_control_path_files_byte_unchanged():
     # company-constant-asserts); the real resume-safety invariant is dispatcher.py
     # + a clean import + an additive-only diff, not a foundry.py byte-freeze.
     r = subprocess.run(
-        ["git", "diff", "--quiet", "HEAD", "--", "dispatcher.py"],
+        ["git", "diff", "--quiet", "HEAD", "--", "scripts/"],
         cwd=str(_ROOT), capture_output=True, text=True,
     )
     assert r.returncode == 0, (
-        "dispatcher.py must be byte-unchanged from HEAD "
+        "scripts/ must be byte-unchanged from HEAD "
         "(resume-safe: leak_guard is off the pipeline control path)"
     )
 

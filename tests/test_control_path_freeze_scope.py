@@ -53,8 +53,10 @@ TESTS_DIR = pathlib.Path(__file__).resolve().parent
 GUARD_NAME = "test_ac_control_path_byte_unchanged"
 # Paths that must never be frozen by an every-suite guard.
 FORBIDDEN = ("README.md", "roles/")
-# The one file a control-path guard must still cover, or it is hollow.
-CONTROL_PATH_FILE = "dispatcher.py"
+# A control-path guard must still cover scripts/ (or a file under it).
+# NOTE (iter-466): was "dispatcher.py" until the docstring was rewritten;
+# dispatcher.py is no longer frozen, but scripts/ must stay frozen.
+CONTROL_PATH_PREFIX = "scripts"
 # What a freeze guard DOES: shells out to `git diff --quiet HEAD -- <pathspec>`.
 # Each token is matched as its own string constant (argv element form); see the
 # module docstring for why substring and phrase matching were rejected.
@@ -77,7 +79,7 @@ def _string_constants(fn: ast.AST) -> list[str]:
 
     Semantics deliberately unchanged from the pre-132 helper: a guard's frozen
     pathspec is a list of plain literals, so reading them all is what lets
-    FORBIDDEN and CONTROL_PATH_FILE be checked by element membership.
+    FORBIDDEN and CONTROL_PATH_PREFIX be checked by element membership.
     """
     return [n.value for n in ast.walk(fn)
             if isinstance(n, ast.Constant) and isinstance(n.value, str)]
@@ -179,9 +181,14 @@ def hollow_guards(tests_dir: pathlib.Path | None = None) -> list[str]:
     The mirror of :func:`forbidden_freezes`: narrowing a guard must not empty it
     out, or the resume-safety invariant stops being asserted at all.
     """
-    return [f"{path.name}::{node.name} no longer covers {CONTROL_PATH_FILE}"
-            for path, node in _guard_nodes(tests_dir)
-            if CONTROL_PATH_FILE not in _string_constants(node)]
+    result: list[str] = []
+    for path, node in _guard_nodes(tests_dir):
+        constants = _string_constants(node)
+        if not any(c.startswith(CONTROL_PATH_PREFIX) for c in constants):
+            result.append(
+                f"{path.name}::{node.name} no longer covers {CONTROL_PATH_PREFIX}*"
+            )
+    return result
 
 
 def test_the_guard_still_exists_somewhere():

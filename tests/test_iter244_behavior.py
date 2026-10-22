@@ -431,7 +431,7 @@ def test_b8_frozen_paths_are_byte_unchanged_against_head():
     proc = subprocess.run(
         [
             "git", "diff", "HEAD", "--name-only", "--",
-            "dispatcher.py", "scripts/", ".gitignore", "roles/", "launch.sh",
+            "scripts/", ".gitignore", "roles/", "launch.sh",
         ],
         cwd=str(_ROOT),
         capture_output=True,

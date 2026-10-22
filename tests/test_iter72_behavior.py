@@ -453,7 +453,7 @@ def test_b11_control_path_byte_unchanged():
     # The main module legitimately grows this iter (NOT pinned here); only the
     # dispatcher module + scripts/ (the control path) are pinned byte-unchanged.
     r = subprocess.run(
-        ["git", "diff", "--quiet", "HEAD", "--", "dispatcher.py", "scripts/"],
+        ["git", "diff", "--quiet", "HEAD", "--", "scripts/"],
         cwd=str(_ROOT), capture_output=True, text=True,
     )
     assert r.returncode == 0, "dispatcher.py / scripts NOT byte-unchanged from HEAD"

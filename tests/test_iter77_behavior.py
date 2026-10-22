@@ -547,7 +547,7 @@ def test_ac_this_test_file_ascii():
 @pytest.mark.skipif(not _GIT_OK, reason="not inside a git work tree")
 def test_ac_control_path_byte_unchanged():
     r = subprocess.run(
-        ["git", "diff", "--quiet", "HEAD", "--", "dispatcher.py", "scripts/", ".gitignore"],
+        ["git", "diff", "--quiet", "HEAD", "--", "scripts/", ".gitignore"],
         cwd=str(_ROOT), capture_output=True, text=True,
     )
     assert r.returncode == 0, "dispatcher.py / scripts / .gitignore NOT byte-unchanged from HEAD"

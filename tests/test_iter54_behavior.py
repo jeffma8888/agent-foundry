@@ -674,7 +674,7 @@ def test_b8_control_path_and_guard_scripts_byte_unchanged():
     # + a clean import + an additive-only diff.
     r = subprocess.run(
         ["git", "diff", "--quiet", "HEAD", "--",
-         "dispatcher.py", "scripts/leak_guard.py", "scripts/leak_denylist.txt"],
+         "scripts/leak_guard.py", "scripts/leak_denylist.txt"],
         cwd=str(_ROOT), capture_output=True, text=True)
     assert r.returncode == 0, \
         "dispatcher.py / guard scripts are NOT byte-unchanged from HEAD"

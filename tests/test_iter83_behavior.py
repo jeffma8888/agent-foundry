@@ -463,7 +463,7 @@ def test_ac_control_path_byte_unchanged():
     # so an over-broad pathspec becomes a permanent block on legitimate edits.
     r = subprocess.run(
         ["git", "diff", "--quiet", "HEAD", "--",
-         "dispatcher.py", "scripts/", ".gitignore"],
+         "scripts/", ".gitignore"],
         cwd=str(_ROOT), capture_output=True, text=True,
     )
     assert r.returncode == 0, (

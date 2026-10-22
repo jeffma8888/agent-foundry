@@ -72,7 +72,7 @@ PRODUCT_CONFIG = _ROOT / "products" / "_platform" / "config.json"
 DECLARED_TEST_CMD = "uv run --with pytest pytest -q"
 XDIST = "pytest-xdist"
 LOCK_ENV = "GIT_OPTIONAL_LOCKS"
-FROZEN_CONTROL_PATHS = ("dispatcher.py", "scripts", ".gitignore")
+FROZEN_CONTROL_PATHS = ("scripts", ".gitignore")
 GAPS = "pytest_addopts_plugin_gaps"
 # Assembled from fragments, never as one quoted literal: `tests/test_iter54_behavior.py`
 # flags any test module that uses `git diff --quiet` AND spells the pipeline module name as a

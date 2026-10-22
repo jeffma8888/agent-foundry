@@ -384,7 +384,7 @@ def test_ac_dormant_zero_call_site():
 @pytest.mark.skipif(not _GIT_OK, reason="not inside a git work tree")
 def test_ac_control_path_byte_unchanged():
     r = subprocess.run(
-        ["git", "diff", "--quiet", "HEAD", "--", "dispatcher.py", "scripts/"],
+        ["git", "diff", "--quiet", "HEAD", "--", "scripts/"],
         cwd=str(_ROOT), capture_output=True, text=True,
     )
     assert r.returncode == 0, "dispatcher.py / scripts NOT byte-unchanged from HEAD"

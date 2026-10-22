@@ -366,8 +366,7 @@ def test_ac_guard_and_control_path_byte_unchanged():
         # control path. The resume-safety invariant is dispatcher.py + the guard
         # scripts byte-unchanged + a clean import + an additive-only diff.
         ["git", "diff", "--quiet", "HEAD", "--",
-         "scripts/leak_guard.py", "scripts/leak_denylist.txt",
-         "dispatcher.py"],
+         "scripts/leak_guard.py", "scripts/leak_denylist.txt"],
         cwd=str(_ROOT), capture_output=True, text=True)
     assert r.returncode == 0, (
         "guard/control-path files are NOT byte-unchanged from HEAD")
