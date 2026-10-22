@@ -18022,6 +18022,161 @@ def changelog_cli(cfg: ProductConfig, limit: int | None = None,
 
 
 # --------------------------------------------------------------------------- #
+# Company-wide CHANGELOG roll-up (`company-changelog`) -- roadmap iter 467.
+#
+# The fleet-wide complement of the per-product `changelog` (iter 449):
+# `changelog` answers "what shipped?" for ONE product; `company-changelog`
+# answers "what shipped last night?" across the WHOLE dispatch config in one
+# command.  Follows the mature 10-member `_company_rollup_cli` pattern
+# (iter 152): a frozen dataclass with `render()`/`to_dict()`/`exit_code`, a
+# pure `summarize_*` constructor via `_pack_company_rollup`, and a thin
+# `company_changelog_cli` wrapper that delegates to `_company_rollup_cli`.
+# --------------------------------------------------------------------------- #
+
+@dataclasses.dataclass(frozen=True)
+class CompanyChangelog(CompanyRollupCounts):
+    """A one-shot COMPANY-wide changelog roll-up across a dispatch config (iter 467).
+
+    Frozen so a computed roll-up can't be mutated after the fact (value equality
+    for free, matching the other pure cores). Every derived value is a pure
+    property over the stored fields, so the whole verdict -- including the
+    scriptable exit code -- follows deterministically from what was gathered, and
+    the JSON payload / render text can never disagree with the exit code.
+
+    Fields:
+      * `dispatch_path` -- the dispatch config path, echoed into `render()`.
+      * `products` -- the per-product `ChangelogSummary` changelogs that were
+        successfully gathered, IN dispatch-file order (an enabled product that
+        failed to load/gather is NOT here -- it lands in `errors`).
+      * `disabled` -- names of work items with `enabled=False` (never loaded).
+      * `errors` -- `(product, message)` 2-tuples for enabled items that raised
+        while loading/gathering (the sole caller guarantees each is a 2-tuple).
+    """
+    dispatch_path: str
+    products: tuple[ChangelogSummary, ...]
+    disabled: tuple[str, ...]
+    errors: tuple[tuple[str, str], ...]
+
+    @property
+    def total_entries(self) -> int:
+        """Company total entries = the SUM of every gathered product's `total`."""
+        return sum(p.total for p in self.products)
+
+    @property
+    def exit_code(self) -> int:
+        """Scriptable verdict, errors-first: `1` when `errors` is non-empty OR
+        all gathered products are empty (a fleet where nothing shipped is
+        noteworthy), else `2` when NO products were gathered (every item
+        disabled or `work_items` empty -- reachable only with `errors` empty),
+        else `0` (at least one product has entries)."""
+        if self.errors:
+            return 1
+        if self.n_products == 0:
+            return 2
+        if self.total_entries == 0:
+            return 1
+        return 0
+
+    @property
+    def verdict(self) -> str:
+        """The single human token for the current `exit_code` -- `"OK"` (0) /
+        `"ERRORS"` (1) / `"no enabled products"` (2). ONE source of truth for
+        both `render()`'s last line and the JSON `verdict` key, so the text and
+        the machine payload can never drift from the exit code."""
+        return {0: "OK", 1: "ERRORS", 2: "no enabled products"}[self.exit_code]
+
+    def render(self) -> str:
+        """A deterministic multi-line company changelog report (the CLI's contract).
+
+        Contains, as substrings: the `dispatch_path`; a counts line reporting the
+        number of GATHERED products, the disabled count, and the error count, PLUS
+        the company `{total_entries} entries`; ONE section per gathered product with
+        its `product` name header, indented entries, and entry count; one line per
+        disabled item with its name and `disabled`; one line per error with its
+        name, `ERROR`, and the message; and a final `verdict:` line whose token
+        EQUALS `verdict`."""
+        lines = [
+            "foundry company-changelog",
+            f"  dispatch config: {self.dispatch_path}",
+            f"  products: {self.n_products} gathered, "
+            f"{self.n_disabled} disabled, {self.n_errors} error(s) -- "
+            f"{self.total_entries} entries",
+        ]
+        for p in self.products:
+            lines.append(f"  - {p.product}: {p.total} entries")
+            for e in p.entries:
+                lines.append(f"      iter-{e.iter_num:02d}  [{e.prefix}]  {e.subject}")
+        for name in self.disabled:
+            lines.append(f"  - {name}: disabled")
+        for name, message in self.errors:
+            lines.append(f"  - {name}: ERROR {message}")
+        lines.append(f"verdict: {self.verdict}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe company changelog roll-up for machine consumers.
+        Every derived value REUSES the frozen properties, so the payload can
+        never disagree with `render()` or the exit code, and every value is
+        JSON-native. Pure: touches no filesystem."""
+        return {
+            "dispatch_path": self.dispatch_path,
+            "products": [p.to_dict() for p in self.products],
+            "disabled": list(self.disabled),
+            "errors": [{"product": name, "message": message}
+                       for name, message in self.errors],
+            "n_products": self.n_products,
+            "n_disabled": self.n_disabled,
+            "n_errors": self.n_errors,
+            "total_entries": self.total_entries,
+            "exit_code": self.exit_code,
+            "verdict": self.verdict,
+        }
+
+
+def summarize_company_changelog(*, dispatch_path: str,
+                                products: tuple[ChangelogSummary, ...],
+                                disabled: tuple[str, ...],
+                                errors: tuple[tuple[str, str], ...]
+                                ) -> CompanyChangelog:
+    """Pure keyword-only constructor for a `CompanyChangelog` (Behaviors 1-4).
+
+    Contract, purity and the WHY of the collapse: `_pack_company_rollup`."""
+    return _pack_company_rollup(CompanyChangelog, dispatch_path=dispatch_path,
+                                products=products, disabled=disabled,
+                                errors=errors)
+
+
+def company_changelog_cli(dispatch_path: str, limit: int | None = None,
+                          as_json: bool = False) -> int:
+    """On-demand CLI: roll every ENABLED team's changelog into ONE company view.
+
+    Reads the DISPATCH config at `dispatch_path` (`foundry.config.json`, NOT a
+    product config), then for each ENABLED work item substitutes a `{FOUNDRY}`
+    token in its config path to the foundry root and loads + gathers that
+    product's changelog via the `load_config` / `gather_changelog` seams (both
+    called by BARE name so a `monkeypatch.setattr(foundry, ...)` bites).
+    `limit` flows through to EVERY `gather_changelog(cfg, limit)` call
+    (most-recent N per team). A DISABLED item is recorded in `disabled` (by
+    name) and never loaded.
+
+    Resilient (Behaviors 9-10): if reading/parsing the dispatch config fails
+    (missing / not JSON / not an object) it prints a report recording ONE
+    synthetic error and returns exit 1; if a single work item's `load_config`
+    or `gather_changelog` raises, that item is recorded in `errors` and the
+    roll-up CONTINUES gathering the rest (company exit 1). No exception ever
+    propagates.
+
+    With `as_json=True` stdout is exactly ONE `json.dumps(to_dict(), indent=2)`
+    document; either way the RETURN value is the same `CompanyChangelog.exit_code`
+    (0 gathered-with-entries / 1 errors-or-all-empty / 2 no-enabled-products).
+    Writes NOTHING to disk -- a read-only report; with `load_config`
+    monkeypatched the filesystem is untouched."""
+    return _company_rollup_cli(dispatch_path, as_json,
+                               gather_changelog, summarize_company_changelog,
+                               gather_args=(limit,))
+
+
+# --------------------------------------------------------------------------- #
 # Decision-log render (`directions`) -- discovery bite 4a (roadmap iter 115).
 #
 # The operator needs to read, in ONE place, WHAT each scouted iteration
@@ -28943,6 +29098,27 @@ def main(argv: list[str] | None = None) -> int:
                      help="emit the company roll-up as one JSON document "
                           "(machine-readable) instead of the human report; "
                           "same 0/1/2 exit code")
+    # `company-changelog` rolls up EVERY enabled dispatch team's iter-449
+    # CHANGELOG into ONE company-wide view (total entries across all teams,
+    # per-product entry lists). Its `--config` points at the DISPATCH config
+    # (`foundry.config.json`), NOT a product config, and it does its own
+    # per-work-item `load_config` internally -- so, like `company-status`/
+    # `company-history`/`single-brain`/`lint-spec`, it is dispatched BEFORE the
+    # `load_config(args.config)` call below. Read-only + on-demand: the
+    # pipeline/dispatcher NEVER call it; it writes nothing. Exit 0
+    # gathered-with-entries / 1 errors-or-all-empty / 2 no-enabled-products.
+    ccl = sub.add_parser("company-changelog")
+    ccl.add_argument("--config", default=str(FOUNDRY / "foundry.config.json"),
+                     help="path to the DISPATCH config (foundry.config.json), "
+                          "NOT a product config (default: the repo's "
+                          "foundry.config.json)")
+    ccl.add_argument("--limit", type=int, default=None,
+                     help="show only the most-recent N entries per team "
+                          "(default: all)")
+    ccl.add_argument("--json", action="store_true",
+                     help="emit the company roll-up as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code, honours --limit")
     # `stop` is the WRITE half of the contract `company-stops` above READS: it
     # writes a sentinel carrying a REASON, which the documented alternative
     # (`touch STOP`, zero bytes) cannot do -- and a reason-less sentinel is
@@ -29237,6 +29413,9 @@ def main(argv: list[str] | None = None) -> int:
         return company_status_cli(args.config, as_json=args.json)
     if args.cmd == "company-stops":
         return company_stops_cli(args.config, as_json=args.json)
+    if args.cmd == "company-changelog":
+        return company_changelog_cli(args.config, limit=args.limit,
+                                     as_json=args.json)
     if args.cmd == "company-history":
         return company_history_cli(args.config, limit=args.limit,
                                    as_json=args.json)

@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-467
+    lenses: unknown
+    - Candidate A1 -- CONTINUOUS.md "Health checks" teaches raw shell while doctor/preflight/status exist
+    - Candidate A2 -- USAGE.md cheat-sheet "See what shipped" row names raw `git log` while `foundry changelog` exists
+    - Candidate A3 -- ARCHITECTURE.md §2 tester vocabulary brake covers code->doc but not doc->code
+    - Candidate B1 -- `foundry company-changelog`: the company-wide roll-up of the per-product changelog
+    - Candidate B2 -- `foundry reverts`: a per-product revert inventory with reason and retry class
+    - Candidate B3 -- `foundry company-outcomes`: the company-wide roll-up of the per-product outcomes ledger
+    winner: B1
+    ship: pending (not yet decided)
   iter-466
     lenses: performance-and-throughput
     - Candidate A1 -- scope _gather_weak_test_files to "test" alongside "tests" (-1.7 s/suite, -433 ms per company CLI call)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- USAGE cheat-sheet "See what shipped" row names `git log` while `foundry changelog` does this job
     - Candidate B3 -- CONTINUOUS.md "Health checks" teaches raw shell recipes while `doctor`, `preflight`, and `status` exist
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED d0a34ca
   iter-465
     lenses: simplification-and-deletion
     - Candidate A1 -- consolidate 41-file `_co_names_deep` cluster into `tests/_shared.py` (-~410 lines, 9 hash-distinct variants -> 1 canonical)
@@ -2073,4 +2083,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-208 scouted iterations
+209 scouted iterations
