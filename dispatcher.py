@@ -23,8 +23,8 @@ item, forever, until a STOP sentinel appears:
   * `<foundry>/STOP`             -> stop the whole company
   * `<work_root>/STOP`           -> retire one team (dispatcher skips it)
 
-Launch (as ONE backgrounded Bash call, timeout: 0, machine on AC power):
-    uv run python -X utf8 dispatcher.py --config foundry.config.json
+Launch (via launch.sh, which runs preflight before detaching):
+    ./launch.sh --config foundry.config.json
 """
 
 from __future__ import annotations

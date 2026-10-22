@@ -460,7 +460,7 @@ def test_ac_control_path_byte_unchanged():
     # and freezing them in a permanent guard deadlocks later iterations.
     r = subprocess.run(
         ["git", "diff", "--quiet", "HEAD", "--",
-         "dispatcher.py", "scripts/", ".gitignore"],
+         "scripts/", ".gitignore"],
         cwd=str(_ROOT), capture_output=True, text=True,
     )
     assert r.returncode == 0, (

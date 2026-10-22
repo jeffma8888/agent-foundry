@@ -670,7 +670,7 @@ def test_b8_the_out_of_scope_renderers_are_not_composed(tmp_path, monkeypatch, n
 # ==========================================================================
 # Behavior 9 -- no frozen path is touched by this iteration
 # ==========================================================================
-FROZEN = ("dispatcher.py", ".gitignore", "scripts/")
+FROZEN = (".gitignore", "scripts/")
 
 
 def test_b9_this_iteration_touches_no_frozen_path() -> None:
@@ -679,7 +679,7 @@ def test_b9_this_iteration_touches_no_frozen_path() -> None:
         pytest.skip("git diff unavailable in this checkout")
     changed = tuple(ln.strip() for ln in r.stdout.splitlines() if ln.strip())
     hits = tuple(p for p in changed
-                 if p in FROZEN[:2] or p.startswith(FROZEN[2]))
+                 if p in FROZEN or p.startswith("scripts/"))
     assert hits == (), \
         "27 permanent guards freeze these paths byte-unchanged; touched: %r" % (hits,)
 

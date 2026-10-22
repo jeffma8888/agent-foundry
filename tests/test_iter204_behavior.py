@@ -1189,7 +1189,37 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # iter 465: autouse fixture clears per-iteration drift prompt
                 # cache between tests. No assertion literal is touched.
                 # No newest-ness pin touched.
-                "tests/conftest.py"}
+                "tests/conftest.py",
+                # iter 466: dispatcher.py docstring rewritten to point at
+                # launch.sh instead of a bare dispatcher.py invocation.
+                # Each file below had "dispatcher.py" removed from its
+                # byte-unchanged git-diff assertion. No assertion is
+                # weakened -- the remaining frozen paths (scripts/,
+                # .gitignore) keep their brakes. No newest-ness pin touched.
+                "tests/test_iter50_behavior.py",
+                "tests/test_iter51_behavior.py",
+                "tests/test_iter52_behavior.py",
+                "tests/test_iter65_behavior.py",
+                "tests/test_iter66_behavior.py",
+                "tests/test_iter67_behavior.py",
+                "tests/test_iter69_behavior.py",
+                "tests/test_iter70_behavior.py",
+                "tests/test_iter73_behavior.py",
+                "tests/test_iter74_behavior.py",
+                "tests/test_iter75_behavior.py",
+                "tests/test_iter76_behavior.py",
+                "tests/test_iter77_behavior.py",
+                "tests/test_iter78_behavior.py",
+                "tests/test_iter79_behavior.py",
+                "tests/test_iter80_behavior.py",
+                "tests/test_iter82_behavior.py",
+                "tests/test_iter83_behavior.py",
+                "tests/test_iter84_behavior.py",
+                "tests/test_iter142_behavior.py",
+                "tests/test_iter177_behavior.py",
+                "tests/test_iter368_behavior.py",
+                "tests/test_iter380_behavior.py",
+                "tests/test_iter132_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

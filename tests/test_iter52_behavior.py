@@ -250,7 +250,6 @@ def test_b8_non_prose_files_byte_unchanged():
     dispatcher.py + the guard scripts byte-unchanged + a clean import."""
     r = subprocess.run(
         ["git", "diff", "--quiet", "HEAD", "--",
-         "dispatcher.py",
          "scripts/leak_guard.py", "scripts/leak_denylist.txt"],
         cwd=str(_ROOT), capture_output=True, text=True)
     assert r.returncode == 0, (

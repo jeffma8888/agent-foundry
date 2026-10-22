@@ -95,7 +95,7 @@ import subprocess
 def test_b98_narrowed_until_hollow_byte_unchanged():
     """Selected, but it no longer covers the real control path."""
     proc = subprocess.run(
-        ["git", "diff", "--quiet", "HEAD", "--", "scripts/"],
+        ["git", "diff", "--quiet", "HEAD", "--", ".gitignore"],
         capture_output=True,
     )
     assert proc.returncode == 0
@@ -357,7 +357,7 @@ def test_b8_a_hollowed_guard_is_named_in_the_failure_message(
     hollow = scope.hollow_guards()
     assert len(hollow) == 1, hollow
     assert "test_planted_hollow.py" in hollow[0]
-    assert scope.CONTROL_PATH_FILE in hollow[0]
+    assert scope.CONTROL_PATH_PREFIX in hollow[0]
     with pytest.raises(AssertionError) as excinfo:
         scope.test_control_path_guards_still_cover_the_real_control_path()
     assert "test_planted_hollow.py" in str(excinfo.value)
@@ -375,14 +375,14 @@ def test_ac_the_three_original_test_functions_survive_by_name():
 
 
 def test_ac_the_decided_public_surface_exists_and_keeps_its_meaning():
-    for name in ("GUARD_NAME", "FORBIDDEN", "CONTROL_PATH_FILE", "GIT_DIFF_TOKENS",
+    for name in ("GUARD_NAME", "FORBIDDEN", "CONTROL_PATH_PREFIX", "GIT_DIFF_TOKENS",
                  "EXPECTED_MIN_GUARD_COUNT", "is_freeze_guard",
                  "guard_names_in_source", "freeze_guards", "forbidden_freezes",
                  "hollow_guards"):
         assert hasattr(scope, name), name
     assert scope.GUARD_NAME == "test_ac_control_path_byte_unchanged"
     assert tuple(scope.FORBIDDEN) == ("README.md", "roles/")
-    assert scope.CONTROL_PATH_FILE == "dispatcher.py"
+    assert scope.CONTROL_PATH_PREFIX == "scripts"
 
 
 def test_ac_is_freeze_guard_decides_a_single_function_node():

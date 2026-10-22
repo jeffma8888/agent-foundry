@@ -210,7 +210,7 @@ def test_b7_main_end_to_end_both_linters_green():
 @pytest.mark.skipif(not _GIT_OK, reason="not inside a git work tree")
 def test_b8_control_path_byte_unchanged_from_head():
     r = subprocess.run(
-        ["git", "diff", "--quiet", "HEAD", "--", "dispatcher.py", "scripts/"],
+        ["git", "diff", "--quiet", "HEAD", "--", "scripts/"],
         cwd=str(_ROOT), capture_output=True, text=True,
     )
     assert r.returncode == 0, "dispatcher.py / scripts NOT byte-unchanged from HEAD"

@@ -287,8 +287,8 @@ in the archive.
 - iter 381 -- head_unowned_lines: doctor names headless bullet bodies; 1,889 dead head chars archived, WARN -> OK.
 - iter 382 -- scout card: first checkpoint is a valid 2-3 heading slate; directions labels zero-heading seats.
 - iter 411 -- run_stage: ONE auth attempt then a 30-min STOP-aware hold; every other kind's ladder byte-unchanged.
-- iter 412 -- auth_hold_claim_gaps: both invariant docs state ONE auth attempt then a 30-min hold; ladder untouched.
-- iter 413 -- parse_triage_winner Rule 0: a line-anchored uppercase PICK label outranks the first id; 4 misrecords heal.
+- iter 412 -- auth_hold_claim_gaps: ONE auth attempt then 30-min hold.
+- iter 413 -- parse_triage_winner Rule 0: PICK label outranks first id.
 - iter 414 -- directions --topic TERM: filter slates by candidate text + archive bullets; exit 2 on no hit.
 - iter 415 -- staged-check: names paths staged as the EMPTY blob over a non-empty worktree file; exit 0/1/2.
 - iter 416 -- _list_item_around: one pure scoper under both claim guards (-4 L); spent RETRY-205 head bullet archived.
@@ -314,6 +314,7 @@ in the archive.
 - iter 460 -- session-scoped conftest smoke fixture.
 - iter 464 -- retire periodic reporter concept.
 - iter 465 -- cache drift_prompt_block per cfg.name.
+- iter 466 -- launch recipe: docstring+README -> launch.sh.
 
 
 ### Migration notes (per §6 self-mod guardrail)

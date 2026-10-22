@@ -1569,6 +1569,49 @@ def launch_preflight_gaps(launch_text: str) -> tuple[str, ...]:
     return tuple(gaps)
 
 
+def launch_recipe_claim_gaps(
+    dispatcher_text: str, readme_text: str
+) -> list[str]:
+    """Dormant guard: non-empty when a file teaches a bare ``dispatcher.py`` launch.
+
+    Scans the dispatcher module docstring and README quickstart for a bare
+    ``uv run python ... dispatcher.py`` invocation presented as the primary
+    launch recipe.  The supported path is ``./launch.sh``, which gates on
+    ``preflight`` (single-brain, doctor, GO/NO-GO/CAUTION).
+
+    A match inside a "do NOT" / "do not" sentence is ignored — that is an
+    admonition, not a recipe.
+
+    PURE and TOTAL: ``str`` in, ``list[str]`` out.  No filesystem, no
+    subprocess, no network.  Never raises.
+
+    DORMANT: zero call sites in the running pipeline (iter 466).
+    """
+    gaps: list[str] = []
+    for label, text in (
+        ("dispatcher.py docstring", dispatcher_text),
+        ("README.md", readme_text),
+    ):
+        if not isinstance(text, str):
+            continue
+        for line in text.splitlines():
+            stripped = line.strip()
+            llow = stripped.lower()
+            if "do not" in llow:
+                continue
+            if (
+                "uv run" in stripped
+                and "dispatcher.py" in stripped
+                and "launch.sh" not in stripped
+                and "foundry.py" not in stripped
+            ):
+                gaps.append(
+                    f"{label} teaches a bare dispatcher.py launch recipe: "
+                    f"{stripped!r}"
+                )
+    return gaps
+
+
 # --------------------------------------------------------------------------- #
 # Bounded learnings digest (roadmap item 2, bite 1/2).
 #
