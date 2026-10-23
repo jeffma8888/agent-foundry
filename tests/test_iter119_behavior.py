@@ -49,6 +49,7 @@ import subprocess
 import sys
 
 import pytest
+from _shared import _co_names_deep
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import foundry  # noqa: E402
@@ -66,16 +67,6 @@ FAKE_TOKEN = "ZZ-RETRY-SENTINEL"
 # --------------------------------------------------------------------------
 # runtime introspection helpers (pure -- do NOT read module source text)
 # --------------------------------------------------------------------------
-def _co_names_deep(fn):
-    seen = set()
-    stack = [fn.__code__]
-    while stack:
-        code = stack.pop()
-        seen |= set(code.co_names)
-        stack += [c for c in code.co_consts if hasattr(c, "co_names")]
-    return seen
-
-
 def _leak_guard():
     gp = _ROOT / "scripts" / "leak_guard.py"
     spec = importlib.util.spec_from_file_location("leak_guard_iter119_probe", gp)

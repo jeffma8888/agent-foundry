@@ -270,9 +270,9 @@ in the archive.
 - iter 363 -- gather_losses and gather_auth_recency stop walking the attempt logs twice: one shared record-builder.
 - iter 364 -- roadmap-index WARNs when the index cannot absorb one mandatory ledger row.
 - iter 365 -- index paydown: 8 spent item-detail blocks archived verbatim, ledger-row runway restored
-- iter 366 -- weak-tests resolves one level of same-module delegation: 9 of 24 non-actionable findings clear.
+- iter 366 -- weak-tests: same-module delegation; 9 of 24 non-actionable cleared.
 - iter 368 -- the PM/scout prompts gain doctor's three drift WARNs; the learnings-head line is excluded and pinned.
-- iter 369 -- stage-budget medians drop credential-loss attempts: pm_scout_a read 3.0s, its worked median is 600.0s.
+- iter 369 -- stage-budget medians drop credential-loss attempts.
 - iter 370 -- README + roles/pm.md name STAGE_BUDGET_EXCLUDED_KINDS: the copied figure's population, plus a brake.
 - iter 371 -- foundry stop writes a reason-bearing STOP sentinel: the WRITE half the shipped reader round-trips.
 - iter 372 -- iter 131's frozen <= 2 zero-parse ceiling becomes the per-file heading implication: 0 of 1343 fail.
@@ -317,7 +317,7 @@ in the archive.
 - iter 466 -- launch recipe: docstring+README -> launch.sh.
 - iter 467 -- company-changelog: fleet-wide ship roll-up.
 - iter 468 -- per-product reverts verb with keyword classification.
-
+- iter 469 -- consolidate _co_names_deep into tests/_shared.py.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

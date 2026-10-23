@@ -37,6 +37,7 @@ import subprocess
 import sys
 
 import pytest
+from _shared import _co_names_deep
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT))
@@ -90,18 +91,6 @@ def _matches(text, rx):
         if m:
             out.append((int(m.group(1)), line))
     return out
-
-
-def _co_names_deep(fn):
-    """Names referenced by a function's bytecode, recursively through nested code
-    objects (iter-107 convention). Never reads module source text."""
-    seen = set()
-    stack = [fn.__code__]
-    while stack:
-        code = stack.pop()
-        seen |= set(code.co_names)
-        stack += [c for c in code.co_consts if hasattr(c, "co_names")]
-    return seen
 
 
 def _load_leak_guard():

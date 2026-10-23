@@ -46,13 +46,13 @@ import inspect
 import json
 import pathlib
 import sys
-import types
 
 import pytest
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import foundry  # noqa: E402
 import dispatcher  # noqa: E402
+from _shared import _co_names_deep  # noqa: E402
 
 
 # --------------------------------------------------------------------------
@@ -92,27 +92,16 @@ def _learnings_text(n_lessons, *patterns):
     return "\n".join(head) + "\n\n## Chronological lessons\n\n" + tail + "\n"
 
 
-def _co_names_deep(code):
-    """All global names referenced by a code object, recursing nested code."""
-    names = set(code.co_names)
-    for c in code.co_consts:
-        if isinstance(c, types.CodeType):
-            names |= _co_names_deep(c)
-    return names
-
-
 def _module_deep_names(mod):
     """Union of co_names over every function/method code object in a module."""
     names = set()
     for obj in vars(mod).values():
-        code = getattr(obj, "__code__", None)
-        if code is not None:
-            names |= _co_names_deep(code)
+        if hasattr(obj, "__code__"):
+            names |= _co_names_deep(obj)
         if isinstance(obj, type):
             for m in vars(obj).values():
-                c = getattr(m, "__code__", None)
-                if c is not None:
-                    names |= _co_names_deep(c)
+                if hasattr(m, "__code__"):
+                    names |= _co_names_deep(m)
     return names
 
 
@@ -450,7 +439,7 @@ def test_b18_dormancy_orchestrators_and_dispatcher():
     orchestrators = ["build_prompt", "run_stage", "run_iteration",
                      "run_continuous", "run_execution_plan"]
     for fn in orchestrators:
-        names = _co_names_deep(getattr(foundry, fn).__code__)
+        names = _co_names_deep(getattr(foundry, fn))
         assert "agents_view" not in names, f"{fn} references agents_view (must be dormant)"
         assert "AgentsView" not in names, f"{fn} references AgentsView (must be dormant)"
     dnames = _module_deep_names(dispatcher)

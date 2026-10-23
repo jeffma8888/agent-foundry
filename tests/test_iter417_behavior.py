@@ -373,10 +373,10 @@ def test_b5_exactly_the_spec_eight_call_sites_across_the_three_consumers():
 
 
 def test_b5_out_of_scope_helper_not_moved_into_shared():
-    # Out of Scope: "Moving `_co_names_deep` or any other duplicated helper".
+    # iter 469 consolidated _co_names_deep into _shared.py, so it IS now present.
     tree = _module_ast("_shared.py")
     names = {n.name for n in tree.body if isinstance(n, (ast.FunctionDef, ast.ClassDef))}
-    assert "_co_names_deep" not in names, names
+    assert "_co_names_deep" in names, names
 
 
 # --------------------------------------------------------------------------

@@ -40,11 +40,11 @@ import pathlib
 import re
 import subprocess
 import sys
-import types
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import foundry  # noqa: E402
 import dispatcher  # noqa: E402  (import-safety probe)
+from _shared import _co_names_deep  # noqa: E402
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 LIVE_ARCH = _ROOT / "ARCHITECTURE.md"
@@ -136,23 +136,6 @@ def _doc_with(count, heading=INVARIANT_HEADING):
     body = "\n".join("- **Inv%d.** prose for invariant %d." % (i, i)
                       for i in range(1, count + 1))
     return "%s\n\n%s\n\n## 4. Next section\n\n- **Outside.** later.\n" % (heading, body)
-
-
-def _co_names_deep(fn):
-    """Every name referenced by fn, including names inside nested code objects."""
-    seen, names = set(), set()
-    stack = [fn.__code__]
-    while stack:
-        code = stack.pop()
-        if id(code) in seen:
-            continue
-        seen.add(id(code))
-        names.update(code.co_names)
-        names.update(getattr(code, "co_varnames", ()))
-        for const in code.co_consts:
-            if isinstance(const, types.CodeType):
-                stack.append(const)
-    return names
 
 
 def _norm(text):
