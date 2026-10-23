@@ -66,6 +66,17 @@ def source_segment(lines: Sequence[str], node: ast.AST) -> str | None:
     return "".join([first, *lines[lineno + 1:end_lineno], last])
 
 
+def _co_names_deep(fn: object) -> set[str]:
+    """Every name referenced by *fn*'s bytecode, recursing into nested code objects."""
+    seen: set[str] = set()
+    stack = [fn.__code__]  # type: ignore[union-attr]
+    while stack:
+        code = stack.pop()
+        seen |= set(code.co_names)
+        stack += [c for c in code.co_consts if hasattr(c, "co_names")]
+    return seen
+
+
 def _snapshot_tree(root: str | pathlib.Path) -> dict[str, bytes]:
     """Map {relative-path: bytes} for every file under root (no-write proof)."""
     root = pathlib.Path(root)

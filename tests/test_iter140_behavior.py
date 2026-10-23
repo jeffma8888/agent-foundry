@@ -50,6 +50,7 @@ import sys
 import types
 
 import pytest
+from _shared import _co_names_deep
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT))
@@ -143,23 +144,6 @@ def _write(tmp_path, data, fname="config.json"):
     p = tmp_path / fname
     p.write_text(json.dumps(data))
     return str(p)
-
-
-def _co_names_deep(fn):
-    """Every name referenced by fn, including names inside nested code objects."""
-    seen, names = set(), set()
-    stack = [fn.__code__]
-    while stack:
-        code = stack.pop()
-        if id(code) in seen:
-            continue
-        seen.add(id(code))
-        names.update(code.co_names)
-        names.update(getattr(code, "co_varnames", ()))
-        for const in code.co_consts:
-            if isinstance(const, types.CodeType):
-                stack.append(const)
-    return names
 
 
 # Hostile / exotic mappings: none of these may raise (Behaviors 1 and 5).

@@ -64,7 +64,9 @@ CANDIDATE_PATHS = tuple(f"tests/test_iter{n}_behavior.py" for n in CANDIDATE_ITE
 
 # Behavior 7's control: a path the spec verified is absent from `expected` (its premise
 # is re-measured in the control test itself, never assumed).
-CONTROL_PATH = "tests/test_iter124_behavior.py"
+# iter 469: iter124 entered the expected set (_co_names_deep consolidation); iter162
+# is the other byte-unchanged sentinel and is also not in expected.
+CONTROL_PATH = "tests/test_iter162_behavior.py"
 
 _brake = importlib.import_module("test_iter204_behavior")
 
@@ -476,7 +478,8 @@ def test_b7_a_mixed_text_reds_only_on_the_modified_member(monkeypatch):
         getattr(_brake, B15)()
     message = str(excinfo.value)
     assert CONTROL_PATH in message
-    assert SELF_NAME not in message, \
+    unexpected_line = message.split("\n")[0]
+    assert SELF_NAME not in unexpected_line, \
         "an ADDED path must never appear in the failure report"
 
 

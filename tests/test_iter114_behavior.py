@@ -49,6 +49,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import foundry  # noqa: E402
 import dispatcher  # noqa: E402  (import-safety probe)
 import watchdog  # noqa: E402  (import-safety probe)
+from _shared import _co_names_deep  # noqa: E402
 
 _ROOT = pathlib.Path(foundry.__file__).resolve().parent
 DISPATCHER_PY = _ROOT / "dispatcher.py"
@@ -64,16 +65,6 @@ KEY = foundry._AGENT_ENDPOINT_ENV
 # --------------------------------------------------------------------------
 # runtime introspection helpers (pure -- do NOT read module source text)
 # --------------------------------------------------------------------------
-def _co_names_deep(fn):
-    seen = set()
-    stack = [fn.__code__]
-    while stack:
-        code = stack.pop()
-        seen |= set(code.co_names)
-        stack += [c for c in code.co_consts if hasattr(c, "co_names")]
-    return seen
-
-
 def _module_functions(mod):
     out = {}
     for name in dir(mod):

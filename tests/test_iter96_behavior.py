@@ -54,7 +54,7 @@ import pytest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import foundry  # noqa: E402
 import dispatcher  # noqa: E402  (import-safety probe)
-from _shared import _snapshot_tree
+from _shared import _co_names_deep, _snapshot_tree
 
 
 # --------------------------------------------------------------------------
@@ -149,18 +149,6 @@ def _cap(fn):
     with contextlib.redirect_stdout(buf):
         rc = fn()
     return rc, buf.getvalue()
-
-
-def _co_names_deep(fn):
-    """Every name referenced by fn's code, recursing nested code objects. Pure
-    runtime introspection -- does NOT read the module source text."""
-    seen = set()
-    stack = [fn.__code__]
-    while stack:
-        code = stack.pop()
-        seen |= set(code.co_names)
-        stack += [c for c in code.co_consts if hasattr(c, "co_names")]
-    return seen
 
 
 def _leak_guard():

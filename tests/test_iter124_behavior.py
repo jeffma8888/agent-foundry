@@ -31,6 +31,7 @@ import subprocess
 import sys
 
 import pytest
+from _shared import _co_names_deep
 
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_ROOT))
@@ -68,18 +69,6 @@ RECOVERED_ARCHIVE = (64, 122, 124)     # behavior 6
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
-def _co_names_deep(fn):
-    """Names referenced by a function's bytecode, recursively through nested code
-    objects (iter-107 convention). Never reads module source text."""
-    seen = set()
-    stack = [fn.__code__]
-    while stack:
-        code = stack.pop()
-        seen |= set(code.co_names)
-        stack += [c for c in code.co_consts if hasattr(c, "co_names")]
-    return seen
-
-
 def _boom(*a, **k):
     raise AssertionError("a function the spec declares PURE performed real I/O")
 

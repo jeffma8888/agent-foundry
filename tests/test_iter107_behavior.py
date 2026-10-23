@@ -40,6 +40,7 @@ import sys
 from types import SimpleNamespace
 
 import pytest
+from _shared import _co_names_deep
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import foundry  # noqa: E402
@@ -72,18 +73,6 @@ EXPECTED_POOL = (
 # deep `co_names` scan are unambiguous dormancy proofs.
 NEW_SELECTOR = "select_scout_lenses"
 NEW_POOL = "PM_SCOUT_LENS_POOL"
-
-
-def _co_names_deep(fn):
-    """Every name referenced by fn's code, recursing into nested code objects.
-    Pure runtime introspection -- does NOT read the module source text."""
-    seen = set()
-    stack = [fn.__code__]
-    while stack:
-        code = stack.pop()
-        seen |= set(code.co_names)
-        stack += [c for c in code.co_consts if hasattr(c, "co_names")]
-    return seen
 
 
 def _module_functions(mod):

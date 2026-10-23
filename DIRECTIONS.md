@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-469
+    lenses: unknown
+    - Candidate A1 -- consolidate 41-file `_co_names_deep` cluster into `tests/_shared.py`
+    - Candidate A2 -- USAGE.md cheat-sheet "See what shipped" row names `foundry changelog` instead of raw `git log`
+    - Candidate A3 -- CONTINUOUS.md "Health checks" section teaches raw shell while `doctor`, `preflight`, and `status` exist
+    - Candidate B1 -- `foundry company-reverts`: the company-wide roll-up of the per-product reverts verb
+    - Candidate B2 -- USAGE.md cheat-sheet "See what shipped" row names `foundry changelog` instead of raw `git log`
+    - Candidate B3 -- CONTINUOUS.md "Health checks" section teaches `pgrep`/`tail` while `doctor`, `preflight`, and `status` exist
+    winner: A1
+    ship: pending (not yet decided)
   iter-468
     lenses: unknown
     - Candidate A1 -- `foundry company-outcomes`: the company-wide roll-up of the per-product outcomes ledger
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `watchdog-arm --install`: arm the resurrection cron entry from inside the framework
     - Candidate B3 -- `foundry reverts`: a per-product revert inventory with reason and retry class
     winner: A2
-    ship: done
+    ship: PUSHED 2b15ec0
   iter-467
     lenses: unknown
     - Candidate A1 -- CONTINUOUS.md "Health checks" teaches raw shell while doctor/preflight/status exist
@@ -266,7 +276,7 @@ foundry directions -- _platform
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- the final gate's `VERIFIED:` ledger (11-14 lines per gate, live at iters 415/417/418) is taught by NO role card: `rg -c 'VERIFIED:' roles/final.md` = 0, and its two-segment key rule lives only at LEARNINGS line 3499
     - Candidate A2 -- ARCHITECTURE.md's final-gate paragraph reports a present-tense figure frozen at iter 194: "8 rounds are still recoverable from the attempt logs on disk" (line 71), 225 iterations later, in the vocabulary of a verb (`recoverable`, iter 215) that measures something else
-    - Candidate A3 -- `dispatcher.py`'s module docstring teaches the launch command the docs call unsupported (`uv run python -X utf8 dispatcher.py --config foundry.config.json`, line 26-27) while USAGE.md says "`./launch.sh` is the supported way in -- do not run `dispatcher.py` in the foreground" because only `launch.sh` gates on `single-brain`
+    - Candidate A3 -- `dispatcher.py` docstring teaches unsupported launch command; USAGE.md says use `launch.sh` (gates on single-brain)
     - Candidate B1 -- `foundry relaunch --when-idle`: perform the restart the `live-lag` WARN has asked a human to do for 8 shipped iterations, gated on `inflight` reporting no stage running
     - Candidate B2 -- `foundry reverts`: an inventory of every REVERTED iteration with the gate's named reason and a retry class (environmental vs review defect)
     - Candidate B3 -- per-stage cap override in the product config (`stage_caps`), additive-dormant, so a seat that sits AT the 600 s median (pm_scout_b today, 0.0 s headroom) can be given a measured budget instead of passing by luck
@@ -277,7 +287,7 @@ foundry directions -- _platform
     - Candidate A1 -- the suite's top-4 slow tests are still the four `live_smoke_on_real_dispatch_config` subprocess pairs (31.9 s CPU per run) and the SUBPROCESS they spawn, the fleet `company-weak-tests` roll-up, is the thing to make cheap, not the tests
     - Candidate A2 -- test_iter132's five "live population" freeze-guard tests re-derive the same census five times (22.9 s CPU: 9.64 + 4.17 + 4.16 + 2.62 + 2.28 s); compute it once per module
     - Candidate A3 -- the suite's wall floor is collection, not tests: 12 xdist workers each collect ~10.8k tests from 256 modules before the first test runs; measure and cut the per-worker collection cost
-    - Candidate B1 -- ARCHITECTURE.md still declares the dual-scout pre-stage "OPT-IN" with a "default-off path", and README's pipeline diagram says "scouts = opt-in", 98 iterations after iter 320 flipped `dual_pm_scouts` to default TRUE; no test pins either wording and no guard ties the docs' claim to the default
+    - Candidate B1 -- ARCHITECTURE.md + README still say dual-scout is "OPT-IN" 98 iters after iter 320 flipped default to TRUE; no guard ties docs to the code default
     - Candidate B2 -- the roadmap index's `STATUS (iter 323)` paragraph says the ledger is "current through 323" with 38 iterations shipped since, and names no post-323 jump while three (327-333, 340-359, 383-410 = 55 numbers) are named in neither index nor archive; the two tests that read the line pin `>= 185` / `>= 202` under a comment claiming "every later iteration advances this line", so the guard is green on a 94-iteration-stale sentence
     - Candidate B3 -- (being measured: a role card or doc that states a figure the code no longer matches)
     winner: B1
@@ -2093,4 +2103,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-210 scouted iterations
+211 scouted iterations

@@ -43,7 +43,7 @@ import json
 import pathlib
 import subprocess
 import sys
-import types
+from _shared import _co_names_deep
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import foundry  # noqa: E402
@@ -105,23 +105,6 @@ HOSTILE = [
 # --------------------------------------------------------------------------
 # helpers
 # --------------------------------------------------------------------------
-def _co_names_deep(fn):
-    """Every name referenced by fn, including names inside nested code objects."""
-    seen, names = set(), set()
-    stack = [fn.__code__]
-    while stack:
-        code = stack.pop()
-        if id(code) in seen:
-            continue
-        seen.add(id(code))
-        names.update(code.co_names)
-        names.update(getattr(code, "co_varnames", ()))
-        for const in code.co_consts:
-            if isinstance(const, types.CodeType):
-                stack.append(const)
-    return names
-
-
 def _cited(bar):
     return foundry.quality_bar_invariants(bar)
 

@@ -33,9 +33,9 @@ import json
 import pathlib
 import subprocess
 import sys
-import types
 
 import pytest
+from _shared import _co_names_deep
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import foundry  # noqa: E402
@@ -124,17 +124,6 @@ def _capture(fn):
     finally:
         sys.stdout, sys.stderr = old_out, old_err
     return rc, out.getvalue(), err.getvalue()
-
-
-def _co_names_deep(fn):
-    """Every name referenced by fn's code, recursing into nested code objects."""
-    seen = set()
-    stack = [fn.__code__]
-    while stack:
-        code = stack.pop()
-        seen |= set(code.co_names)
-        stack += [c for c in code.co_consts if hasattr(c, "co_names")]
-    return seen
 
 
 # ==========================================================================

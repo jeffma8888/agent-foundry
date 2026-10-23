@@ -26,6 +26,7 @@ import subprocess
 import sys
 
 import pytest
+from _shared import _co_names_deep
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import foundry  # noqa: E402
@@ -93,18 +94,6 @@ def _product_config_default_dual():
     return foundry.ProductConfig(
         name="probe-product", repo="example-repo", allowed_push_repo="example-repo"
     ).dual_pm_scouts
-
-
-def _co_names_deep(fn):
-    """Every name fn's compiled code references, recursing into nested code
-    objects. Pure runtime introspection -- does NOT read module source text."""
-    seen = set()
-    stack = [fn.__code__]
-    while stack:
-        code = stack.pop()
-        seen |= set(code.co_names)
-        stack += [c for c in code.co_consts if hasattr(c, "co_names")]
-    return seen
 
 
 def _stage_lines(out):
