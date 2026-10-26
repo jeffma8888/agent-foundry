@@ -1,0 +1,551 @@
+#!/usr/bin/env python3
+"""bench.py -- offline two-arm, equal-budget comparison seam with external scoring.
+
+WHY THIS FILE EXISTS: the pipeline records per-stage binary verdicts (tester
+RESULT, reviewer VERDICT, gate ACTION) and ship/revert counts, but nothing in
+the repo ever runs the SAME task twice -- a simpler baseline arm against the
+multi-role candidate arm -- on the same frozen snapshot under the same budget,
+and scores both from OUTSIDE the generating process. `docs/ORG_DESIGN.md`
+states the hypothesis ("multi-agent gains over strong single-agent baselines
+are often minimal"); this module is the smallest executable thing that can
+measure it.
+
+WHAT IS FROZEN, ONCE, BEFORE EITHER ARM RUNS:
+  * the input tree. A git input must be CLEAN (no modified or untracked files);
+    `git archive <HEAD>` is taken once and the same bytes are unpacked into each
+    arm's working directory. No `.git` metadata (including a linked worktree's
+    `.git` pointer file) reaches an arm. A non-git tree is tarred the same way.
+    Symbolic and hard links are never followed and never copied.
+    `base_sha` = the resolved commit (or `tree:<sha256>` for a non-git tree),
+    `snapshot_sha` = sha256 of the exact archived bytes.
+  * the task spec: `spec_sha` = sha256 of its bytes; arms read a frozen copy.
+  * the acceptance inputs: `check_sha` = sha256 over the acceptance command AND
+    the pinned content of every operator-declared `check_files` entry. Before an
+    arm's acceptance runs, each declared file in the arm copy is re-hashed; any
+    change REJECTS that arm (`accept = REJECTED`, never a verdict in its favour).
+  * the budget: `budget_s` wall-clock cap, ENFORCED here with a process-group
+    timeout (distinct from any budget the arm's own policy claims to honour).
+
+SCORING is an INDEPENDENT acceptance command run in the arm's copy AFTER the arm
+exits. Its exit code is the only quality signal: 0 -> PASS, non-zero -> FAIL.
+An arm's self-report is never read. `compare()` forms the only verdict:
+  * missing arm / unequal or malformed contract fields  -> INVALID_COMPARISON
+  * over budget, non-zero or missing arm exit, missing or non-finite wall_s,
+    acceptance not PASS/FAIL, inconsistent accept_exit, invalid usage report,
+    input tree modified during the run                  -> UNSCORED
+  * equal acceptance   -> TIE_ON_ACCEPTANCE (wall-clock is THROUGHPUT, not quality)
+  * acceptance differs -> WINNER_BY_ACCEPTANCE
+  No path produces a winner from missing, unequal, malformed or errored evidence.
+  Malformed records (wrong JSON types, sets, strings for numbers) are
+  INVALID_COMPARISON, never an exception.
+
+USAGE AND COST: `tokens` and `cost_usd` are the string `UNKNOWN` unless the arm
+command itself wrote a JSON object to `$BENCH_USAGE_FILE`. When present they
+are labelled `usage_source = "producer-reported"`: the arm's own claim, NOT an
+independent measurement. Supplied values must be finite, non-negative numbers
+or the arm is UNSCORED. Unknown is never reported as zero.
+
+WHAT THIS DOES NOT DO, stated plainly:
+  * no security isolation: arm and acceptance commands are trusted operator
+    configuration executed with the operator's own privileges and network. Each
+    arm gets a SEPARATE working copy, but nothing prevents a command from
+    reading or writing paths outside it. The input tree is re-verified after the
+    run and a mutation marks the comparison UNSCORED; that is integrity
+    verification, not an OS sandbox.
+  * no blinding: nothing here hides one arm's existence or output from the other.
+  * acceptance scope is exactly the declared `check_files`; files the acceptance
+    command depends on but the operator did not declare are not integrity-checked.
+  * on timeout the arm's process group is killed (POSIX `start_new_session` +
+    `killpg`); a descendant that created its own session is outside that bound.
+    Any process group members still alive after a normal exit are also killed.
+  * `quality_improvement` is always `UNMEASURED`: an acceptance pass/fail on one
+    task is not model-efficacy evidence. Scripted arms (the test suite) prove the
+    harness mechanics, nothing about any model.
+
+CLI EXAMPLE (paths in the config resolve relative to the config file):
+    bench.json:
+      {"repo": "toy", "spec": "spec.md", "budget_s": 60,
+       "baseline_cmd": ["python3", "-c", "pass"],
+       "candidate_cmd": ["python3", "fix.py"],
+       "accept_cmd": ["python3", "-m", "unittest", "-q", "test_calc"],
+       "check_files": ["test_calc.py"]}
+    python3 bench.py run --config bench.json --out bench-out
+    python3 bench.py compare --record bench-out/record.json
+  Exit 0 only for TIE_ON_ACCEPTANCE / WINNER_BY_ACCEPTANCE; 2 for any rejection.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import io
+import json
+import math
+import os
+import pathlib
+import posixpath
+import signal
+import subprocess
+import sys
+import tarfile
+import time
+
+UNKNOWN = "UNKNOWN"
+ARMS = ("baseline", "candidate")
+CONTRACT_KEYS = ("base_sha", "snapshot_sha", "spec_sha", "check_sha", "budget_s")
+_RESERVED_OUT = {"record.json", "frozen", *ARMS}
+_DRAIN_S = 2.0
+
+
+class BenchInputError(ValueError):
+    """Raised before any arm runs when the inputs cannot be frozen safely."""
+
+
+# --------------------------------------------------------------------------
+# small helpers
+# --------------------------------------------------------------------------
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _finite(x) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+
+
+def _nonempty_str(x) -> bool:
+    return isinstance(x, str) and bool(x)
+
+
+def _git(repo: pathlib.Path, *args: str) -> subprocess.CompletedProcess:
+    return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=False, check=True)
+
+
+def _git_head(repo: pathlib.Path) -> str | None:
+    if not (repo / ".git").exists():
+        return None
+    try:
+        return _git(repo, "rev-parse", "HEAD").stdout.decode().strip() or None
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+
+
+def _git_dirty(repo: pathlib.Path) -> str:
+    return _git(repo, "status", "--porcelain", "--untracked-files=all").stdout.decode()
+
+
+def _tree_tar(root: pathlib.Path) -> tuple[bytes, int]:
+    """Deterministic tar of regular files/dirs under `root` (no links followed, no
+    `.git`). Returns (bytes, skipped_links)."""
+    buf = io.BytesIO()
+    skipped = 0
+    with tarfile.open(fileobj=buf, mode="w") as tar:
+        for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+            dirnames[:] = sorted(d for d in dirnames if d != ".git"
+                                 and not os.path.islink(os.path.join(dirpath, d)))
+            skipped += sum(1 for d in os.listdir(dirpath)
+                           if os.path.islink(os.path.join(dirpath, d)))
+            for f in sorted(filenames):
+                p = pathlib.Path(dirpath) / f
+                if p.is_symlink() or not p.is_file():
+                    continue
+                info = tarfile.TarInfo(p.relative_to(root).as_posix())
+                data = p.read_bytes()
+                info.size, info.mtime, info.mode = len(data), 0, 0o644
+                tar.addfile(info, io.BytesIO(data))
+    return buf.getvalue(), skipped
+
+
+def _tree_sha(root: pathlib.Path) -> str:
+    """Content hash of a working copy (relpath + bytes of every regular file; links
+    hashed by target text; `.git` dirs excluded). Judges `output`, not `git status`."""
+    h = hashlib.sha256()
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        dirnames[:] = sorted(d for d in dirnames if d != ".git")
+        for f in sorted(filenames):
+            p = pathlib.Path(dirpath) / f
+            h.update(p.relative_to(root).as_posix().encode())
+            if p.is_symlink():
+                h.update(b"\0link:" + os.readlink(p).encode(errors="replace"))
+            elif p.is_file():
+                h.update(b"\0" + p.read_bytes())
+            h.update(b"\n")
+    return h.hexdigest()
+
+
+def _tar_regular_files(tar_bytes: bytes) -> dict[str, bytes]:
+    out: dict[str, bytes] = {}
+    with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r") as tar:
+        for m in tar.getmembers():
+            if m.isreg():
+                out[posixpath.normpath(m.name)] = tar.extractfile(m).read()
+    return out
+
+
+# --------------------------------------------------------------------------
+# freezing
+# --------------------------------------------------------------------------
+def freeze_inputs(repo: pathlib.Path, spec_path: pathlib.Path, budget_s, accept_cmd,
+                  check_files) -> dict:
+    """Resolve and pin every input ONCE. Raises BenchInputError on anything unsafe."""
+    repo = pathlib.Path(repo).resolve()
+    spec_path = pathlib.Path(spec_path).resolve()
+    if not repo.is_dir():
+        raise BenchInputError(f"repo is not a directory: {repo}")
+    if not spec_path.is_file():
+        raise BenchInputError(f"spec is not a file: {spec_path}")
+    if not _finite(budget_s) or budget_s <= 0:
+        raise BenchInputError(f"budget_s must be a positive finite number, got {budget_s!r}")
+    for label, cmd in (("accept_cmd", accept_cmd),):
+        if not (isinstance(cmd, list) and cmd and all(_nonempty_str(c) for c in cmd)):
+            raise BenchInputError(f"{label} must be a non-empty list of strings")
+    if not (isinstance(check_files, list) and check_files
+            and all(_nonempty_str(c) for c in check_files)):
+        raise BenchInputError("check_files must be a non-empty list of relative paths")
+    head = _git_head(repo)
+    if head:
+        dirty = _git_dirty(repo)
+        if dirty.strip():
+            raise BenchInputError("input repo is dirty; commit or stash first:\n" + dirty)
+        tar_bytes = _git(repo, "archive", "--format=tar", head).stdout
+        base_sha, skipped = head, 0
+    else:
+        tar_bytes, skipped = _tree_tar(repo)
+        base_sha = "tree:" + _sha256(tar_bytes)
+    files = _tar_regular_files(tar_bytes)
+    pinned: dict[str, str] = {}
+    for cf in check_files:
+        norm = posixpath.normpath(cf)
+        if norm.startswith("..") or posixpath.isabs(norm) or norm not in files:
+            raise BenchInputError(f"check file not a regular file inside the snapshot: {cf}")
+        pinned[norm] = _sha256(files[norm])
+    spec_bytes = spec_path.read_bytes()
+    check_sha = _sha256(json.dumps({"accept_cmd": accept_cmd, "files": pinned},
+                                   sort_keys=True).encode())
+    return {"repo": str(repo), "spec": str(spec_path), "base_sha": base_sha,
+            "snapshot_sha": _sha256(tar_bytes), "spec_sha": _sha256(spec_bytes),
+            "check_sha": check_sha, "check_files": pinned, "accept_cmd": list(accept_cmd),
+            "budget_s": budget_s, "skipped_links": skipped,
+            "_tar": tar_bytes, "_spec": spec_bytes}
+
+
+def _validate_out_dir(out_dir: pathlib.Path, frozen: dict) -> pathlib.Path:
+    out_dir = pathlib.Path(out_dir).resolve()
+    repo = pathlib.Path(frozen["repo"])
+    spec = pathlib.Path(frozen["spec"])
+    if out_dir == repo or repo in out_dir.parents:
+        raise BenchInputError(f"out_dir is inside the input repo: {out_dir}")
+    if out_dir in repo.parents or out_dir in spec.parents:
+        raise BenchInputError(f"an input lives inside out_dir: {out_dir}")
+    if out_dir.exists():
+        if not out_dir.is_dir():
+            raise BenchInputError(f"out_dir is not a directory: {out_dir}")
+        clash = [p.name for p in out_dir.iterdir()
+                 if p.name in _RESERVED_OUT or p.name.startswith(tuple(a + "." for a in ARMS))]
+        if clash:
+            raise BenchInputError(f"out_dir is prepopulated: {sorted(clash)}")
+    return out_dir
+
+
+def _materialize(frozen: dict, dest: pathlib.Path) -> int:
+    """Unpack the frozen bytes into a fresh `dest`; only regular files and
+    directories are extracted (links skipped). Returns skipped link count."""
+    dest.mkdir(parents=True, exist_ok=False)
+    skipped = frozen["skipped_links"]
+    with tarfile.open(fileobj=io.BytesIO(frozen["_tar"]), mode="r") as tar:
+        keep = []
+        for m in tar.getmembers():
+            if m.isreg() or m.isdir():
+                keep.append(m)
+            else:
+                skipped += 1
+        tar.extractall(dest, members=keep, filter="data")
+    return skipped
+
+
+def _input_integrity(frozen: dict) -> dict:
+    repo = pathlib.Path(frozen["repo"])
+    try:
+        head = _git_head(repo)
+        if head:
+            now = {"head": head, "dirty": _git_dirty(repo).strip()}
+            ok = head == frozen["base_sha"] and not now["dirty"]
+        else:
+            now = {"tree": "tree:" + _sha256(_tree_tar(repo)[0])}
+            ok = now["tree"] == frozen["base_sha"]
+    except (OSError, subprocess.CalledProcessError) as exc:
+        now, ok = {"error": f"{type(exc).__name__}: {exc}"}, False
+    return {"ok": ok, "observed": now}
+
+
+# --------------------------------------------------------------------------
+# bounded process execution (whole process group on POSIX)
+# --------------------------------------------------------------------------
+def _killpg(p: subprocess.Popen) -> None:
+    if os.name != "posix":
+        return
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+
+
+def _run_bounded(cmd: list[str], cwd: pathlib.Path, env: dict, timeout) -> dict:
+    """Run `cmd` as the leader of its own session; kill the whole group on timeout
+    and again after exit so lingering descendants cannot outlive the arm."""
+    res = {"exit_code": None, "stdout": "", "stderr": "", "timed_out": False, "error": None}
+    try:
+        p = subprocess.Popen(cmd, cwd=cwd, env=env, stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE, text=True, errors="replace",
+                             start_new_session=(os.name == "posix"))
+    except (OSError, ValueError, TypeError) as exc:
+        res["error"] = f"{type(exc).__name__}: {exc}"
+        return res
+    try:
+        out, err = p.communicate(timeout=timeout)
+        res["exit_code"] = p.returncode
+    except subprocess.TimeoutExpired:
+        res["timed_out"] = True
+        _killpg(p)
+        try:
+            out, err = p.communicate(timeout=_DRAIN_S)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            out, err = "", ""
+            res["error"] = "output pipes still held after group kill; output dropped"
+    finally:
+        _killpg(p)
+    res["stdout"], res["stderr"] = out or "", err or ""
+    return res
+
+
+# --------------------------------------------------------------------------
+# one arm
+# --------------------------------------------------------------------------
+def run_arm(name: str, cmd: list[str], frozen: dict, out_dir: pathlib.Path) -> dict:
+    arm_dir = out_dir / name
+    skipped = _materialize(frozen, arm_dir)
+    start_tree = _tree_sha(arm_dir)
+    spec_file = out_dir / "frozen" / "spec"
+    usage_file = out_dir / f"{name}.usage.json"
+    budget_s = frozen["budget_s"]
+    env = dict(os.environ)
+    env.update({"BENCH_SPEC": str(spec_file), "BENCH_BUDGET_S": str(budget_s),
+                "BENCH_USAGE_FILE": str(usage_file)})
+    rec: dict = {"arm": name, "cmd": cmd, "base_sha": frozen["base_sha"],
+                 "snapshot_sha": frozen["snapshot_sha"], "spec_sha": frozen["spec_sha"],
+                 "check_sha": frozen["check_sha"], "budget_s": budget_s,
+                 "tree_sha_start": start_tree, "skipped_links": skipped,
+                 "wall_s": None, "exit_code": None, "timed_out": False, "output": "NONE",
+                 "accept": "NOT_RUN", "accept_exit": None,
+                 "tokens": UNKNOWN, "cost_usd": UNKNOWN, "usage_source": None, "error": None}
+    if not (isinstance(cmd, list) and cmd and all(_nonempty_str(c) for c in cmd)):
+        rec["error"] = "arm cmd must be a non-empty list of strings"
+        return rec
+    t0 = time.monotonic()
+    res = _run_bounded(cmd, arm_dir, env, budget_s)
+    rec["wall_s"] = round(time.monotonic() - t0, 3)
+    rec["exit_code"], rec["timed_out"], rec["error"] = res["exit_code"], res["timed_out"], res["error"]
+    (out_dir / f"{name}.stdout.txt").write_text(res["stdout"], encoding="utf-8")
+    (out_dir / f"{name}.stderr.txt").write_text(res["stderr"], encoding="utf-8")
+    errors = [rec["error"]] if rec["error"] else []
+    if not spec_file.is_file() or _sha256(spec_file.read_bytes()) != frozen["spec_sha"]:
+        errors.append("frozen spec modified during arm")
+    rec["output"] = "DIFF" if _tree_sha(arm_dir) != start_tree else "NONE"
+    if usage_file.is_file():
+        rec["usage_source"] = "producer-reported"
+        try:
+            usage = json.loads(usage_file.read_text(encoding="utf-8"))
+            if not isinstance(usage, dict):
+                raise ValueError("usage file is not a JSON object")
+            for k in ("tokens", "cost_usd"):
+                if k in usage:
+                    v = usage[k]
+                    if not (_finite(v) and v >= 0):
+                        raise ValueError(f"{k} must be a finite non-negative number, got {v!r}")
+                    rec[k] = v
+        except (ValueError, OSError) as exc:
+            errors.append(f"invalid producer-reported usage: {exc}")
+    tampered = []
+    for rel, sha in frozen["check_files"].items():
+        p = arm_dir / rel
+        if p.is_symlink() or not p.is_file() or _sha256(p.read_bytes()) != sha:
+            tampered.append(rel)
+    if tampered:
+        rec["accept"] = "REJECTED"
+        errors.append("pinned check file(s) modified by arm: " + ", ".join(sorted(tampered)))
+    rec["error"] = "; ".join(errors) or None
+    if rec["timed_out"] or rec["error"] or rec["accept"] == "REJECTED":
+        return rec
+    # Independent acceptance: a SEPARATE process, only on an in-budget, intact arm.
+    a = _run_bounded(frozen["accept_cmd"], arm_dir, dict(os.environ), budget_s)
+    (out_dir / f"{name}.accept.txt").write_text(a["stdout"] + a["stderr"], encoding="utf-8")
+    if a["error"] or a["timed_out"]:
+        rec["accept"] = "ERROR"
+        rec["error"] = "accept: " + (a["error"] or f"timed out after {budget_s}s")
+    else:
+        rec["accept_exit"] = a["exit_code"]
+        rec["accept"] = "PASS" if a["exit_code"] == 0 else "FAIL"
+    return rec
+
+
+# --------------------------------------------------------------------------
+# pure comparison (no I/O) -- the only place a verdict is formed
+# --------------------------------------------------------------------------
+def compare(record) -> dict:
+    out = {"verdict": None, "winner": None, "reasons": [],
+           "quality_improvement": "UNMEASURED",
+           "note": ("acceptance-only comparison of scripted/offline arms; usage figures are "
+                    "producer-reported, not independently measured; not model-efficacy evidence"),
+           "throughput_wall_s": {}}
+
+    def invalid(msg: str) -> dict:
+        out["verdict"] = "INVALID_COMPARISON"
+        out["reasons"].append(msg)
+        return out
+
+    if not isinstance(record, dict):
+        return invalid(f"record is not a JSON object: {type(record).__name__}")
+    arms = {a: record.get(a) for a in ARMS}
+    missing = [a for a, v in arms.items() if not isinstance(v, dict)]
+    if missing:
+        return invalid("missing arm: " + ", ".join(missing))
+    for key in CONTRACT_KEYS:
+        vals = [arms[a].get(key) for a in ARMS]
+        if key == "budget_s":
+            ok = all(_finite(v) and v > 0 for v in vals)
+        else:
+            ok = all(_nonempty_str(v) for v in vals)
+        if not ok:
+            invalid(f"{key} missing or invalid")
+        elif vals[0] != vals[1]:
+            invalid(f"{key} differs between arms")
+    if out["verdict"]:
+        return out
+    budget = arms["baseline"]["budget_s"]
+    reasons = out["reasons"]
+    for a in ARMS:
+        r = arms[a]
+        wall, ec, acc, ae = r.get("wall_s"), r.get("exit_code"), r.get("accept"), r.get("accept_exit")
+        out["throughput_wall_s"][a] = wall if _finite(wall) else None
+        timed_out = r.get("timed_out")
+        if timed_out is True:
+            reasons.append(f"{a}: over budget ({wall}s > {budget}s)")
+        elif timed_out is not False:
+            reasons.append(f"{a}: timed_out flag missing or invalid")
+        if r.get("error"):
+            reasons.append(f"{a}: error {r['error']}")
+        if not _finite(wall) or wall < 0:
+            reasons.append(f"{a}: wall_s missing or not a finite non-negative number")
+        elif wall > budget and timed_out is not True:
+            reasons.append(f"{a}: wall_s {wall}s exceeds budget {budget}s")
+        if not (isinstance(ec, int) and not isinstance(ec, bool)):
+            reasons.append(f"{a}: exit_code missing or invalid")
+        elif ec != 0:
+            reasons.append(f"{a}: arm exited non-zero ({ec})")
+        if acc not in ("PASS", "FAIL"):
+            reasons.append(f"{a}: acceptance {acc}")
+        elif not (isinstance(ae, int) and not isinstance(ae, bool)):
+            reasons.append(f"{a}: accept_exit missing or invalid")
+        elif (acc == "PASS") != (ae == 0):
+            reasons.append(f"{a}: accept {acc} inconsistent with accept_exit {ae}")
+        for k in ("tokens", "cost_usd"):
+            v = r.get(k)
+            if v != UNKNOWN and not (_finite(v) and v >= 0):
+                reasons.append(f"{a}: {k} invalid producer-reported usage {v!r}")
+    integ = record.get("input_integrity")
+    if not isinstance(integ, dict) or integ.get("ok") is not True:
+        reasons.append("input integrity evidence missing, invalid, or failed during run")
+    if reasons:
+        out["verdict"] = "UNSCORED"
+        return out
+    acc = {a: arms[a]["accept"] for a in ARMS}
+    if acc["baseline"] == acc["candidate"]:
+        out["verdict"] = "TIE_ON_ACCEPTANCE"
+        return out
+    out["verdict"] = "WINNER_BY_ACCEPTANCE"
+    out["winner"] = "candidate" if acc["candidate"] == "PASS" else "baseline"
+    return out
+
+
+# --------------------------------------------------------------------------
+# orchestration + CLI
+# --------------------------------------------------------------------------
+def run_bench(repo: pathlib.Path, spec_path: pathlib.Path, budget_s,
+              baseline_cmd: list[str], candidate_cmd: list[str], accept_cmd: list[str],
+              out_dir: pathlib.Path, check_files: list[str]) -> dict:
+    frozen = freeze_inputs(repo, spec_path, budget_s, accept_cmd, check_files)
+    out_dir = _validate_out_dir(out_dir, frozen)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "frozen").mkdir()
+    (out_dir / "frozen" / "spec").write_bytes(frozen["_spec"])
+    public = {k: v for k, v in frozen.items() if not k.startswith("_")}
+    record: dict = {"frozen": public, "budget_s": budget_s}
+    for name, cmd in (("baseline", baseline_cmd), ("candidate", candidate_cmd)):
+        record[name] = run_arm(name, cmd, frozen, out_dir)
+    record["input_integrity"] = _input_integrity(frozen)
+    record["comparison"] = compare(record)
+    (out_dir / "record.json").write_text(json.dumps(record, indent=2, sort_keys=True),
+                                         encoding="utf-8")
+    return record
+
+
+def _print_verdict(v: dict) -> None:
+    print(f"verdict: {v['verdict']}  winner: {v['winner']}")
+    print(f"quality_improvement: {v['quality_improvement']}")
+    print(f"throughput_wall_s: {json.dumps(v['throughput_wall_s'])}")
+    for r in v["reasons"]:
+        print(f"  - {r}")
+    print(v["note"])
+
+
+def _rc(v: dict) -> int:
+    return 0 if v["verdict"] in ("WINNER_BY_ACCEPTANCE", "TIE_ON_ACCEPTANCE") else 2
+
+
+def _load_json(path: str):
+    try:
+        return json.loads(pathlib.Path(path).read_text(encoding="utf-8")), None
+    except (OSError, ValueError) as exc:
+        return None, f"{type(exc).__name__}: {exc}"
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="bench", description=__doc__.splitlines()[0])
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    run = sub.add_parser("run", help="freeze inputs, run both arms in separate copies, score externally")
+    run.add_argument("--config", required=True,
+                     help="JSON: repo, spec, budget_s, baseline_cmd, candidate_cmd, accept_cmd, check_files")
+    run.add_argument("--out", required=True, help="output directory for copies and record.json")
+    cmp_ = sub.add_parser("compare", help="re-derive the verdict from a saved record.json")
+    cmp_.add_argument("--record", required=True)
+    args = ap.parse_args(argv)
+    if args.cmd == "run":
+        cfg, err = _load_json(args.config)
+        if err or not isinstance(cfg, dict):
+            print(f"INVALID_CONFIG: {err or 'config is not a JSON object'}")
+            return 2
+        need = ("repo", "spec", "budget_s", "baseline_cmd", "candidate_cmd", "accept_cmd", "check_files")
+        missing = [k for k in need if k not in cfg]
+        if missing:
+            print(f"INVALID_CONFIG: missing keys {missing}")
+            return 2
+        base = pathlib.Path(args.config).resolve().parent
+        try:
+            rec = run_bench(repo=base / str(cfg["repo"]), spec_path=base / str(cfg["spec"]),
+                            budget_s=cfg["budget_s"], baseline_cmd=cfg["baseline_cmd"],
+                            candidate_cmd=cfg["candidate_cmd"], accept_cmd=cfg["accept_cmd"],
+                            out_dir=pathlib.Path(args.out), check_files=cfg["check_files"])
+        except BenchInputError as exc:
+            print(f"REJECTED_INPUT: {exc}")
+            return 2
+        _print_verdict(rec["comparison"])
+        return _rc(rec["comparison"])
+    rec, err = _load_json(args.record)
+    v = compare(rec) if err is None else compare(None)
+    if err:
+        v["reasons"].insert(0, f"record unreadable: {err}")
+    _print_verdict(v)
+    return _rc(v)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

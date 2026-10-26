@@ -383,6 +383,7 @@ always-on operating contract (AC power, the single-brain rule, the STOP files).
 | `tests/` | The framework's own test suite (the platform team's feedback loop). |
 | `ARCHITECTURE.md` / `USAGE.md` / `CONTINUOUS.md` | Design, recipes, operating contract. |
 | `docs/artifacts.md` | Catalog of products the foundry has produced. |
+| `bench.py` / `docs/BENCH.md` | Standalone offline two-arm comparison: runs a baseline and a candidate command on one frozen snapshot under an equal wall-clock budget and scores both with a pinned acceptance check. Not called by the loop; trusted commands only, no sandbox. |
 
 ## Public-safety: arm the leak-guard on a fresh clone
 
