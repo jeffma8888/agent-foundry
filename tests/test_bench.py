@@ -85,14 +85,15 @@ def _spec(tmp_path: pathlib.Path) -> pathlib.Path:
     return p
 
 
-def _run(tmp_path, toy_repo, baseline, candidate, budget=30, accept=None):
+def _run(tmp_path, toy_repo, baseline, candidate, budget=30, accept=None, solution=None):
     tmp_path.mkdir(parents=True, exist_ok=True)
     out = tmp_path / "out"
     return bench.run_bench(
         repo=toy_repo, spec_path=_spec(tmp_path), budget_s=budget,
         baseline_cmd=baseline, candidate_cmd=candidate,
         accept_cmd=_accept_cmd() if accept is None else accept, out_dir=out,
-        check_files=["test_calc.py"])
+        check_files=["test_calc.py"],
+        solution_files=["calc.py"] if solution is None else solution)
 
 
 # --------------------------------------------------------------------------
@@ -100,7 +101,7 @@ def _run(tmp_path, toy_repo, baseline, candidate, budget=30, accept=None):
 # --------------------------------------------------------------------------
 def _arm(**over):
     base = dict(base_sha="abc", snapshot_sha="snap", spec_sha="s1", check_sha="chk",
-                budget_s=10, wall_s=1.0, exit_code=0, timed_out=False, output="DIFF",
+                solution_sha="sol", budget_s=10, wall_s=1.0, exit_code=0, timed_out=False, output="DIFF",
                 accept="PASS", cost_usd="UNKNOWN", tokens="UNKNOWN", error=None)
     base.update(over)
     if "accept_exit" not in over:  # consistent by default; tests override to break it
@@ -222,6 +223,7 @@ def test_cli_run_and_compare_roundtrip(tmp_path, toy_repo, capsys):
         "repo": str(toy_repo), "spec": str(_spec(tmp_path)), "budget_s": 30,
         "baseline_cmd": _noop_cmd(), "candidate_cmd": _fix_cmd(),
         "accept_cmd": _accept_cmd(), "check_files": ["test_calc.py"],
+        "solution_files": ["calc.py"],
     }), encoding="utf-8")
     out = tmp_path / "cli-out"
     rc = bench.main(["run", "--config", str(cfg), "--out", str(out)])
@@ -304,7 +306,7 @@ def test_out_dir_inside_input_tree_is_rejected(tmp_path, toy_repo):
         bench.run_bench(repo=toy_repo, spec_path=_spec(tmp_path), budget_s=5,
                         baseline_cmd=_noop_cmd(), candidate_cmd=_noop_cmd(),
                         accept_cmd=_accept_cmd(), out_dir=toy_repo / "out",
-                        check_files=["test_calc.py"])
+                        check_files=["test_calc.py"], solution_files=["calc.py"])
 
 
 def test_prepopulated_out_dir_is_rejected(tmp_path, toy_repo):
@@ -405,7 +407,7 @@ def test_check_files_must_be_declared_and_present(tmp_path, toy_repo):
             bench.run_bench(repo=toy_repo, spec_path=_spec(tmp_path), budget_s=5,
                             baseline_cmd=_noop_cmd(), candidate_cmd=_noop_cmd(),
                             accept_cmd=_accept_cmd(), out_dir=tmp_path / "out" / str(len(files)),
-                            check_files=files)
+                            check_files=files, solution_files=["calc.py"])
 
 
 def test_check_sha_binds_accept_cmd_and_check_content(tmp_path, toy_repo):
@@ -587,7 +589,8 @@ def test_cli_run_huge_budget_is_rejected_input_not_traceback(tmp_path, toy_repo,
     cfg.write_text(json.dumps({
         "repo": str(toy_repo), "spec": str(_spec(tmp_path)), "budget_s": _HUGE,
         "baseline_cmd": _noop_cmd(), "candidate_cmd": _fix_cmd(),
-        "accept_cmd": _accept_cmd(), "check_files": ["test_calc.py"]}), encoding="utf-8")
+        "accept_cmd": _accept_cmd(), "check_files": ["test_calc.py"],
+        "solution_files": ["calc.py"]}), encoding="utf-8")
     assert bench.main(["run", "--config", str(cfg), "--out", str(tmp_path / "o")]) == 2
     assert "REJECTED_INPUT" in capsys.readouterr().out
     assert not (tmp_path / "o" / "baseline").exists(), "no arm may launch on a rejected budget"
@@ -656,3 +659,201 @@ def test_tree_sha_hashes_symlinks_including_dir_links_without_following(tmp_path
     (t / "fl").unlink()
     (t / "fl").symlink_to("dl")
     assert bench._tree_sha(t) != h1, "a file-symlink target change must change the hash"
+
+
+# --------------------------------------------------------------------------
+# 12. acceptance boundary: only declared solution files reach acceptance
+# --------------------------------------------------------------------------
+# A candidate that leaves calc.py wrong and test_calc.py byte-identical, but ADDS a
+# package `test_calc/` that `-m unittest test_calc` imports instead of the module.
+_SHADOW_CMD = [sys.executable, "-c",
+               "import pathlib; p = pathlib.Path('test_calc'); p.mkdir(); (p / '__init__.py')"
+               ".write_text('import unittest\\nclass T(unittest.TestCase):\\n"
+               "    def test_ok(self): pass\\n')"]
+_PATCH_CONFTEST = "import calc\ncalc.add = lambda a, b: a + b\n"
+_PYTEST_ACCEPT = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "test_calc.py"]
+
+
+def _commit_all(repo: pathlib.Path, files: dict) -> None:
+    for rel, text in files.items():
+        p = repo / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-qm", "more")
+
+
+def _write_cmd(files: dict) -> list[str]:
+    return [sys.executable, "-c",
+            "import pathlib\nfor k, v in %r.items():\n    pathlib.Path(k).write_text(v)\n" % files]
+
+
+def test_shadow_package_cannot_win_without_a_solution_fix(tmp_path, toy_repo, capsys):
+    rec = _run(tmp_path, toy_repo, baseline=_noop_cmd(), candidate=_SHADOW_CMD)
+    out = tmp_path / "out"
+    c = rec["candidate"]
+    assert (out / "candidate" / "test_calc" / "__init__.py").is_file(), "artifact is kept"
+    assert (out / "candidate" / "calc.py").read_text(encoding="utf-8") == _CALC
+    assert (out / "candidate" / "test_calc.py").read_text(encoding="utf-8") == _TEST
+    assert not (out / "candidate.accept-tree" / "test_calc").exists()
+    assert c["output"] == "DIFF" and c["ignored_change_count"] == 1
+    assert c["ignored_change_paths"] == ["test_calc/__init__.py"]
+    assert c["accept"] == "FAIL" and c["projected"] == ["calc.py"]
+    assert "Ran 1 test" in (out / "candidate.accept.txt").read_text(encoding="utf-8")
+    v = rec["comparison"]
+    assert v["verdict"] == "TIE_ON_ACCEPTANCE" and v["winner"] is None, v
+    assert bench.main(["compare", "--record", str(out / "record.json")]) == 0
+    assert "TIE_ON_ACCEPTANCE" in capsys.readouterr().out
+
+
+def test_real_solution_fix_still_wins_through_the_boundary(tmp_path, toy_repo, capsys):
+    rec = _run(tmp_path, toy_repo, baseline=_noop_cmd(), candidate=_fix_cmd())
+    out = tmp_path / "out"
+    b, c = rec["baseline"], rec["candidate"]
+    assert b["accept"] == "FAIL" and c["accept"] == "PASS"
+    assert c["projected"] == ["calc.py"] and c["ignored_change_count"] == 0
+    assert (out / "candidate.accept-tree" / "calc.py").read_text(encoding="utf-8") == _FIX
+    assert "Ran 1 test" in (out / "candidate.accept.txt").read_text(encoding="utf-8")
+    assert b["accept_tree_sha"] != c["accept_tree_sha"]
+    assert rec["comparison"]["winner"] == "candidate"
+    assert bench.main(["compare", "--record", str(out / "record.json")]) == 0
+    assert "WINNER_BY_ACCEPTANCE" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("variant", ["added", "modified"])
+def test_undeclared_conftest_cannot_replace_the_check(tmp_path, toy_repo, variant):
+    if variant == "modified":  # an existing, undeclared, benign conftest.py in the snapshot
+        _commit_all(toy_repo, {"conftest.py": "# shared fixtures\n"})
+    patch = _write_cmd({"conftest.py": _PATCH_CONFTEST})
+    rec = _run(tmp_path, toy_repo, baseline=_noop_cmd(), candidate=patch, accept=_PYTEST_ACCEPT)
+    c = rec["candidate"]
+    assert c["ignored_change_paths"] == ["conftest.py"], c
+    assert c["accept"] == "FAIL" and rec["baseline"]["accept"] == "FAIL", c
+    assert rec["comparison"]["verdict"] == "TIE_ON_ACCEPTANCE"
+    # positive control: the same conftest DOES reach acceptance once declared, so the
+    # boundary (not a broken probe) is what blocked it above.
+    rec2 = _run(tmp_path / "declared", toy_repo, baseline=_noop_cmd(), candidate=patch,
+                accept=_PYTEST_ACCEPT, solution=["calc.py", "conftest.py"])
+    assert rec2["candidate"]["accept"] == "PASS", rec2["candidate"]
+    assert rec2["comparison"]["winner"] == "candidate"
+
+
+def test_multi_file_solution_with_declared_new_file(tmp_path, toy_repo):
+    files = {"helpers.py": "def plus(a, b):\n    return a + b\n",
+             "calc.py": "from helpers import plus\n\ndef add(a, b):\n    return plus(a, b)\n"}
+    rec = _run(tmp_path / "declared", toy_repo, baseline=_noop_cmd(), candidate=_write_cmd(files),
+               solution=["calc.py", "helpers.py"])
+    b, c = rec["baseline"], rec["candidate"]
+    assert c["projected"] == ["calc.py", "helpers.py"] and c["accept"] == "PASS", c
+    assert b["projected"] == ["calc.py"] and b["accept"] == "FAIL", "absent declared file is absent"
+    assert rec["comparison"]["winner"] == "candidate"
+    # the same two-file fix with helpers.py NOT declared: calc.py reaches acceptance, its
+    # undeclared dependency does not, so acceptance runs and fails
+    rec2 = _run(tmp_path / "undeclared", toy_repo, baseline=_noop_cmd(),
+                candidate=_write_cmd(files))
+    c2 = rec2["candidate"]
+    assert c2["ignored_change_paths"] == ["helpers.py"] and c2["accept"] == "FAIL", c2
+    assert rec2["comparison"]["verdict"] == "TIE_ON_ACCEPTANCE"
+
+
+def test_nested_declared_file_modification_and_deletion_are_reflected(tmp_path, toy_repo):
+    _commit_all(toy_repo, {"pkg/__init__.py": "", "pkg/impl.py": "def add(a, b):\n    return a - b\n",
+                           "calc.py": "from pkg.impl import add\n"})
+    fix = _write_cmd({"pkg/impl.py": _FIX})
+    rec = _run(tmp_path / "fix", toy_repo, baseline=_noop_cmd(), candidate=fix,
+               solution=["pkg/impl.py"])
+    assert rec["candidate"]["accept"] == "PASS" and rec["baseline"]["accept"] == "FAIL"
+    delete = [sys.executable, "-c", "import os; os.remove('pkg/impl.py')"]
+    rec2 = _run(tmp_path / "del", toy_repo, baseline=fix, candidate=delete,
+                solution=["pkg/impl.py"])
+    c2 = rec2["candidate"]
+    assert c2["projected"] == [] and c2["accept"] == "FAIL", c2
+    assert not (tmp_path / "del" / "out" / "candidate.accept-tree" / "pkg" / "impl.py").exists()
+    assert rec2["comparison"]["winner"] == "baseline"
+
+
+@pytest.mark.parametrize("solution", [
+    None, [], "calc.py", [""], [5], ["calc.py", "calc.py"], ["test_calc.py"], ["./test_calc.py"],
+    ["./calc.py"], ["../calc.py"], ["/tmp/calc.py"], ["a//calc.py"], ["calc.py/x"],
+    [".git/config"], ["pkg"], ["new", "new/x.py"], ["x\0y"],
+], ids=lambda s: repr(s))
+def test_solution_files_declaration_is_validated(tmp_path, toy_repo, solution):
+    _commit_all(toy_repo, {"pkg/m.py": "x = 1\n"})
+    out = tmp_path / "out"
+    with pytest.raises(bench.BenchInputError):
+        bench.run_bench(repo=toy_repo, spec_path=_spec(tmp_path), budget_s=5,
+                        baseline_cmd=_noop_cmd(), candidate_cmd=_noop_cmd(),
+                        accept_cmd=_accept_cmd(), out_dir=out,
+                        check_files=["test_calc.py"], solution_files=solution)
+    assert not out.exists(), "no arm may launch on a rejected declaration"
+
+
+def test_cli_config_without_solution_files_is_invalid_config(tmp_path, toy_repo, capsys):
+    cfg = tmp_path / "bench.json"
+    cfg.write_text(json.dumps({
+        "repo": str(toy_repo), "spec": str(_spec(tmp_path)), "budget_s": 30,
+        "baseline_cmd": _noop_cmd(), "candidate_cmd": _SHADOW_CMD,
+        "accept_cmd": _accept_cmd(), "check_files": ["test_calc.py"]}), encoding="utf-8")
+    assert bench.main(["run", "--config", str(cfg), "--out", str(tmp_path / "o")]) == 2
+    assert "INVALID_CONFIG" in capsys.readouterr().out
+    assert not (tmp_path / "o").exists()
+
+
+def test_solution_boundary_is_part_of_the_contract(tmp_path, toy_repo):
+    f1 = bench.freeze_inputs(toy_repo, _spec(tmp_path), 5, _accept_cmd(), ["test_calc.py"], ["calc.py"])
+    f2 = bench.freeze_inputs(toy_repo, _spec(tmp_path), 5, _accept_cmd(), ["test_calc.py"],
+                             ["calc.py", "extra.py"])
+    assert f1["check_sha"] != f2["check_sha"] and f1["solution_sha"] != f2["solution_sha"]
+    v = bench.compare({"baseline": _arm(accept="FAIL"), "candidate": _arm(solution_sha="other"),
+                       "input_integrity": {"ok": True}})
+    assert v["verdict"] == "INVALID_COMPARISON" and v["winner"] is None
+    legacy = _arm()
+    legacy.pop("solution_sha")  # a record written before the boundary existed
+    v = bench.compare({"baseline": _arm(accept="FAIL"), "candidate": legacy,
+                       "input_integrity": {"ok": True}})
+    assert v["verdict"] == "INVALID_COMPARISON" and v["winner"] is None
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlink creation")
+@pytest.mark.parametrize("where", ["leaf", "parent"])
+def test_symlinked_solution_path_is_rejected_and_nothing_outside_is_read(tmp_path, toy_repo, where):
+    _commit_all(toy_repo, {"pkg/__init__.py": "", "pkg/impl.py": "def add(a, b):\n    return a - b\n"})
+    outside = _tree(tmp_path / "outside", {"calc.py": _FIX.encode(), "impl.py": _FIX.encode()})
+    before = {p.name: p.read_bytes() for p in outside.iterdir()}
+    link = ("import os; os.remove('calc.py'); os.symlink(%r, 'calc.py')" % str(outside / "calc.py")
+            if where == "leaf" else
+            "import os, shutil; shutil.rmtree('pkg'); os.symlink(%r, 'pkg')" % str(outside))
+    rec = _run(tmp_path / "t", toy_repo, baseline=_noop_cmd(), candidate=[sys.executable, "-c", link],
+               solution=["calc.py", "pkg/impl.py"])
+    c = rec["candidate"]
+    assert c["accept"] == "REJECTED" and "symlink" in c["error"], c
+    assert not (tmp_path / "t" / "out" / "candidate.accept.txt").exists(), "acceptance never ran"
+    assert rec["comparison"]["verdict"] == "UNSCORED" and rec["comparison"]["winner"] is None
+    tree = tmp_path / "t" / "out" / "candidate.accept-tree"
+    assert not any(p.is_symlink() for p in tree.rglob("*"))
+    assert (tree / "calc.py").read_text(encoding="utf-8") == _CALC
+    assert {p.name: p.read_bytes() for p in outside.iterdir()} == before, "outside fixture untouched"
+
+
+@pytest.mark.skipif(sys.platform == "win32" or not hasattr(__import__("os"), "geteuid")
+                    or __import__("os").geteuid() == 0, reason="POSIX permissions, non-root")
+@pytest.mark.parametrize("target", ["calc.py", "test_calc.py"])
+def test_unreadable_solution_or_check_file_fails_closed_without_verdict(tmp_path, toy_repo,
+                                                                         capsys, target):
+    cmd = [sys.executable, "-c",
+           "import os, pathlib; pathlib.Path('calc.py').write_text(%r); os.chmod(%r, 0)"
+           % (_FIX, target)]
+    cfg = tmp_path / "bench.json"
+    cfg.write_text(json.dumps({
+        "repo": str(toy_repo), "spec": str(_spec(tmp_path)), "budget_s": 30,
+        "baseline_cmd": _noop_cmd(), "candidate_cmd": cmd, "accept_cmd": _accept_cmd(),
+        "check_files": ["test_calc.py"], "solution_files": ["calc.py"]}), encoding="utf-8")
+    out = tmp_path / "o"
+    try:
+        assert bench.main(["run", "--config", str(cfg), "--out", str(out)]) == 2
+    finally:
+        (out / "candidate" / target).chmod(0o644)
+    assert "UNSCORED" in capsys.readouterr().out
+    c = json.loads((out / "record.json").read_text(encoding="utf-8"))["candidate"]
+    assert c["accept"] == ("ERROR" if target == "calc.py" else "REJECTED"), c
+    assert c["accept_exit"] is None and not (out / "candidate.accept.txt").exists()

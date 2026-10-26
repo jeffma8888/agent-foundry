@@ -14,7 +14,7 @@ cat > bench.json <<'EOF'
  "baseline_cmd": ["python3", "-c", "pass"],
  "candidate_cmd": ["python3", "fix.py"],
  "accept_cmd": ["python3", "-m", "unittest", "-q", "test_calc"],
- "check_files": ["test_calc.py"]}
+ "check_files": ["test_calc.py"], "solution_files": ["calc.py"]}
 EOF
 python3 bench.py run --config bench.json --out bench-out   # writes bench-out/record.json
 python3 bench.py compare --record bench-out/record.json   # re-derives the verdict offline
@@ -27,11 +27,49 @@ python3 bench.py compare --record bench-out/record.json   # re-derives the verdi
   `BENCH_BUDGET_S` and `BENCH_USAGE_FILE` in its environment.
 - Exit code: 0 for `WINNER_BY_ACCEPTANCE` or `TIE_ON_ACCEPTANCE`; 2 for
   `UNSCORED`, `INVALID_COMPARISON`, `INVALID_CONFIG` or `REJECTED_INPUT`.
+- `solution_files` is required: the exact relative paths of the regular files
+  an arm may change for scoring (see below).
+
+## Compatibility
+
+`solution_files` is a breaking addition. A config without it is
+`INVALID_CONFIG`; a present but invalid list is `REJECTED_INPUT` before any
+arm runs. In Python, `run_bench` and `freeze_inputs` take it as a required
+argument and raise `BenchInputError` for `None` or an invalid list. A
+`record.json` written before this field existed has no `solution_sha`, and
+`compare` reports it as `INVALID_COMPARISON`: its acceptance ran on the whole
+arm copy, so it cannot be trusted under the new contract.
+
+## Acceptance boundary
+
+- Acceptance never runs in the arm's working copy. After an arm exits, bench
+  builds a fresh acceptance tree from the frozen snapshot and copies in ONLY the
+  declared `solution_files` as they are in the arm copy. A declared file the
+  arm left absent (deleted, or a declared new file never created) is absent
+  from the acceptance tree.
+- Every other change stays in the arm copy as artifact metadata: `output`
+  (`DIFF`/`NONE`), `ignored_change_count` and up to 20 `ignored_change_paths`.
+  An added package that shadows a test module, a new or edited `conftest.py`,
+  or any other undeclared file cannot influence acceptance. `projected` lists
+  the declared files that were copied; `accept_tree_sha` fingerprints the tree
+  acceptance actually ran in.
+- Declarations are exact paths: no globs or directories; no absolute, `..`,
+  `.`, empty or `.git` components; no non-normalized spelling, duplicates,
+  one declared path under another, path under a snapshot file, snapshot
+  directory, or overlap with `check_files`. New files are allowed only when
+  declared before the run.
+- A declared path that is, or lies under, a symlink or a non-regular file
+  `REJECTS` the arm; an unreadable declared file is `ERROR`. Neither runs
+  acceptance, and the comparison is `UNSCORED`.
+- The sorted list is bound into `check_sha` and recorded as `solution_sha`, a
+  contract key: arms scored under different boundaries are
+  `INVALID_COMPARISON`.
 
 ## What it guarantees
 
-- The source tree, spec and acceptance inputs are frozen once, before either arm
-  runs, and identified by `base_sha`, `snapshot_sha`, `spec_sha` and `check_sha`.
+- The source tree, spec, acceptance inputs and solution boundary are frozen
+  once, before either arm runs, and identified by `base_sha`, `snapshot_sha`,
+  `spec_sha`, `check_sha` and `solution_sha`.
 - Both arms get the same `budget_s`, enforced by killing the arm's process group
   on timeout (and again after a normal exit).
 - Acceptance runs as its own process after the arm exits; the arm's
@@ -53,8 +91,9 @@ python3 bench.py compare --record bench-out/record.json   # re-derives the verdi
   target text without being followed; `.git` directories are skipped and
   empty directories are not recorded. This detects changes; it is not a
   tamper-proof seal.
-- An arm that modifies a declared `check_files` entry is `REJECTED` and its
-  acceptance is not run.
+- An arm that modifies a declared `check_files` entry (or leaves it unreadable)
+  is `REJECTED` and its acceptance is not run; the pinned file is not silently
+  restored.
 - `compare` names a winner only when both arms finished in budget with exit 0,
   acceptance is PASS/FAIL with a consistent exit code, contract fields match,
   and `input_integrity.ok` is explicitly `true`. Anything missing, malformed or
@@ -69,10 +108,13 @@ python3 bench.py compare --record bench-out/record.json   # re-derives the verdi
   operator's filesystem and reach the network. Separate working copies and
   post-run integrity checks detect some tampering; they do not contain
   malicious code.
-- **`check_files` is integrity pinning, not isolation.** Only the declared
-  files are hashed. Undeclared dependencies of the acceptance command (for
-  example a `conftest.py` that was not listed) are not checked, and a process
-  that starts its own session can outlive the group kill.
+- **The solution boundary is artifact filtering, not isolation.** It keeps
+  undeclared arm files out of acceptance; it does not prove the checker is
+  independent of the arm. Declared solution files are arbitrary code that runs
+  inside acceptance (for example on import) and can subvert it. The acceptance
+  command can still read paths, environment variables or network state
+  outside its tree, where an arm may have left something, and a process that
+  starts its own session can outlive the group kill.
 - **No blinding.** Nothing hides one arm's existence or output from the other.
 - **No model-quality or spend measurement.** `quality_improvement` is always
   `UNMEASURED`. One acceptance pass/fail on one task is not evidence that one

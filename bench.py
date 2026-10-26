@@ -19,15 +19,29 @@ WHAT IS FROZEN, ONCE, BEFORE EITHER ARM RUNS:
     `base_sha` = the resolved commit (or `tree:<sha256>` for a non-git tree),
     `snapshot_sha` = sha256 of the exact archived bytes.
   * the task spec: `spec_sha` = sha256 of its bytes; arms read a frozen copy.
-  * the acceptance inputs: `check_sha` = sha256 over the acceptance command AND
-    the pinned content of every operator-declared `check_files` entry. Before an
-    arm's acceptance runs, each declared file in the arm copy is re-hashed; any
-    change REJECTS that arm (`accept = REJECTED`, never a verdict in its favour).
+  * the acceptance inputs: `check_sha` = sha256 over the acceptance command,
+    the pinned content of every operator-declared `check_files` entry AND the
+    declared `solution_files` list. Before an arm's acceptance runs, each check
+    file in the arm copy is re-hashed; any change (or an unreadable file)
+    REJECTS that arm (`accept = REJECTED`, never a verdict in its favour).
+  * the acceptance boundary: `solution_files` (REQUIRED) = the exact relative
+    paths of the regular files an arm may change for scoring. No globs, no
+    directories, no `..`/absolute/`.git` paths, no duplicates or nesting, no
+    overlap with `check_files`. New files are allowed only if declared here.
+    `solution_sha` = sha256 of the sorted list; it is a contract key, so arms
+    scored under different boundaries never compare as equal.
   * the budget: `budget_s` wall-clock cap, ENFORCED here with a process-group
     timeout (distinct from any budget the arm's own policy claims to honour).
 
-SCORING is an INDEPENDENT acceptance command run in the arm's copy AFTER the arm
-exits. Its exit code is the only quality signal: 0 -> PASS, positive -> FAIL.
+SCORING is an INDEPENDENT acceptance command run AFTER the arm exits, in a FRESH
+acceptance tree: the frozen snapshot plus ONLY the declared solution files as
+they are in the arm copy (a declared file the arm left absent is absent). Any
+other change -- an added package that shadows a test module, a new
+`conftest.py`, an edited undeclared config file -- stays in the arm copy as
+artifact metadata (`output`, `ignored_change_count`, `ignored_change_paths`)
+and never reaches acceptance. A declared path that is, or lies under, a symlink
+or a non-regular file REJECTS the arm; an unreadable declared file is ERROR.
+Its exit code is the only quality signal: 0 -> PASS, positive -> FAIL.
 A check that did not complete -- killed by a signal (negative return code on
 POSIX), timed out, or failed to start -- is ERROR, never FAIL, so it cannot
 hand the other arm a win. A shell wrapper that reports its child's signal as an
@@ -63,8 +77,11 @@ WHAT THIS DOES NOT DO, stated plainly:
     run and a mutation marks the comparison UNSCORED; that is integrity
     verification, not an OS sandbox.
   * no blinding: nothing here hides one arm's existence or output from the other.
-  * acceptance scope is exactly the declared `check_files`; files the acceptance
-    command depends on but the operator did not declare are not integrity-checked.
+  * the solution boundary is artifact filtering, not isolation or proof that the
+    checker is independent of the arm: declared solution files are arbitrary
+    code that runs inside acceptance (e.g. on import) and can subvert it, and
+    the acceptance command can still read paths, environment or network outside
+    its tree, where an arm may have left state.
   * on timeout the arm's process group is killed (POSIX `start_new_session` +
     `killpg`); a descendant that created its own session is outside that bound.
     Any process group members still alive after a normal exit are also killed.
@@ -78,10 +95,12 @@ CLI EXAMPLE (paths in the config resolve relative to the config file):
        "baseline_cmd": ["python3", "-c", "pass"],
        "candidate_cmd": ["python3", "fix.py"],
        "accept_cmd": ["python3", "-m", "unittest", "-q", "test_calc"],
-       "check_files": ["test_calc.py"]}
+       "check_files": ["test_calc.py"], "solution_files": ["calc.py"]}
     python3 bench.py run --config bench.json --out bench-out
     python3 bench.py compare --record bench-out/record.json
   Exit 0 only for TIE_ON_ACCEPTANCE / WINNER_BY_ACCEPTANCE; 2 for any rejection.
+  A config without `solution_files` is INVALID_CONFIG; a record without
+  `solution_sha` (written before the boundary existed) is INVALID_COMPARISON.
 """
 from __future__ import annotations
 
@@ -94,6 +113,7 @@ import os
 import pathlib
 import posixpath
 import signal
+import stat
 import subprocess
 import sys
 import tarfile
@@ -104,7 +124,7 @@ UNKNOWN = "UNKNOWN"
 # poll(), which takes the timeout as a C int of milliseconds (2**31-1 ms).
 MAX_BUDGET_S = (2 ** 31 - 1) // 1000
 ARMS = ("baseline", "candidate")
-CONTRACT_KEYS = ("base_sha", "snapshot_sha", "spec_sha", "check_sha", "budget_s")
+CONTRACT_KEYS = ("base_sha", "snapshot_sha", "spec_sha", "check_sha", "solution_sha", "budget_s")
 _RESERVED_OUT = {"record.json", "frozen", *ARMS}
 _DRAIN_S = 2.0
 
@@ -190,15 +210,20 @@ def _frame(b: bytes) -> bytes:
 
 
 def _tree_sha(root: pathlib.Path) -> str:
+    return _entries_sha(_tree_entries(root))
+
+
+def _tree_entries(root: pathlib.Path) -> dict[bytes, tuple[bytes, bytes]]:
     """Change detector for a working copy; judges `output`, not `git status`.
 
     One record per entry, sorted by path: (kind, path, payload), each field
     length-prefixed so no file content can imitate a record boundary. Kinds:
     `file` / `exec` (owner-exec bit) with payload sha256(bytes); `link` with the
     raw link target (file AND directory symlinks; never followed); `other` for
-    non-regular files. Directories named `.git` are skipped; empty directories
-    are not recorded. A content fingerprint, not a tamper-proof seal."""
-    entries = []
+    non-regular files; `unreadable` for a regular file that cannot be read.
+    Directories named `.git` are skipped; empty directories are not recorded.
+    A content fingerprint, not a tamper-proof seal."""
+    entries: dict[bytes, tuple[bytes, bytes]] = {}
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
         dirnames[:] = [d for d in dirnames if d != ".git"]
         links = [d for d in dirnames if os.path.islink(os.path.join(dirpath, d))]
@@ -211,12 +236,19 @@ def _tree_sha(root: pathlib.Path) -> str:
                 kind, payload = b"link", os.fsencode(os.readlink(p))
             elif p.is_file():
                 kind = b"exec" if st.st_mode & 0o100 else b"file"
-                payload = hashlib.sha256(p.read_bytes()).digest()
+                try:
+                    payload = hashlib.sha256(p.read_bytes()).digest()
+                except OSError:
+                    kind, payload = b"unreadable", b""
             else:
                 kind, payload = b"other", b""
-            entries.append((rel, kind, payload))
+            entries[rel] = (kind, payload)
+    return entries
+
+
+def _entries_sha(entries: dict[bytes, tuple[bytes, bytes]]) -> str:
     h = hashlib.sha256(_frame(b"bench-tree-v2"))
-    for rel, kind, payload in sorted(entries):
+    for rel, (kind, payload) in sorted(entries.items()):
         h.update(_frame(kind) + _frame(rel) + _frame(payload))
     return h.hexdigest()
 
@@ -233,8 +265,32 @@ def _tar_regular_files(tar_bytes: bytes) -> dict[str, bytes]:
 # --------------------------------------------------------------------------
 # freezing
 # --------------------------------------------------------------------------
+def _check_solution_files(solution_files, files: dict[str, bytes], pinned: dict) -> list[str]:
+    """Validate the declared acceptance boundary against the frozen snapshot."""
+    if not (isinstance(solution_files, list) and solution_files
+            and all(_nonempty_str(s) for s in solution_files)):
+        raise BenchInputError("solution_files is required: a non-empty list of exact relative "
+                              "paths of the files an arm may change for acceptance")
+    if len(set(solution_files)) != len(solution_files):
+        raise BenchInputError("solution_files contains duplicates")
+    snapshot_dirs = {"/".join(f.split("/")[:i]) for f in files for i in range(1, f.count("/") + 1)}
+    for s in solution_files:
+        parts = s.split("/")
+        if ("\0" in s or posixpath.isabs(s) or posixpath.normpath(s) != s
+                or any(p in ("", ".", "..", ".git") for p in parts)):
+            raise BenchInputError(f"solution file must be an exact normalized relative path: {_short(s)}")
+        if s in pinned:
+            raise BenchInputError(f"solution file overlaps check_files: {s}")
+        if s in snapshot_dirs:
+            raise BenchInputError(f"solution file is a directory in the snapshot: {s}")
+        ancestors = {"/".join(parts[:i]) for i in range(1, len(parts))}
+        if ancestors & (set(files) | set(solution_files)):
+            raise BenchInputError(f"solution file lies under a file path: {s}")
+    return sorted(solution_files)
+
+
 def freeze_inputs(repo: pathlib.Path, spec_path: pathlib.Path, budget_s, accept_cmd,
-                  check_files) -> dict:
+                  check_files, solution_files) -> dict:
     """Resolve and pin every input ONCE. Raises BenchInputError on anything unsafe."""
     repo = pathlib.Path(repo).resolve()
     spec_path = pathlib.Path(spec_path).resolve()
@@ -269,12 +325,14 @@ def freeze_inputs(repo: pathlib.Path, spec_path: pathlib.Path, budget_s, accept_
         if norm.startswith("..") or posixpath.isabs(norm) or norm not in files:
             raise BenchInputError(f"check file not a regular file inside the snapshot: {cf}")
         pinned[norm] = _sha256(files[norm])
+    solution = _check_solution_files(solution_files, files, pinned)
     spec_bytes = spec_path.read_bytes()
-    check_sha = _sha256(json.dumps({"accept_cmd": accept_cmd, "files": pinned},
-                                   sort_keys=True).encode())
+    check_sha = _sha256(json.dumps({"accept_cmd": accept_cmd, "files": pinned,
+                                    "solution_files": solution}, sort_keys=True).encode())
     return {"repo": str(repo), "spec": str(spec_path), "base_sha": base_sha,
             "snapshot_sha": _sha256(tar_bytes), "spec_sha": _sha256(spec_bytes),
             "check_sha": check_sha, "check_files": pinned, "accept_cmd": list(accept_cmd),
+            "solution_files": solution, "solution_sha": _sha256(json.dumps(solution).encode()),
             "budget_s": budget_s, "skipped_links": skipped,
             "_tar": tar_bytes, "_spec": spec_bytes}
 
@@ -311,6 +369,47 @@ def _materialize(frozen: dict, dest: pathlib.Path) -> int:
                 skipped += 1
         tar.extractall(dest, members=keep, filter="data")
     return skipped
+
+
+def _project(frozen: dict, arm_dir: pathlib.Path, dest: pathlib.Path):
+    """Build the acceptance tree: a fresh copy of the frozen snapshot plus ONLY the
+    declared solution files as they are in `arm_dir`. Returns (projected paths,
+    reject reason, error). Nothing outside `dest` is written."""
+    _materialize(frozen, dest)
+    projected: list[str] = []
+    for rel in frozen["solution_files"]:
+        parts, src, st = rel.split("/"), arm_dir, None
+        for i, part in enumerate(parts):
+            src = src / part
+            try:
+                st = os.lstat(src)
+            except FileNotFoundError:
+                st = None
+                break
+            except OSError as exc:
+                return projected, None, f"solution file {rel}: {type(exc).__name__}: {exc}"
+            if stat.S_ISLNK(st.st_mode):
+                return projected, f"solution file {rel} is or lies under a symlink", None
+            if i < len(parts) - 1 and not stat.S_ISDIR(st.st_mode):
+                return projected, f"solution file {rel} lies under a non-directory", None
+        target = dest / rel
+        if st is None:  # declared but absent in the arm copy -> absent for acceptance
+            if target.is_file():
+                target.unlink()
+            continue
+        if not stat.S_ISREG(st.st_mode):
+            return projected, f"solution file {rel} is not a regular file", None
+        try:
+            fd = os.open(src, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            with os.fdopen(fd, "rb") as fh:
+                data = fh.read()
+        except OSError as exc:
+            return projected, None, f"solution file {rel} unreadable: {type(exc).__name__}: {exc}"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        target.chmod(0o755 if st.st_mode & 0o100 else 0o644)
+        projected.append(rel)
+    return projected, None, None
 
 
 def _input_integrity(frozen: dict) -> dict:
@@ -375,7 +474,8 @@ def _run_bounded(cmd: list[str], cwd: pathlib.Path, env: dict, timeout) -> dict:
 def run_arm(name: str, cmd: list[str], frozen: dict, out_dir: pathlib.Path) -> dict:
     arm_dir = out_dir / name
     skipped = _materialize(frozen, arm_dir)
-    start_tree = _tree_sha(arm_dir)
+    start = _tree_entries(arm_dir)
+    start_tree = _entries_sha(start)
     spec_file = out_dir / "frozen" / "spec"
     usage_file = out_dir / f"{name}.usage.json"
     budget_s = frozen["budget_s"]
@@ -384,9 +484,11 @@ def run_arm(name: str, cmd: list[str], frozen: dict, out_dir: pathlib.Path) -> d
                 "BENCH_USAGE_FILE": str(usage_file)})
     rec: dict = {"arm": name, "cmd": cmd, "base_sha": frozen["base_sha"],
                  "snapshot_sha": frozen["snapshot_sha"], "spec_sha": frozen["spec_sha"],
-                 "check_sha": frozen["check_sha"], "budget_s": budget_s,
-                 "tree_sha_start": start_tree, "skipped_links": skipped,
+                 "check_sha": frozen["check_sha"], "solution_sha": frozen["solution_sha"],
+                 "budget_s": budget_s, "tree_sha_start": start_tree, "skipped_links": skipped,
                  "wall_s": None, "exit_code": None, "timed_out": False, "output": "NONE",
+                 "ignored_change_count": None, "ignored_change_paths": [],
+                 "projected": [], "accept_tree_sha": None,
                  "accept": "NOT_RUN", "accept_exit": None,
                  "tokens": UNKNOWN, "cost_usd": UNKNOWN, "usage_source": None, "error": None}
     if not (isinstance(cmd, list) and cmd and all(_nonempty_str(c) for c in cmd)):
@@ -401,7 +503,12 @@ def run_arm(name: str, cmd: list[str], frozen: dict, out_dir: pathlib.Path) -> d
     errors = [rec["error"]] if rec["error"] else []
     if not spec_file.is_file() or _sha256(spec_file.read_bytes()) != frozen["spec_sha"]:
         errors.append("frozen spec modified during arm")
-    rec["output"] = "DIFF" if _tree_sha(arm_dir) != start_tree else "NONE"
+    end = _tree_entries(arm_dir)
+    rec["output"] = "DIFF" if _entries_sha(end) != start_tree else "NONE"
+    declared = set(frozen["solution_files"])
+    ignored = sorted(os.fsdecode(k) for k in start.keys() | end.keys()
+                     if start.get(k) != end.get(k) and os.fsdecode(k) not in declared)
+    rec["ignored_change_count"], rec["ignored_change_paths"] = len(ignored), ignored[:20]
     if usage_file.is_file():
         rec["usage_source"] = "producer-reported"
         try:
@@ -420,7 +527,11 @@ def run_arm(name: str, cmd: list[str], frozen: dict, out_dir: pathlib.Path) -> d
     tampered = []
     for rel, sha in frozen["check_files"].items():
         p = arm_dir / rel
-        if p.is_symlink() or not p.is_file() or _sha256(p.read_bytes()) != sha:
+        try:
+            intact = not p.is_symlink() and p.is_file() and _sha256(p.read_bytes()) == sha
+        except OSError:
+            intact = False
+        if not intact:
             tampered.append(rel)
     if tampered:
         rec["accept"] = "REJECTED"
@@ -428,8 +539,16 @@ def run_arm(name: str, cmd: list[str], frozen: dict, out_dir: pathlib.Path) -> d
     rec["error"] = "; ".join(errors) or None
     if rec["timed_out"] or rec["error"] or rec["accept"] == "REJECTED":
         return rec
-    # Independent acceptance: a SEPARATE process, only on an in-budget, intact arm.
-    a = _run_bounded(frozen["accept_cmd"], arm_dir, dict(os.environ), budget_s)
+    # Independent acceptance: a SEPARATE process, only on an in-budget, intact arm,
+    # in a fresh tree that holds the snapshot plus ONLY the declared solution files.
+    accept_dir = out_dir / f"{name}.accept-tree"
+    rec["projected"], reject, perr = _project(frozen, arm_dir, accept_dir)
+    if reject or perr:
+        rec["accept"] = "REJECTED" if reject else "ERROR"
+        rec["error"] = "acceptance boundary: " + (reject or perr)
+        return rec
+    rec["accept_tree_sha"] = _tree_sha(accept_dir)
+    a = _run_bounded(frozen["accept_cmd"], accept_dir, dict(os.environ), budget_s)
     (out_dir / f"{name}.accept.txt").write_text(a["stdout"] + a["stderr"], encoding="utf-8")
     if a["error"] or a["timed_out"]:
         rec["accept"] = "ERROR"
@@ -532,8 +651,8 @@ def compare(record) -> dict:
 # --------------------------------------------------------------------------
 def run_bench(repo: pathlib.Path, spec_path: pathlib.Path, budget_s,
               baseline_cmd: list[str], candidate_cmd: list[str], accept_cmd: list[str],
-              out_dir: pathlib.Path, check_files: list[str]) -> dict:
-    frozen = freeze_inputs(repo, spec_path, budget_s, accept_cmd, check_files)
+              out_dir: pathlib.Path, check_files: list[str], solution_files: list[str]) -> dict:
+    frozen = freeze_inputs(repo, spec_path, budget_s, accept_cmd, check_files, solution_files)
     out_dir = _validate_out_dir(out_dir, frozen)
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "frozen").mkdir()
@@ -574,7 +693,8 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     run = sub.add_parser("run", help="freeze inputs, run both arms in separate copies, score externally")
     run.add_argument("--config", required=True,
-                     help="JSON: repo, spec, budget_s, baseline_cmd, candidate_cmd, accept_cmd, check_files")
+                     help="JSON: repo, spec, budget_s, baseline_cmd, candidate_cmd, accept_cmd, "
+                          "check_files, solution_files")
     run.add_argument("--out", required=True, help="output directory for copies and record.json")
     cmp_ = sub.add_parser("compare", help="re-derive the verdict from a saved record.json")
     cmp_.add_argument("--record", required=True)
@@ -584,7 +704,8 @@ def main(argv: list[str] | None = None) -> int:
         if err or not isinstance(cfg, dict):
             print(f"INVALID_CONFIG: {err or 'config is not a JSON object'}")
             return 2
-        need = ("repo", "spec", "budget_s", "baseline_cmd", "candidate_cmd", "accept_cmd", "check_files")
+        need = ("repo", "spec", "budget_s", "baseline_cmd", "candidate_cmd", "accept_cmd",
+                "check_files", "solution_files")
         missing = [k for k in need if k not in cfg]
         if missing:
             print(f"INVALID_CONFIG: missing keys {missing}")
@@ -594,7 +715,8 @@ def main(argv: list[str] | None = None) -> int:
             rec = run_bench(repo=base / str(cfg["repo"]), spec_path=base / str(cfg["spec"]),
                             budget_s=cfg["budget_s"], baseline_cmd=cfg["baseline_cmd"],
                             candidate_cmd=cfg["candidate_cmd"], accept_cmd=cfg["accept_cmd"],
-                            out_dir=pathlib.Path(args.out), check_files=cfg["check_files"])
+                            out_dir=pathlib.Path(args.out), check_files=cfg["check_files"],
+                            solution_files=cfg["solution_files"])
         except BenchInputError as exc:
             print(f"REJECTED_INPUT: {exc}")
             return 2
