@@ -485,3 +485,174 @@ def test_compare_explicit_input_integrity_allows_acceptance_winner():
     verdict = bench.compare(record)
     assert verdict["verdict"] == "WINNER_BY_ACCEPTANCE"
     assert verdict["winner"] == "candidate"
+
+
+# --------------------------------------------------------------------------
+# 11. boundary defects reproduced against the first candidate
+# --------------------------------------------------------------------------
+# An acceptance command that dies by SIGKILL while calc.py is still the buggy
+# original, and otherwise runs the real unittest. Real subprocess, real signal.
+_SIGNAL_ACCEPT = [sys.executable, "-c",
+                  "import os, signal, subprocess, sys\n"
+                  "if 'a - b' in open('calc.py').read():\n"
+                  "    os.kill(os.getpid(), signal.SIGKILL)\n"
+                  "sys.exit(subprocess.call([sys.executable, '-m', 'unittest', '-q', 'test_calc']))\n"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX signal exit status")
+def test_e2e_signal_killed_acceptance_is_error_not_fail(tmp_path, toy_repo, capsys):
+    rec = _run(tmp_path, toy_repo, baseline=_noop_cmd(), candidate=_fix_cmd(),
+               accept=_SIGNAL_ACCEPT)
+    b, c = rec["baseline"], rec["candidate"]
+    assert b["accept"] == "ERROR", b
+    assert b["accept_exit"] == -9, b
+    assert "signal" in (b["error"] or ""), b
+    assert c["accept"] == "PASS" and c["accept_exit"] == 0, c
+    v = rec["comparison"]
+    assert v["verdict"] == "UNSCORED" and v["winner"] is None, v
+    saved = tmp_path / "out" / "record.json"
+    assert bench.main(["compare", "--record", str(saved)]) == 2
+    assert "UNSCORED" in capsys.readouterr().out
+
+
+def test_compare_negative_accept_exit_is_not_a_completed_fail():
+    rec = {"baseline": _arm(accept="FAIL", accept_exit=-9), "candidate": _arm(),
+           "input_integrity": {"ok": True}}
+    v = bench.compare(rec)
+    assert v["verdict"] == "UNSCORED" and v["winner"] is None, v
+    assert any("signal" in r for r in v["reasons"]), v
+
+
+def test_compare_positive_failing_exit_still_counts_as_fail():
+    for ae in (1, 3, 255):
+        rec = {"baseline": _arm(accept="FAIL", accept_exit=ae), "candidate": _arm(),
+               "input_integrity": {"ok": True}}
+        v = bench.compare(rec)
+        assert v["verdict"] == "WINNER_BY_ACCEPTANCE" and v["winner"] == "candidate", (ae, v)
+
+
+_HUGE = 10 ** 1000  # a valid JSON integer that no float can represent
+
+
+@pytest.mark.parametrize("field", ["budget_s", "wall_s", "tokens", "cost_usd"])
+@pytest.mark.parametrize("value", [_HUGE, -_HUGE, float("nan"), float("inf"), True, "10"],
+                         ids=["huge", "neg-huge", "nan", "inf", "bool", "str"])
+def test_compare_unrepresentable_or_nonnumeric_numbers_never_crash_or_win(field, value):
+    if field == "budget_s":
+        rec = {"baseline": _arm(budget_s=value), "candidate": _arm(budget_s=value),
+               "input_integrity": {"ok": True}}
+    else:
+        rec = {"baseline": _arm(accept="FAIL"), "candidate": _arm(**{field: value}),
+               "input_integrity": {"ok": True}}
+    v = bench.compare(rec)
+    assert v["verdict"] in ("UNSCORED", "INVALID_COMPARISON"), (field, value, v)
+    assert v["winner"] is None
+
+
+def test_cli_compare_huge_json_integers_exit_2_without_traceback(tmp_path, capsys):
+    for field in ("budget_s", "wall_s", "tokens"):
+        rec = {"baseline": _arm(accept="FAIL"), "candidate": _arm(),
+               "input_integrity": {"ok": True}}
+        rec["candidate"][field] = _HUGE
+        if field == "budget_s":
+            rec["baseline"][field] = _HUGE
+        p = tmp_path / f"{field}.json"
+        p.write_text(json.dumps(rec), encoding="utf-8")
+        assert bench.main(["compare", "--record", str(p)]) == 2, field
+        out = capsys.readouterr().out
+        assert "UNSCORED" in out or "INVALID_COMPARISON" in out, (field, out)
+
+
+def test_compare_ordinary_numbers_and_unknown_usage_keep_semantics():
+    rec = {"baseline": _arm(accept="FAIL", budget_s=10, wall_s=2, tokens="UNKNOWN"),
+           "candidate": _arm(budget_s=10, wall_s=9.5, tokens=10 ** 6, cost_usd=0.25),
+           "input_integrity": {"ok": True}}
+    v = bench.compare(rec)
+    assert v["verdict"] == "WINNER_BY_ACCEPTANCE" and v["winner"] == "candidate", v
+    big = {"baseline": _arm(budget_s=bench.MAX_BUDGET_S), "candidate": _arm(budget_s=bench.MAX_BUDGET_S),
+           "input_integrity": {"ok": True}}
+    assert bench.compare(big)["verdict"] == "TIE_ON_ACCEPTANCE"
+
+
+@pytest.mark.parametrize("budget", [_HUGE, 1e300, bench.MAX_BUDGET_S + 1, float("nan"),
+                                    float("inf"), True, "30"],
+                         ids=["huge", "1e300", "cap+1", "nan", "inf", "bool", "str"])
+def test_freeze_rejects_unrepresentable_or_unexecutable_budget(tmp_path, toy_repo, budget):
+    with pytest.raises(bench.BenchInputError):
+        _run(tmp_path, toy_repo, baseline=_noop_cmd(), candidate=_noop_cmd(), budget=budget)
+
+
+def test_cli_run_huge_budget_is_rejected_input_not_traceback(tmp_path, toy_repo, capsys):
+    cfg = tmp_path / "bench.json"
+    cfg.write_text(json.dumps({
+        "repo": str(toy_repo), "spec": str(_spec(tmp_path)), "budget_s": _HUGE,
+        "baseline_cmd": _noop_cmd(), "candidate_cmd": _fix_cmd(),
+        "accept_cmd": _accept_cmd(), "check_files": ["test_calc.py"]}), encoding="utf-8")
+    assert bench.main(["run", "--config", str(cfg), "--out", str(tmp_path / "o")]) == 2
+    assert "REJECTED_INPUT" in capsys.readouterr().out
+    assert not (tmp_path / "o" / "baseline").exists(), "no arm may launch on a rejected budget"
+
+
+def test_e2e_huge_producer_reported_usage_is_unscored_not_crash(tmp_path, toy_repo):
+    huge_usage = [sys.executable, "-c",
+                  "import os; open(os.environ['BENCH_USAGE_FILE'], 'w')"
+                  ".write('{\"tokens\": 1' + '0' * 1000 + '}')"]
+    rec = _run(tmp_path, toy_repo, baseline=_noop_cmd(), candidate=huge_usage)
+    assert "invalid producer-reported usage" in (rec["candidate"]["error"] or "")
+    assert rec["comparison"]["verdict"] == "UNSCORED"
+    assert rec["comparison"]["winner"] is None
+
+
+def _tree(root: pathlib.Path, files: dict) -> pathlib.Path:
+    root.mkdir(parents=True)
+    for rel, data in files.items():
+        p = root / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_bytes(data)
+    return root
+
+
+def test_tree_sha_record_boundary_pair_differs(tmp_path):
+    one = _tree(tmp_path / "one", {"a": b"x\nb\0y"})
+    two = _tree(tmp_path / "two", {"a": b"x", "b": b"y"})
+    assert bench._tree_sha(one) != bench._tree_sha(two)
+
+
+def test_tree_sha_stable_across_creation_order_and_ignores_git_dir(tmp_path):
+    a = _tree(tmp_path / "a", {"x/1": b"1", "y": b"2", "x/z/3": b"3"})
+    b = _tree(tmp_path / "b", {"x/z/3": b"3", "y": b"2", "x/1": b"1"})
+    assert bench._tree_sha(a) == bench._tree_sha(b)
+    before = bench._tree_sha(a)
+    (a / ".git").mkdir()
+    (a / ".git" / "HEAD").write_bytes(b"ref: refs/heads/main\n")
+    assert bench._tree_sha(a) == before
+
+
+def test_tree_sha_same_size_edit_and_exec_bit_change_hash(tmp_path):
+    t = _tree(tmp_path / "t", {"f.py": b"abc"})
+    h0 = bench._tree_sha(t)
+    (t / "f.py").write_bytes(b"abd")
+    h1 = bench._tree_sha(t)
+    assert h1 != h0
+    if sys.platform != "win32":
+        (t / "f.py").chmod(0o755)
+        assert bench._tree_sha(t) != h1
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlink creation")
+def test_tree_sha_hashes_symlinks_including_dir_links_without_following(tmp_path):
+    outside1 = _tree(tmp_path / "o1", {"secret": b"1"})
+    outside2 = _tree(tmp_path / "o2", {"secret": b"1"})
+    t = _tree(tmp_path / "t", {"f": b"x"})
+    (t / "dl").symlink_to(outside1, target_is_directory=True)
+    (t / "fl").symlink_to("f")
+    h0 = bench._tree_sha(t)
+    (outside1 / "secret").write_bytes(b"2")
+    assert bench._tree_sha(t) == h0, "a directory symlink must not be followed"
+    (t / "dl").unlink()
+    (t / "dl").symlink_to(outside2, target_is_directory=True)
+    h1 = bench._tree_sha(t)
+    assert h1 != h0, "a directory-symlink target change must change the hash"
+    (t / "fl").unlink()
+    (t / "fl").symlink_to("dl")
+    assert bench._tree_sha(t) != h1, "a file-symlink target change must change the hash"

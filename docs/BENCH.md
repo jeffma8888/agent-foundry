@@ -35,7 +35,24 @@ python3 bench.py compare --record bench-out/record.json   # re-derives the verdi
 - Both arms get the same `budget_s`, enforced by killing the arm's process group
   on timeout (and again after a normal exit).
 - Acceptance runs as its own process after the arm exits; the arm's
-  self-report is never read.
+  self-report is never read. Exit 0 is PASS and a positive exit is FAIL. A
+  check killed by a signal (a negative return code on POSIX), timed out or
+  unable to start is `ERROR`, which leaves the comparison `UNSCORED`. A shell
+  wrapper that reports a child's signal as an ordinary positive status
+  (128+N) still looks like FAIL.
+- Numbers (`budget_s`, `wall_s`, `tokens`, `cost_usd`) count only if they are
+  ints or floats, not booleans, that convert to a finite float. A valid JSON
+  integer such as `10**1000` is rejected rather than raising. `budget_s` must
+  also be at most `MAX_BUDGET_S` (2,147,483 s, about 24.8 days): the largest
+  timeout Python's poll()-based subprocess wait accepts (2**31-1 ms). That is
+  an executable-timeout limit, not an evaluation policy.
+- An arm's `output` (`DIFF` or `NONE`) compares a sorted list of
+  length-prefixed (kind, path, payload) records, so one file's bytes cannot
+  imitate a second file. Regular files are recorded with their content
+  digest and owner-exec bit; file and directory symlinks are recorded by
+  target text without being followed; `.git` directories are skipped and
+  empty directories are not recorded. This detects changes; it is not a
+  tamper-proof seal.
 - An arm that modifies a declared `check_files` entry is `REJECTED` and its
   acceptance is not run.
 - `compare` names a winner only when both arms finished in budget with exit 0,

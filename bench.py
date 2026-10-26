@@ -27,17 +27,27 @@ WHAT IS FROZEN, ONCE, BEFORE EITHER ARM RUNS:
     timeout (distinct from any budget the arm's own policy claims to honour).
 
 SCORING is an INDEPENDENT acceptance command run in the arm's copy AFTER the arm
-exits. Its exit code is the only quality signal: 0 -> PASS, non-zero -> FAIL.
+exits. Its exit code is the only quality signal: 0 -> PASS, positive -> FAIL.
+A check that did not complete -- killed by a signal (negative return code on
+POSIX), timed out, or failed to start -- is ERROR, never FAIL, so it cannot
+hand the other arm a win. A shell wrapper that reports its child's signal as an
+ordinary positive status (128+N) is indistinguishable from a failing test here.
 An arm's self-report is never read. `compare()` forms the only verdict:
   * missing arm / unequal or malformed contract fields  -> INVALID_COMPARISON
   * over budget, non-zero or missing arm exit, missing or non-finite wall_s,
-    acceptance not PASS/FAIL, inconsistent accept_exit, invalid usage report,
+    acceptance not PASS/FAIL, inconsistent or negative (signal) accept_exit,
+    invalid usage report,
     input tree modified during the run                  -> UNSCORED
   * equal acceptance   -> TIE_ON_ACCEPTANCE (wall-clock is THROUGHPUT, not quality)
   * acceptance differs -> WINNER_BY_ACCEPTANCE
   No path produces a winner from missing, unequal, malformed or errored evidence.
   Malformed records (wrong JSON types, sets, strings for numbers) are
-  INVALID_COMPARISON, never an exception.
+  INVALID_COMPARISON, never an exception. A number counts only if it is an int
+  or float (not bool) that converts to a finite float: a valid JSON integer like
+  10**1000 is rejected as unrepresentable, not raised as OverflowError.
+  `budget_s` must also be <= MAX_BUDGET_S (2**31-1 ms, about 24.8 days), the
+  largest timeout subprocess's poll()-based wait can execute on POSIX. That is
+  an executable-timeout limit, not an evaluation policy.
 
 USAGE AND COST: `tokens` and `cost_usd` are the string `UNKNOWN` unless the arm
 command itself wrote a JSON object to `$BENCH_USAGE_FILE`. When present they
@@ -90,6 +100,9 @@ import tarfile
 import time
 
 UNKNOWN = "UNKNOWN"
+# Largest wall-clock timeout that subprocess can execute on POSIX: its wait uses
+# poll(), which takes the timeout as a C int of milliseconds (2**31-1 ms).
+MAX_BUDGET_S = (2 ** 31 - 1) // 1000
 ARMS = ("baseline", "candidate")
 CONTRACT_KEYS = ("base_sha", "snapshot_sha", "spec_sha", "check_sha", "budget_s")
 _RESERVED_OUT = {"record.json", "frozen", *ARMS}
@@ -108,7 +121,25 @@ def _sha256(data: bytes) -> str:
 
 
 def _finite(x) -> bool:
-    return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
+    """int/float (not bool) that converts to a finite float; huge ints are False."""
+    if not isinstance(x, (int, float)) or isinstance(x, bool):
+        return False
+    try:
+        return math.isfinite(float(x))
+    except OverflowError:
+        return False
+
+
+def _short(v, n: int = 40) -> str:
+    """repr for messages; never raises on ints too long for str() (3.11+ limit)."""
+    try:
+        return repr(v)[:n]
+    except ValueError:
+        return f"<{type(v).__name__} too large to display>"
+
+
+def _budget_ok(x) -> bool:
+    return _finite(x) and 0 < x <= MAX_BUDGET_S
 
 
 def _nonempty_str(x) -> bool:
@@ -154,20 +185,39 @@ def _tree_tar(root: pathlib.Path) -> tuple[bytes, int]:
     return buf.getvalue(), skipped
 
 
+def _frame(b: bytes) -> bytes:
+    return len(b).to_bytes(8, "big") + b
+
+
 def _tree_sha(root: pathlib.Path) -> str:
-    """Content hash of a working copy (relpath + bytes of every regular file; links
-    hashed by target text; `.git` dirs excluded). Judges `output`, not `git status`."""
-    h = hashlib.sha256()
+    """Change detector for a working copy; judges `output`, not `git status`.
+
+    One record per entry, sorted by path: (kind, path, payload), each field
+    length-prefixed so no file content can imitate a record boundary. Kinds:
+    `file` / `exec` (owner-exec bit) with payload sha256(bytes); `link` with the
+    raw link target (file AND directory symlinks; never followed); `other` for
+    non-regular files. Directories named `.git` are skipped; empty directories
+    are not recorded. A content fingerprint, not a tamper-proof seal."""
+    entries = []
     for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
-        dirnames[:] = sorted(d for d in dirnames if d != ".git")
-        for f in sorted(filenames):
+        dirnames[:] = [d for d in dirnames if d != ".git"]
+        links = [d for d in dirnames if os.path.islink(os.path.join(dirpath, d))]
+        dirnames[:] = sorted(d for d in dirnames if d not in links)
+        for f in [*filenames, *links]:
             p = pathlib.Path(dirpath) / f
-            h.update(p.relative_to(root).as_posix().encode())
+            rel = os.fsencode(p.relative_to(root).as_posix())
+            st = p.lstat()
             if p.is_symlink():
-                h.update(b"\0link:" + os.readlink(p).encode(errors="replace"))
+                kind, payload = b"link", os.fsencode(os.readlink(p))
             elif p.is_file():
-                h.update(b"\0" + p.read_bytes())
-            h.update(b"\n")
+                kind = b"exec" if st.st_mode & 0o100 else b"file"
+                payload = hashlib.sha256(p.read_bytes()).digest()
+            else:
+                kind, payload = b"other", b""
+            entries.append((rel, kind, payload))
+    h = hashlib.sha256(_frame(b"bench-tree-v2"))
+    for rel, kind, payload in sorted(entries):
+        h.update(_frame(kind) + _frame(rel) + _frame(payload))
     return h.hexdigest()
 
 
@@ -192,8 +242,10 @@ def freeze_inputs(repo: pathlib.Path, spec_path: pathlib.Path, budget_s, accept_
         raise BenchInputError(f"repo is not a directory: {repo}")
     if not spec_path.is_file():
         raise BenchInputError(f"spec is not a file: {spec_path}")
-    if not _finite(budget_s) or budget_s <= 0:
-        raise BenchInputError(f"budget_s must be a positive finite number, got {budget_s!r}")
+    if not _budget_ok(budget_s):
+        raise BenchInputError("budget_s must be a positive number representable as a "
+                              f"finite float and <= {MAX_BUDGET_S}s (executable timeout "
+                              f"limit), got {_short(budget_s)}")
     for label, cmd in (("accept_cmd", accept_cmd),):
         if not (isinstance(cmd, list) and cmd and all(_nonempty_str(c) for c in cmd)):
             raise BenchInputError(f"{label} must be a non-empty list of strings")
@@ -360,7 +412,8 @@ def run_arm(name: str, cmd: list[str], frozen: dict, out_dir: pathlib.Path) -> d
                 if k in usage:
                     v = usage[k]
                     if not (_finite(v) and v >= 0):
-                        raise ValueError(f"{k} must be a finite non-negative number, got {v!r}")
+                        raise ValueError(f"{k} must be a finite non-negative number, "
+                                         f"got {_short(v)}")
                     rec[k] = v
         except (ValueError, OSError) as exc:
             errors.append(f"invalid producer-reported usage: {exc}")
@@ -383,7 +436,11 @@ def run_arm(name: str, cmd: list[str], frozen: dict, out_dir: pathlib.Path) -> d
         rec["error"] = "accept: " + (a["error"] or f"timed out after {budget_s}s")
     else:
         rec["accept_exit"] = a["exit_code"]
-        rec["accept"] = "PASS" if a["exit_code"] == 0 else "FAIL"
+        if a["exit_code"] < 0:  # POSIX: killed by signal -> the check never completed
+            rec["accept"] = "ERROR"
+            rec["error"] = f"accept: killed by signal {-a['exit_code']}, not a completed FAIL"
+        else:
+            rec["accept"] = "PASS" if a["exit_code"] == 0 else "FAIL"
     return rec
 
 
@@ -411,7 +468,7 @@ def compare(record) -> dict:
     for key in CONTRACT_KEYS:
         vals = [arms[a].get(key) for a in ARMS]
         if key == "budget_s":
-            ok = all(_finite(v) and v > 0 for v in vals)
+            ok = all(_budget_ok(v) for v in vals)
         else:
             ok = all(_nonempty_str(v) for v in vals)
         if not ok:
@@ -428,11 +485,12 @@ def compare(record) -> dict:
         out["throughput_wall_s"][a] = wall if _finite(wall) else None
         timed_out = r.get("timed_out")
         if timed_out is True:
-            reasons.append(f"{a}: over budget ({wall}s > {budget}s)")
+            reasons.append(f"{a}: over budget ({_short(wall)}s > {budget}s)")
         elif timed_out is not False:
             reasons.append(f"{a}: timed_out flag missing or invalid")
         if r.get("error"):
-            reasons.append(f"{a}: error {r['error']}")
+            err = r["error"]
+            reasons.append(f"{a}: error {err if isinstance(err, str) else _short(err)}")
         if not _finite(wall) or wall < 0:
             reasons.append(f"{a}: wall_s missing or not a finite non-negative number")
         elif wall > budget and timed_out is not True:
@@ -440,17 +498,20 @@ def compare(record) -> dict:
         if not (isinstance(ec, int) and not isinstance(ec, bool)):
             reasons.append(f"{a}: exit_code missing or invalid")
         elif ec != 0:
-            reasons.append(f"{a}: arm exited non-zero ({ec})")
+            reasons.append(f"{a}: arm exited non-zero ({_short(ec)})")
         if acc not in ("PASS", "FAIL"):
             reasons.append(f"{a}: acceptance {acc}")
         elif not (isinstance(ae, int) and not isinstance(ae, bool)):
             reasons.append(f"{a}: accept_exit missing or invalid")
+        elif ae < 0:
+            reasons.append(f"{a}: acceptance killed by signal {_short(-ae)}; "
+                           "execution failure, not a completed FAIL")
         elif (acc == "PASS") != (ae == 0):
-            reasons.append(f"{a}: accept {acc} inconsistent with accept_exit {ae}")
+            reasons.append(f"{a}: accept {acc} inconsistent with accept_exit {_short(ae)}")
         for k in ("tokens", "cost_usd"):
             v = r.get(k)
             if v != UNKNOWN and not (_finite(v) and v >= 0):
-                reasons.append(f"{a}: {k} invalid producer-reported usage {v!r}")
+                reasons.append(f"{a}: {k} invalid producer-reported usage {_short(v)}")
     integ = record.get("input_integrity")
     if not isinstance(integ, dict) or integ.get("ok") is not True:
         reasons.append("input integrity evidence missing, invalid, or failed during run")
