@@ -799,6 +799,69 @@ def test_cli_config_without_solution_files_is_invalid_config(tmp_path, toy_repo,
     assert not (tmp_path / "o").exists()
 
 
+# A glob character in a declaration is rejected before either arm runs: never expanded,
+# and never read as a literal file name (which would silently drop the real fix).
+@pytest.mark.parametrize("solution", [
+    ["*.py"], ["calc.p?"], ["[c]alc.py"], ["pkg/*"], ["calc.py", "**/m.py"], ["c[1].py"],
+], ids=lambda s: repr(s))
+def test_glob_characters_in_solution_files_are_rejected(tmp_path, toy_repo, solution):
+    _commit_all(toy_repo, {"pkg/m.py": "x = 1\n", "c[1].py": "y = 2\n"})  # literal names exist
+    out = tmp_path / "out"
+    with pytest.raises(bench.BenchInputError, match="glob"):
+        bench.run_bench(repo=toy_repo, spec_path=_spec(tmp_path), budget_s=5,
+                        baseline_cmd=_noop_cmd(), candidate_cmd=_fix_cmd(),
+                        accept_cmd=_accept_cmd(), out_dir=out,
+                        check_files=["test_calc.py"], solution_files=solution)
+    assert not out.exists(), "no arm may launch on a glob declaration"
+
+
+@pytest.mark.parametrize("glob", ["*.py", "calc.p?", "[c]alc.py"])
+def test_cli_glob_solution_path_is_rejected_before_either_arm_runs(tmp_path, toy_repo, capsys,
+                                                                    glob):
+    spawned = {a: tmp_path / f"spawned-{a}" for a in bench.ARMS}
+    mark = "import pathlib; pathlib.Path(%r).write_text('x')"
+
+    def config(solution):
+        cfg = tmp_path / "bench.json"
+        cfg.write_text(json.dumps({
+            "repo": str(toy_repo), "spec": str(_spec(tmp_path)), "budget_s": 30,
+            "baseline_cmd": [sys.executable, "-c", mark % str(spawned["baseline"])],
+            "candidate_cmd": [sys.executable, "-c", "%s; pathlib.Path('calc.py').write_text(%r)"
+                              % (mark % str(spawned["candidate"]), _FIX)],
+            "accept_cmd": _accept_cmd(), "check_files": ["test_calc.py"],
+            "solution_files": solution}), encoding="utf-8")
+        return cfg
+
+    out = tmp_path / "o"
+    assert bench.main(["run", "--config", str(config([glob])), "--out", str(out)]) == 2
+    text = capsys.readouterr().out
+    assert text.startswith("REJECTED_INPUT") and "glob" in text and "verdict" not in text, text
+    assert not out.exists(), "nothing may be written for a rejected declaration"
+    assert not any(p.exists() for p in spawned.values()), "no arm may be spawned"
+    # positive control: the same arms under the literal path do spawn, and the fix wins
+    assert bench.main(["run", "--config", str(config(["calc.py"])), "--out", str(out)]) == 0
+    assert all(p.exists() for p in spawned.values())
+    rec = json.loads((out / "record.json").read_text(encoding="utf-8"))
+    assert rec["candidate"]["projected"] == ["calc.py"] and rec["comparison"]["winner"] == "candidate"
+
+
+def test_glob_rejection_keeps_literal_and_declared_new_paths_working(tmp_path, toy_repo):
+    rec = _run(tmp_path / "literal", toy_repo, baseline=_noop_cmd(), candidate=_fix_cmd(),
+               solution=["calc.py"])
+    assert rec["candidate"]["projected"] == ["calc.py"] and rec["comparison"]["winner"] == "candidate"
+    files = {"helpers.py": "def plus(a, b):\n    return a + b\n",
+             "calc.py": "from helpers import plus\n\ndef add(a, b):\n    return plus(a, b)\n"}
+    rec2 = _run(tmp_path / "new", toy_repo, baseline=_noop_cmd(), candidate=_write_cmd(files),
+                solution=["calc.py", "helpers.py"])
+    c2 = rec2["candidate"]
+    assert c2["projected"] == ["calc.py", "helpers.py"] and c2["accept"] == "PASS", c2
+    assert rec2["comparison"]["winner"] == "candidate"
+    with pytest.raises(bench.BenchInputError, match="glob"):
+        _run(tmp_path / "glob", toy_repo, baseline=_noop_cmd(), candidate=_write_cmd(files),
+             solution=["calc.py", "help*.py"])
+    assert not (tmp_path / "glob" / "out").exists()
+
+
 def test_solution_boundary_is_part_of_the_contract(tmp_path, toy_repo):
     f1 = bench.freeze_inputs(toy_repo, _spec(tmp_path), 5, _accept_cmd(), ["test_calc.py"], ["calc.py"])
     f2 = bench.freeze_inputs(toy_repo, _spec(tmp_path), 5, _accept_cmd(), ["test_calc.py"],

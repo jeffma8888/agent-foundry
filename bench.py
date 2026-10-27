@@ -25,9 +25,11 @@ WHAT IS FROZEN, ONCE, BEFORE EITHER ARM RUNS:
     file in the arm copy is re-hashed; any change (or an unreadable file)
     REJECTS that arm (`accept = REJECTED`, never a verdict in its favour).
   * the acceptance boundary: `solution_files` (REQUIRED) = the exact relative
-    paths of the regular files an arm may change for scoring. No globs, no
-    directories, no `..`/absolute/`.git` paths, no duplicates or nesting, no
-    overlap with `check_files`. New files are allowed only if declared here.
+    paths of the regular files an arm may change for scoring. No glob
+    characters (a path containing `*`, `?` or `[` is rejected, never expanded
+    or read as a literal name), no directories, no `..`/absolute/`.git`
+    paths, no duplicates or nesting, no overlap with `check_files`. New files
+    are allowed only if declared here.
     `solution_sha` = sha256 of the sorted list; it is a contract key, so arms
     scored under different boundaries never compare as equal.
   * the budget: `budget_s` wall-clock cap, ENFORCED here with a process-group
@@ -126,6 +128,10 @@ MAX_BUDGET_S = (2 ** 31 - 1) // 1000
 ARMS = ("baseline", "candidate")
 CONTRACT_KEYS = ("base_sha", "snapshot_sha", "spec_sha", "check_sha", "solution_sha", "budget_s")
 _RESERVED_OUT = {"record.json", "frozen", *ARMS}
+# Characters that make a path a glob pattern (the set glob.has_magic checks). A
+# declaration containing one is rejected, so a pattern is never silently read as a
+# literal file name that matches nothing.
+_GLOB_CHARS = frozenset("*?[")
 _DRAIN_S = 2.0
 
 
@@ -279,6 +285,9 @@ def _check_solution_files(solution_files, files: dict[str, bytes], pinned: dict)
         if ("\0" in s or posixpath.isabs(s) or posixpath.normpath(s) != s
                 or any(p in ("", ".", "..", ".git") for p in parts)):
             raise BenchInputError(f"solution file must be an exact normalized relative path: {_short(s)}")
+        if _GLOB_CHARS & set(s):
+            raise BenchInputError("solution file must be an exact path, not a glob pattern "
+                                  f"(no '*', '?' or '['): {_short(s)}")
         if s in pinned:
             raise BenchInputError(f"solution file overlaps check_files: {s}")
         if s in snapshot_dirs:

@@ -53,11 +53,13 @@ arm copy, so it cannot be trusted under the new contract.
   or any other undeclared file cannot influence acceptance. `projected` lists
   the declared files that were copied; `accept_tree_sha` fingerprints the tree
   acceptance actually ran in.
-- Declarations are exact paths: no globs or directories; no absolute, `..`,
-  `.`, empty or `.git` components; no non-normalized spelling, duplicates,
-  one declared path under another, path under a snapshot file, snapshot
-  directory, or overlap with `check_files`. New files are allowed only when
-  declared before the run.
+- Declarations are exact paths, never patterns. A path containing `*`, `?`
+  or `[` is `REJECTED_INPUT`: it is neither expanded nor read as a literal
+  name, so a file whose name contains one of these characters cannot be
+  declared. Also rejected: absolute paths; `..`, `.`, empty or `.git`
+  components; non-normalized spellings; duplicates; one declared path under
+  another; a path under a snapshot file; a snapshot directory; and overlap
+  with `check_files`. New files are allowed only when declared before the run.
 - A declared path that is, or lies under, a symlink or a non-regular file
   `REJECTS` the arm; an unreadable declared file is `ERROR`. Neither runs
   acceptance, and the comparison is `UNSCORED`.
