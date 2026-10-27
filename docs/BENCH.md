@@ -26,7 +26,8 @@ python3 bench.py compare --record bench-out/record.json   # re-derives the verdi
 - Each arm runs in its own copy of the frozen snapshot with `BENCH_SPEC`,
   `BENCH_BUDGET_S` and `BENCH_USAGE_FILE` in its environment.
 - Exit code: 0 for `WINNER_BY_ACCEPTANCE` or `TIE_ON_ACCEPTANCE`; 2 for
-  `UNSCORED`, `INVALID_COMPARISON`, `INVALID_CONFIG` or `REJECTED_INPUT`.
+  `UNSCORED`, `INVALID_COMPARISON`, `INVALID_CONFIG`, `REJECTED_INPUT` or
+  `RECORD_NOT_WRITTEN`.
 - `solution_files` is required: the exact relative paths of the regular files
   an arm may change for scoring (see below).
 
@@ -66,6 +67,32 @@ arm copy, so it cannot be trusted under the new contract.
 - The sorted list is bound into `check_sha` and recorded as `solution_sha`, a
   contract key: arms scored under different boundaries are
   `INVALID_COMPARISON`.
+
+## Harness-path collisions and the record file
+
+- bench creates each arm tree, each acceptance tree and each log file
+  (`<arm>.stdout.txt`, `<arm>.stderr.txt`, `<arm>.accept.txt`) fresh. If one
+  already exists, for example because an earlier arm created
+  `../candidate` or an arm created `../candidate.accept-tree`, bench never
+  runs in it, never scores against it, never writes through a planted
+  symlink and never deletes it: the path is kept for diagnosis.
+- That arm becomes `ERROR` with `failure` = `{stage, type, message}`, where
+  `stage` is `setup`, `acceptance_projection` or `artifact_write`. The top-level
+  `harness_failure` names the arm, and the run stops: a later arm is recorded
+  as not run, with `wall_s`, `exit_code` and `accept_exit` left `null` and usage
+  `UNKNOWN`. A completed earlier arm keeps its real results. The verdict is
+  `UNSCORED`, and `compare` on the saved record agrees.
+- Only filesystem errors (`OSError`) on these harness-owned paths are handled
+  this way. Any other exception still surfaces as a crash.
+- `record.json` is written to a temporary sibling and moved into place with
+  `os.replace`. A regular file or a leaf symlink an arm planted at that name is
+  replaced by the harness record; the symlink's target is not touched. If the
+  record cannot be written (a directory at that name, or an unwritable `out`),
+  the CLI prints `RECORD_NOT_WRITTEN` and exits 2 without a verdict; nothing
+  at that path is removed.
+- Records are not signed. A process still running after bench exits, or anyone
+  with write access to `out`, can replace `record.json` afterwards. An arm that
+  swaps the `out` directory itself for a symlink is also outside this handling.
 
 ## What it guarantees
 

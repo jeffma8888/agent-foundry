@@ -57,6 +57,18 @@ An arm's self-report is never read. `compare()` forms the only verdict:
   * equal acceptance   -> TIE_ON_ACCEPTANCE (wall-clock is THROUGHPUT, not quality)
   * acceptance differs -> WINNER_BY_ACCEPTANCE
   No path produces a winner from missing, unequal, malformed or errored evidence.
+
+HARNESS-PATH COLLISIONS: an arm tree, acceptance tree or log file that already
+exists when the harness creates it (an arm can plant one: there is no sandbox)
+is never reused, cleared or written through. The arm is ERROR with a `failure`
+{stage, type, message} (`setup`, `acceptance_projection`, `artifact_write`), the
+record's `harness_failure` names it, later arms are not run (their fields stay
+unknown), and the verdict is UNSCORED. The colliding path is kept for diagnosis.
+record.json is written to a temp sibling and moved into place with os.replace,
+so a planted regular file or leaf symlink there is replaced, never followed. If
+it cannot be written (e.g. a directory sits at that name) the CLI prints
+RECORD_NOT_WRITTEN and exits 2 with no verdict. Records are NOT signed: any
+process with write access can still forge one after the run.
   Malformed records (wrong JSON types, sets, strings for numbers) are
   INVALID_COMPARISON, never an exception. A number counts only if it is an int
   or float (not bool) that converts to a finite float: a valid JSON integer like
@@ -100,7 +112,8 @@ CLI EXAMPLE (paths in the config resolve relative to the config file):
        "check_files": ["test_calc.py"], "solution_files": ["calc.py"]}
     python3 bench.py run --config bench.json --out bench-out
     python3 bench.py compare --record bench-out/record.json
-  Exit 0 only for TIE_ON_ACCEPTANCE / WINNER_BY_ACCEPTANCE; 2 for any rejection.
+  Exit 0 only for TIE_ON_ACCEPTANCE / WINNER_BY_ACCEPTANCE; 2 for any rejection
+  (including RECORD_NOT_WRITTEN).
   A config without `solution_files` is INVALID_CONFIG; a record without
   `solution_sha` (written before the boundary existed) is INVALID_COMPARISON.
 """
@@ -119,6 +132,7 @@ import stat
 import subprocess
 import sys
 import tarfile
+import tempfile
 import time
 
 UNKNOWN = "UNKNOWN"
@@ -137,6 +151,10 @@ _DRAIN_S = 2.0
 
 class BenchInputError(ValueError):
     """Raised before any arm runs when the inputs cannot be frozen safely."""
+
+
+class BenchRecordError(OSError):
+    """Raised when the final record.json cannot be persisted; no verdict is issued."""
 
 
 # --------------------------------------------------------------------------
@@ -380,6 +398,40 @@ def _materialize(frozen: dict, dest: pathlib.Path) -> int:
     return skipped
 
 
+def _write_new(path: pathlib.Path, text: str) -> None:
+    """Create a harness artifact that must not exist yet. Never follows a planted
+    symlink and never overwrites: a collision raises an OSError."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def _persist_record(out_dir: pathlib.Path, record: dict) -> None:
+    """Write record.json via a fresh temp sibling + os.replace, so a regular file or
+    a leaf symlink already at that name is replaced (never followed or appended to).
+    A directory there (or an unwritable out_dir) raises BenchRecordError; nothing
+    at the destination is deleted."""
+    data = json.dumps(record, indent=2, sort_keys=True).encode("utf-8")
+    dest = out_dir / "record.json"
+    tmp = None
+    try:
+        fd, tmp = tempfile.mkstemp(prefix=".record.", suffix=".tmp", dir=out_dir)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, dest)
+        tmp = None
+    except OSError as exc:
+        raise BenchRecordError(f"cannot write {dest}: {type(exc).__name__}: {exc}") from exc
+    finally:
+        if tmp is not None:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
 def _project(frozen: dict, arm_dir: pathlib.Path, dest: pathlib.Path):
     """Build the acceptance tree: a fresh copy of the frozen snapshot plus ONLY the
     declared solution files as they are in `arm_dir`. Returns (projected paths,
@@ -480,26 +532,45 @@ def _run_bounded(cmd: list[str], cwd: pathlib.Path, env: dict, timeout) -> dict:
 # --------------------------------------------------------------------------
 # one arm
 # --------------------------------------------------------------------------
+def _arm_record(name: str, cmd, frozen: dict) -> dict:
+    """An arm record whose unrun fields stay unknown (None / NOT_RUN / UNKNOWN)."""
+    return {"arm": name, "cmd": cmd, "base_sha": frozen["base_sha"],
+            "snapshot_sha": frozen["snapshot_sha"], "spec_sha": frozen["spec_sha"],
+            "check_sha": frozen["check_sha"], "solution_sha": frozen["solution_sha"],
+            "budget_s": frozen["budget_s"], "tree_sha_start": None, "skipped_links": None,
+            "wall_s": None, "exit_code": None, "timed_out": False, "output": "NONE",
+            "ignored_change_count": None, "ignored_change_paths": [],
+            "projected": [], "accept_tree_sha": None,
+            "accept": "NOT_RUN", "accept_exit": None,
+            "tokens": UNKNOWN, "cost_usd": UNKNOWN, "usage_source": None, "error": None,
+            "failure": None}
+
+
+def _harness_failure(rec: dict, stage: str, exc: OSError) -> dict:
+    """Mark a filesystem failure in a harness-owned path: ERROR, never scored. Any
+    colliding path is left in place for diagnosis."""
+    rec["failure"] = {"stage": stage, "type": type(exc).__name__, "message": str(exc)}
+    msg = f"harness {stage}: {type(exc).__name__}: {exc}"
+    rec["error"] = f"{rec['error']}; {msg}" if rec["error"] else msg
+    rec["accept"] = "ERROR"
+    return rec
+
+
 def run_arm(name: str, cmd: list[str], frozen: dict, out_dir: pathlib.Path) -> dict:
+    rec = _arm_record(name, cmd, frozen)
     arm_dir = out_dir / name
-    skipped = _materialize(frozen, arm_dir)
+    try:  # a pre-existing arm tree (e.g. planted by an earlier arm) is never reused
+        rec["skipped_links"] = _materialize(frozen, arm_dir)
+    except OSError as exc:
+        return _harness_failure(rec, "setup", exc)
     start = _tree_entries(arm_dir)
-    start_tree = _entries_sha(start)
+    start_tree = rec["tree_sha_start"] = _entries_sha(start)
     spec_file = out_dir / "frozen" / "spec"
     usage_file = out_dir / f"{name}.usage.json"
     budget_s = frozen["budget_s"]
     env = dict(os.environ)
     env.update({"BENCH_SPEC": str(spec_file), "BENCH_BUDGET_S": str(budget_s),
                 "BENCH_USAGE_FILE": str(usage_file)})
-    rec: dict = {"arm": name, "cmd": cmd, "base_sha": frozen["base_sha"],
-                 "snapshot_sha": frozen["snapshot_sha"], "spec_sha": frozen["spec_sha"],
-                 "check_sha": frozen["check_sha"], "solution_sha": frozen["solution_sha"],
-                 "budget_s": budget_s, "tree_sha_start": start_tree, "skipped_links": skipped,
-                 "wall_s": None, "exit_code": None, "timed_out": False, "output": "NONE",
-                 "ignored_change_count": None, "ignored_change_paths": [],
-                 "projected": [], "accept_tree_sha": None,
-                 "accept": "NOT_RUN", "accept_exit": None,
-                 "tokens": UNKNOWN, "cost_usd": UNKNOWN, "usage_source": None, "error": None}
     if not (isinstance(cmd, list) and cmd and all(_nonempty_str(c) for c in cmd)):
         rec["error"] = "arm cmd must be a non-empty list of strings"
         return rec
@@ -507,8 +578,11 @@ def run_arm(name: str, cmd: list[str], frozen: dict, out_dir: pathlib.Path) -> d
     res = _run_bounded(cmd, arm_dir, env, budget_s)
     rec["wall_s"] = round(time.monotonic() - t0, 3)
     rec["exit_code"], rec["timed_out"], rec["error"] = res["exit_code"], res["timed_out"], res["error"]
-    (out_dir / f"{name}.stdout.txt").write_text(res["stdout"], encoding="utf-8")
-    (out_dir / f"{name}.stderr.txt").write_text(res["stderr"], encoding="utf-8")
+    try:
+        _write_new(out_dir / f"{name}.stdout.txt", res["stdout"])
+        _write_new(out_dir / f"{name}.stderr.txt", res["stderr"])
+    except OSError as exc:
+        return _harness_failure(rec, "artifact_write", exc)
     errors = [rec["error"]] if rec["error"] else []
     if not spec_file.is_file() or _sha256(spec_file.read_bytes()) != frozen["spec_sha"]:
         errors.append("frozen spec modified during arm")
@@ -551,14 +625,21 @@ def run_arm(name: str, cmd: list[str], frozen: dict, out_dir: pathlib.Path) -> d
     # Independent acceptance: a SEPARATE process, only on an in-budget, intact arm,
     # in a fresh tree that holds the snapshot plus ONLY the declared solution files.
     accept_dir = out_dir / f"{name}.accept-tree"
-    rec["projected"], reject, perr = _project(frozen, arm_dir, accept_dir)
+    try:  # never score against a pre-existing tree; a collision is kept, not cleared
+        rec["projected"], reject, perr = _project(frozen, arm_dir, accept_dir)
+    except OSError as exc:
+        rec["projected"] = []
+        return _harness_failure(rec, "acceptance_projection", exc)
     if reject or perr:
         rec["accept"] = "REJECTED" if reject else "ERROR"
         rec["error"] = "acceptance boundary: " + (reject or perr)
         return rec
     rec["accept_tree_sha"] = _tree_sha(accept_dir)
     a = _run_bounded(frozen["accept_cmd"], accept_dir, dict(os.environ), budget_s)
-    (out_dir / f"{name}.accept.txt").write_text(a["stdout"] + a["stderr"], encoding="utf-8")
+    try:
+        _write_new(out_dir / f"{name}.accept.txt", a["stdout"] + a["stderr"])
+    except OSError as exc:
+        return _harness_failure(rec, "artifact_write", exc)
     if a["error"] or a["timed_out"]:
         rec["accept"] = "ERROR"
         rec["error"] = "accept: " + (a["error"] or f"timed out after {budget_s}s")
@@ -640,6 +721,9 @@ def compare(record) -> dict:
             v = r.get(k)
             if v != UNKNOWN and not (_finite(v) and v >= 0):
                 reasons.append(f"{a}: {k} invalid producer-reported usage {_short(v)}")
+    hf = record.get("harness_failure")
+    if hf is not None:
+        reasons.append(f"harness failure during run: {_short(hf, 200)}")
     integ = record.get("input_integrity")
     if not isinstance(integ, dict) or integ.get("ok") is not True:
         reasons.append("input integrity evidence missing, invalid, or failed during run")
@@ -667,13 +751,19 @@ def run_bench(repo: pathlib.Path, spec_path: pathlib.Path, budget_s,
     (out_dir / "frozen").mkdir()
     (out_dir / "frozen" / "spec").write_bytes(frozen["_spec"])
     public = {k: v for k, v in frozen.items() if not k.startswith("_")}
-    record: dict = {"frozen": public, "budget_s": budget_s}
+    record: dict = {"frozen": public, "budget_s": budget_s, "harness_failure": None}
     for name, cmd in (("baseline", baseline_cmd), ("candidate", candidate_cmd)):
+        hf = record["harness_failure"]
+        if hf is not None:  # terminal: a later arm never runs after a harness failure
+            record[name] = _arm_record(name, cmd, frozen)
+            record[name]["error"] = f"not run: harness failure in {hf['arm']} ({hf['stage']})"
+            continue
         record[name] = run_arm(name, cmd, frozen, out_dir)
+        if record[name]["failure"] is not None:
+            record["harness_failure"] = {"arm": name, **record[name]["failure"]}
     record["input_integrity"] = _input_integrity(frozen)
     record["comparison"] = compare(record)
-    (out_dir / "record.json").write_text(json.dumps(record, indent=2, sort_keys=True),
-                                         encoding="utf-8")
+    _persist_record(out_dir, record)
     return record
 
 
@@ -728,6 +818,9 @@ def main(argv: list[str] | None = None) -> int:
                             solution_files=cfg["solution_files"])
         except BenchInputError as exc:
             print(f"REJECTED_INPUT: {exc}")
+            return 2
+        except BenchRecordError as exc:
+            print(f"RECORD_NOT_WRITTEN: {exc}; no verdict issued")
             return 2
         _print_verdict(rec["comparison"])
         return _rc(rec["comparison"])

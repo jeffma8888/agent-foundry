@@ -920,3 +920,145 @@ def test_unreadable_solution_or_check_file_fails_closed_without_verdict(tmp_path
     c = json.loads((out / "record.json").read_text(encoding="utf-8"))["candidate"]
     assert c["accept"] == ("ERROR" if target == "calc.py" else "REJECTED"), c
     assert c["accept_exit"] is None and not (out / "candidate.accept.txt").exists()
+
+
+# --------------------------------------------------------------------------
+# 13. harness-owned output collisions: a controlled ERROR and a harness-written
+#     record, never a traceback that leaves an arm-planted record.json behind.
+#     Real CLI subprocesses; every fixture lives under tmp_path.
+# --------------------------------------------------------------------------
+_FORGED = {"baseline": _arm(accept="FAIL"), "candidate": _arm(), "input_integrity": {"ok": True}}
+
+
+def _arm_script(*lines: str, fix: bool = True) -> list[str]:
+    body = ["import json, os, pathlib"]
+    if fix:
+        body.append("pathlib.Path('calc.py').write_text(%r)" % _FIX)
+    return [sys.executable, "-c", "\n".join([*body, *lines])]
+
+
+def _stale_tree(marker: pathlib.Path) -> tuple[str, ...]:
+    stale_test = "import pathlib\npathlib.Path(%r).write_text('ran')\n" % str(marker)
+    return ("os.makedirs('../candidate.accept-tree')",
+            "pathlib.Path('../candidate.accept-tree/STALE').write_text('stale')",
+            "pathlib.Path('../candidate.accept-tree/test_calc.py').write_text(%r)" % stale_test)
+
+
+def _cli_run(tmp_path, toy_repo, baseline, candidate):
+    cfg = tmp_path / "bench.json"
+    cfg.write_text(json.dumps({
+        "repo": str(toy_repo), "spec": str(_spec(tmp_path)), "budget_s": 30,
+        "baseline_cmd": baseline, "candidate_cmd": candidate, "accept_cmd": _accept_cmd(),
+        "check_files": ["test_calc.py"], "solution_files": ["calc.py"]}), encoding="utf-8")
+    out = tmp_path / "o"
+    p = subprocess.run([sys.executable, str(_ROOT / "bench.py"), "run", "--config", str(cfg),
+                        "--out", str(out)], capture_output=True, text=True, timeout=120)
+    return p, out
+
+
+def _cli_compare(path: pathlib.Path) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(_ROOT / "bench.py"), "compare", "--record",
+                           str(path)], capture_output=True, text=True, timeout=60)
+
+
+@pytest.mark.parametrize("forge", [False, True])
+def test_cli_precreated_accept_tree_is_error_with_fresh_harness_record(tmp_path, toy_repo, forge):
+    marker = tmp_path / "stale-acceptance-ran"
+    extra = ("json.dump(%r, open('../record.json', 'w'))" % _FORGED,) if forge else ()
+    p, out = _cli_run(tmp_path, toy_repo, _noop_cmd(), _arm_script(*_stale_tree(marker), *extra))
+    assert p.returncode == 2 and "Traceback" not in p.stderr, (p.returncode, p.stderr)
+    assert "UNSCORED" in p.stdout and "WINNER" not in p.stdout, p.stdout
+    rec = json.loads((out / "record.json").read_text(encoding="utf-8"))
+    assert "frozen" in rec and rec != _FORGED, "the forged arm record must not survive"
+    v = rec["comparison"]
+    assert v["verdict"] == "UNSCORED" and v["winner"] is None, v
+    hf = rec["harness_failure"]
+    assert hf["arm"] == "candidate" and hf["stage"] == "acceptance_projection", hf
+    assert hf["type"] == "FileExistsError" and "candidate.accept-tree" in hf["message"], hf
+    b, c = rec["baseline"], rec["candidate"]
+    assert b["accept"] == "FAIL" and b["accept_exit"] == 1 and b["exit_code"] == 0, b
+    assert b["failure"] is None and b["accept_tree_sha"]
+    assert c["exit_code"] == 0 and c["accept"] == "ERROR" and c["accept_exit"] is None, c
+    assert c["projected"] == [] and c["accept_tree_sha"] is None
+    assert "FileExistsError" in c["error"] and c["failure"]["stage"] == "acceptance_projection"
+    assert not (out / "candidate.accept.txt").exists() and not marker.exists(), "no stale acceptance"
+    assert (out / "candidate.accept-tree" / "STALE").read_text(encoding="utf-8") == "stale", \
+        "the colliding tree is retained for diagnosis, not cleared"
+    cp = _cli_compare(out / "record.json")
+    assert cp.returncode == 2 and "UNSCORED" in cp.stdout and "WINNER" not in cp.stdout, cp.stdout
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlink creation")
+@pytest.mark.parametrize("collide", [False, True])
+def test_cli_record_symlink_is_replaced_never_followed(tmp_path, toy_repo, collide):
+    sentinel = tmp_path / "outside" / "sentinel.json"
+    sentinel.parent.mkdir()
+    sentinel.write_bytes(b"SENTINEL-BYTES")
+    lines = (*(_stale_tree(tmp_path / "m") if collide else ()),
+             "os.symlink(%r, '../record.json')" % str(sentinel))
+    p, out = _cli_run(tmp_path, toy_repo, _noop_cmd(), _arm_script(*lines))
+    assert sentinel.read_bytes() == b"SENTINEL-BYTES", "write went through the planted link"
+    assert p.returncode == (2 if collide else 0) and "Traceback" not in p.stderr, p.stderr
+    path = out / "record.json"
+    assert not path.is_symlink() and path.is_file(), "the link itself is replaced"
+    rec = json.loads(path.read_text(encoding="utf-8"))
+    want = "UNSCORED" if collide else "WINNER_BY_ACCEPTANCE"
+    assert rec["comparison"]["verdict"] == want, rec["comparison"]
+    assert (rec["harness_failure"] is not None) is collide
+    assert _cli_compare(path).returncode == (2 if collide else 0)
+
+
+@pytest.mark.parametrize("planted", ["candidate", "baseline.accept-tree"])
+def test_cli_earlier_arm_collision_stops_later_arm_without_deleting(tmp_path, toy_repo, planted):
+    ran = tmp_path / "candidate-ran"
+    baseline = _arm_script("os.makedirs('../%s')" % planted,
+                           "pathlib.Path('../%s/KEEP').write_text('keep')" % planted, fix=False)
+    candidate = _arm_script("pathlib.Path(%r).write_text('ran')" % str(ran))
+    p, out = _cli_run(tmp_path, toy_repo, baseline, candidate)
+    assert p.returncode == 2 and "Traceback" not in p.stderr, (p.returncode, p.stderr)
+    assert "UNSCORED" in p.stdout and "WINNER" not in p.stdout
+    assert not ran.exists(), "the later arm must not run after a harness failure"
+    assert (out / planted / "KEEP").read_text(encoding="utf-8") == "keep", "collision kept"
+    rec = json.loads((out / "record.json").read_text(encoding="utf-8"))
+    hf, b, c = rec["harness_failure"], rec["baseline"], rec["candidate"]
+    assert hf["type"] == "FileExistsError", hf
+    assert c["exit_code"] is None and c["wall_s"] is None and c["accept_exit"] is None, c
+    assert c["tokens"] == "UNKNOWN" and c["projected"] == [] and c["error"], c
+    if planted == "candidate":
+        assert hf["arm"] == "candidate" and hf["stage"] == "setup", hf
+        assert c["accept"] == "ERROR" and c["tree_sha_start"] is None
+        assert b["accept"] == "FAIL" and b["accept_exit"] == 1, b
+    else:
+        assert hf["arm"] == "baseline" and hf["stage"] == "acceptance_projection", hf
+        assert b["exit_code"] == 0 and b["accept"] == "ERROR" and b["accept_exit"] is None, b
+        assert c["accept"] == "NOT_RUN" and "not run" in c["error"], c
+    assert rec["comparison"]["verdict"] == "UNSCORED"
+    assert _cli_compare(out / "record.json").returncode == 2
+
+
+def test_cli_record_path_directory_is_controlled_error_not_success(tmp_path, toy_repo):
+    candidate = _arm_script("os.makedirs('../record.json')",
+                            "pathlib.Path('../record.json/KEEP').write_text('keep')")
+    p, out = _cli_run(tmp_path, toy_repo, _noop_cmd(), candidate)
+    assert p.returncode == 2 and "Traceback" not in p.stderr, (p.returncode, p.stderr)
+    assert "RECORD_NOT_WRITTEN" in p.stdout and "WINNER" not in p.stdout, p.stdout
+    assert (out / "record.json" / "KEEP").read_text(encoding="utf-8") == "keep"
+    assert not [x.name for x in out.iterdir() if x.name.startswith(".record.")], "temp left"
+    cp = _cli_compare(out / "record.json")
+    assert cp.returncode == 2 and "INVALID_COMPARISON" in cp.stdout
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlink creation")
+def test_cli_planted_artifact_link_is_not_written_through(tmp_path, toy_repo):
+    sentinel = tmp_path / "outside" / "sentinel.txt"
+    sentinel.parent.mkdir()
+    sentinel.write_bytes(b"SENTINEL-BYTES")
+    baseline = _arm_script("os.symlink(%r, '../candidate.stdout.txt')" % str(sentinel), fix=False)
+    p, out = _cli_run(tmp_path, toy_repo, baseline, _fix_cmd())
+    assert sentinel.read_bytes() == b"SENTINEL-BYTES"
+    assert p.returncode == 2 and "Traceback" not in p.stderr, (p.returncode, p.stderr)
+    rec = json.loads((out / "record.json").read_text(encoding="utf-8"))
+    hf = rec["harness_failure"]
+    assert hf["arm"] == "candidate" and hf["stage"] == "artifact_write", hf
+    assert rec["candidate"]["accept"] == "ERROR" and rec["comparison"]["winner"] is None
+    assert (out / "candidate.stdout.txt").is_symlink(), "collision retained for diagnosis"
