@@ -271,7 +271,7 @@ in the archive.
 - iter 364 -- roadmap-index WARNs when the index cannot absorb one mandatory ledger row.
 - iter 365 -- index paydown: 8 spent item-detail blocks archived verbatim, ledger-row runway restored
 - iter 366 -- weak-tests: same-module delegation; 9 of 24 non-actionable cleared.
-- iter 368 -- the PM/scout prompts gain doctor's three drift WARNs; the learnings-head line is excluded and pinned.
+- iter 368 -- PM/scout prompts gain doctor's drift WARNs; learnings-head excluded and pinned.
 - iter 369 -- stage-budget medians drop credential-loss attempts.
 - iter 370 -- README + roles/pm.md name STAGE_BUDGET_EXCLUDED_KINDS: the copied figure's population, plus a brake.
 - iter 371 -- foundry stop writes a reason-bearing STOP sentinel: the WRITE half the shipped reader round-trips.
@@ -281,9 +281,9 @@ in the archive.
 - iter 375 -- b15 stops taxing each iteration a literal row: an ADDED test path leaves its measured set.
 - iter 376 -- ARCHITECTURE §3 holds the FIVE invariants VISION and README name; a pure rule reports count drift.
 - iter 377 -- directions' winner: column splits blank into pending / unparsed (pm.md present) / absent.
-- iter 378 -- watchdog-arm: cron's own "no crontab for" on a failed read is no-schedule; other failures stay UNKNOWN.
+- iter 378 -- watchdog-arm: "no crontab for" -> no-schedule; other read errors -> UNKNOWN.
 - iter 379 -- roles/pm_scout.md teaches dormancy; role_card_verb_gaps: every verb a card teaches is a live CLI verb.
-- iter 380 -- gather_rescues folds onto the iter-363 attempt-log walk: one _walk_attempt_logs generator, two consumers.
+- iter 380 -- gather_rescues onto iter-363 _walk_attempt_logs: one walk, two consumers.
 - iter 381 -- head_unowned_lines: doctor names headless bullet bodies; 1,889 dead head chars archived, WARN -> OK.
 - iter 382 -- scout card: first checkpoint is a valid 2-3 heading slate; directions labels zero-heading seats.
 - iter 411 -- run_stage: ONE auth attempt then a 30-min STOP-aware hold; every other kind's ladder byte-unchanged.
@@ -319,6 +319,7 @@ in the archive.
 - iter 468 -- per-product reverts verb with keyword classification.
 - iter 469 -- consolidate _co_names_deep into tests/_shared.py.
 - iter 483 -- add test/ to WEAK_TEST_ROOT_DIRS for Node.js repos.
+- iter 484 -- add awsCredentialExport auth needle to ATTEMPT_FAILURE_MARKERS.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

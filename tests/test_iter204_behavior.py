@@ -1273,7 +1273,13 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # `DEFAULT_ROOTS` pin stepped to the new literal. No newest-ness
                 # pin touched: `newest_ness_pin_sites` over that file is `()` at
                 # HEAD AND in the worktree.
-                "tests/test_iter170_behavior.py"}
+                "tests/test_iter170_behavior.py",
+                # iter 484: FORCED brake amendment. `ATTEMPT_FAILURE_MARKERS` auth
+                # tuple gains a 4th needle (`awscredentialexport did not return`),
+                # so iter 360's `AUTH_NEEDLE_COUNT` pin stepped 3 -> 4. No
+                # newest-ness pin touched: `newest_ness_pin_sites` over that file
+                # is `()` at HEAD AND in the worktree.
+                "tests/test_iter360_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

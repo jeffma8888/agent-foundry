@@ -291,7 +291,8 @@ ATTEMPT_FAILURE_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("service", ("service is busy", "too many tokens", "throttl")),
     ("stalled", ("connection stalled",)),
     ("auth", ("credential refresh failed", "auth failed",
-              "credentials were still being renewed")),
+              "credentials were still being renewed",
+              "awscredentialexport did not return")),
     ("cli-error", ("native shortcut did not match",)),
     ("timeout", ("timed out",)),
 )

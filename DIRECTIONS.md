@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-484
+    lenses: unknown
+    - Candidate A1 -- add the `awsCredentialExport` auth needle to `ATTEMPT_FAILURE_MARKERS`
+    - Candidate A2 -- scope `_walk_attempt_logs` glob to kept dirs when `limit > 0`
+    - Candidate A3 -- merge two `ast.walk` passes in `find_assertionless_tests` into one
+    - Candidate B1 -- add the `awsCredentialExport` auth needle to `ATTEMPT_FAILURE_MARKERS`
+    - Candidate B2 -- strangler roadmap epic says "Steps 2-5 are NEXT" but step 4 shipped 2026-08-04
+    - Candidate B3 -- `docs/artifacts.md` catalogs 1 of 7 products and has never been updated
+    winner: A1
+    ship: pending (not yet decided)
   iter-483
     lenses: unknown
     - Candidate A1 -- consolidate 30-file `_fn_names_consts` cluster into `tests/_shared.py` (-~470 lines, 5 hash-distinct variants → 1 canonical)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- add `"test"` to `WEAK_TEST_ROOT_DIRS` (-580ms per company verb that touches graphql, -2.9s/suite)
     - Candidate B3 -- scope the `_gather_weak_test_files` whole-repo fallback to prune `node_modules`/`dist`/`.venv` directories (-580ms same case, defense-in-depth)
     winner: B2
-    ship: pending (not yet decided)
+    ship: PUSHED e28bcc3
   iter-478
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- scope `_walk_attempt_logs` glob to the kept dirs when `limit > 0`
@@ -328,7 +338,7 @@ foundry directions -- _platform
     - Candidate A2 -- test_iter132's five "live population" freeze-guard tests re-derive the same census five times (22.9 s CPU: 9.64 + 4.17 + 4.16 + 2.62 + 2.28 s); compute it once per module
     - Candidate A3 -- the suite's wall floor is collection, not tests: 12 xdist workers each collect ~10.8k tests from 256 modules before the first test runs; measure and cut the per-worker collection cost
     - Candidate B1 -- ARCHITECTURE.md still declares the dual-scout pre-stage "OPT-IN" with a "default-off path", and README's pipeline diagram says "scouts = opt-in", 98 iterations after iter 320 flipped `dual_pm_scouts` to default TRUE; no test pins either wording and no guard ties the docs' claim to the default
-    - Candidate B2 -- the roadmap index's `STATUS (iter 323)` paragraph says the ledger is "current through 323" with 38 shipped since; 55 iterations (327-333, 340-359, 383-410) named in neither index nor archive; the two tests pin `>= 185` / `>= 202` so the guard is green on a 94-iteration-stale sentence
+    - Candidate B2 -- the roadmap index's `STATUS (iter 323)` paragraph says the ledger is "current through 323" with 38 iterations shipped since, and names no post-323 jump while three (327-333, 340-359, 383-410 = 55 numbers) are named in neither index nor archive; the two tests that read the line pin `>= 185` / `>= 202` under a comment claiming "every later iteration advances this line", so the guard is green on a 94-iteration-stale sentence
     - Candidate B3 -- (being measured: a role card or doc that states a figure the code no longer matches)
     winner: B1
     ship: PUSHED fa350ae
@@ -2143,4 +2153,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-215 scouted iterations
+216 scouted iterations
