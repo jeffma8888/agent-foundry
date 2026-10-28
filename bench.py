@@ -14,8 +14,14 @@ WHAT IS FROZEN, ONCE, BEFORE EITHER ARM RUNS:
   * the input tree. A git input must be CLEAN (no modified or untracked files);
     `git archive <HEAD>` is taken once and the same bytes are unpacked into each
     arm's working directory. No `.git` metadata (including a linked worktree's
-    `.git` pointer file) reaches an arm. A non-git tree is tarred the same way,
-    each file's mode normalized to 0755 (owner-exec) or 0644 as git records it.
+    `.git` pointer file) reaches an arm. Only a source with NO `.git` marker
+    (lstat: a dir, a pointer file or even a broken symlink counts) is a non-git
+    tree; a marked source whose HEAD cannot be read as one object ID (git
+    missing or failing, unborn or corrupt HEAD, malformed output) is refused
+    before any arm or out dir, never snapshotted as a plain tree, and the same
+    failure after the run fails input integrity (UNSCORED). A non-git tree is
+    tarred the same way, each file's mode normalized to 0755 (owner-exec) or
+    0644 as git records it.
     Symbolic and hard links are never followed and never copied.
     `base_sha` = the resolved commit (or `tree:<sha256>` for a non-git tree),
     `snapshot_sha` = sha256 of the exact archived bytes.
@@ -225,13 +231,41 @@ def _git(repo: pathlib.Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run(["git", *args], cwd=repo, capture_output=True, text=False, check=True)
 
 
+_HEX = frozenset("0123456789abcdef")
+_OBJECT_ID_LENGTHS = (40, 64)  # git's two object formats: SHA-1 and SHA-256
+_HEAD_UNREADABLE = ("input repo HEAD could not be read (git rev-parse HEAD failed or did "
+                    "not print one object ID); refusing to treat a git-marked source as a "
+                    "plain directory")
+
+
+def _git_marker(repo: pathlib.Path) -> bool:
+    """True if `repo/.git` exists in ANY form: directory, pointer file, or symlink, even a
+    broken one (lstat, never stat). Only a source with no marker is a plain directory."""
+    try:
+        os.lstat(repo / ".git")
+    except FileNotFoundError:
+        return False
+    except OSError:
+        raise BenchInputError("input repo .git marker could not be inspected; refusing to "
+                              "treat a possibly git-marked source as a plain "
+                              "directory") from None
+    return True
+
+
 def _git_head(repo: pathlib.Path) -> str | None:
-    if not (repo / ".git").exists():
+    """None ONLY when `repo` has no `.git` marker. A git-marked source whose HEAD cannot
+    be read as exactly one object ID (git missing or failing, unborn or corrupt HEAD,
+    empty or malformed output) raises BenchInputError with a static message."""
+    if not _git_marker(repo):
         return None
     try:
-        return _git(repo, "rev-parse", "HEAD").stdout.decode().strip() or None
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        return None
+        out = _git(repo, "rev-parse", "HEAD").stdout
+    except (OSError, subprocess.CalledProcessError):
+        raise BenchInputError(_HEAD_UNREADABLE) from None
+    head = out.decode("ascii", "replace").strip()
+    if len(head) not in _OBJECT_ID_LENGTHS or not set(head) <= _HEX:
+        raise BenchInputError(_HEAD_UNREADABLE)
+    return head
 
 
 def _git_dirty(repo: pathlib.Path) -> str:
@@ -644,6 +678,8 @@ def _input_integrity(frozen: dict) -> dict:
         else:
             now = {"tree": "tree:" + _sha256(_tree_tar(repo)[0])}
             ok = now["tree"] == frozen["base_sha"]
+    except BenchInputError as exc:  # git-marked but HEAD unreadable: static message only
+        now, ok = {"error": f"{type(exc).__name__}: {exc}"}, False
     except (OSError, subprocess.CalledProcessError) as exc:
         now, ok = {"error": f"{type(exc).__name__}: {exc}"}, False
     return {"ok": ok, "observed": now}

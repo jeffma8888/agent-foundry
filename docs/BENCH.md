@@ -23,6 +23,22 @@ python3 bench.py compare --record bench-out/record.json   # re-derives the verdi
 - Paths in the config resolve relative to the config file. `repo` must be a
   clean git tree (or a plain directory); `out` must be outside it and empty of
   reserved names.
+- Only a `repo` with NO `.git` marker is a plain directory. The marker is
+  checked with `lstat`, so a `.git` directory, a linked worktree's `.git` pointer
+  file, or even a broken `.git` symlink makes it a git source. A git source whose
+  `git rev-parse HEAD` fails (git error, spawn failure, git missing from `PATH`),
+  whose HEAD is unborn or corrupt, or whose output is not exactly one object ID
+  (40-hex SHA-1 or 64-hex SHA-256) is `REJECTED_INPUT` before any arm or output,
+  with a fixed message (no git output, path or traceback); a `.git` marker that
+  cannot be inspected is refused the same way. Compatibility change: such
+  sources used to fall back silently to a `tree:` plain-directory snapshot,
+  which scored a dirty tree and copied a linked worktree's `.git` pointer into
+  every arm; they now must be repaired by the user (bench never repairs them).
+  A true plain directory still runs without git installed. After the run, a
+  HEAD that cannot be read (including a plain source that gained a bad `.git`
+  marker) fails `input_integrity` (`UNSCORED`, `observed.error`). This is not
+  a sandbox and not a general nested-repository policy; only the source root's
+  marker is checked.
 - A plain-directory `repo` is snapshotted with each file's mode normalized to
   0755 (owner-executable) or 0644, the same rule a git snapshot follows, so an
   executable `./check.sh` stays executable and an owner-exec change to the

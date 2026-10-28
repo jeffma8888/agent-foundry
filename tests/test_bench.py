@@ -2230,3 +2230,345 @@ def test_cli_git_status_or_archive_failure_at_freeze_is_a_controlled_refusal(
     assert rec["input_integrity"]["observed"]["error"].startswith("CalledProcessError")
     assert rec["comparison"]["winner"] is None
     assert _cli_compare(out / "record.json").returncode == 2
+
+
+# --------------------------------------------------------------------------
+# HEAD read on a Git-MARKED source: only a source with NO `.git` marker (checked
+# with lstat, so a broken `.git` symlink still counts as a marker) is a plain
+# directory. A Git-marked source whose `git rev-parse HEAD` fails (non-zero exit,
+# spawn error, git missing from PATH), whose HEAD is unborn or corrupt, or whose
+# output is not one object ID (SHA-1 or SHA-256) is refused before any out dir or
+# arm (BenchInputError / CLI `REJECTED_INPUT` rc 2, static message): it is never
+# snapshotted as `tree:`, so a dirty tree is never scored and a linked worktree's
+# `.git` pointer never reaches an arm. After the run the same failure fails
+# input integrity (UNSCORED). Compatibility change: such sources used to fall back
+# to a `tree:` snapshot; a true plain directory still runs without git at all.
+# --------------------------------------------------------------------------
+_HEAD_READ = ("rev-parse", "HEAD")
+_HEAD_MSG = "git rev-parse HEAD"
+_ARM_TREES = ("baseline", "candidate", "baseline.accept-tree", "candidate.accept-tree")
+
+
+def _failing_head_read(kind: str, calls: list, passes: int = 0):
+    """bench._git replacement: real git, except `rev-parse HEAD` misbehaves as `kind`
+    after `passes` real reads. Logs each subcommand name."""
+    real, seen = bench._git, []
+
+    def fake(repo, *args):
+        calls.append(args[0])
+        if args == _HEAD_READ:
+            seen.append(1)
+            if len(seen) > passes:
+                noise = f"{_GIT_NOISE} {repo}"
+                if kind == "called-process-error":
+                    raise subprocess.CalledProcessError(
+                        128, ["git", *args], output=b"", stderr=noise.encode())
+                if kind == "os-error":
+                    raise FileNotFoundError(2, noise, "git")
+                if kind == "permission-error":
+                    raise PermissionError(13, noise, "git")
+                if kind == "empty":
+                    return subprocess.CompletedProcess(["git", *args], 0, b"", b"")
+                if kind == "malformed":
+                    return subprocess.CompletedProcess(["git", *args], 0,
+                                                       (noise + "\n").encode(), b"")
+                if kind == "two-ids":
+                    good = real(repo, *args).stdout
+                    return subprocess.CompletedProcess(["git", *args], 0, good + good, b"")
+                raise RuntimeError(f"unrelated {_GIT_NOISE}")
+        return real(repo, *args)
+    return fake
+
+
+def _assert_static_refusal(exc, *private) -> None:
+    shown = "".join(traceback.format_exception(exc))
+    for leak in ("GIT-STDERR-SENTINEL", "CalledProcessError", "FileNotFoundError",
+                 "PermissionError", *map(str, private)):
+        assert leak not in shown, "git output, the git exception or a private path leaked"
+
+
+def _no_git_metadata_in_arms(out: pathlib.Path) -> None:
+    for name in _ARM_TREES:
+        assert (out / name).is_dir(), name
+        assert not os.path.lexists(out / name / ".git"), f"{name} holds .git metadata"
+
+
+@_posix_modes
+@pytest.mark.parametrize("dirty", [False, True], ids=["clean", "dirty"])
+@pytest.mark.parametrize("worktree", [False, True], ids=["repo", "linked-worktree"])
+@pytest.mark.parametrize("kind", ["called-process-error", "os-error", "permission-error",
+                                  "empty", "malformed", "two-ids"])
+def test_git_head_read_failure_at_freeze_is_rejected_input(
+        tmp_path, kind, worktree, dirty, monkeypatch):
+    src = _flags_src(tmp_path, worktree=worktree)
+    if dirty:
+        (src / "calc.py").write_text(_EDIT, encoding="utf-8")
+    before = _read_state(src)
+    calls: list = []
+    spied: list = []
+    out = tmp_path / "out"
+    with monkeypatch.context() as m:
+        _spy_side_effects(m, spied)
+        m.setattr(bench, "_git", _failing_head_read(kind, calls))
+        with pytest.raises(bench.BenchInputError) as exc:
+            _filemode_run(tmp_path, src, _noop_cmd())
+    assert calls == ["rev-parse"], "refused at the HEAD read, before identity/status/archive"
+    assert _HEAD_MSG in str(exc.value) and "dirty;" not in str(exc.value), str(exc.value)
+    _assert_static_refusal(exc.value, src, tmp_path)
+    assert not out.exists(), "no out dir, record or arm copy"
+    assert not [c for c in spied if c[0] in ("run_arm", "_materialize", "_tree_tar")], spied
+    assert _read_state(src) == before, "HEAD, status, index, flags and bytes unchanged"
+
+
+# Control: holds on the parent too. An unrelated exception is not masked.
+@_posix_modes
+def test_unrelated_error_in_the_head_read_is_not_turned_into_rejected_input(
+        tmp_path, monkeypatch):
+    src = _flags_src(tmp_path)
+    monkeypatch.setattr(bench, "_git", _failing_head_read("unrelated", []))
+    with pytest.raises(RuntimeError, match="unrelated"):
+        _filemode_run(tmp_path, src, _noop_cmd())
+    assert not (tmp_path / "out").exists()
+
+
+def _lstat_state(root: pathlib.Path) -> dict:
+    """Every entry under root by lstat (links never followed) + readable file bytes."""
+    state = {}
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        for n in [*dirnames, *filenames]:
+            p = pathlib.Path(dirpath) / n
+            st = p.lstat()
+            body = os.readlink(p) if p.is_symlink() else None
+            if body is None and p.is_file() and os.access(p, os.R_OK):
+                body = p.read_bytes()
+            state[p.relative_to(root).as_posix()] = (st.st_mode, body)
+    return state
+
+
+def _marked_source(tmp_path: pathlib.Path, shape: str) -> pathlib.Path:
+    """A Git-MARKED source whose HEAD real git cannot read, or a true plain dir."""
+    probe = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=tmp_path, env=_owned_env(),
+                           capture_output=True)
+    assert probe.returncode != 0, "fixture precondition: tmp_path is not inside a repo"
+    src = _plain(tmp_path / "src", {"check.sh": (_EXIT0_SH, 0o755), "calc.py": (_FIX, 0o644)})
+    dotgit = src / ".git"
+    if shape == "unborn":
+        _owned_git(src, "init", "-q")
+    elif shape == "corrupt-head":
+        _owned_git(src, "init", "-q")
+        _owned_git(src, "add", ".")
+        _owned_git(src, "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                   "commit", "-q", "-m", "fixture")
+        (dotgit / "HEAD").write_text("not a ref\n", encoding="utf-8")
+    elif shape == "dangling-pointer":
+        dotgit.write_text(f"gitdir: {tmp_path / 'missing-gitdir'}\n", encoding="utf-8")
+    elif shape == "garbage-pointer":
+        dotgit.write_text("not a gitfile\n", encoding="utf-8")
+    elif shape == "broken-symlink":
+        dotgit.symlink_to(tmp_path / "missing-gitdir")
+        assert not dotgit.exists() and os.path.lexists(dotgit)
+    elif shape == "empty-dir":
+        dotgit.mkdir()
+    return src
+
+
+@_posix_modes
+@pytest.mark.parametrize("shape", ["unborn", "corrupt-head", "dangling-pointer",
+                                   "garbage-pointer", "broken-symlink", "empty-dir"])
+def test_git_marked_source_with_unreadable_head_is_rejected_not_a_plain_tree(
+        tmp_path, shape, monkeypatch):
+    src = _marked_source(tmp_path, shape)
+    before = _lstat_state(src)
+    spied: list = []
+    out = tmp_path / "out"
+    with monkeypatch.context() as m:
+        _spy_side_effects(m, spied)
+        with pytest.raises(bench.BenchInputError) as exc:
+            _filemode_run(tmp_path, src, _noop_cmd())
+    assert _HEAD_MSG in str(exc.value), str(exc.value)
+    _assert_static_refusal(exc.value, src, tmp_path)
+    assert not out.exists(), "no out dir, record or arm copy"
+    assert not [c for c in spied if c[0] in ("run_arm", "_materialize", "_tree_tar")], spied
+    assert _lstat_state(src) == before, "marker, HEAD and bytes unchanged (nothing repaired)"
+
+
+@_posix_modes
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root bypasses modes")
+def test_uninspectable_git_marker_is_rejected_not_a_plain_tree(tmp_path):
+    src = _plain(tmp_path / "src", {"check.sh": (_EXIT0_SH, 0o755), "calc.py": (_FIX, 0o644)})
+    src.chmod(0o600)  # still a directory, but `src/.git` cannot be lstat-ed
+    try:
+        with pytest.raises(bench.BenchInputError) as exc:
+            _filemode_run(tmp_path, src, _noop_cmd())
+    finally:
+        src.chmod(0o755)
+    assert ".git marker" in str(exc.value), str(exc.value)
+    _assert_static_refusal(exc.value, src, tmp_path)
+    assert not (tmp_path / "out").exists()
+
+
+@_posix_modes
+def test_sha256_object_format_repo_is_frozen_by_its_commit_id(tmp_path):
+    src = _plain(tmp_path / "src", {"check.sh": (_EXIT0_SH, 0o755), "calc.py": (_FIX, 0o644)})
+    init = subprocess.run(["git", "init", "-q", "--object-format=sha256"], cwd=src,
+                          env=_owned_env(), capture_output=True)
+    if init.returncode:
+        pytest.skip("this git cannot create a SHA-256 repository")
+    _owned_git(src, "add", ".")
+    _owned_git(src, "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+               "commit", "-q", "-m", "fixture")
+    head = _owned_git(src, "rev-parse", "HEAD")
+    assert len(head) == 64
+    rec = _filemode_run(tmp_path, src, _noop_cmd())
+    assert rec["frozen"]["base_sha"] == head
+    assert rec["input_integrity"] == {"ok": True, "observed": {"head": head, "dirty": ""}}
+    assert rec["comparison"]["verdict"] == "TIE_ON_ACCEPTANCE"
+    _no_git_metadata_in_arms(tmp_path / "out")
+
+
+@_posix_modes
+@pytest.mark.parametrize("worktree", [False, True], ids=["repo", "linked-worktree"])
+@pytest.mark.parametrize("kind", ["called-process-error", "os-error", "empty", "malformed"])
+def test_git_head_read_failure_after_run_stays_unscored(tmp_path, kind, worktree, monkeypatch):
+    src = _flags_src(tmp_path, worktree=worktree)
+    before = _read_state(src)
+    calls: list = []
+    monkeypatch.setattr(bench, "_git", _failing_head_read(kind, calls, passes=1))
+    rec = _filemode_run(tmp_path, src, _noop_cmd())
+    assert calls.count("rev-parse") >= 2 and calls.count("archive") == 1, calls
+    integ = rec["input_integrity"]
+    assert integ["ok"] is False and list(integ["observed"]) == ["error"], integ
+    assert _HEAD_MSG in integ["observed"]["error"], integ
+    for leak in ("GIT-STDERR-SENTINEL", str(src), str(tmp_path)):
+        assert leak not in json.dumps(integ), "git output or a private path in the record"
+    assert rec["comparison"]["verdict"] == "UNSCORED" and rec["comparison"]["winner"] is None
+    assert _cli_compare(tmp_path / "out" / "record.json").returncode == 2
+    assert _read_state(src) == before
+
+
+@_posix_modes
+@pytest.mark.parametrize("marker", ["empty-dir", "garbage-pointer"])
+def test_plain_source_that_gains_a_bad_git_marker_during_an_arm_fails_closed(tmp_path, marker):
+    src = _plain(tmp_path / "src", {"check.sh": (_EXIT0_SH, 0o755), "calc.py": (_FIX, 0o644)})
+    target = str(src / ".git")
+    make = (f"import os; os.mkdir({target!r})" if marker == "empty-dir"
+            else f"open({target!r}, 'w').write('not a gitfile\\n')")
+    rec = _filemode_run(tmp_path, src, [sys.executable, "-c", make])
+    assert rec["frozen"]["base_sha"].startswith("tree:")
+    integ = rec["input_integrity"]
+    assert integ["ok"] is False and list(integ["observed"]) == ["error"], integ
+    assert rec["comparison"]["verdict"] == "UNSCORED" and rec["comparison"]["winner"] is None
+    assert _cli_compare(tmp_path / "out" / "record.json").returncode == 2
+
+
+def _head_wrapper(tmp_path: pathlib.Path, armed: pathlib.Path):
+    """Owned `git` on PATH that execs the real git (absolute path) for every call,
+    except exactly `rev-parse HEAD` while `armed` exists: that prints a sentinel and
+    its cwd to stderr and exits 128. Logs each subcommand name."""
+    env = _owned_env()
+    real = shutil.which("git", path=env.get("PATH"))
+    assert real and os.path.isabs(real)
+    bindir, log = tmp_path / "wrapper-bin", tmp_path / "git-calls.log"
+    bindir.mkdir()
+    q = shlex.quote
+    (bindir / "git").write_text(
+        "#!/bin/sh\n"
+        f"printf '%s\\n' \"$1\" >> {q(str(log))}\n"
+        f"if [ \"$#\" -eq 2 ] && [ \"$1\" = rev-parse ] && [ \"$2\" = HEAD ] "
+        f"&& [ -e {q(str(armed))} ]; then\n"
+        f"  echo \"{_GIT_NOISE} $PWD\" >&2\n  exit 128\nfi\n"
+        f"exec {q(real)} \"$@\"\n", encoding="utf-8")
+    (bindir / "git").chmod(0o755)
+    env["PATH"] = str(bindir) + os.pathsep + env.get("PATH", "")
+    return env, log
+
+
+def _head_cli_run(tmp_path: pathlib.Path, src: pathlib.Path, env: dict, baseline=None):
+    _spec(tmp_path)
+    cfg = tmp_path / "bench.json"
+    cfg.write_text(json.dumps({"repo": str(src), "spec": "spec.md", "budget_s": 30,
+                               "baseline_cmd": baseline or _noop_cmd(),
+                               "candidate_cmd": _noop_cmd(), "accept_cmd": ["./check.sh"],
+                               "check_files": ["check.sh"], "solution_files": ["calc.py"]}),
+                   encoding="utf-8")
+    return subprocess.run([sys.executable, str(_ROOT / "bench.py"), "run", "--config", str(cfg),
+                           "--out", str(tmp_path / "out")], capture_output=True, text=True,
+                          timeout=120, env=env)
+
+
+@_posix_modes
+@pytest.mark.parametrize("worktree,dirty,phase", [
+    (w, d, ph) for w in (False, True) for d in (False, True) for ph in ("pre-freeze", "never")]
+    + [(False, False, "post-run"), (True, False, "post-run")])
+def test_cli_git_head_read_failure_is_a_controlled_refusal(tmp_path, worktree, dirty, phase):
+    src = _flags_src(tmp_path, worktree=worktree)
+    if dirty:
+        (src / "calc.py").write_text(_EDIT, encoding="utf-8")
+    before = _read_state(src)
+    armed = tmp_path / "armed"
+    if phase == "pre-freeze":
+        armed.touch()
+    env, log = _head_wrapper(tmp_path, armed)
+    p = _head_cli_run(tmp_path, src, env, [sys.executable, "-c", f"open({str(armed)!r}, 'x').close()"]
+                 if phase == "post-run" else None)
+    shown, out = p.stdout + p.stderr, tmp_path / "out"
+    calls = log.read_text(encoding="utf-8").split()
+    assert _read_state(src) == before, "HEAD, status, index, flags and bytes unchanged"
+    assert "Traceback" not in shown, (p.returncode, shown[-600:])
+    if phase == "pre-freeze" or (phase == "never" and dirty):
+        assert (p.returncode, p.stdout.split(":")[0]) == (2, "REJECTED_INPUT"), shown
+        want = _HEAD_MSG if phase == "pre-freeze" else "dirty; commit or stash"
+        assert p.stderr == "" and want in p.stdout, shown
+        if phase == "pre-freeze":
+            assert calls == ["rev-parse"], calls
+            for leak in ("GIT-STDERR-SENTINEL", "CalledProcessError", str(src), str(tmp_path)):
+                assert leak not in shown, "git output, the git exception or a private path leaked"
+        assert not out.exists(), "no out dir, record or arm copy"
+        return
+    rec = json.loads((out / "record.json").read_text(encoding="utf-8"))
+    _no_git_metadata_in_arms(out)
+    assert rec["frozen"]["base_sha"] == before["head"], "frozen by its true commit, not tree:"
+    if phase == "never":  # honest git (wrapper transparent): normal scoring
+        assert p.returncode == 0 and p.stdout.startswith("verdict: TIE_ON_ACCEPTANCE"), shown
+        assert rec["input_integrity"] == {"ok": True, "observed": {
+            "head": before["head"], "dirty": ""}}
+        return
+    assert p.returncode == 2 and p.stdout.startswith("verdict: UNSCORED"), shown
+    assert rec["baseline"]["accept"] == rec["candidate"]["accept"] == "PASS"
+    integ = rec["input_integrity"]
+    assert integ["ok"] is False and list(integ["observed"]) == ["error"], integ
+    assert _HEAD_MSG in integ["observed"]["error"] and "SENTINEL" not in integ["observed"]["error"]
+    assert rec["comparison"]["winner"] is None
+    assert _cli_compare(out / "record.json").returncode == 2
+
+
+@_posix_modes
+@pytest.mark.parametrize("kind", ["repo", "linked-worktree", "plain"])
+def test_cli_missing_git_refuses_a_git_source_but_a_plain_dir_still_runs(tmp_path, kind):
+    if kind == "plain":
+        src = _plain(tmp_path / "src", {"check.sh": (_EXIT0_SH, 0o755),
+                                        "calc.py": (_FIX, 0o644)})
+        before = _lstat_state(src)
+    else:
+        src = _flags_src(tmp_path, worktree=kind == "linked-worktree")
+        before = _read_state(src)
+    nogit = tmp_path / "no-git-bin"
+    nogit.mkdir()
+    env = {**_owned_env(), "PATH": str(nogit)}
+    p = _head_cli_run(tmp_path, src, env)
+    shown, out = p.stdout + p.stderr, tmp_path / "out"
+    assert "Traceback" not in shown, (p.returncode, shown[-600:])
+    if kind == "plain":
+        assert p.returncode == 0 and p.stdout.startswith("verdict: TIE_ON_ACCEPTANCE"), shown
+        rec = json.loads((out / "record.json").read_text(encoding="utf-8"))
+        assert rec["frozen"]["base_sha"].startswith("tree:")
+        assert rec["input_integrity"]["ok"] is True
+        _no_git_metadata_in_arms(out)
+        assert _lstat_state(src) == before
+        return
+    assert (p.returncode, p.stdout.split(":")[0]) == (2, "REJECTED_INPUT"), shown
+    assert p.stderr == "" and _HEAD_MSG in p.stdout, shown
+    for leak in ("FileNotFoundError", str(src), str(tmp_path)):
+        assert leak not in shown, "the spawn error or a private path leaked"
+    assert not out.exists(), "no out dir, record or arm copy"
+    assert _read_state(src) == before
