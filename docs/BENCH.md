@@ -47,6 +47,9 @@ python3 bench.py compare --record bench-out/record.json   # re-derives the verdi
   not a quality gain. A flag present after the run fails `input_integrity`
   (`UNSCORED`, `observed.index_flags` lists paths) whatever `git status` says.
   A flag set, used and cleared again before that check is not seen.
+  If that read itself fails, the input is `REJECTED_INPUT` the same way
+  (a generic message, no git output), and after the run it fails
+  `input_integrity` (`UNSCORED`, `observed.error`).
 - Each arm runs in its own copy of the frozen snapshot with `BENCH_SPEC`,
   `BENCH_BUDGET_S` and `BENCH_USAGE_FILE` in its environment.
 - Exit code: 0 for `WINNER_BY_ACCEPTANCE` or `TIE_ON_ACCEPTANCE`; 2 for

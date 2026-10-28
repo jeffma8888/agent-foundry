@@ -37,7 +37,8 @@ WHAT IS FROZEN, ONCE, BEFORE EITHER ARM RUNS:
     before any arm or out dir even when the file is unchanged, so sparse
     checkouts are unsupported; a flag present after the run fails input
     integrity (UNSCORED) whatever `git status` says. A flag set and cleared
-    again before the post-run check is not seen.
+    again before the post-run check is not seen. If that read fails it is
+    refused the same way (no git output echoed), or UNSCORED after the run.
   * the task spec: `spec_sha` = sha256 of its bytes; arms read a frozen copy.
   * the acceptance inputs: `check_sha` = sha256 over the acceptance command,
     the pinned content of every operator-declared `check_files` entry AND the
@@ -472,7 +473,12 @@ def freeze_inputs(repo: pathlib.Path, spec_path: pathlib.Path, budget_s, accept_
                                   "owner-exec mode (git status cannot see a mode change when "
                                   "core.fileMode=false); restore or commit it first: "
                                   + ", ".join(drift[:20]))
-        flags = _index_flags(repo)
+        try:
+            flags = _index_flags(repo)
+        except (OSError, subprocess.CalledProcessError):
+            raise BenchInputError("input repo index flags could not be read (git ls-files "
+                                  "-v -z failed); refusing a source whose assume-unchanged "
+                                  "or skip-worktree entries are unknown") from None
         if flags:
             raise BenchInputError("input repo index marks tracked files assume-unchanged or "
                                   "skip-worktree, so git status does not compare them with "
