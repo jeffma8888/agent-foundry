@@ -48,6 +48,17 @@ STAGE_MARGIN_S = 5                     # left for logging/exit inside bench's ki
 STATE_MARKER = ".trial-state"
 PROMPT_PLACEHOLDER = "{prompt}"
 EXIT_OK, EXIT_STAGE_FAILED, EXIT_INVALID, EXIT_GIT = 0, 1, 2, 3
+# Inherited git variables pick the repository (and its index/objects) that the arm's own
+# git calls and the agent it spawns act on. They are refused by name, never cleared.
+REPO_LOCATING_GIT_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+                         "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_NAMESPACE")
+# The only GIT_* names an arm inherits. Any other one (discovery, prefix, template, exec
+# path, replace refs, injected config or hook settings, ...) is refused the same way.
+HARMLESS_GIT_ENV = frozenset({"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE",
+                              "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE",
+                              "GIT_TERMINAL_PROMPT", "GIT_OPTIONAL_LOCKS", "GIT_PAGER",
+                              "GIT_EDITOR"})
+HARMLESS_GIT_ENV_PREFIX = "GIT_TRACE"
 
 
 class TrialError(RuntimeError):
@@ -80,6 +91,19 @@ def _enclosing_git(path: pathlib.Path) -> pathlib.Path | None:
     return None
 
 
+def git_env_errors(environ=None) -> list[str]:
+    """Refuse inherited git variables that could aim git, or the agent, at another
+    repository, config or hooks. Reports names only, never values."""
+    environ = os.environ if environ is None else environ
+    bad = sorted(k for k in environ if k in REPO_LOCATING_GIT_ENV or (
+        k.startswith("GIT_") and k not in HARMLESS_GIT_ENV
+        and not k.startswith(HARMLESS_GIT_ENV_PREFIX)))
+    if not bad:
+        return []
+    return ["refusing inherited git environment that can redirect the repository, its "
+            f"index/objects, discovery, config or hooks; unset it and rerun: {', '.join(bad)}"]
+
+
 def agent_argv_errors(argv: object) -> list[str]:
     ok = (isinstance(argv, list) and len(argv) >= 2
           and all(isinstance(a, str) and a for a in argv)
@@ -100,9 +124,9 @@ def budget_errors(budget_s: object) -> list[str]:
 def validate_trial(*, arm: object, repo: object, state_root: object, budget_s: object,
                    agent_argv: object = None, check_argv: bool = True) -> list[str]:
     """Every refusal, computed with reads only: no mkdir, no git, no spawn."""
-    errs: list[str] = []
+    errs: list[str] = git_env_errors()
     if arm not in ARMS:
-        return [f"arm must be one of {ARMS}: {arm!r}"]
+        return errs + [f"arm must be one of {ARMS}: {arm!r}"]
     if any(st not in ALLOWED_STAGES for st in ARM_STAGES[arm]):
         errs.append(f"forbidden stage in {arm}: {ARM_STAGES[arm]}")
     name = arm_name(arm)
@@ -226,18 +250,30 @@ def _git(repo: str, *args: str, env: dict | None = None) -> subprocess.Completed
 
 def prepare_arm_repo(repo: str, arm: str) -> dict:
     """Make the arm copy its own git root with one baseline commit, through the
-    effective hooks (resolved at runtime, never set). Any refusal raises."""
+    effective hooks (resolved at runtime, never set). The new repo's identity (its
+    own `.git`, toplevel, no remote) is verified after `init` and before anything
+    is staged. Any refusal raises."""
+    errs = git_env_errors()
+    if errs:
+        raise TrialError("; ".join(errs))
     info: dict = {}
-    steps = [("init", ("init", "-q")), ("add", ("add", "-A"))]
-    for label, args in steps:
-        p = _git(repo, *args)
-        if p.returncode != 0:
-            raise TrialError(f"git {label} failed ({p.returncode}): {p.stderr.strip()[-300:]}")
-    top = _git(repo, "rev-parse", "--show-toplevel").stdout.strip()
-    if str(pathlib.Path(top).resolve()) != repo:
-        raise TrialError(f"arm git toplevel is not the arm copy: {top}")
-    if _git(repo, "remote").stdout.strip():
+    p = _git(repo, "init", "-q")
+    if p.returncode != 0:
+        raise TrialError(f"git init failed ({p.returncode}): {p.stderr.strip()[-300:]}")
+    own = pathlib.Path(repo) / ".git"
+    gd = _git(repo, "rev-parse", "--absolute-git-dir")
+    if (gd.returncode != 0 or gd.stdout.strip() != str(own)
+            or own.is_symlink() or not own.is_dir()):
+        raise TrialError("arm git dir is not the arm copy's own .git")
+    top = _git(repo, "rev-parse", "--show-toplevel")
+    if top.returncode != 0 or top.stdout.strip() != repo:
+        raise TrialError("arm git toplevel is not the arm copy")
+    rem = _git(repo, "remote")
+    if rem.returncode != 0 or rem.stdout.strip():
         raise TrialError("arm git repo has a remote")
+    p = _git(repo, "add", "-A")
+    if p.returncode != 0:
+        raise TrialError(f"git add failed ({p.returncode}): {p.stderr.strip()[-300:]}")
     info["hooks_path"] = _git(repo, "rev-parse", "--git-path", "hooks").stdout.strip()
     ident = {"GIT_AUTHOR_NAME": "trial", "GIT_AUTHOR_EMAIL": "trial@example.invalid",
              "GIT_COMMITTER_NAME": "trial", "GIT_COMMITTER_EMAIL": "trial@example.invalid"}

@@ -330,3 +330,126 @@ def test_real_bench_end_to_end_with_spy_arms(env):
         assert res["git"]["commit_exit"] == 0
     assert [c["stage"] for c in env.calls()] == ["ENGINEER", "ENGINEER", "REVIEWER"]
     assert all(c["argv0"] == str(env.spy) for c in env.calls())
+
+
+# Inherited git environment (review B1): an arm must never act on another repository.
+REPO_LOCATING_GIT_ENV = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+                         "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_NAMESPACE")
+DISCOVERY_CONFIG_HOOK_GIT_ENV = ("GIT_CEILING_DIRECTORIES", "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+                                 "GIT_PREFIX", "GIT_TEMPLATE_DIR", "GIT_EXEC_PATH",
+                                 "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS", "GIT_CONFIG_GLOBAL",
+                                 "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG",
+                                 "GIT_REPLACE_REF_BASE", "GIT_SHALLOW_FILE")
+
+
+def _clean_git(cwd, *args, extra=None):
+    clean = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True,
+                          env={**clean, **(extra or {})})
+
+
+def _other_owned_repo(e, remote: bool) -> pathlib.Path:
+    """A different repo the test owns: one tracked sentinel, committed through the effective hooks."""
+    other = e.tmp / "other-owned"
+    other.mkdir()
+    (other / "keep.txt").write_text("sentinel\n")
+    assert _clean_git(other, "init", "-q").returncode == 0
+    assert _clean_git(other, "add", "keep.txt").returncode == 0
+    ident = {"GIT_AUTHOR_NAME": "fixture", "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+             "GIT_COMMITTER_NAME": "fixture", "GIT_COMMITTER_EMAIL": "fixture@example.invalid"}
+    c = _clean_git(other, "commit", "-q", "-m", "fixture sentinel", extra=ident)
+    assert c.returncode == 0, c.stderr
+    if remote:
+        assert _clean_git(other, "remote", "add", "origin", "https://example.invalid/o.git").returncode == 0
+    return other
+
+
+def _repo_state(r: pathlib.Path) -> dict:
+    index = r / ".git" / "index"
+    return {"head": _clean_git(r, "rev-parse", "HEAD").stdout, "count": _clean_git(r, "rev-list", "--count", "--all").stdout,
+            "tree": _clean_git(r, "rev-parse", "HEAD^{tree}").stdout, "ls": _clean_git(r, "ls-files", "-s").stdout,
+            "status": _clean_git(r, "status", "--porcelain").stdout,
+            "index": _sha(index.read_bytes()) if index.exists() else None,
+            "sentinel": (r / "keep.txt").read_bytes()}
+
+
+@pytest.mark.parametrize("remote", [True, False], ids=["with-remote", "no-remote"])
+def test_inherited_git_dir_into_other_owned_repo_is_refused_and_leaves_it_untouched(env, capsys, remote):
+    other = _other_owned_repo(env, remote)
+    before = _repo_state(other)
+    env.mp.setenv("GIT_DIR", str(other / ".git"))
+    code, repo, state = _run_arm(env, "baseline")
+    env.mp.delenv("GIT_DIR")
+    out = capsys.readouterr().out
+    assert _repo_state(other) == before
+    assert code == trial.EXIT_INVALID
+    assert not (repo / ".git").exists() and not state.exists() and env.calls() == []
+    assert "GIT_DIR" in out and str(other) not in out
+
+
+@pytest.mark.parametrize("name", REPO_LOCATING_GIT_ENV + DISCOVERY_CONFIG_HOOK_GIT_ENV)
+def test_redirecting_git_env_is_refused_before_any_git_call_or_spawn(env, capsys, name):
+    calls: list = []
+
+    def no_git(repo, *args, env=None):  # never reaches real git with the variable set
+        calls.append(args)
+        return subprocess.CompletedProcess(["git", *args], 1, "", "spy: git must not run")
+    env.mp.setattr(trial, "_git", no_git)
+    secret = str(env.tmp / "elsewhere-value")
+    env.mp.setenv(name, secret)
+    code, repo, state = _run_arm(env, "baseline")
+    env.mp.delenv(name)
+    out = capsys.readouterr().out
+    assert code == trial.EXIT_INVALID and calls == [] and env.calls() == []
+    assert not state.exists() and not (repo / ".git").exists()
+    assert name in out and secret not in out
+
+
+def test_plan_refuses_redirecting_git_env(env, capsys):
+    repo = env.tmp / "r"
+    repo.mkdir()
+    secret = str(env.tmp / "elsewhere" / ".git")
+    env.mp.setenv("GIT_DIR", secret)
+    code = trial.main(["plan", "--arm", "baseline", "--repo", str(repo), "--state-root",
+                       str(env.tmp / "s"), "--spec", str(env.spec), "--budget-s", "60"])
+    out = capsys.readouterr().out
+    assert code == trial.EXIT_INVALID and json.loads(out)["status"] == "invalid"
+    assert "GIT_DIR" in out and secret not in out and not (env.tmp / "s").exists()
+
+
+def test_harmless_git_env_still_runs_arm_through_effective_hooks(env):
+    trace = env.tmp / "trace2.json"
+    env.mp.setenv("GIT_TRACE2_EVENT", str(trace))
+    env.mp.setenv("GIT_TERMINAL_PROMPT", "0")
+    code, repo, state = _run_arm(env, "baseline")
+    assert code == 0 and [c["stage"] for c in env.calls()] == ["ENGINEER"]
+    res = json.loads((state / "trial-result.json").read_text())
+    runtime = _clean_git(repo, "rev-parse", "--git-path", "hooks").stdout.strip()
+    assert res["git"]["commit_exit"] == 0 and res["git"]["hooks_path"] == runtime
+    assert _clean_git(repo, "rev-parse", "--absolute-git-dir").stdout.strip() == str(repo / ".git")
+
+
+@pytest.mark.parametrize("lie", ["git-dir", "toplevel", "remote"])
+def test_arm_repo_identity_is_verified_after_init_and_before_any_staging(env, lie):
+    repo = env.tmp / "spied"
+    shutil.copytree(env.fx, repo)
+    elsewhere = str(env.tmp / "elsewhere")
+    real, calls = trial._git, []
+
+    def redirected(r, *args, env=None):  # a git whose answers say "some other repo"
+        calls.append(args)
+        if args[0] in ("add", "commit"):
+            return subprocess.CompletedProcess(["git", *args], 0, "", "")
+        if lie == "git-dir" and args[:2] == ("rev-parse", "--absolute-git-dir"):
+            return subprocess.CompletedProcess(["git", *args], 0, elsewhere + "/.git\n", "")
+        if lie == "toplevel" and args[:2] == ("rev-parse", "--show-toplevel"):
+            return subprocess.CompletedProcess(["git", *args], 0, elsewhere + "\n", "")
+        if lie == "remote" and args[:1] == ("remote",):
+            return subprocess.CompletedProcess(["git", *args], 0, "origin\n", "")
+        return real(r, *args, env=env)
+    env.mp.setattr(trial, "_git", redirected)
+    with pytest.raises(trial.TrialError):
+        trial.prepare_arm_repo(str(repo), "baseline")
+    verbs = [a[0] for a in calls]
+    assert verbs[0] == "init" and "add" not in verbs and "commit" not in verbs, verbs
+    assert not (repo / ".git" / "index").exists()
