@@ -23,6 +23,12 @@ python3 bench.py compare --record bench-out/record.json   # re-derives the verdi
 - Paths in the config resolve relative to the config file. `repo` must be a
   clean git tree (or a plain directory); `out` must be outside it and empty of
   reserved names.
+- `run` refuses (`REJECTED_INPUT`, names only) any inherited `GIT_*` variable
+  outside the allowlist trial.py uses (author/committer identity, `GIT_TRACE*`,
+  `GIT_TERMINAL_PROMPT`, `GIT_OPTIONAL_LOCKS`, `GIT_PAGER`, `GIT_EDITOR`) before
+  any git call or output, so `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, object
+  or config overrides cannot attribute another repository's commit to `repo`. A
+  git `repo` must also be git's own dir and toplevel (a linked worktree is fine).
 - Each arm runs in its own copy of the frozen snapshot with `BENCH_SPEC`,
   `BENCH_BUDGET_S` and `BENCH_USAGE_FILE` in its environment.
 - Exit code: 0 for `WINNER_BY_ACCEPTANCE` or `TIE_ON_ACCEPTANCE`; 2 for

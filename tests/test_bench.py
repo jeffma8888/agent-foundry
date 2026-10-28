@@ -14,8 +14,11 @@ scripts; a real-model run is operator configuration outside this suite.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -1062,3 +1065,227 @@ def test_cli_planted_artifact_link_is_not_written_through(tmp_path, toy_repo):
     assert hf["arm"] == "candidate" and hf["stage"] == "artifact_write", hf
     assert rec["candidate"]["accept"] == "ERROR" and rec["comparison"]["winner"] is None
     assert (out / "candidate.stdout.txt").is_symlink(), "collision retained for diagnosis"
+
+
+# --------------------------------------------------------------------------
+# 14. source-freeze provenance: an inherited GIT_* that could aim git at another
+#     repository is refused (names only) before any git call, snapshot, arm or
+#     out dir; the git dir/toplevel git resolves must be the selected repo's own.
+# --------------------------------------------------------------------------
+def _owned_env() -> dict:
+    """Test env with every GIT_* stripped (lock-free status pinned), so fixture setup
+    and before/after inspection never follow a variable a test exports."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+    env["GIT_OPTIONAL_LOCKS"] = "0"
+    return env
+
+
+def _owned_git(cwd: pathlib.Path, *args: str) -> str:
+    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True,
+                          env=_owned_env()).stdout.strip()
+
+
+def _owned_repo(root: pathlib.Path, name: str, files: dict, remote: str | None = None):
+    repo = root / name
+    repo.mkdir()
+    for rel, text in files.items():
+        (repo / rel).write_text(text, encoding="utf-8")
+    _owned_git(repo, "init", "-q")
+    _owned_git(repo, "add", ".")
+    _owned_git(repo, "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+               "commit", "-q", "-m", f"fixture {name}")
+    if remote is not None:
+        _owned_git(repo, "remote", "add", "origin", remote)
+    return repo
+
+
+def _two_owned_repos(tmp_path: pathlib.Path, foreign_tree: str = "distinct", remote: bool = False):
+    """source = the selected input; foreign = another owned repo with its own commit.
+    `distinct`: foreign's content differs. `matching-worktree`: foreign tracks the same
+    files as source's worktree (the probe shape: a dirty check cannot notice)."""
+    third = tmp_path / "third-party"
+    third.mkdir()
+    (third / "sentinel.txt").write_bytes(b"THIRD-PARTY-SENTINEL")
+    source = _owned_repo(tmp_path, "source", {"calc.py": _CALC, "test_calc.py": _TEST})
+    files = ({"calc.py": _FIX, "test_calc.py": _TEST, "FOREIGN.txt": "foreign\n"}
+             if foreign_tree == "distinct" else {"calc.py": _CALC, "test_calc.py": _TEST})
+    foreign = _owned_repo(tmp_path, "foreign", files,
+                          remote=str(third / "never-contacted.git") if remote else None)
+    assert _owned_git(source, "rev-parse", "HEAD") != _owned_git(foreign, "rev-parse", "HEAD")
+    return source, foreign, third
+
+
+def _repo_state(repo: pathlib.Path) -> dict:
+    return {"head": _owned_git(repo, "rev-parse", "HEAD"),
+            "tree": _owned_git(repo, "rev-parse", "HEAD^{tree}"),
+            "status": _owned_git(repo, "status", "--porcelain", "--untracked-files=all"),
+            "index": hashlib.sha256((repo / ".git" / "index").read_bytes()).hexdigest(),
+            "files": bench._tree_sha(repo),
+            "config": (repo / ".git" / "config").read_bytes(),
+            "remotes": _owned_git(repo, "remote", "-v")}
+
+
+def _dir_bytes(root: pathlib.Path) -> dict:
+    return {p.relative_to(root).as_posix(): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+
+
+def _spy_side_effects(m, calls: list) -> None:
+    """Record (and still perform) every subprocess, tree snapshot, arm copy and arm run."""
+    real_run, real_popen = subprocess.run, subprocess.Popen
+
+    def run(*a, **k):
+        calls.append(("run", list(a[0] if a else k.get("args"))))
+        return real_run(*a, **k)
+
+    class Popen(real_popen):
+        def __init__(self, *a, **k):
+            calls.append(("Popen", list(a[0] if a else k.get("args"))))
+            super().__init__(*a, **k)
+
+    m.setattr(bench.subprocess, "run", run)
+    m.setattr(bench.subprocess, "Popen", Popen)
+    for name in ("_tree_tar", "_materialize", "run_arm"):
+        real = getattr(bench, name)
+
+        def wrap(*a, _real=real, _name=name, **k):
+            calls.append((_name, None))
+            return _real(*a, **k)
+        m.setattr(bench, name, wrap)
+
+
+def _assert_names_only(msg: str, names: list[str], secrets: list[str]) -> None:
+    assert re.findall(r"GIT_[A-Z0-9_]+", msg) == sorted(names), msg
+    for s in secrets:
+        assert s not in msg, "an inherited value leaked into the refusal"
+
+
+def _freeze(repo: pathlib.Path, tmp_path: pathlib.Path) -> dict:
+    return bench.freeze_inputs(repo=repo, spec_path=_spec(tmp_path), budget_s=30,
+                               accept_cmd=_accept_cmd(), check_files=["test_calc.py"],
+                               solution_files=["calc.py"])
+
+
+@pytest.mark.parametrize("remote", [False, True], ids=["no-remote", "remote"])
+@pytest.mark.parametrize("foreign_tree", ["distinct", "matching-worktree"])
+def test_inherited_git_dir_to_foreign_repo_is_refused_before_any_git_call(
+        tmp_path, monkeypatch, foreign_tree, remote):
+    source, foreign, third = _two_owned_repos(tmp_path, foreign_tree, remote)
+    before = {r: _repo_state(r) for r in (source, foreign)}
+    third_before = _dir_bytes(third)
+    spec, out, calls = _spec(tmp_path), tmp_path / "out", []
+    with monkeypatch.context() as m:
+        m.setenv("GIT_DIR", str(foreign / ".git"))
+        _spy_side_effects(m, calls)
+        try:
+            rec = bench.run_bench(repo=source, spec_path=spec, budget_s=30,
+                                  baseline_cmd=_noop_cmd(), candidate_cmd=_fix_cmd(),
+                                  accept_cmd=_accept_cmd(), out_dir=out,
+                                  check_files=["test_calc.py"], solution_files=["calc.py"])
+        except bench.BenchInputError as e:
+            err = e
+        else:
+            assert rec["frozen"]["base_sha"] != before[foreign]["head"], \
+                "false provenance: source frozen with the foreign repo's HEAD"
+            pytest.fail("inherited GIT_DIR was not refused")
+    assert calls == [], f"git/snapshot/arm side effects before the refusal: {calls}"
+    _assert_names_only(str(err), ["GIT_DIR"], [str(foreign), str(tmp_path)])
+    assert not out.exists(), "no out dir, frozen copy or record before the refusal"
+    assert {r: _repo_state(r) for r in (source, foreign)} == before
+    assert _dir_bytes(third) == third_before and _owned_git(source, "remote") == ""
+
+
+def test_cli_run_refuses_inherited_git_dir_by_name_without_writing(tmp_path):
+    source, foreign, third = _two_owned_repos(tmp_path, "matching-worktree", remote=True)
+    before = {r: _repo_state(r) for r in (source, foreign)}
+    cfg, out = tmp_path / "bench.json", tmp_path / "o"
+    cfg.write_text(json.dumps({
+        "repo": str(source), "spec": str(_spec(tmp_path)), "budget_s": 30,
+        "baseline_cmd": _noop_cmd(), "candidate_cmd": _fix_cmd(), "accept_cmd": _accept_cmd(),
+        "check_files": ["test_calc.py"], "solution_files": ["calc.py"]}), encoding="utf-8")
+    env = {**_owned_env(), "GIT_DIR": str(foreign / ".git")}
+    p = subprocess.run([sys.executable, str(_ROOT / "bench.py"), "run", "--config", str(cfg),
+                        "--out", str(out)], capture_output=True, text=True, timeout=120, env=env)
+    assert p.returncode == 2 and "Traceback" not in p.stderr, (p.returncode, p.stdout, p.stderr)
+    assert p.stdout.startswith("REJECTED_INPUT:"), p.stdout
+    assert "WINNER" not in p.stdout and "TIE" not in p.stdout
+    _assert_names_only(p.stdout + p.stderr, ["GIT_DIR"], [str(foreign), str(tmp_path)])
+    assert not out.exists()
+    assert {r: _repo_state(r) for r in (source, foreign)} == before
+    assert _dir_bytes(third) == {"sentinel.txt": b"THIRD-PARTY-SENTINEL"}
+
+
+@pytest.mark.parametrize("names", [
+    ("GIT_WORK_TREE",), ("GIT_INDEX_FILE",), ("GIT_OBJECT_DIRECTORY",),
+    ("GIT_ALTERNATE_OBJECT_DIRECTORIES",), ("GIT_COMMON_DIR",),
+    ("GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0"), ("GIT_CONFIG_PARAMETERS",),
+    ("GIT_DIR", "GIT_OPTIONAL_LOCKS", "GIT_TRACE"),
+], ids=lambda n: "+".join(n))
+def test_repo_index_object_and_config_redirects_are_refused_by_name(tmp_path, monkeypatch, names):
+    source, foreign, _ = _two_owned_repos(tmp_path, "matching-worktree")
+    before = {r: _repo_state(r) for r in (source, foreign)}
+    fg = foreign / ".git"
+    values = {"GIT_DIR": str(fg), "GIT_WORK_TREE": str(foreign),
+              "GIT_INDEX_FILE": str(fg / "index"), "GIT_OBJECT_DIRECTORY": str(fg / "objects"),
+              "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(fg / "objects"), "GIT_COMMON_DIR": str(fg),
+              "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.worktree",
+              "GIT_CONFIG_VALUE_0": str(foreign),
+              "GIT_CONFIG_PARAMETERS": "'core.worktree'='%s'" % foreign,
+              "GIT_OPTIONAL_LOCKS": "0", "GIT_TRACE": "0"}
+    spec, calls = _spec(tmp_path), []
+    with monkeypatch.context() as m:
+        for n in names:
+            m.setenv(n, values[n])
+        _spy_side_effects(m, calls)
+        with pytest.raises(bench.BenchInputError) as exc:
+            bench.freeze_inputs(repo=source, spec_path=spec, budget_s=30,
+                                accept_cmd=_accept_cmd(), check_files=["test_calc.py"],
+                                solution_files=["calc.py"])
+    assert calls == [], calls
+    refused = [n for n in names if n not in ("GIT_OPTIONAL_LOCKS", "GIT_TRACE")]
+    _assert_names_only(str(exc.value), refused, [str(foreign), str(tmp_path)])
+    assert {r: _repo_state(r) for r in (source, foreign)} == before
+    assert _freeze(source, tmp_path)["base_sha"] == before[source]["head"], "fixture control"
+
+
+def test_allowlisted_git_env_still_freezes_and_scores_the_source_repo(tmp_path, monkeypatch):
+    source, foreign, _ = _two_owned_repos(tmp_path, "distinct", remote=True)
+    head = _owned_git(source, "rev-parse", "HEAD")
+    monkeypatch.setenv("GIT_OPTIONAL_LOCKS", "0")
+    monkeypatch.setenv("GIT_TERMINAL_PROMPT", "0")
+    frozen = _freeze(source, tmp_path)
+    files = bench._tar_regular_files(frozen["_tar"])
+    assert frozen["base_sha"] == head and frozen["repo"] == str(source.resolve())
+    assert files == {"calc.py": _CALC.encode(), "test_calc.py": _TEST.encode()}
+    assert frozen["spec_sha"] == hashlib.sha256(_spec(tmp_path).read_bytes()).hexdigest()
+    assert frozen["check_files"] == {"test_calc.py": hashlib.sha256(_TEST.encode()).hexdigest()}
+    assert frozen["accept_cmd"] == _accept_cmd() and frozen["solution_files"] == ["calc.py"]
+    rec = _run(tmp_path / "run", source, baseline=_noop_cmd(), candidate=_fix_cmd())
+    assert rec["baseline"]["base_sha"] == rec["candidate"]["base_sha"] == head
+    assert rec["comparison"]["verdict"] == "WINNER_BY_ACCEPTANCE"
+    assert rec["comparison"]["winner"] == "candidate"
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    (plain / "calc.py").write_text(_CALC, encoding="utf-8")
+    (plain / "test_calc.py").write_text(_TEST, encoding="utf-8")
+    assert _freeze(plain, tmp_path)["base_sha"].startswith("tree:")
+    import trial  # one names-only policy: an env bench freezes under is one an arm accepts
+    assert bench.HARMLESS_GIT_ENV == trial.HARMLESS_GIT_ENV
+    assert bench.HARMLESS_GIT_ENV_PREFIX == trial.HARMLESS_GIT_ENV_PREFIX
+
+
+def test_repo_whose_git_toplevel_is_elsewhere_is_refused_before_status_or_archive(
+        tmp_path, monkeypatch):
+    source, foreign, _ = _two_owned_repos(tmp_path, "matching-worktree")
+    _owned_git(source, "config", "core.worktree", str(foreign))
+    before = {r: _repo_state(r) for r in (source, foreign)}
+    spec, calls = _spec(tmp_path), []
+    with monkeypatch.context() as m:
+        _spy_side_effects(m, calls)
+        with pytest.raises(bench.BenchInputError, match="identity") as exc:
+            bench.freeze_inputs(repo=source, spec_path=spec, budget_s=30,
+                                accept_cmd=_accept_cmd(), check_files=["test_calc.py"],
+                                solution_files=["calc.py"])
+    git_verbs = [c[1][1] for c in calls if c[0] == "run" and c[1][:1] == ["git"]]
+    assert "status" not in git_verbs and "archive" not in git_verbs, git_verbs
+    assert str(foreign) not in str(exc.value)
+    assert {r: _repo_state(r) for r in (source, foreign)} == before

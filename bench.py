@@ -18,6 +18,12 @@ WHAT IS FROZEN, ONCE, BEFORE EITHER ARM RUNS:
     Symbolic and hard links are never followed and never copied.
     `base_sha` = the resolved commit (or `tree:<sha256>` for a non-git tree),
     `snapshot_sha` = sha256 of the exact archived bytes.
+    Provenance: an inherited `GIT_*` variable outside a small harmless allowlist
+    (the one trial.py uses) is refused by NAME before any git call, snapshot or
+    out dir, since it can aim git at another repository, index, object store,
+    config or hooks and so attribute a foreign commit to the input. After HEAD
+    is found and before status/archive, git's dir and toplevel must be the
+    input's own (its `.git` directory, or the target of its `.git` pointer).
   * the task spec: `spec_sha` = sha256 of its bytes; arms read a frozen copy.
   * the acceptance inputs: `check_sha` = sha256 over the acceptance command,
     the pinned content of every operator-declared `check_files` entry AND the
@@ -147,6 +153,14 @@ _RESERVED_OUT = {"record.json", "frozen", *ARMS}
 # literal file name that matches nothing.
 _GLOB_CHARS = frozenset("*?[")
 _DRAIN_S = 2.0
+# The only inherited GIT_* names freezing accepts; any other one (repo, work tree,
+# index, objects, common dir, discovery, injected config, hooks, exec path, ...) is
+# refused by name, never cleared. Kept equal to trial.py's allowlist (a test pins it).
+HARMLESS_GIT_ENV = frozenset({"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_AUTHOR_DATE",
+                              "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "GIT_COMMITTER_DATE",
+                              "GIT_TERMINAL_PROMPT", "GIT_OPTIONAL_LOCKS", "GIT_PAGER",
+                              "GIT_EDITOR"})
+HARMLESS_GIT_ENV_PREFIX = "GIT_TRACE"
 
 
 class BenchInputError(ValueError):
@@ -205,6 +219,42 @@ def _git_head(repo: pathlib.Path) -> str | None:
 
 def _git_dirty(repo: pathlib.Path) -> str:
     return _git(repo, "status", "--porcelain", "--untracked-files=all").stdout.decode()
+
+
+def _git_env_refusal() -> str | None:
+    """Names (never values) of inherited GIT_* variables outside the allowlist."""
+    bad = sorted(k for k in os.environ if k.startswith("GIT_") and k not in HARMLESS_GIT_ENV
+                 and not k.startswith(HARMLESS_GIT_ENV_PREFIX))
+    if not bad:
+        return None
+    return ("refusing inherited git environment that can redirect the repository, its "
+            f"index/objects, discovery, config or hooks; unset it and rerun: {', '.join(bad)}")
+
+
+def _check_git_identity(repo: pathlib.Path) -> None:
+    """git's dir must be `repo`'s own `.git` (or the target of its `.git` pointer file,
+    e.g. a linked worktree) and its toplevel must be `repo`, so `base_sha` and the
+    dirty check describe the selected input. Paths are not echoed."""
+    dotgit = repo / ".git"
+    own = None
+    if dotgit.is_file():
+        try:
+            line = dotgit.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeDecodeError):
+            line = ""
+        if line.startswith("gitdir:"):
+            own = (repo / line[len("gitdir:"):].strip()).resolve()
+    elif dotgit.is_dir():
+        own = dotgit.resolve()
+    try:
+        lines = _git(repo, "rev-parse", "--absolute-git-dir",
+                     "--show-toplevel").stdout.decode().splitlines()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        lines = []
+    if (own is None or len(lines) != 2 or not all(lines)
+            or pathlib.Path(lines[0]).resolve() != own or pathlib.Path(lines[1]).resolve() != repo):
+        raise BenchInputError("input repo identity check failed: git's dir or toplevel is not "
+                              "the selected repo's own; refusing to attribute its snapshot")
 
 
 def _tree_tar(root: pathlib.Path) -> tuple[bytes, int]:
@@ -319,6 +369,9 @@ def _check_solution_files(solution_files, files: dict[str, bytes], pinned: dict)
 def freeze_inputs(repo: pathlib.Path, spec_path: pathlib.Path, budget_s, accept_cmd,
                   check_files, solution_files) -> dict:
     """Resolve and pin every input ONCE. Raises BenchInputError on anything unsafe."""
+    refusal = _git_env_refusal()  # before any git call, snapshot or out dir
+    if refusal:
+        raise BenchInputError(refusal)
     repo = pathlib.Path(repo).resolve()
     spec_path = pathlib.Path(spec_path).resolve()
     if not repo.is_dir():
@@ -337,6 +390,7 @@ def freeze_inputs(repo: pathlib.Path, spec_path: pathlib.Path, budget_s, accept_
         raise BenchInputError("check_files must be a non-empty list of relative paths")
     head = _git_head(repo)
     if head:
+        _check_git_identity(repo)  # after HEAD is found, before status and archive
         dirty = _git_dirty(repo)
         if dirty.strip():
             raise BenchInputError("input repo is dirty; commit or stash first:\n" + dirty)
