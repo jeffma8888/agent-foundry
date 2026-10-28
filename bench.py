@@ -29,8 +29,10 @@ WHAT IS FROZEN, ONCE, BEFORE EITHER ARM RUNS:
   * the acceptance inputs: `check_sha` = sha256 over the acceptance command,
     the pinned content of every operator-declared `check_files` entry AND the
     declared `solution_files` list. Before an arm's acceptance runs, each check
-    file in the arm copy is re-hashed; any change (or an unreadable file)
-    REJECTS that arm (`accept = REJECTED`, never a verdict in its favour).
+    file in the arm copy is re-hashed and its owner-exec bit compared with the
+    frozen snapshot's (the one mode bit git records, so a group/other-only chmod
+    is no change); any change (or an unreadable file) REJECTS that arm
+    (`accept = REJECTED`, never a verdict in its favour).
   * the acceptance boundary: `solution_files` (REQUIRED) = the exact relative
     paths of the regular files an arm may change for scoring. No glob
     characters (a path containing `*`, `?` or `[` is rejected, never expanded
@@ -330,6 +332,13 @@ def _entries_sha(entries: dict[bytes, tuple[bytes, bytes]]) -> str:
     return h.hexdigest()
 
 
+def _tar_owner_exec(tar_bytes: bytes) -> dict[str, bool]:
+    """Owner-exec bit of each regular file AS FROZEN (not as the input now is)."""
+    with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r") as tar:
+        return {posixpath.normpath(m.name): bool(m.mode & stat.S_IXUSR)
+                for m in tar.getmembers() if m.isreg()}
+
+
 def _tar_regular_files(tar_bytes: bytes) -> dict[str, bytes]:
     out: dict[str, bytes] = {}
     with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r") as tar:
@@ -402,7 +411,7 @@ def freeze_inputs(repo: pathlib.Path, spec_path: pathlib.Path, budget_s, accept_
     else:
         tar_bytes, skipped = _tree_tar(repo)
         base_sha = "tree:" + _sha256(tar_bytes)
-    files = _tar_regular_files(tar_bytes)
+    files, owner_exec = _tar_regular_files(tar_bytes), _tar_owner_exec(tar_bytes)
     pinned: dict[str, str] = {}
     for cf in check_files:
         norm = posixpath.normpath(cf)
@@ -418,7 +427,8 @@ def freeze_inputs(repo: pathlib.Path, spec_path: pathlib.Path, budget_s, accept_
             "check_sha": check_sha, "check_files": pinned, "accept_cmd": list(accept_cmd),
             "solution_files": solution, "solution_sha": _sha256(json.dumps(solution).encode()),
             "budget_s": budget_s, "skipped_links": skipped,
-            "_tar": tar_bytes, "_spec": spec_bytes}
+            "_tar": tar_bytes, "_spec": spec_bytes,
+            "_check_exec": {rel: owner_exec[rel] for rel in pinned}}
 
 
 def _validate_out_dir(out_dir: pathlib.Path, frozen: dict) -> pathlib.Path:
@@ -668,7 +678,8 @@ def run_arm(name: str, cmd: list[str], frozen: dict, out_dir: pathlib.Path) -> d
     for rel, sha in frozen["check_files"].items():
         p = arm_dir / rel
         try:
-            intact = not p.is_symlink() and p.is_file() and _sha256(p.read_bytes()) == sha
+            intact = (not p.is_symlink() and p.is_file() and _sha256(p.read_bytes()) == sha
+                      and bool(p.lstat().st_mode & stat.S_IXUSR) == frozen["_check_exec"][rel])
         except OSError:
             intact = False
         if not intact:

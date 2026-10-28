@@ -132,7 +132,10 @@ arm copy, so it cannot be trusted under the new contract.
   tamper-proof seal.
 - An arm that modifies a declared `check_files` entry (or leaves it unreadable)
   is `REJECTED` and its acceptance is not run; the pinned file is not silently
-  restored.
+  restored. The owner-exec bit is part of that pin, compared with the frozen
+  snapshot: `chmod 0644 check.sh` (or `chmod 0755` on a pinned non-executable
+  file) rejects the arm even when the bytes are unchanged. As in git, group and
+  other permission bits are not pinned.
 - `compare` names a winner only when both arms finished in budget with exit 0,
   acceptance is PASS/FAIL with a consistent exit code, contract fields match,
   and `input_integrity.ok` is explicitly `true`. Anything missing, malformed or

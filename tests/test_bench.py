@@ -1408,3 +1408,140 @@ def test_plain_dir_snapshot_keeps_only_owner_exec_deterministically(tmp_path):
     assert f1["snapshot_sha"] == _plain_freeze(canon, tmp_path)["snapshot_sha"]
     assert f1["snapshot_sha"] != _plain_freeze(flat, tmp_path)["snapshot_sha"], \
         "the owner-exec bit is bound into the plain-tree snapshot hash"
+
+
+# --------------------------------------------------------------------------
+# pinned check files: the owner-exec bit is part of pinned integrity, taken from
+# the frozen snapshot. Like git, only that bit counts: a group/other-only chmod
+# is no change. Executables run by argv, never via sh/python.
+# --------------------------------------------------------------------------
+_EXIT0_SH = "#!/bin/sh\nexit 0\n"
+_READ_INPUT = "import sys\nsys.exit(0 if open('check_input.sh').read() == %r else 1)\n" % _EXIT0_SH
+# case: (pinned file, mode in source, candidate's chmod mode, accept_cmd)
+_OWNER_EXEC_FLIPS = {
+    "drop-owner-exec": ("check.sh", 0o755, "0644", ["./check.sh"]),
+    "add-owner-exec": ("check_input.sh", 0o644, "0755", [sys.executable, "-c", _READ_INPUT]),
+}
+_SAME_OWNER_EXEC = {
+    "same-0755": ("check.sh", 0o755, "0755", ["./check.sh"]),
+    "0755-to-0700": ("check.sh", 0o755, "0700", ["./check.sh"]),
+    "0644-to-0666": ("check_input.sh", 0o644, "0666", [sys.executable, "-c", _READ_INPUT]),
+    "0644-to-0654": ("check_input.sh", 0o644, "0654", [sys.executable, "-c", _READ_INPUT]),
+}
+
+
+def _pinned_src(tmp_path: pathlib.Path, kind: str, pinned: str, mode: int) -> pathlib.Path:
+    """An owned plain dir, or a clean owned git repo, holding `pinned` at `mode`."""
+    src = _plain(tmp_path / "src", {pinned: (_EXIT0_SH, mode), "calc.py": (_FIX, 0o644)})
+    if kind == "git":
+        _owned_git(src, "init", "-q")
+        _owned_git(src, "add", ".")
+        _owned_git(src, "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+                   "commit", "-q", "-m", "fixture")
+        assert _owned_git(src, "ls-files", "-s", pinned).startswith("100755" if mode & 0o100
+                                                                    else "100644")
+    return src
+
+
+def _src_state(src: pathlib.Path) -> dict:
+    st = {p.name: (p.read_bytes(), p.lstat().st_mode & 0o7777)
+          for p in sorted(src.iterdir()) if p.name != ".git"}
+    if (src / ".git").is_dir():
+        st[".git"] = _repo_state(src)
+    return st
+
+
+def _pinned_run(tmp_path, src, pinned, new_mode, accept):
+    return bench.run_bench(repo=src, spec_path=_spec(tmp_path), budget_s=30,
+                           baseline_cmd=_noop_cmd(), candidate_cmd=["/bin/chmod", new_mode, pinned],
+                           accept_cmd=accept, out_dir=tmp_path / "out", check_files=[pinned],
+                           solution_files=["calc.py"])
+
+
+@_posix_modes
+@pytest.mark.parametrize("flip", sorted(_OWNER_EXEC_FLIPS))
+@pytest.mark.parametrize("kind", ["plain", "git"])
+def test_pinned_check_owner_exec_flip_rejects_arm_even_with_same_bytes(tmp_path, kind, flip):
+    pinned, mode, new_mode, accept = _OWNER_EXEC_FLIPS[flip]
+    src = _pinned_src(tmp_path, kind, pinned, mode)
+    before = _src_state(src)
+    out = tmp_path / "out"
+    rec = _pinned_run(tmp_path, src, pinned, new_mode, accept)
+    cand, base = rec["candidate"], rec["baseline"]
+    assert (out / "candidate" / pinned).read_bytes() == _EXIT0_SH.encode(), "same bytes"
+    assert (out / "candidate" / pinned).lstat().st_mode & 0o777 == int(new_mode, 8)
+    assert (cand["exit_code"], cand["accept"], cand["accept_exit"]) == (0, "REJECTED", None), cand
+    assert pinned in cand["error"]
+    assert not (out / "candidate.accept.txt").exists(), "a rejected check is never executed"
+    assert not (out / "candidate.accept-tree").exists()
+    assert (base["accept"], base["accept_exit"], base["error"]) == ("PASS", 0, None), base
+    assert rec["comparison"]["verdict"] == "UNSCORED" and rec["comparison"]["winner"] is None
+    assert any("pinned check" in r for r in rec["comparison"]["reasons"])
+    assert rec["input_integrity"]["ok"] is True
+    persisted = json.loads((out / "record.json").read_text(encoding="utf-8"))["frozen"]
+    assert persisted["check_files"] == {pinned: hashlib.sha256(_EXIT0_SH.encode()).hexdigest()}
+    assert not [k for k in persisted if k.startswith("_")], "no private frozen metadata leaks"
+    assert _src_state(src) == before, "source bytes, modes and git index are never modified"
+
+
+@_posix_modes
+@pytest.mark.parametrize("kind", ["plain", "git"])
+def test_cli_pinned_check_chmod_0644_is_unscored_not_a_tie(tmp_path, kind):
+    src = _pinned_src(tmp_path, kind, "check.sh", 0o755)
+    before = _src_state(src)
+    _spec(tmp_path)
+    cfg = tmp_path / "bench.json"
+    cfg.write_text(json.dumps({"repo": "src", "spec": "spec.md", "budget_s": 30,
+                               "baseline_cmd": _noop_cmd(),
+                               "candidate_cmd": ["/bin/chmod", "0644", "check.sh"],
+                               "accept_cmd": ["./check.sh"], "check_files": ["check.sh"],
+                               "solution_files": ["calc.py"]}), encoding="utf-8")
+    out = tmp_path / "out"
+    p = subprocess.run([sys.executable, str(_ROOT / "bench.py"), "run", "--config", str(cfg),
+                        "--out", str(out)], capture_output=True, text=True, timeout=120,
+                       env=_owned_env())
+    assert p.returncode == 2 and p.stdout.startswith("verdict: UNSCORED"), p.stdout + p.stderr
+    rec = json.loads((out / "record.json").read_text(encoding="utf-8"))
+    assert (rec["candidate"]["accept"], rec["candidate"]["accept_exit"]) == ("REJECTED", None)
+    assert (rec["baseline"]["accept"], rec["baseline"]["accept_exit"]) == ("PASS", 0)
+    assert not (out / "candidate.accept.txt").exists()
+    assert not (out / "candidate.accept-tree").exists()
+    assert _cli_compare(out / "record.json").returncode == 2
+    assert _src_state(src) == before
+
+
+@_posix_modes
+@pytest.mark.parametrize("case", sorted(_SAME_OWNER_EXEC))
+@pytest.mark.parametrize("kind", ["plain", "git"])
+def test_pinned_check_same_owner_exec_passes_and_group_other_bits_are_ignored(tmp_path, kind,
+                                                                              case):
+    pinned, mode, new_mode, accept = _SAME_OWNER_EXEC[case]
+    src = _pinned_src(tmp_path, kind, pinned, mode)
+    before = _src_state(src)
+    rec = _pinned_run(tmp_path, src, pinned, new_mode, accept)
+    assert (tmp_path / "out" / "candidate" / pinned).lstat().st_mode & 0o777 == int(new_mode, 8)
+    for arm in bench.ARMS:
+        assert (rec[arm]["accept"], rec[arm]["accept_exit"], rec[arm]["error"]) == ("PASS", 0, None)
+    assert rec["candidate"]["ignored_change_paths"] == []
+    assert rec["comparison"]["verdict"] == "TIE_ON_ACCEPTANCE", rec["comparison"]
+    assert _src_state(src) == before
+
+
+@_posix_modes
+@pytest.mark.parametrize("change", ["edit-content", "same-bytes-symlink"])
+@pytest.mark.parametrize("kind", ["plain", "git"])
+def test_pinned_check_content_edit_or_symlink_still_rejects(tmp_path, kind, change):
+    src = _pinned_src(tmp_path, kind, "check.sh", 0o755)
+    before = _src_state(src)
+    cmd = {"edit-content": [sys.executable, "-c", "open('check.sh', 'a').write('# edited\\n')"],
+           "same-bytes-symlink": [sys.executable, "-c", "import os; os.rename('check.sh', "
+                                  "'real.sh'); os.symlink('real.sh', 'check.sh')"]}[change]
+    out = tmp_path / "out"
+    rec = bench.run_bench(repo=src, spec_path=_spec(tmp_path), budget_s=30,
+                          baseline_cmd=_noop_cmd(), candidate_cmd=cmd, accept_cmd=["./check.sh"],
+                          out_dir=out, check_files=["check.sh"], solution_files=["calc.py"])
+    assert (rec["candidate"]["accept"], rec["candidate"]["accept_exit"]) == ("REJECTED", None)
+    assert not (out / "candidate.accept.txt").exists()
+    assert rec["baseline"]["accept"] == "PASS"
+    assert rec["comparison"]["verdict"] == "UNSCORED"
+    assert _src_state(src) == before
