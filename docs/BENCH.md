@@ -33,6 +33,12 @@ python3 bench.py compare --record bench-out/record.json   # re-derives the verdi
   any git call or output, so `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, object
   or config overrides cannot attribute another repository's commit to `repo`. A
   git `repo` must also be git's own dir and toplevel (a linked worktree is fine).
+  If the freeze-time `git status --porcelain` or `git archive` of HEAD fails
+  (git error or spawn failure), the input is `REJECTED_INPUT` before any arm
+  or output, with a fixed message naming that read (no git output, path or
+  traceback). A dirty source is still refused as dirty, and a failed `git
+  status` after the run still fails `input_integrity` (`UNSCORED`,
+  `observed.error`).
 - `git status` cannot see an owner-exec change when `core.fileMode=false`, so
   each regular file in the HEAD archive is also `lstat`-ed in `repo` (no link
   followed, symlink members skipped, untracked/ignored files not walked). A path

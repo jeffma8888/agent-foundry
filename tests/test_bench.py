@@ -2036,3 +2036,197 @@ def test_cli_git_index_flag_read_failure_is_a_controlled_refusal(tmp_path, phase
     assert rec["input_integrity"]["observed"]["error"].startswith("CalledProcessError")
     assert rec["comparison"]["winner"] is None
     assert _cli_compare(out / "record.json").returncode == 2
+
+
+# --------------------------------------------------------------------------
+# status/archive READ failure at freeze: if the read-only `git status --porcelain`
+# or `git archive` fails before anything is frozen, the input is refused like any
+# other unsafe input (BenchInputError / CLI `REJECTED_INPUT` rc 2) with a static
+# message naming the failed read: no git output, cwd or path, no traceback, no out
+# dir, no arm, no plain-directory fallback. A status failure AFTER the run stays
+# `input_integrity.ok=false` (UNSCORED). Only the named call fails; every other
+# git call is real git.
+# --------------------------------------------------------------------------
+_FREEZE_READS = {"status": ("status", "--porcelain", "--untracked-files=all"),
+                 "archive": ("archive", "--format=tar")}
+
+
+def _failing_git_read(sub: str, kind: str, calls: list, passes: int = 0):
+    """bench._git replacement: real git, except the `sub` read (argv as freeze issues
+    it) raises `kind` after `passes` real calls. Logs each subcommand name."""
+    real, seen, want = bench._git, [], _FREEZE_READS[sub]
+
+    def fake(repo, *args):
+        calls.append(args[0])
+        if args[:len(want)] == want:
+            seen.append(1)
+            if len(seen) > passes:
+                if kind == "called-process-error":
+                    raise subprocess.CalledProcessError(
+                        128, ["git", *args], output=b"", stderr=f"{_GIT_NOISE} {repo}".encode())
+                if kind == "os-error":
+                    raise FileNotFoundError(2, f"{_GIT_NOISE} {repo}", "git")
+                raise RuntimeError(f"unrelated {_GIT_NOISE}")
+        return real(repo, *args)
+    return fake
+
+
+def _read_state(src: pathlib.Path) -> dict:
+    """_flag_state plus the raw index bytes (works for a linked worktree too)."""
+    idx = _owned_git(src, "rev-parse", "--path-format=absolute", "--git-path", "index")
+    return {**_flag_state(src), "index": pathlib.Path(idx).read_bytes()}
+
+
+@_posix_modes
+@pytest.mark.parametrize("worktree", [False, True], ids=["repo", "linked-worktree"])
+@pytest.mark.parametrize("kind", ["called-process-error", "os-error"])
+@pytest.mark.parametrize("sub", ["status", "archive"])
+def test_git_status_or_archive_failure_at_freeze_is_rejected_input(
+        tmp_path, sub, kind, worktree, monkeypatch):
+    src = _flags_src(tmp_path, worktree=worktree)
+    before = _read_state(src)
+    calls: list = []
+    spied: list = []
+    out = tmp_path / "out"
+    with monkeypatch.context() as m:
+        _spy_side_effects(m, spied)
+        m.setattr(bench, "_git", _failing_git_read(sub, kind, calls))
+        with pytest.raises(bench.BenchInputError) as exc:
+            _filemode_run(tmp_path, src, _noop_cmd())
+    assert calls[-1] == sub and calls.count(sub) == 1 and "ls-files" not in calls, calls
+    if sub == "archive":
+        assert calls.index("status") < calls.index("archive"), calls
+    msg = str(exc.value)
+    assert f"git {sub}" in msg and "dirty;" not in msg, msg
+    shown = "".join(traceback.format_exception(exc.value))
+    for leak in ("GIT-STDERR-SENTINEL", "CalledProcessError", "FileNotFoundError",
+                 str(src), str(tmp_path)):
+        assert leak not in shown, "git output, the git exception or a private path leaked"
+    assert not out.exists(), "no out dir, record or arm copy"
+    assert not [c for c in spied if c[0] in ("run_arm", "_materialize", "_tree_tar")], spied
+    assert {c[1][1] for c in spied if c[0] in ("run", "Popen")} <= {
+        "rev-parse", "status", "archive"}, "read-only git only; no arm process"
+    assert _read_state(src) == before, "HEAD, status, index, flags and bytes unchanged"
+
+
+# Controls: hold on the parent too. An unrelated exception is not masked, a dirty
+# source is still refused as dirty, and a failed status AFTER the run keeps the
+# existing fail-closed record.
+@_posix_modes
+@pytest.mark.parametrize("sub", ["status", "archive"])
+def test_unrelated_error_in_freeze_status_or_archive_is_not_turned_into_rejected_input(
+        tmp_path, sub, monkeypatch):
+    src = _flags_src(tmp_path)
+    monkeypatch.setattr(bench, "_git", _failing_git_read(sub, "unrelated", []))
+    with pytest.raises(RuntimeError, match="unrelated"):
+        _filemode_run(tmp_path, src, _noop_cmd())
+    assert not (tmp_path / "out").exists()
+
+
+@_posix_modes
+def test_dirty_source_is_still_refused_as_dirty_not_as_a_read_failure(tmp_path):
+    src = _flags_src(tmp_path)
+    (src / "calc.py").write_text(_EDIT, encoding="utf-8")
+    with pytest.raises(bench.BenchInputError, match="dirty; commit or stash") as exc:
+        _filemode_run(tmp_path, src, _noop_cmd())
+    assert "calc.py" in str(exc.value) and "could not be read" not in str(exc.value)
+    assert not (tmp_path / "out").exists()
+
+
+@_posix_modes
+@pytest.mark.parametrize("kind", ["called-process-error", "os-error"])
+def test_git_status_failure_after_run_stays_unscored(tmp_path, kind, monkeypatch):
+    src = _flags_src(tmp_path)
+    before = _read_state(src)
+    calls: list = []
+    monkeypatch.setattr(bench, "_git", _failing_git_read("status", kind, calls, passes=1))
+    rec = _filemode_run(tmp_path, src, _noop_cmd())
+    assert calls.count("status") == 2 and calls.count("archive") == 1, calls
+    assert rec["input_integrity"]["ok"] is False
+    assert list(rec["input_integrity"]["observed"]) == ["error"], rec["input_integrity"]
+    assert rec["comparison"]["verdict"] == "UNSCORED" and rec["comparison"]["winner"] is None
+    assert _cli_compare(tmp_path / "out" / "record.json").returncode == 2
+    assert _read_state(src) == before
+
+
+def _git_read_wrapper(tmp_path: pathlib.Path, sub: str, kind: str, armed: pathlib.Path):
+    """Owned `git` on PATH that execs the real git (absolute path) for every call,
+    except while `armed` exists: kind=exit128 makes the `sub` call print a sentinel
+    and its cwd to stderr and exit 128 (a real CalledProcessError); kind=no-exec
+    makes the call just before `sub` run real git and then drop the wrapper's exec
+    bit, so spawning `sub` fails (a real PermissionError, an OSError; PATH then holds
+    only the wrapper dir). Logs each subcommand name."""
+    env = _owned_env()
+    real = shutil.which("git", path=env.get("PATH"))
+    assert real and os.path.isabs(real)
+    bindir, log = tmp_path / "wrapper-bin", tmp_path / "git-calls.log"
+    bindir.mkdir()
+    git, q = bindir / "git", shlex.quote
+    body = f"printf '%s\\n' \"$1\" >> {q(str(log))}\n"
+    if kind == "exit128":
+        body += (f"if [ \"$1\" = {sub} ] && [ -e {q(str(armed))} ]; then\n"
+                 f"  echo \"{_GIT_NOISE} $PWD\" >&2\n  exit 128\nfi\n")
+    else:
+        prev = {"status": "[ \"$1\" = rev-parse ] && [ \"$2\" = --absolute-git-dir ]",
+                "archive": "[ \"$1\" = status ]"}[sub]
+        body += (f"if {prev} && [ -e {q(str(armed))} ]; then\n"
+                 f"  {q(real)} \"$@\"; rc=$?; /bin/chmod 0644 {q(str(git))}; exit $rc\nfi\n")
+    git.write_text("#!/bin/sh\n" + body + f"exec {q(real)} \"$@\"\n", encoding="utf-8")
+    git.chmod(0o755)
+    env["PATH"] = (str(bindir) if kind == "no-exec"
+                   else str(bindir) + os.pathsep + env.get("PATH", ""))
+    return env, log
+
+
+@_posix_modes
+@pytest.mark.parametrize("sub,kind,phase", [
+    (s, k, ph) for s in ("status", "archive") for k in ("exit128", "no-exec")
+    for ph in ("pre-freeze", "never")] + [("status", "exit128", "post-run")])
+def test_cli_git_status_or_archive_failure_at_freeze_is_a_controlled_refusal(
+        tmp_path, sub, kind, phase):
+    src = _flags_src(tmp_path)
+    before = _read_state(src)
+    armed = tmp_path / "armed"
+    if phase == "pre-freeze":
+        armed.touch()
+    env, log = _git_read_wrapper(tmp_path, sub, kind, armed)
+    baseline = ([sys.executable, "-c", f"open({str(armed)!r}, 'x').close()"]
+                if phase == "post-run" else _noop_cmd())
+    _spec(tmp_path)
+    cfg = tmp_path / "bench.json"
+    cfg.write_text(json.dumps({"repo": str(src), "spec": "spec.md", "budget_s": 30,
+                               "baseline_cmd": baseline, "candidate_cmd": _noop_cmd(),
+                               "accept_cmd": ["./check.sh"], "check_files": ["check.sh"],
+                               "solution_files": ["calc.py"]}), encoding="utf-8")
+    out = tmp_path / "out"
+    p = subprocess.run([sys.executable, str(_ROOT / "bench.py"), "run", "--config", str(cfg),
+                        "--out", str(out)], capture_output=True, text=True, timeout=120, env=env)
+    shown = p.stdout + p.stderr
+    calls = log.read_text(encoding="utf-8").split()
+    assert _read_state(src) == before, "HEAD, status, index, flags and bytes unchanged"
+    assert "Traceback" not in shown, (p.returncode, shown[-600:])
+    if phase == "pre-freeze":
+        last = sub if kind == "exit128" else {"status": "rev-parse", "archive": "status"}[sub]
+        assert calls[-1] == last and "ls-files" not in calls, calls
+        assert calls.count(sub) == (1 if kind == "exit128" else 0), calls
+        assert (p.returncode, p.stdout.split(":")[0]) == (2, "REJECTED_INPUT"), shown
+        assert p.stderr == "" and f"git {sub}" in p.stdout, shown
+        for leak in ("GIT-STDERR-SENTINEL", "CalledProcessError", "PermissionError",
+                     str(src), str(tmp_path)):
+            assert leak not in shown, "git output, the git exception or a private path leaked"
+        assert not out.exists(), "no out dir, record or arm copy"
+        return
+    rec = json.loads((out / "record.json").read_text(encoding="utf-8"))
+    if phase == "never":  # the wrapper itself is transparent: normal scoring
+        assert p.returncode == 0 and p.stdout.startswith("verdict: TIE_ON_ACCEPTANCE"), shown
+        assert rec["input_integrity"] == {"ok": True, "observed": {
+            "head": before["head"], "dirty": ""}}
+        return
+    assert calls.count("status") == 2 and calls.count("archive") == 1, calls
+    assert p.returncode == 2 and p.stdout.startswith("verdict: UNSCORED"), shown
+    assert rec["baseline"]["accept"] == rec["candidate"]["accept"] == "PASS"
+    assert rec["input_integrity"]["ok"] is False
+    assert list(rec["input_integrity"]["observed"]) == ["error"], rec["input_integrity"]
+    assert rec["input_integrity"]["observed"]["error"].startswith("CalledProcessError")
+    assert rec["comparison"]["winner"] is None
+    assert _cli_compare(out / "record.json").returncode == 2

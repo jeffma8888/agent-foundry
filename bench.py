@@ -463,10 +463,20 @@ def freeze_inputs(repo: pathlib.Path, spec_path: pathlib.Path, budget_s, accept_
     head = _git_head(repo)
     if head:
         _check_git_identity(repo)  # after HEAD is found, before status and archive
-        dirty = _git_dirty(repo)
+        try:
+            dirty = _git_dirty(repo)
+        except (OSError, subprocess.CalledProcessError):
+            raise BenchInputError("input repo status could not be read (git status "
+                                  "--porcelain failed); refusing a source whose dirty "
+                                  "state is unknown") from None
         if dirty.strip():
             raise BenchInputError("input repo is dirty; commit or stash first:\n" + dirty)
-        tar_bytes = _git(repo, "archive", "--format=tar", head).stdout
+        try:
+            tar_bytes = _git(repo, "archive", "--format=tar", head).stdout
+        except (OSError, subprocess.CalledProcessError):
+            raise BenchInputError("input repo snapshot could not be read (git archive "
+                                  "failed); refusing a source whose HEAD cannot be "
+                                  "frozen") from None
         drift = _source_mode_drift(repo, tar_bytes)
         if drift:
             raise BenchInputError("input repo working tree differs from HEAD in file type or "
