@@ -113,13 +113,16 @@ def _run_arm(e, arm, *, argv=None):
     return code, repo, state
 
 
-def test_arms_share_task_bytes_and_engineer_prompt_and_plan_matches_execution(env):
+def _engineer_prompts(env):
+    """Plan, then run, both arms. Pins task bytes, plan-vs-execution prompt hashes, spy
+    argv/cwd, stage lists and tripwires; returns {arm: (repo, state, sent prompt)}."""
     plans, runs = {}, {}
     for arm in trial.ARMS:
         repo, state = env.tmp / f"{arm}-repo", env.tmp / f"{arm}-state"
         repo.mkdir()
         plans[arm] = trial.plan_arm(arm, str(repo), str(state), TASK, BUDGET)
         assert plans[arm]["executed"] is False and not state.exists()
+        assert plans[arm]["name"] == trial.arm_name(arm)
         repo.rmdir()
         before = len(env.calls())
         code, repo, state = _run_arm(env, arm)
@@ -131,13 +134,79 @@ def test_arms_share_task_bytes_and_engineer_prompt_and_plan_matches_execution(en
         sent = (state / "state" / "iter-01" / "engineer.attempt1.prompt").read_bytes()
         assert _sha(sent) == calls[0]["prompt_sha"] == plans[arm]["stages"][0]["attempt1_prompt_sha"]
         assert all(c["cwd"] == str(repo) and c["argv0"] == str(env.spy) and c["argc"] == 2 for c in calls)
-    norm = {a: (r[1] / "state" / "iter-01" / "engineer.attempt1.prompt").read_text()
-            .replace(str(r[1]), "<STATE>").replace(str(r[0]), "<REPO>").replace(a, "<ARM>")
-            for a, r in runs.items()}
-    assert norm["baseline"] == norm["candidate"]
     assert [c["stage"] for c in runs["baseline"][2]] == ["ENGINEER"]
     assert [c["stage"] for c in runs["candidate"][2]] == ["ENGINEER", "REVIEWER"]  # APPROVE: no fix
     assert env.hits == []
+    return {a: (r[0], r[1], (r[1] / "state" / "iter-01" / "engineer.attempt1.prompt").read_text())
+            for a, r in runs.items()}
+
+
+def _arm_neutral(prompt: str, arm: str, repo: pathlib.Path, state: pathlib.Path) -> str:
+    """Blank ONLY this arm's own fields: the declared product-name field and the exact
+    repo and state-root paths. A whole-prompt `replace(arm, ...)` also rewrote the shared
+    roles path whenever the checkout path held an arm word, and would hide a real arm
+    word planted in common text; both stay visible here."""
+    field = f"the product '{trial.arm_name(arm)}'.\n"
+    assert prompt.count(field) == 1, field
+    out = prompt.replace(field, "the product '<NAME>'.\n")
+    for path, tag in ((str(state), "<STATE>"), (str(repo), "<REPO>")):
+        assert path in out, tag
+        out = out.replace(path, tag)
+    return out
+
+
+def _neutral(arms: dict) -> dict:
+    return {a: _arm_neutral(p, a, repo, state) for a, (repo, state, p) in arms.items()}
+
+
+def _checkout_named(env, name: str) -> str:
+    """Point foundry.FOUNDRY at a real dir (not a symlink: roles_dir is resolve()d) named
+    `name` holding a copy of the shared roles; returns the shared role-file prompt line."""
+    fake = env.tmp / "checkouts" / name
+    shutil.copytree(pathlib.Path(foundry.FOUNDRY).resolve() / "roles", fake / "roles")
+    env.mp.setattr(foundry, "FOUNDRY", fake)
+    return f"READ AND FOLLOW EXACTLY: {fake.resolve() / 'roles' / 'engineer.md'}\n"
+
+
+def test_arms_share_task_bytes_and_engineer_prompt_and_plan_matches_execution(env):
+    norm = _neutral(_engineer_prompts(env))
+    assert norm["baseline"] == norm["candidate"]
+
+
+@pytest.mark.parametrize("checkout", ["baseline", "candidate", "baseline-and-candidate", "neutral"])
+def test_arm_word_in_shared_checkout_path_is_compared_not_normalized(env, checkout):
+    roles = _checkout_named(env, checkout)
+    norm = _neutral(_engineer_prompts(env))
+    assert all(p.count(roles) == 1 for p in norm.values())
+    assert norm["baseline"] == norm["candidate"]
+
+
+def test_normalization_keeps_common_bytes_and_literal_arm_words_comparable(env):
+    roles = _checkout_named(env, "baseline-and-candidate")
+    arms = _engineer_prompts(env)
+    (rb, sb, b), (rc, sc, c) = arms["baseline"], arms["candidate"]
+    assert _arm_neutral(b, "baseline", rb, sb) == _arm_neutral(c, "candidate", rc, sc)
+    path = roles[len("READ AND FOLLOW EXACTLY: "):-1]
+    per_arm = lambda p, a: p.replace(path, path.replace("/baseline-and-candidate/", f"/{a}/"))
+    plants = {
+        "common role file": (b, c.replace(path, path.replace("engineer.md", "reviewer.md"))),
+        "role dir named per arm": (per_arm(b, "baseline"), per_arm(c, "candidate")),
+        "common text": (b, c.replace("HARD RULES", "HARD  RULES")),
+        "literal arm word in common text": (b.replace("HARD RULES", "HARD RULES baseline"),
+                                            c.replace("HARD RULES", "HARD RULES candidate")),
+        "other arm's state path": (b, c.replace(str(sc), str(sb), 1)),
+    }
+    for label, (pb, pc) in plants.items():
+        assert (pb, pc) != (b, c), label
+        assert _arm_neutral(pb, "baseline", rb, sb) != _arm_neutral(pc, "candidate", rc, sc), label
+
+
+def test_planted_arm_word_in_real_prompt_is_a_mismatch(env):
+    real = foundry.build_prompt
+    env.mp.setattr(foundry, "build_prompt",
+                   lambda cfg, *a, **k: real(cfg, *a, **k) + f"seat: {cfg.name.removeprefix('trial-')}\n")
+    norm = _neutral(_engineer_prompts(env))
+    assert norm["baseline"] != norm["candidate"]
 
 
 def test_fix_review_runs_only_on_changes_required(env):
