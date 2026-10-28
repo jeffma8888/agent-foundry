@@ -312,6 +312,145 @@ def test_argv_with_spaces_unicode_and_quotes_still_runs_arm(env, arm):
     assert all(c["argc"] == 2 + len(extra) and c["stage"] for c in calls)
 
 
+def _fs_rejects(s: str) -> bool:
+    try:
+        os.fsencode(s)
+    except UnicodeEncodeError:
+        return True
+    return False
+
+
+# POSIX encodes argv with the filesystem encoding + surrogateescape, which maps only
+# U+DC80..U+DCFF back to single bytes; any other lone surrogate cannot be encoded.
+POSIX_FS = sys.getfilesystemencodeerrors() == "surrogateescape"
+UNENCODABLE = {"high_d800": "\ud800", "high_dbff": "\udbff", "low_dc00": "\udc00",
+               "low_dc7f": "\udc7f", "low_dd00": "\udd00", "low_dfff": "\udfff",
+               "pair_then_trailing_high": "\U0001f600\ud83d"}
+ENCODABLE = {"escape_dc80": "\udc80", "escape_dcff": "\udcff", "emoji": "\U0001f600",
+             "accent": "caf\u00e9", "cjk": "\u4e2d", "quotes": "say \"hi\" 'x'"}
+needs_lone_surrogate_rejection = pytest.mark.skipif(
+    not _fs_rejects("\ud800"), reason="this OS filesystem encoding encodes lone surrogates")
+ENC_ARGV = {
+    "executable": lambda e, c: ["python" + c, "{prompt}"],
+    "non_placeholder_arg": lambda e, c: [e.argv[0], e.argv[1], c, "{prompt}"],
+    "trailing_in_arg": lambda e, c: [e.argv[0], e.argv[1], "--flag=x" + c, "{prompt}"],
+}
+
+
+@pytest.mark.parametrize("pos", sorted(ENC_ARGV))
+@pytest.mark.parametrize("ch", sorted({**UNENCODABLE, **ENCODABLE}.values()))
+def test_agent_argv_validator_matches_real_os_fsencode(env, pos, ch):
+    argv = ENC_ARGV[pos](env, ch)
+    errs = trial.agent_argv_errors(argv)
+    assert bool(errs) == any(_fs_rejects(a) for a in argv)
+    assert all(ch not in x for x in errs)
+
+
+@pytest.mark.skipif(not POSIX_FS, reason="filesystem error handler is not surrogateescape")
+def test_posix_surrogateescape_rejects_lone_surrogates_but_keeps_dc80_dcff():
+    for ch in UNENCODABLE.values():
+        assert _fs_rejects(ch)
+        errs = trial.agent_argv_errors(["python", "a" + ch, "{prompt}"])
+        assert len(errs) == 1 and "encod" in errs[0] and ch not in errs[0]
+    for ch in ENCODABLE.values():
+        assert trial.agent_argv_errors(["python", ch, "{prompt}"]) == []
+    assert os.fsdecode(b"\x80") == "\udc80" and os.fsencode("\udc80") == b"\x80"
+
+
+def test_encoding_check_keeps_shape_and_nul_errors_first():
+    assert "explicit list" in trial.agent_argv_errors(["\ud800"])[0]
+    assert "explicit list" in trial.agent_argv_errors([b"x", "{prompt}"])[0]
+    assert "NUL" in trial.agent_argv_errors(["\ud800\x00", "{prompt}"])[0]
+
+
+def test_unexpected_encoder_failure_is_not_swallowed(env, monkeypatch):
+    def boom(_):
+        raise RuntimeError("internal")
+    monkeypatch.setattr(os, "fsencode", boom)
+    with pytest.raises(RuntimeError, match="internal"):
+        trial.agent_argv_errors(["python", "{prompt}"])
+    with pytest.raises(RuntimeError, match="internal"):
+        _run_arm(env, "baseline")
+
+
+def _run_arm_raw(e, arm, raw_json):
+    repo = e.tmp / f"{arm}-repo"
+    shutil.copytree(e.fx, repo)
+    state = e.tmp / f"{arm}-state"
+    e.mp.chdir(repo)
+    try:
+        code = trial.main(["arm", "--arm", arm, "--state-root", str(state),
+                           "--agent-argv-json", raw_json])
+    finally:
+        e.mp.chdir(e.tmp)
+    return code, repo, state
+
+
+def _setup_tripwires(e):
+    hits: list[str] = []
+    trip = lambda n: lambda *a, **k: hits.append(n) or (_ for _ in ()).throw(AssertionError(f"TRIPWIRE {n}"))
+    for n in ("trial_config", "prepare_arm_repo", "seed_task", "run_arm"):
+        e.mp.setattr(trial, n, trip(n))
+    for n in ("run", "Popen", "check_output", "call"):
+        e.mp.setattr(subprocess, n, trip(f"subprocess.{n}"))
+    return hits
+
+
+@needs_lone_surrogate_rejection
+@pytest.mark.parametrize("arm", trial.ARMS)
+@pytest.mark.parametrize("raw", [
+    r'["python\ud800", "{prompt}"]',
+    r'["python", "\udc00", "{prompt}"]',
+    r'["python", "--name=x\udfff", "{prompt}"]',
+    r'["python", "\ud83d\ude00\ud83d", "{prompt}"]',
+], ids=["high_in_executable", "low_arg", "trailing_low", "pair_then_trailing_high"])
+def test_cli_arm_rejects_unencodable_argv_before_any_setup(env, capsys, arm, raw):
+    assert _fs_rejects("".join(json.loads(raw)))
+    hits = _setup_tripwires(env)
+    capsys.readouterr()
+    code, repo, state = _run_arm_raw(env, arm, raw)
+    cap = capsys.readouterr()
+    out = json.loads(cap.out)
+    assert code == trial.EXIT_INVALID and out["status"] == "invalid" and cap.err == ""
+    assert len(out["errors"]) == 1 and "encod" in out["errors"][0]
+    assert "\\ud8" not in cap.out and "\\udc" not in cap.out and "\\udf" not in cap.out
+    cap.out.encode("ascii")
+    assert hits == [] and env.hits == [] and env.calls() == []
+    assert not state.exists() and not (repo / ".git").exists()
+    assert sorted(p.name for p in repo.iterdir()) == ["calc.py", "test_calc.py"]
+
+
+ARGV_SPY = r"""
+import json, os, runpy, sys
+with open(os.environ["TRIAL_ARGV_LOG"], "a") as f:
+    f.write(json.dumps([os.fsencode(a).hex() for a in sys.argv[1:-1]]) + "\n")
+runpy.run_path(os.environ["TRIAL_SPY_PATH"], run_name="__main__")
+"""
+
+
+@pytest.mark.skipif(not POSIX_FS, reason="filesystem error handler is not surrogateescape")
+@pytest.mark.parametrize("arm", trial.ARMS)
+def test_valid_unicode_and_surrogateescape_args_reach_agent_unchanged(env, arm):
+    wrap = env.tmp / "argv_spy.py"
+    wrap.write_text(ARGV_SPY)
+    log = env.tmp / "argv.jsonl"
+    env.mp.setenv("TRIAL_ARGV_LOG", str(log))
+    env.mp.setenv("TRIAL_SPY_PATH", str(env.spy))
+    escaped = os.fsdecode(b"\x80")
+    assert escaped == "\udc80"
+    pair = json.loads(r'"\ud83d\ude00"')
+    assert pair == "\U0001f600" and len(pair) == 1
+    extra = ["caf\u00e9 \u4e2d", pair, escaped, "x\udcff", "{prompt}x"]
+    raw = json.dumps([sys.executable, str(wrap), *extra, "{prompt}"])
+    assert "\\ud83d\\ude00" in raw and "\\udc80" in raw
+    code, _, _ = _run_arm_raw(env, arm, raw)
+    assert code == trial.EXIT_OK and env.calls() and env.hits == []
+    seen = [json.loads(x) for x in log.read_text().splitlines()]
+    want = [os.fsencode(a).hex() for a in extra]
+    assert want[2] == "80" and want[3] == "78ff"
+    assert seen and all(s == want for s in seen)
+
+
 def test_missing_agent_argv_has_no_ambient_fallback(env):
     with pytest.raises(SystemExit):
         trial.main(["arm", "--arm", "baseline", "--state-root", str(env.tmp / "s")])

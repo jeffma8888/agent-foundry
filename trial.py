@@ -113,6 +113,11 @@ def agent_argv_errors(argv: object) -> list[str]:
                 f"plus exactly one {PROMPT_PLACEHOLDER!r} argument"]
     if any("\0" in a for a in argv):
         return ["agent argv elements must not contain NUL characters"]
+    try:
+        for a in argv:
+            os.fsencode(a)
+    except UnicodeEncodeError:
+        return ["agent argv elements must be encodable with the OS filesystem encoding"]
     return []
 
 
