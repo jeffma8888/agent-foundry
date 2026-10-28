@@ -15,12 +15,14 @@ scripts; a real-model run is operator configuration outside this suite.
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import os
 import pathlib
 import re
 import subprocess
 import sys
+import tarfile
 
 import pytest
 
@@ -1289,3 +1291,120 @@ def test_repo_whose_git_toplevel_is_elsewhere_is_refused_before_status_or_archiv
     assert "status" not in git_verbs and "archive" not in git_verbs, git_verbs
     assert str(foreign) not in str(exc.value)
     assert {r: _repo_state(r) for r in (source, foreign)} == before
+
+
+# --------------------------------------------------------------------------
+# plain (non-git) input: the owner-exec bit survives the snapshot, normalized
+# to 0755 / 0644 as git records file modes; no other mode bits or ownership
+# --------------------------------------------------------------------------
+_CHECK_SH = "#!/bin/sh\ngrep -q 'return a + b' calc.py\n"
+_TOOL_SH = "#!/bin/sh\nprintf 'def add(a, b):\\n    return a + b\\n' > calc.py\n"
+_posix_modes = pytest.mark.skipif(sys.platform == "win32", reason="POSIX exec bits")
+
+
+def _plain(root: pathlib.Path, files: dict) -> pathlib.Path:
+    """An owned NON-git input directory: {name: (text, mode)}."""
+    root.mkdir(parents=True)
+    for rel, (text, mode) in files.items():
+        (root / rel).write_text(text, encoding="utf-8")
+        (root / rel).chmod(mode)
+    return root
+
+
+def _modes(root: pathlib.Path) -> dict:
+    return {p.name: p.lstat().st_mode & 0o7777 for p in sorted(root.iterdir())}
+
+
+def _plain_state(root: pathlib.Path) -> dict:
+    return {p.name: (p.read_bytes(), p.lstat().st_mode & 0o7777) for p in sorted(root.iterdir())}
+
+
+def _plain_freeze(root: pathlib.Path, tmp_path: pathlib.Path) -> dict:
+    return bench.freeze_inputs(repo=root, spec_path=_spec(tmp_path), budget_s=30,
+                               accept_cmd=["./check.sh"], check_files=["check.sh"],
+                               solution_files=["calc.py"])
+
+
+@_posix_modes
+def test_cli_plain_dir_executable_check_runs_from_snapshot_and_ties(tmp_path, capsys):
+    src = _plain(tmp_path / "src", {"calc.py": (_FIX, 0o644), "check.sh": (_CHECK_SH, 0o755)})
+    before = _plain_state(src)
+    _spec(tmp_path)
+    cfg = tmp_path / "bench.json"
+    cfg.write_text(json.dumps({"repo": "src", "spec": "spec.md", "budget_s": 30,
+                               "baseline_cmd": _noop_cmd(), "candidate_cmd": _noop_cmd(),
+                               "accept_cmd": ["./check.sh"], "check_files": ["check.sh"],
+                               "solution_files": ["calc.py"]}), encoding="utf-8")
+    out = tmp_path / "out"
+    rc = bench.main(["run", "--config", str(cfg), "--out", str(out)])
+    rec = json.loads((out / "record.json").read_text(encoding="utf-8"))
+    assert rc == 0 and rec["comparison"]["verdict"] == "TIE_ON_ACCEPTANCE", rec["comparison"]
+    for arm in bench.ARMS:
+        assert (rec[arm]["accept"], rec[arm]["accept_exit"], rec[arm]["error"]) == ("PASS", 0, None)
+        for tree in (arm, f"{arm}.accept-tree"):
+            assert _modes(out / tree) == {"calc.py": 0o644, "check.sh": 0o755}, tree
+    assert _plain_state(src) == before, "the source is never modified"
+
+
+@_posix_modes
+def test_plain_dir_arm_runs_executable_helper_by_argv_then_is_scored_separately(tmp_path):
+    src = _plain(tmp_path / "src", {"calc.py": (_CALC, 0o644), "check.sh": (_CHECK_SH, 0o755),
+                                    "tool.sh": (_TOOL_SH, 0o755)})
+    before = _plain_state(src)
+    rec = bench.run_bench(repo=src, spec_path=_spec(tmp_path), budget_s=30,
+                          baseline_cmd=_noop_cmd(), candidate_cmd=["./tool.sh"],
+                          accept_cmd=["./check.sh"], out_dir=tmp_path / "out",
+                          check_files=["check.sh"], solution_files=["calc.py"])
+    cand = rec["candidate"]
+    assert (cand["exit_code"], cand["error"], cand["output"]) == (0, None, "DIFF")
+    assert (tmp_path / "out" / "candidate" / "calc.py").read_text(encoding="utf-8") == _FIX
+    assert cand["projected"] == ["calc.py"] and cand["ignored_change_count"] == 0
+    assert (cand["accept"], rec["baseline"]["accept"]) == ("PASS", "FAIL")
+    assert rec["comparison"]["verdict"] == "WINNER_BY_ACCEPTANCE"
+    assert rec["comparison"]["winner"] == "candidate"
+    assert _plain_state(src) == before
+
+
+@_posix_modes
+@pytest.mark.parametrize("target,op", [("notes.txt", "|"), ("tool.sh", "&~")],
+                         ids=["add-owner-exec", "drop-owner-exec"])
+def test_plain_dir_owner_exec_only_source_mutation_fails_integrity(tmp_path, target, op):
+    check_py = "import sys\nsys.exit(0 if 'return a + b' in open('calc.py').read() else 1)\n"
+    src = _plain(tmp_path / "src", {"calc.py": (_FIX, 0o644), "check.py": (check_py, 0o644),
+                                    "notes.txt": ("n\n", 0o644), "tool.sh": (_TOOL_SH, 0o755)})
+    content = (src / target).read_bytes()
+    flip = [sys.executable, "-c", "import os, stat; p = %r; "
+            "os.chmod(p, stat.S_IMODE(os.lstat(p).st_mode) %s stat.S_IXUSR)" % (str(src / target), op)]
+    rec = bench.run_bench(repo=src, spec_path=_spec(tmp_path), budget_s=30,
+                          baseline_cmd=_noop_cmd(), candidate_cmd=flip,
+                          accept_cmd=[sys.executable, "check.py"], out_dir=tmp_path / "out",
+                          check_files=["check.py"], solution_files=["calc.py"])
+    assert (src / target).read_bytes() == content, "only the mode changed"
+    assert (src / target).lstat().st_mode & 0o100 == (0o100 if op == "|" else 0)
+    assert rec["baseline"]["accept"] == rec["candidate"]["accept"] == "PASS"
+    assert rec["input_integrity"]["ok"] is False
+    assert rec["comparison"]["verdict"] == "UNSCORED", rec["comparison"]
+    assert any("input integrity" in r for r in rec["comparison"]["reasons"])
+
+
+@_posix_modes
+def test_plain_dir_snapshot_keeps_only_owner_exec_deterministically(tmp_path):
+    names = {"calc.py": _FIX, "check.sh": _CHECK_SH, "a.txt": "a\n", "b.sh": "b\n", "c.txt": "c\n"}
+    odd_modes = {"calc.py": 0o600, "check.sh": 0o700, "a.txt": 0o664, "b.sh": 0o775, "c.txt": 0o611}
+    want = {"calc.py": 0o644, "check.sh": 0o755, "a.txt": 0o644, "b.sh": 0o755, "c.txt": 0o644}
+    odd = _plain(tmp_path / "odd", {n: (t, odd_modes[n]) for n, t in names.items()})
+    try:
+        (odd / "b.sh").chmod(0o4775)  # setuid, where the platform lets an owner set it
+    except OSError:
+        pass
+    canon = _plain(tmp_path / "canon", {n: (t, want[n]) for n, t in names.items()})
+    flat = _plain(tmp_path / "flat", {n: (t, 0o644) for n, t in names.items()})
+    f1, f2 = _plain_freeze(odd, tmp_path), _plain_freeze(odd, tmp_path)
+    with tarfile.open(fileobj=io.BytesIO(f1["_tar"])) as tar:
+        members = tar.getmembers()
+    assert {m.name: m.mode for m in members} == want
+    assert {(m.uid, m.gid, m.uname, m.gname, m.mtime) for m in members} == {(0, 0, "", "", 0)}
+    assert f1["_tar"] == f2["_tar"] and f1["base_sha"] == f2["base_sha"]
+    assert f1["snapshot_sha"] == _plain_freeze(canon, tmp_path)["snapshot_sha"]
+    assert f1["snapshot_sha"] != _plain_freeze(flat, tmp_path)["snapshot_sha"], \
+        "the owner-exec bit is bound into the plain-tree snapshot hash"

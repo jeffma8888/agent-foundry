@@ -23,6 +23,10 @@ python3 bench.py compare --record bench-out/record.json   # re-derives the verdi
 - Paths in the config resolve relative to the config file. `repo` must be a
   clean git tree (or a plain directory); `out` must be outside it and empty of
   reserved names.
+- A plain-directory `repo` is snapshotted with each file's mode normalized to
+  0755 (owner-executable) or 0644, the same rule a git snapshot follows, so an
+  executable `./check.sh` stays executable and an owner-exec change to the
+  source is caught by the post-run integrity check.
 - `run` refuses (`REJECTED_INPUT`, names only) any inherited `GIT_*` variable
   outside the allowlist trial.py uses (author/committer identity, `GIT_TRACE*`,
   `GIT_TERMINAL_PROMPT`, `GIT_OPTIONAL_LOCKS`, `GIT_PAGER`, `GIT_EDITOR`) before

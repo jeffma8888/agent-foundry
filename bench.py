@@ -14,7 +14,8 @@ WHAT IS FROZEN, ONCE, BEFORE EITHER ARM RUNS:
   * the input tree. A git input must be CLEAN (no modified or untracked files);
     `git archive <HEAD>` is taken once and the same bytes are unpacked into each
     arm's working directory. No `.git` metadata (including a linked worktree's
-    `.git` pointer file) reaches an arm. A non-git tree is tarred the same way.
+    `.git` pointer file) reaches an arm. A non-git tree is tarred the same way,
+    each file's mode normalized to 0755 (owner-exec) or 0644 as git records it.
     Symbolic and hard links are never followed and never copied.
     `base_sha` = the resolved commit (or `tree:<sha256>` for a non-git tree),
     `snapshot_sha` = sha256 of the exact archived bytes.
@@ -259,7 +260,8 @@ def _check_git_identity(repo: pathlib.Path) -> None:
 
 def _tree_tar(root: pathlib.Path) -> tuple[bytes, int]:
     """Deterministic tar of regular files/dirs under `root` (no links followed, no
-    `.git`). Returns (bytes, skipped_links)."""
+    `.git`). Mode is 0755 if owner-exec else 0644 (the bit _tree_entries/_project
+    use); no other permission bits, ownership or timestamps. Returns (bytes, skipped_links)."""
     buf = io.BytesIO()
     skipped = 0
     with tarfile.open(fileobj=buf, mode="w") as tar:
@@ -274,7 +276,8 @@ def _tree_tar(root: pathlib.Path) -> tuple[bytes, int]:
                     continue
                 info = tarfile.TarInfo(p.relative_to(root).as_posix())
                 data = p.read_bytes()
-                info.size, info.mtime, info.mode = len(data), 0, 0o644
+                exe = p.lstat().st_mode & stat.S_IXUSR
+                info.size, info.mtime, info.mode = len(data), 0, 0o755 if exe else 0o644
                 tar.addfile(info, io.BytesIO(data))
     return buf.getvalue(), skipped
 
