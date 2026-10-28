@@ -27,8 +27,8 @@ from GIT ship-truth (`roadmap_ledger_gaps`, iter 124): every iteration whose com
 because under this contract a shipped iteration is already recorded, so an exemption could only hide
 the failure it is meant to catch.
 
-STATUS (iter 458): ledger and archive are current through 458 (193/194/199/201/203/205/221-225 and 241 never
-shipped, so none owes a row; 230 never shipped either -- its work re-landed as 231 -- and keeps its row).
+STATUS (iter 458): ledger and archive current through 458 (193/194/199/201/203/205/221-225/241 never shipped,
+none owes a row; 230 re-landed as 231, keeps its row).
 ITERATIONS 245-319 NEVER RAN (a 36.6 h infra outage; no commit exists, so none owes a row) -- verbatim record in the archive.
 STILL OPEN:
 (d), (j), (k), and (o).
@@ -318,6 +318,7 @@ in the archive.
 - iter 467 -- company-changelog: fleet-wide ship roll-up.
 - iter 468 -- per-product reverts verb with keyword classification.
 - iter 469 -- consolidate _co_names_deep into tests/_shared.py.
+- iter 483 -- add test/ to WEAK_TEST_ROOT_DIRS for Node.js repos.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

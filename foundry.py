@@ -8626,7 +8626,7 @@ WEAK_TEST_GLOBS: tuple[str, ...] = ("test_*.py", "*_test.py")
 # exists the walk falls back to the whole repo, so a product with no tests/ dir is
 # unchanged. Module-level + patchable + read at CALL time -- mirrors
 # `WEAK_TEST_GLOBS`; NOT a config field (no per-product override -- out of scope).
-WEAK_TEST_ROOT_DIRS: tuple[str, ...] = ("tests",)
+WEAK_TEST_ROOT_DIRS: tuple[str, ...] = ("tests", "test")
 WEAK_TEST_ASSERTION_CALLS: frozenset[str] = frozenset({"raises", "warns", "fail"})
 # Trailing decorator names that ALWAYS skip a test regardless of args or dotted
 # path (`@skip`, `@pytest.mark.skip`, `@unittest.skip`). Module-level + patchable

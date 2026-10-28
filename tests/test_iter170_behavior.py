@@ -63,7 +63,7 @@ ROADMAP = _ROOT / "PLATFORM_ROADMAP.md"
 ARCHIVE = _ROOT / "PLATFORM_ROADMAP_ARCHIVE.md"
 
 # Pinned HERE (never imported from the module under test) so a default change is caught.
-DEFAULT_ROOTS = ("tests",)
+DEFAULT_ROOTS = ("tests", "test")
 GLOBS = ("test_*.py", "*_test.py")
 
 # Assertion-free body -> a weak-test finding, so the same source doubles as CLI input.

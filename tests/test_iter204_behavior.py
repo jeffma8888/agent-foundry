@@ -1267,7 +1267,13 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 "tests/test_iter129_behavior.py",
                 "tests/test_iter140_behavior.py",
                 "tests/test_iter213_behavior.py",
-                "tests/test_iter376_behavior.py"}
+                "tests/test_iter376_behavior.py",
+                # iter 483: FORCED brake amendment. `WEAK_TEST_ROOT_DIRS` extended
+                # from `("tests",)` to `("tests", "test")`, so iter 170's
+                # `DEFAULT_ROOTS` pin stepped to the new literal. No newest-ness
+                # pin touched: `newest_ness_pin_sites` over that file is `()` at
+                # HEAD AND in the worktree.
+                "tests/test_iter170_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the
