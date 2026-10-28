@@ -149,3 +149,18 @@ arm copy, so it cannot be trusted under the new contract.
   `UNMEASURED`. One acceptance pass/fail on one task is not evidence that one
   model or agent configuration is better, and token spend is not independently
   measured. The test suite exercises scripted arms only.
+
+## Trial arms (`trial.py`)
+
+`trial.py` is an optional bench arm command that runs real Foundry stages on the frozen task. bench.py stays the only scorer.
+
+- Arm: `trial.py arm --arm baseline|candidate --state-root ABS --agent-argv-json JSON`, run by bench with cwd = the arm copy.
+- baseline runs one `engineer` stage. candidate runs `engineer`, then `reviewer`, then `fix-review` only when the reviewer gate requires changes. No pm, tester, final, revert, push or release stage can run.
+- Both arms seed the exact `$BENCH_SPEC` bytes as `state/iter-01/pm.md` under their own empty state root. They write a private `config.json` there, so the role cards' `Product config` line never falls back to `products/`.
+- The arm copy becomes its own git root with one snapshot commit, made through the effective hooks. A hook refusal fails the arm.
+- One attempt per stage, no auth-hold sleep, and each stage timeout is capped by the remaining `$BENCH_BUDGET_S`. bench's process-group kill stays the outer bound. A stage that writes no output exits nonzero with no retry and no revert.
+- The agent argv must be explicit, with exactly one `{prompt}`. There is no fallback to `FOUNDRY_AGENT_*`.
+- `trial.py plan ...` is a dry run. It spawns nothing, writes nothing, and prints the first stage's attempt-1 prompt sha.
+- Inputs are refused before anything is created: paths that are relative, non-normalized or symlinked; a repo or state root overlapping the checkout, each other, another arm's state or a git worktree; a non-empty state root; a bad budget.
+- This is not a sandbox. The agent runs with the operator's privileges. A real agent run needs separate explicit operator approval and a budget.
+- The tests use scripted spy agents only, so they show plumbing, not model quality.
