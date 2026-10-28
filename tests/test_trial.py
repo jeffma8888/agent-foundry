@@ -262,6 +262,56 @@ def test_agent_argv_must_be_explicit(env, argv):
     assert code == trial.EXIT_INVALID and env.calls() == [] and not state.exists()
 
 
+NUL_ARGV = {
+    "executable": lambda e: ["invalid\x00executable", "{prompt}"],
+    "standalone_arg": lambda e: [e.argv[0], e.argv[1], "\x00", "{prompt}"],
+    "inside_arg": lambda e: [e.argv[0], e.argv[1], "arg\x00value", "{prompt}"],
+}
+
+
+@pytest.mark.parametrize("argv", [["invalid\x00executable", "{prompt}"],
+                                  ["python", "arg\x00value", "{prompt}"],
+                                  ["python", "\x00", "{prompt}"]])
+def test_agent_argv_with_nul_is_rejected_by_validator(env, argv):
+    errs = trial.agent_argv_errors(argv)
+    assert errs and any("NUL" in x for x in errs)
+    assert any("NUL" in x for x in trial.validate_trial(
+        arm="baseline", repo=str(env.tmp / "r"), state_root=str(env.tmp / "s"),
+        budget_s=BUDGET, agent_argv=argv))
+
+
+@pytest.mark.parametrize("argv", [["python", "{prompt}"],
+                                  ["/opt/my agent/bin", "--name", "caf\u00e9 \u4e2d", "{prompt}"],
+                                  ["python", "say \"hi\" 'there'", "{prompt}"]])
+def test_agent_argv_without_nul_stays_valid(argv):
+    assert trial.agent_argv_errors(argv) == []
+
+
+@pytest.mark.parametrize("arm", trial.ARMS)
+@pytest.mark.parametrize("case", sorted(NUL_ARGV))
+def test_cli_arm_rejects_nul_argv_before_git_seed_or_spawn(env, capsys, arm, case):
+    hits: list[str] = []
+    for n in ("prepare_arm_repo", "seed_task", "run_arm"):
+        env.mp.setattr(trial, n, lambda *a, _n=n, **k: hits.append(_n) or (_ for _ in ()).throw(
+            AssertionError(f"TRIPWIRE {_n}")))
+    capsys.readouterr()
+    code, repo, state = _run_arm(env, arm, argv=NUL_ARGV[case](env))
+    out = json.loads(capsys.readouterr().out)
+    assert code == trial.EXIT_INVALID and out["status"] == "invalid"
+    assert any("NUL" in x for x in out["errors"])
+    assert hits == [] and env.hits == [] and env.calls() == []
+    assert not state.exists() and not (repo / ".git").exists()
+
+
+@pytest.mark.parametrize("arm", trial.ARMS)
+def test_argv_with_spaces_unicode_and_quotes_still_runs_arm(env, arm):
+    extra = ["a b", "caf\u00e9 \u4e2d", "say \"hi\" 'x'"]
+    code, _, _ = _run_arm(env, arm, argv=[env.argv[0], env.argv[1], *extra, "{prompt}"])
+    calls = env.calls()
+    assert code == trial.EXIT_OK and calls
+    assert all(c["argc"] == 2 + len(extra) and c["stage"] for c in calls)
+
+
 def test_missing_agent_argv_has_no_ambient_fallback(env):
     with pytest.raises(SystemExit):
         trial.main(["arm", "--arm", "baseline", "--state-root", str(env.tmp / "s")])

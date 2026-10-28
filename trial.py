@@ -111,6 +111,8 @@ def agent_argv_errors(argv: object) -> list[str]:
     if not ok:
         return ["agent argv must be an explicit list of non-empty strings: an executable "
                 f"plus exactly one {PROMPT_PLACEHOLDER!r} argument"]
+    if any("\0" in a for a in argv):
+        return ["agent argv elements must not contain NUL characters"]
     return []
 
 
