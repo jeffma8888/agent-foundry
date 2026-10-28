@@ -45,6 +45,10 @@ if os.environ.get("TRIAL_SPY_SILENT") == stage:
 if stage == "ENGINEER" and pathlib.Path("calc.py").exists():
     p = pathlib.Path("calc.py"); p.write_text(p.read_text().replace("a - b", "a + b"))
 body = f"VERDICT: {os.environ.get('TRIAL_SPY_VERDICT', 'APPROVE')}\n" if stage == "REVIEWER" else stage + " done\n"
+if stage == "REVIEWER" and "TRIAL_SPY_REVIEW_BODY" in os.environ:
+    body = os.environ["TRIAL_SPY_REVIEW_BODY"]
+if stage == "FIX-REVIEW" and os.environ.get("TRIAL_SPY_FIX_REWRITES_REVIEW"):
+    (state / "reviewer.md").write_text("VERDICT: APPROVE\n")
 out.write_text(body)
 '''
 
@@ -217,6 +221,101 @@ def test_fix_review_runs_only_on_changes_required(env):
     res = json.loads((state / "trial-result.json").read_text())
     assert [s["stage"] for s in res["result"]["stages"]] == ["engineer", "reviewer", "fix-review"]
     assert all(0 < s["timeout_s"] <= BUDGET - trial.STAGE_MARGIN_S for s in res["result"]["stages"])
+
+
+MALFORMED_REVIEW = "VERDICT: CHANGES_REQUIRED\n[BLOCKING] add(-2, 3) returns 5, expected 1\n"
+
+
+class _Clock:
+    """trial's own clock only: advanced past the budget after one named stage."""
+    def __init__(self, e, after: str):
+        import types
+        self.now, real = 1000.0, foundry.run_stage
+        e.mp.setattr(trial, "time", types.SimpleNamespace(monotonic=lambda: self.now))
+
+        def run_stage(cfg, it, stage, *a, **k):
+            res = real(cfg, it, stage, *a, **k)
+            if stage == after:
+                self.now += 10 * BUDGET
+            return res
+        e.mp.setattr(foundry, "run_stage", run_stage)
+
+
+def _count_reads(e) -> list:
+    reads, real = [], foundry.read_review_disposition
+    e.mp.setattr(foundry, "read_review_disposition", lambda p: reads.append(p) or real(p))
+    return reads
+
+
+def _disposition_run(e, capsys, arm):
+    capsys.readouterr()
+    code, repo, state = _run_arm(e, arm)
+    out = json.loads(capsys.readouterr().out.splitlines()[-1])  # foundry logs precede it
+    res = json.loads((state / "trial-result.json").read_text())["result"]
+    assert "review_disposition" in res and "review_disposition" in out
+    assert out["review_disposition"] == res["review_disposition"]
+    assert out["stages"] == [s["stage"] for s in res["stages"]] and out["status"] == res["status"]
+    return code, out, res
+
+
+@pytest.mark.parametrize("body,want,stages", [
+    ("VERDICT: APPROVE\n", "APPROVE", ["engineer", "reviewer"]),
+    ("Looks wrong.\nVERDICT: CHANGES_REQUIRED\n", "CHANGES_REQUIRED", ["engineer", "reviewer", "fix-review"]),
+    (MALFORMED_REVIEW, "NONE", ["engineer", "reviewer"]),
+], ids=["approve", "changes-required", "malformed-none"])
+def test_review_disposition_is_the_gate_value_in_result_and_stdout(env, capsys, body, want, stages):
+    env.mp.setenv("TRIAL_SPY_REVIEW_BODY", body)
+    reads = _count_reads(env)
+    code, out, res = _disposition_run(env, capsys, "candidate")
+    assert code == trial.EXIT_OK and res["status"] == "completed"
+    assert res["review_disposition"] == want and out["stages"] == stages and len(reads) == 1
+    assert [c["stage"] for c in env.calls()] == [s.upper() for s in stages] and env.hits == []
+
+
+def test_baseline_review_disposition_is_null_and_never_parsed(env, capsys):
+    reads = _count_reads(env)
+    code, out, res = _disposition_run(env, capsys, "baseline")
+    assert code == trial.EXIT_OK and res["review_disposition"] is None and reads == []
+    assert out == {"arm": "baseline", "status": "completed", "stages": ["engineer"],
+                   "review_disposition": None}
+
+
+@pytest.mark.parametrize("case,want,stages,reads_n", [
+    ("engineer-fails", None, ["engineer"], 0),
+    ("reviewer-fails", None, ["engineer", "reviewer"], 0),
+    ("budget-before-reviewer", None, ["engineer", "reviewer"], 0),
+    ("fix-fails", "CHANGES_REQUIRED", ["engineer", "reviewer", "fix-review"], 1),
+    ("budget-before-fix", "CHANGES_REQUIRED", ["engineer", "reviewer", "fix-review"], 1),
+])
+def test_review_disposition_on_failed_or_exhausted_stages(env, capsys, case, want, stages, reads_n):
+    env.mp.setenv("TRIAL_SPY_VERDICT", "CHANGES_REQUIRED")
+    silent = {"engineer-fails": "ENGINEER", "reviewer-fails": "REVIEWER", "fix-fails": "FIX-REVIEW"}
+    if case in silent:
+        env.mp.setenv("TRIAL_SPY_SILENT", silent[case])
+    else:
+        _Clock(env, "engineer" if case == "budget-before-reviewer" else "reviewer")
+    reads = _count_reads(env)
+    code, out, res = _disposition_run(env, capsys, "candidate")
+    assert code == trial.EXIT_STAGE_FAILED and res["status"] == "stage-failed"
+    assert res["review_disposition"] == want and out["stages"] == stages and len(reads) == reads_n
+    if case.startswith("budget"):
+        assert res["stages"][-1] == {"stage": stages[-1], "ok": False, "timeout_s": 0,
+                                     "reason": "budget exhausted"}
+        assert len(env.calls()) == len(stages) - 1
+    assert env.hits == []
+
+
+def test_review_disposition_is_read_once_and_not_re_read_after_fix(env, capsys):
+    env.mp.setenv("TRIAL_SPY_VERDICT", "CHANGES_REQUIRED")
+    env.mp.setenv("TRIAL_SPY_FIX_REWRITES_REVIEW", "1")
+    reads, real = [], foundry.read_review_disposition
+    env.mp.setattr(foundry, "read_review_disposition",
+                   lambda p: reads.append(p) or (real(p) if len(reads) == 1 else "APPROVE"))
+    code, out, res = _disposition_run(env, capsys, "candidate")
+    assert code == trial.EXIT_OK and len(reads) == 1
+    assert real(reads[0]) == "APPROVE"  # the fix stage rewrote the report
+    assert res["review_disposition"] == "CHANGES_REQUIRED"
+    assert out["stages"] == ["engineer", "reviewer", "fix-review"]
 
 
 def test_paths_stay_private_and_config_line_names_private_config(env):
@@ -588,6 +687,53 @@ def test_real_bench_end_to_end_with_spy_arms(env):
         assert res["git"]["commit_exit"] == 0
     assert [c["stage"] for c in env.calls()] == ["ENGINEER", "ENGINEER", "REVIEWER"]
     assert all(c["argv0"] == str(env.spy) for c in env.calls())
+
+
+# The audit's e2e shapes: the engineer's fix is wrong for negative `a`; only fix-review repairs it.
+AUDIT_SPY = r"""
+import os, pathlib, re, sys
+prompt = sys.argv[-1]
+stage = re.search(r"You are the (\S+) in iteration", prompt).group(1)
+out = pathlib.Path(re.search(r"YOUR REQUIRED OUTPUT FILE: (.+?) -- you MUST", prompt).group(1).strip())
+calc, body = pathlib.Path("calc.py"), stage + " done\n"
+if stage == "ENGINEER":
+    calc.write_text("def add(a, b):\n    return abs(a) + b\n")
+elif stage == "REVIEWER":
+    body = os.environ["TRIAL_AUDIT_REVIEW"]
+elif stage == "FIX-REVIEW":
+    calc.write_text("def add(a, b):\n    return a + b\n")
+out.write_text(body)
+"""
+
+
+@pytest.mark.parametrize("review,want,stages,accept", [
+    (MALFORMED_REVIEW, "NONE", ["engineer", "reviewer"], "FAIL"),
+    ("1. [BLOCKING] calc.py:2 add(-2, 3) returns 5, expected 1; use a + b\nVERDICT: CHANGES_REQUIRED\n",
+     "CHANGES_REQUIRED", ["engineer", "reviewer", "fix-review"], "PASS"),
+], ids=["malformed-verdict-first", "valid-verdict-last"])
+def test_real_bench_audit_shapes_attribute_review_disposition(env, review, want, stages, accept):
+    spy = env.tmp / "audit_spy.py"
+    spy.write_text(AUDIT_SPY)
+    env.mp.setenv("TRIAL_AUDIT_REVIEW", review)
+    (env.fx / "test_calc.py").write_text("import unittest\nfrom calc import add\n\n"
+                                         "class T(unittest.TestCase):\n    def test_add(self):\n"
+                                         "        self.assertEqual(add(2, 3), 5)\n"
+                                         "        self.assertEqual(add(-2, 3), 1)\n")
+    entry = env.tmp / "entry.py"
+    entry.write_text(ENTRY)
+    arm = lambda a: [sys.executable, str(entry), str(_ROOT), "arm", "--arm", a, "--state-root",
+                     str(env.tmp / f"bench-state-{a}"), "--agent-argv-json",
+                     json.dumps([sys.executable, str(spy), "{prompt}"])]
+    record = bench.run_bench(env.fx, env.spec, BUDGET, arm("baseline"), arm("candidate"),
+                             [sys.executable, "-m", "unittest", "-q", "test_calc"],
+                             env.tmp / "bench-out", ["test_calc.py"], ["calc.py"])
+    assert (record["baseline"]["accept"], record["candidate"]["accept"]) == ("FAIL", accept)
+    res = {a: json.loads((env.tmp / f"bench-state-{a}" / "trial-result.json").read_text())["result"]
+           for a in trial.ARMS}
+    assert res["baseline"]["review_disposition"] is None
+    assert res["candidate"]["review_disposition"] == want
+    assert [s["stage"] for s in res["candidate"]["stages"]] == stages
+    assert all(record[a]["exit_code"] == 0 and res[a]["status"] == "completed" for a in trial.ARMS)
 
 
 # Inherited git environment (review B1): an arm must never act on another repository.

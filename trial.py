@@ -317,23 +317,29 @@ def _run_one(cfg, stage: str, deadline: float, extra: str = "") -> dict:
 
 def run_arm(cfg, arm: str, *, agent_argv: list[str], deadline: float) -> dict:
     """Run the arm's stages through foundry.run_stage; stop at the first failure.
-    No retry, no revert: a failed stage leaves its outputs for diagnosis."""
+    No retry, no revert: a failed stage leaves its outputs for diagnosis.
+    `review_disposition` is the value the reviewer gate routed on, or None when the
+    gate never ran; fix-review may rewrite the report, so it is never re-read."""
     install_overrides(agent_argv)
     ran: list[dict] = []
+    disposition: str | None = None
+    result = lambda status: {"arm": arm, "status": status, "stages": ran,
+                             "review_disposition": disposition}
     for st in ARM_STAGES[arm]:
         step = _run_one(cfg, st, deadline)
         ran.append(step)
         if not step["ok"]:
-            return {"arm": arm, "status": "stage-failed", "stages": ran}
+            return result("stage-failed")
         if st == "reviewer":
             gate = pathlib.Path(step["out"])
-            if foundry.needs_review_repair(foundry.read_review_disposition(gate)):
+            disposition = foundry.read_review_disposition(gate)
+            if foundry.needs_review_repair(disposition):
                 fix = _run_one(cfg, "fix-review", deadline,
                                f"Gate file to address: {gate} ([BLOCKING] only).")
                 ran.append(fix)
                 if not fix["ok"]:
-                    return {"arm": arm, "status": "stage-failed", "stages": ran}
-    return {"arm": arm, "status": "completed", "stages": ran}
+                    return result("stage-failed")
+    return result("completed")
 
 
 def _read_bench_env() -> tuple[bytes, float]:
@@ -376,7 +382,8 @@ def cmd_arm(ns) -> int:
     record["result"] = result
     (pathlib.Path(cfg.work_root) / "trial-result.json").write_text(json.dumps(record, indent=2))
     print(json.dumps({"arm": ns.arm, "status": result["status"],
-                      "stages": [s["stage"] for s in result["stages"]]}))
+                      "stages": [s["stage"] for s in result["stages"]],
+                      "review_disposition": result["review_disposition"]}))
     return EXIT_OK if result["status"] == "completed" else EXIT_STAGE_FAILED
 
 
