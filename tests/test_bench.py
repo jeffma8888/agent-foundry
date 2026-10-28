@@ -1545,3 +1545,184 @@ def test_pinned_check_content_edit_or_symlink_still_rejects(tmp_path, kind, chan
     assert rec["baseline"]["accept"] == "PASS"
     assert rec["comparison"]["verdict"] == "UNSCORED"
     assert _src_state(src) == before
+
+
+# --------------------------------------------------------------------------
+# git source with core.fileMode=false: `git status` cannot see an owner-exec
+# change there, so the bench compares the source's tracked REGULAR files (lstat,
+# no link followed, untracked/ignored files never walked) with the owner-exec bit
+# of the frozen HEAD archive, at freeze (BenchInputError, no out dir, no arm) and
+# after the run (input_integrity.ok=false -> UNSCORED).
+# --------------------------------------------------------------------------
+def _filemode_src(tmp_path: pathlib.Path, filemode: str, worktree: bool = False) -> pathlib.Path:
+    """Clean owned git repo: check.sh 100755, calc.py 100644, tool-link -> check.sh
+    (a tracked symlink, so the archive carries a symlink member); fixture-local
+    core.fileMode only. `worktree=True` returns a linked worktree of it."""
+    src = _plain(tmp_path / "src", {"check.sh": (_EXIT0_SH, 0o755), "calc.py": (_FIX, 0o644)})
+    os.symlink("check.sh", src / "tool-link")
+    _owned_git(src, "init", "-q")
+    _owned_git(src, "add", ".")
+    _owned_git(src, "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+               "commit", "-q", "-m", "fixture")
+    _owned_git(src, "config", "--local", "core.fileMode", filemode)
+    assert _owned_git(src, "ls-files", "-s", "check.sh").startswith("100755")
+    assert _owned_git(src, "ls-files", "-s", "tool-link").startswith("120000")
+    if worktree:
+        wt = tmp_path / "wt"
+        _owned_git(src, "worktree", "add", "-q", str(wt))
+        assert (wt / ".git").is_file()
+        return wt
+    return src
+
+
+def _git_bytes_state(src: pathlib.Path) -> dict:
+    """HEAD, index and tracked bytes: everything EXCEPT the mode a test changes."""
+    gitdir = pathlib.Path(_owned_git(src, "rev-parse", "--absolute-git-dir"))
+    return {"head": _owned_git(src, "rev-parse", "HEAD"),
+            "index": hashlib.sha256((gitdir / "index").read_bytes()).hexdigest(),
+            "bytes": {n: (src / n).read_bytes() for n in ("check.sh", "calc.py")},
+            "link": os.readlink(src / "tool-link")}
+
+
+def _chmod_src(path: pathlib.Path, mode: int) -> list[str]:
+    return [sys.executable, "-c", "import os; os.chmod(%r, %d)" % (str(path), mode)]
+
+
+def _filemode_run(tmp_path, src, baseline):
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    return bench.run_bench(repo=src, spec_path=_spec(tmp_path), budget_s=30,
+                           baseline_cmd=baseline, candidate_cmd=_noop_cmd(),
+                           accept_cmd=["./check.sh"], out_dir=tmp_path / "out",
+                           check_files=["check.sh"], solution_files=["calc.py"])
+
+
+@_posix_modes
+def test_cli_git_filemode_false_source_chmod_during_run_is_unscored_not_a_tie(tmp_path):
+    src = _filemode_src(tmp_path, "false")
+    before = _git_bytes_state(src)
+    _spec(tmp_path)
+    cfg = tmp_path / "bench.json"
+    cfg.write_text(json.dumps({"repo": "src", "spec": "spec.md", "budget_s": 30,
+                               "baseline_cmd": _chmod_src(src / "check.sh", 0o644),
+                               "candidate_cmd": _noop_cmd(),
+                               "accept_cmd": ["./check.sh"], "check_files": ["check.sh"],
+                               "solution_files": ["calc.py"]}), encoding="utf-8")
+    out = tmp_path / "out"
+    p = subprocess.run([sys.executable, str(_ROOT / "bench.py"), "run", "--config", str(cfg),
+                        "--out", str(out)], capture_output=True, text=True, timeout=120,
+                       env=_owned_env())
+    assert (src / "check.sh").lstat().st_mode & 0o777 == 0o644, "the arm changed the source mode"
+    assert _git_bytes_state(src) == before, "HEAD, index and bytes are unchanged"
+    assert _owned_git(src, "status", "--porcelain", "--untracked-files=all") == "", \
+        "core.fileMode=false: git status cannot see the change"
+    assert (out / "baseline.accept-tree" / "check.sh").lstat().st_mode & 0o100, "frozen 0755"
+    assert p.returncode == 2 and p.stdout.startswith("verdict: UNSCORED"), p.stdout + p.stderr
+    rec = json.loads((out / "record.json").read_text(encoding="utf-8"))
+    assert rec["baseline"]["accept"] == rec["candidate"]["accept"] == "PASS"
+    assert rec["input_integrity"]["ok"] is False
+    assert rec["input_integrity"]["observed"]["mode_drift"] == ["check.sh"]
+    assert rec["comparison"]["verdict"] == "UNSCORED" and rec["comparison"]["winner"] is None
+    assert any("input integrity" in r for r in rec["comparison"]["reasons"])
+    assert not [k for k in rec["frozen"] if k.startswith("_")], "no private frozen metadata leaks"
+    assert _cli_compare(out / "record.json").returncode == 2
+
+
+@_posix_modes
+@pytest.mark.parametrize("worktree", [False, True], ids=["repo", "linked-worktree"])
+@pytest.mark.parametrize("target,mode", [("check.sh", 0o644), ("calc.py", 0o755)],
+                         ids=["drop-owner-exec", "add-owner-exec"])
+def test_git_filemode_false_source_owner_exec_flip_during_run_fails_integrity(
+        tmp_path, target, mode, worktree):
+    src = _filemode_src(tmp_path, "false", worktree=worktree)
+    before = _git_bytes_state(src)
+    rec = _filemode_run(tmp_path, src, _chmod_src(src / target, mode))
+    assert (src / target).lstat().st_mode & 0o777 == mode
+    assert _git_bytes_state(src) == before
+    assert _owned_git(src, "status", "--porcelain", "--untracked-files=all") == ""
+    assert rec["baseline"]["accept"] == rec["candidate"]["accept"] == "PASS"
+    assert rec["input_integrity"]["ok"] is False
+    assert rec["input_integrity"]["observed"]["mode_drift"] == [target]
+    assert rec["comparison"]["verdict"] == "UNSCORED" and rec["comparison"]["winner"] is None
+
+
+@_posix_modes
+@pytest.mark.parametrize("target,mode", [("check.sh", 0o644), ("calc.py", 0o755)],
+                         ids=["drop-owner-exec", "add-owner-exec"])
+def test_git_filemode_false_source_chmod_before_freeze_is_rejected_before_any_arm(
+        tmp_path, target, mode, monkeypatch, capsys):
+    src = _filemode_src(tmp_path, "false")
+    (src / target).chmod(mode)
+    before = _git_bytes_state(src)
+    assert _owned_git(src, "status", "--porcelain", "--untracked-files=all") == ""
+    calls: list = []
+    out = tmp_path / "out"
+    with monkeypatch.context() as m:
+        _spy_side_effects(m, calls)
+        with pytest.raises(bench.BenchInputError, match="owner-exec") as exc:
+            _filemode_run(tmp_path, src, _noop_cmd())
+    assert target in str(exc.value)
+    assert not out.exists(), "no out dir, record or arm copy"
+    assert not [c for c in calls if c[0] in ("run_arm", "_materialize")], calls
+    assert {c[1][1] for c in calls if c[0] in ("run", "Popen")} <= {"rev-parse", "status",
+                                                                     "archive"}, calls
+    assert all(c[1][0] == "git" for c in calls if c[0] in ("run", "Popen")), "no arm process"
+    cfg = tmp_path / "bench.json"
+    cfg.write_text(json.dumps({"repo": "src", "spec": "spec.md", "budget_s": 30,
+                               "baseline_cmd": _noop_cmd(), "candidate_cmd": _noop_cmd(),
+                               "accept_cmd": ["./check.sh"], "check_files": ["check.sh"],
+                               "solution_files": ["calc.py"]}), encoding="utf-8")
+    capsys.readouterr()
+    rc = bench.main(["run", "--config", str(cfg), "--out", str(out)])
+    assert rc == 2 and capsys.readouterr().out.startswith("REJECTED_INPUT:")
+    assert not out.exists()
+    assert _git_bytes_state(src) == before and (src / target).lstat().st_mode & 0o777 == mode
+
+
+# Controls: these already hold on the parent; they pin that the fix is not a
+# blanket refusal and that git status / existing rejections still apply.
+@_posix_modes
+@pytest.mark.parametrize("worktree", [False, True], ids=["repo", "linked-worktree"])
+@pytest.mark.parametrize("filemode", ["false", "true"])
+def test_git_clean_executable_source_with_tracked_symlink_still_scores(tmp_path, filemode,
+                                                                        worktree):
+    src = _filemode_src(tmp_path, filemode, worktree=worktree)
+    before = _git_bytes_state(src)
+    rec = _filemode_run(tmp_path, src, _noop_cmd())
+    assert rec["input_integrity"] == {"ok": True, "observed": {"head": before["head"], "dirty": ""}}
+    assert rec["comparison"]["verdict"] == "TIE_ON_ACCEPTANCE", rec["comparison"]
+    assert not (tmp_path / "out" / "baseline" / "tool-link").exists(), "links are never copied"
+    assert _git_bytes_state(src) == before
+
+
+@_posix_modes
+@pytest.mark.parametrize("filemode", ["false", "true"])
+def test_git_source_group_other_only_chmod_during_run_is_not_a_change(tmp_path, filemode):
+    src = _filemode_src(tmp_path, filemode)
+    rec = _filemode_run(tmp_path, src, _chmod_src(src / "check.sh", 0o700))
+    assert (src / "check.sh").lstat().st_mode & 0o777 == 0o700
+    assert rec["input_integrity"]["ok"] is True
+    assert rec["comparison"]["verdict"] == "TIE_ON_ACCEPTANCE", rec["comparison"]
+
+
+@_posix_modes
+def test_git_filemode_true_source_chmod_keeps_existing_dirty_rejections(tmp_path):
+    src = _filemode_src(tmp_path, "true")
+    rec = _filemode_run(tmp_path / "during", src, _chmod_src(src / "check.sh", 0o644))
+    assert "check.sh" in rec["input_integrity"]["observed"]["dirty"]
+    assert rec["input_integrity"]["ok"] is False and rec["comparison"]["verdict"] == "UNSCORED"
+    with pytest.raises(bench.BenchInputError, match="dirty"):
+        _filemode_run(tmp_path / "before", src, _noop_cmd())
+
+
+@_posix_modes
+@pytest.mark.parametrize("change", ["delete", "same-bytes-symlink"])
+@pytest.mark.parametrize("filemode", ["false", "true"])
+def test_git_source_file_removed_or_replaced_by_symlink_fails_closed(tmp_path, filemode, change):
+    src = _filemode_src(tmp_path, filemode)
+    p = str(src / "check.sh")
+    cmd = {"delete": [sys.executable, "-c", "import os; os.unlink(%r)" % p],
+           "same-bytes-symlink": [sys.executable, "-c", "import os; os.rename(%r, %r); "
+                                  "os.symlink('real.sh', %r)" % (p, str(src / "real.sh"), p)]}
+    rec = _filemode_run(tmp_path, src, cmd[change])
+    assert rec["input_integrity"]["ok"] is False
+    assert rec["comparison"]["verdict"] == "UNSCORED" and rec["comparison"]["winner"] is None

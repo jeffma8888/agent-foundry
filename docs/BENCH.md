@@ -33,6 +33,12 @@ python3 bench.py compare --record bench-out/record.json   # re-derives the verdi
   any git call or output, so `GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, object
   or config overrides cannot attribute another repository's commit to `repo`. A
   git `repo` must also be git's own dir and toplevel (a linked worktree is fine).
+- `git status` cannot see an owner-exec change when `core.fileMode=false`, so
+  each regular file in the HEAD archive is also `lstat`-ed in `repo` (no link
+  followed, symlink members skipped, untracked/ignored files not walked). A path
+  that is missing, not a regular file, or whose owner-exec bit differs from HEAD
+  is `REJECTED_INPUT` before any arm or output, and the same check after the
+  run fails `input_integrity` (`UNSCORED`, `observed.mode_drift` lists paths).
 - Each arm runs in its own copy of the frozen snapshot with `BENCH_SPEC`,
   `BENCH_BUDGET_S` and `BENCH_USAGE_FILE` in its environment.
 - Exit code: 0 for `WINNER_BY_ACCEPTANCE` or `TIE_ON_ACCEPTANCE`; 2 for

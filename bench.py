@@ -25,6 +25,12 @@ WHAT IS FROZEN, ONCE, BEFORE EITHER ARM RUNS:
     config or hooks and so attribute a foreign commit to the input. After HEAD
     is found and before status/archive, git's dir and toplevel must be the
     input's own (its `.git` directory, or the target of its `.git` pointer).
+    `git status` cannot see an owner-exec change when `core.fileMode=false`,
+    so every REGULAR file in the HEAD archive is also lstat-ed in the input
+    (no link followed; symlink members skipped; untracked or ignored files are
+    never walked): a path that is missing, not a regular file, or whose
+    owner-exec bit differs from the archive is refused before any arm or out
+    dir, and the same check after the run fails input integrity (UNSCORED).
   * the task spec: `spec_sha` = sha256 of its bytes; arms read a frozen copy.
   * the acceptance inputs: `check_sha` = sha256 over the acceptance command,
     the pinned content of every operator-declared `check_files` entry AND the
@@ -348,6 +354,32 @@ def _tar_regular_files(tar_bytes: bytes) -> dict[str, bytes]:
     return out
 
 
+def _source_mode_drift(repo: pathlib.Path, tar_bytes: bytes) -> list[str]:
+    """Archived REGULAR files whose path in `repo` is missing, reached through a
+    link or non-directory, not a regular file, or has an owner-exec bit different
+    from the frozen archive. lstat only: nothing is followed, read or executed, and
+    only archive members are visited (symlink members are skipped). Covers what
+    `git status` misses when core.fileMode=false; it is not a content check."""
+    drift = []
+    for rel, exe in sorted(_tar_owner_exec(tar_bytes).items()):
+        parts = rel.split("/")
+        try:
+            if posixpath.isabs(rel) or any(p in ("", ".", "..", ".git") for p in parts):
+                raise ValueError(rel)
+            p = repo
+            for part in parts[:-1]:
+                p = p / part
+                if not stat.S_ISDIR(os.lstat(p).st_mode):
+                    raise NotADirectoryError(rel)
+            st = os.lstat(p / parts[-1])
+            ok = stat.S_ISREG(st.st_mode) and bool(st.st_mode & stat.S_IXUSR) == exe
+        except (OSError, ValueError):
+            ok = False
+        if not ok:
+            drift.append(rel)
+    return drift
+
+
 # --------------------------------------------------------------------------
 # freezing
 # --------------------------------------------------------------------------
@@ -407,6 +439,12 @@ def freeze_inputs(repo: pathlib.Path, spec_path: pathlib.Path, budget_s, accept_
         if dirty.strip():
             raise BenchInputError("input repo is dirty; commit or stash first:\n" + dirty)
         tar_bytes = _git(repo, "archive", "--format=tar", head).stdout
+        drift = _source_mode_drift(repo, tar_bytes)
+        if drift:
+            raise BenchInputError("input repo working tree differs from HEAD in file type or "
+                                  "owner-exec mode (git status cannot see a mode change when "
+                                  "core.fileMode=false); restore or commit it first: "
+                                  + ", ".join(drift[:20]))
         base_sha, skipped = head, 0
     else:
         tar_bytes, skipped = _tree_tar(repo)
@@ -546,7 +584,10 @@ def _input_integrity(frozen: dict) -> dict:
         head = _git_head(repo)
         if head:
             now = {"head": head, "dirty": _git_dirty(repo).strip()}
-            ok = head == frozen["base_sha"] and not now["dirty"]
+            drift = _source_mode_drift(repo, frozen["_tar"])
+            if drift:  # key present only on failure, so a clean record keeps its shape
+                now["mode_drift"] = drift[:20]
+            ok = head == frozen["base_sha"] and not now["dirty"] and not drift
         else:
             now = {"tree": "tree:" + _sha256(_tree_tar(repo)[0])}
             ok = now["tree"] == frozen["base_sha"]
