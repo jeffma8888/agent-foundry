@@ -31,6 +31,13 @@ WHAT IS FROZEN, ONCE, BEFORE EITHER ARM RUNS:
     never walked): a path that is missing, not a regular file, or whose
     owner-exec bit differs from the archive is refused before any arm or out
     dir, and the same check after the run fails input integrity (UNSCORED).
+    `git status` also skips index entries marked assume-unchanged or
+    skip-worktree, so an edit there leaves it clean. Any such entry (read with
+    `git ls-files -v -z`; never set, cleared or refreshed here) is refused
+    before any arm or out dir even when the file is unchanged, so sparse
+    checkouts are unsupported; a flag present after the run fails input
+    integrity (UNSCORED) whatever `git status` says. A flag set and cleared
+    again before the post-run check is not seen.
   * the task spec: `spec_sha` = sha256 of its bytes; arms read a frozen copy.
   * the acceptance inputs: `check_sha` = sha256 over the acceptance command,
     the pinned content of every operator-declared `check_files` entry AND the
@@ -380,6 +387,26 @@ def _source_mode_drift(repo: pathlib.Path, tar_bytes: bytes) -> list[str]:
     return drift
 
 
+def _index_flags(repo: pathlib.Path) -> dict[str, str]:
+    """Index entries `git status` does not compare with the working tree: tag
+    lowercase in `git ls-files -v` (assume-unchanged) or `S`/`s` (skip-worktree).
+    Read only; NUL-separated, so a newline in a path cannot forge an entry. An
+    entry that does not parse is reported too (fail closed). path -> flag names."""
+    flagged: dict[str, str] = {}
+    for entry in _git(repo, "ls-files", "-v", "-z").stdout.split(b"\0"):
+        if not entry:
+            continue
+        tag, path = entry[:1], entry[2:]
+        if entry[1:2] != b" " or not path:
+            flagged[os.fsdecode(entry)] = "unparsed index entry"
+            continue
+        kinds = [k for k, hit in (("assume-unchanged", tag.islower()),
+                                  ("skip-worktree", tag in (b"S", b"s"))) if hit]
+        if kinds:
+            flagged[os.fsdecode(path)] = ", ".join(kinds)
+    return flagged
+
+
 # --------------------------------------------------------------------------
 # freezing
 # --------------------------------------------------------------------------
@@ -445,6 +472,13 @@ def freeze_inputs(repo: pathlib.Path, spec_path: pathlib.Path, budget_s, accept_
                                   "owner-exec mode (git status cannot see a mode change when "
                                   "core.fileMode=false); restore or commit it first: "
                                   + ", ".join(drift[:20]))
+        flags = _index_flags(repo)
+        if flags:
+            raise BenchInputError("input repo index marks tracked files assume-unchanged or "
+                                  "skip-worktree, so git status does not compare them with "
+                                  "the working tree (sparse checkouts are not supported); "
+                                  "clear the flag and rerun: " + ", ".join(
+                                      f"{p} ({k})" for p, k in sorted(flags.items())[:20]))
         base_sha, skipped = head, 0
     else:
         tar_bytes, skipped = _tree_tar(repo)
@@ -587,7 +621,10 @@ def _input_integrity(frozen: dict) -> dict:
             drift = _source_mode_drift(repo, frozen["_tar"])
             if drift:  # key present only on failure, so a clean record keeps its shape
                 now["mode_drift"] = drift[:20]
-            ok = head == frozen["base_sha"] and not now["dirty"] and not drift
+            flags = _index_flags(repo)
+            if flags:  # likewise only on failure
+                now["index_flags"] = sorted(flags)[:20]
+            ok = head == frozen["base_sha"] and not now["dirty"] and not drift and not flags
         else:
             now = {"tree": "tree:" + _sha256(_tree_tar(repo)[0])}
             ok = now["tree"] == frozen["base_sha"]

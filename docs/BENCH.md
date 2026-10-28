@@ -39,6 +39,14 @@ python3 bench.py compare --record bench-out/record.json   # re-derives the verdi
   that is missing, not a regular file, or whose owner-exec bit differs from HEAD
   is `REJECTED_INPUT` before any arm or output, and the same check after the
   run fails `input_integrity` (`UNSCORED`, `observed.mode_drift` lists paths).
+- `git status` also skips index entries marked assume-unchanged or
+  skip-worktree, so an edit there leaves it clean. Any such entry (read with
+  `git ls-files -v -z`; bench never sets, clears or refreshes flags) is
+  `REJECTED_INPUT` before any arm or output, even if the file is unchanged.
+  This is an input restriction: sparse checkouts are not supported, and it is
+  not a quality gain. A flag present after the run fails `input_integrity`
+  (`UNSCORED`, `observed.index_flags` lists paths) whatever `git status` says.
+  A flag set, used and cleared again before that check is not seen.
 - Each arm runs in its own copy of the frozen snapshot with `BENCH_SPEC`,
   `BENCH_BUDGET_S` and `BENCH_USAGE_FILE` in its environment.
 - Exit code: 0 for `WINNER_BY_ACCEPTANCE` or `TIE_ON_ACCEPTANCE`; 2 for

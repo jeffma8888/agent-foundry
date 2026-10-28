@@ -1726,3 +1726,150 @@ def test_git_source_file_removed_or_replaced_by_symlink_fails_closed(tmp_path, f
     rec = _filemode_run(tmp_path, src, cmd[change])
     assert rec["input_integrity"]["ok"] is False
     assert rec["comparison"]["verdict"] == "UNSCORED" and rec["comparison"]["winner"] is None
+
+
+# --------------------------------------------------------------------------
+# git source with index flags: `git status` does not compare an entry marked
+# assume-unchanged (`ls-files -v` lowercase tag) or skip-worktree (`S`/`s`) with
+# the working tree, so an edit there leaves status clean and HEAD unchanged. Such
+# entries are refused at freeze (BenchInputError, no out dir, no arm), even when
+# the file is unchanged, and after the run (input_integrity.ok=false,
+# observed.index_flags -> UNSCORED). The flags are only read (NUL-separated),
+# never set, cleared or refreshed by the bench.
+# --------------------------------------------------------------------------
+_ODD = "tricky name\nh calc.py"  # a newline-split parser would misread this as calc.py
+_EDIT = "def add(a, b):\n    return 0\n"
+_FLAGS = {"assume-unchanged": ("--assume-unchanged", "h"),
+          "skip-worktree": ("--skip-worktree", "S")}
+
+
+def _flags_src(tmp_path: pathlib.Path, worktree: bool = False) -> pathlib.Path:
+    """Clean owned git repo (check.sh 100755, calc.py and a newline-named file),
+    no index flags set; `worktree=True` returns a linked worktree of it."""
+    src = _plain(tmp_path / "src", {"check.sh": (_EXIT0_SH, 0o755), "calc.py": (_FIX, 0o644),
+                                    _ODD: (_FIX, 0o644)})
+    _owned_git(src, "init", "-q")
+    _owned_git(src, "add", ".")
+    _owned_git(src, "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+               "commit", "-q", "-m", "fixture")
+    if worktree:
+        wt = tmp_path / "wt"
+        _owned_git(src, "worktree", "add", "-q", str(wt))
+        assert (wt / ".git").is_file()
+        return wt
+    return src
+
+
+def _ls_z(src: pathlib.Path, *args: str) -> list[str]:
+    out = subprocess.run(["git", "ls-files", *args, "-z"], cwd=src, check=True,
+                         capture_output=True, env=_owned_env()).stdout
+    return os.fsdecode(out).split("\0")[:-1]
+
+
+def _flag_state(src: pathlib.Path) -> dict:
+    """HEAD, status, index stage entries, per-path ls-files -v tag, tracked bytes."""
+    return {"head": _owned_git(src, "rev-parse", "HEAD"),
+            "status": _owned_git(src, "status", "--porcelain", "--untracked-files=all"),
+            "stage": _ls_z(src, "-s"), "tags": {e[2:]: e[:1] for e in _ls_z(src, "-v")},
+            "bytes": {n: (src / n).read_bytes() for n in ("check.sh", "calc.py", _ODD)}}
+
+
+def _flag_cmd(src: pathlib.Path, opt: str, target: str, edit: bool) -> list[str]:
+    """Arm that sets an index flag on the SOURCE entry, then (optionally) edits it."""
+    code = ("import os, pathlib, subprocess; "
+            "env = {k: v for k, v in os.environ.items() if not k.startswith('GIT_')}; "
+            "subprocess.run(['git', 'update-index', %r, '--', %r], cwd=%r, env=env, check=True)"
+            % (opt, target, str(src)))
+    if edit:
+        code += "; pathlib.Path(%r).write_text(%r)" % (str(src / target), _EDIT)
+    return [sys.executable, "-c", code]
+
+
+@_posix_modes
+@pytest.mark.parametrize("edited", [True, False], ids=["edited", "unchanged-bytes"])
+@pytest.mark.parametrize("worktree", [False, True], ids=["repo", "linked-worktree"])
+@pytest.mark.parametrize("target", ["calc.py", _ODD], ids=["calc", "newline-name"])
+@pytest.mark.parametrize("flag", sorted(_FLAGS))
+def test_git_index_flagged_source_is_rejected_before_any_arm(tmp_path, flag, target, worktree,
+                                                             edited, monkeypatch, capsys):
+    src = _flags_src(tmp_path, worktree)
+    opt, tag = _FLAGS[flag]
+    _owned_git(src, "update-index", opt, "--", target)
+    if edited:
+        (src / target).write_text(_EDIT, encoding="utf-8")
+    before = _flag_state(src)
+    assert before["status"] == "", f"{flag}: git status does not see the entry"
+    assert before["tags"] == {"check.sh": "H", "calc.py": "H", _ODD: "H", target: tag}
+    calls: list = []
+    out = tmp_path / "out"
+    with monkeypatch.context() as m:
+        _spy_side_effects(m, calls)
+        with pytest.raises(bench.BenchInputError, match=flag) as exc:
+            _filemode_run(tmp_path, src, _noop_cmd())
+    assert str(exc.value).endswith(f": {target} ({flag})"), "exactly the flagged path"
+    assert not out.exists(), "no out dir, record or arm copy"
+    assert not [c for c in calls if c[0] in ("run_arm", "_materialize")], calls
+    assert all(c[1][0] == "git" for c in calls if c[0] in ("run", "Popen")), "no arm process"
+    assert {c[1][1] for c in calls if c[0] in ("run", "Popen")} <= {
+        "rev-parse", "status", "archive", "ls-files"}, "read-only git only; flags never changed"
+    cfg = tmp_path / "bench.json"
+    cfg.write_text(json.dumps({"repo": str(src), "spec": "spec.md", "budget_s": 30,
+                               "baseline_cmd": _noop_cmd(), "candidate_cmd": _noop_cmd(),
+                               "accept_cmd": ["./check.sh"], "check_files": ["check.sh"],
+                               "solution_files": ["calc.py"]}), encoding="utf-8")
+    capsys.readouterr()
+    rc = bench.main(["run", "--config", str(cfg), "--out", str(out)])
+    assert rc == 2 and capsys.readouterr().out.startswith("REJECTED_INPUT:")
+    assert not out.exists()
+    assert _flag_state(src) == before, "HEAD, status, stage entries, flags and bytes unchanged"
+
+
+@_posix_modes
+@pytest.mark.parametrize("edit", [True, False], ids=["flag-and-edit", "flag-only"])
+@pytest.mark.parametrize("worktree", [False, True], ids=["repo", "linked-worktree"])
+@pytest.mark.parametrize("flag", sorted(_FLAGS))
+def test_cli_git_index_flag_added_during_run_is_unscored_not_a_tie(tmp_path, flag, worktree,
+                                                                   edit):
+    src = _flags_src(tmp_path, worktree)
+    opt, tag = _FLAGS[flag]
+    before = _flag_state(src)
+    assert set(before["tags"].values()) == {"H"} and before["status"] == ""
+    _spec(tmp_path)
+    cfg = tmp_path / "bench.json"
+    cfg.write_text(json.dumps({"repo": str(src), "spec": "spec.md", "budget_s": 30,
+                               "baseline_cmd": _flag_cmd(src, opt, "calc.py", edit),
+                               "candidate_cmd": _noop_cmd(),
+                               "accept_cmd": ["./check.sh"], "check_files": ["check.sh"],
+                               "solution_files": ["calc.py"]}), encoding="utf-8")
+    out = tmp_path / "out"
+    p = subprocess.run([sys.executable, str(_ROOT / "bench.py"), "run", "--config", str(cfg),
+                        "--out", str(out)], capture_output=True, text=True, timeout=120,
+                       env=_owned_env())
+    after = _flag_state(src)
+    assert after["status"] == "", f"{flag}: git status cannot see the change"
+    assert after["head"] == before["head"] and after["stage"] == before["stage"]
+    assert after["tags"] == {**before["tags"], "calc.py": tag}
+    assert after["bytes"] == {**before["bytes"],
+                              "calc.py": _EDIT.encode() if edit else before["bytes"]["calc.py"]}
+    assert p.returncode == 2 and p.stdout.startswith("verdict: UNSCORED"), p.stdout + p.stderr
+    rec = json.loads((out / "record.json").read_text(encoding="utf-8"))
+    assert rec["baseline"]["accept"] == rec["candidate"]["accept"] == "PASS"
+    assert rec["input_integrity"] == {"ok": False, "observed": {
+        "head": before["head"], "dirty": "", "index_flags": ["calc.py"]}}
+    assert rec["comparison"]["verdict"] == "UNSCORED" and rec["comparison"]["winner"] is None
+    assert any("input integrity" in r for r in rec["comparison"]["reasons"])
+    assert not [k for k in rec["frozen"] if k.startswith("_")], "no private frozen metadata leaks"
+    assert _cli_compare(out / "record.json").returncode == 2
+
+
+# Control: holds on the parent too; an unflagged git source (including a path
+# with a newline that a line-split parser would misread) keeps the clean record.
+@_posix_modes
+@pytest.mark.parametrize("worktree", [False, True], ids=["repo", "linked-worktree"])
+def test_git_unflagged_source_with_newline_path_still_scores(tmp_path, worktree):
+    src = _flags_src(tmp_path, worktree)
+    before = _flag_state(src)
+    rec = _filemode_run(tmp_path, src, _noop_cmd())
+    assert rec["input_integrity"] == {"ok": True, "observed": {"head": before["head"], "dirty": ""}}
+    assert rec["comparison"]["verdict"] == "TIE_ON_ACCEPTANCE", rec["comparison"]
+    assert _flag_state(src) == before
