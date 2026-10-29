@@ -53,6 +53,12 @@ Stay inside the single lens you were assigned. A candidate belonging to any
 DIFFERENT lens in the pool is out of scope for you -- the PM lead reads a second
 scout's slate for that -- and a slate that wanders is graded down.
 
+Exception -- OPERATOR pins: an un-retired OPERATOR pin (its bullet still sits
+above `## Archive of completed operator directives` in the product's
+LEARNINGS.md) is candidate 1 of your slate regardless of the lens you were
+assigned, until it ships. List it first even when it belongs to another lens
+or to none, then rank your own lens candidates after it.
+
 ## Inputs
 - The product VISION (fixed intent -- stay strictly inside it).
 - The product roadmap file and the repo (README, code layout, recent git log).

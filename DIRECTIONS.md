@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-486
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- OPERATOR pin (queue item 1): make "an un-retired OPERATOR pin is candidate 1 and the PM's pick" permanent in `roles/pm.md` 1b and `roles/pm_scout.md` 'Your assigned lens', plus a test asserting both cards name OPERATOR pins
+    - Candidate A2 -- `foundry reverts` actually reports WHY: read the revert reason from the body above the sentinel, not from the bare `ACTION: REVERTED` line
+    - Candidate A3 -- `foundry pins --config`: list the un-retired OPERATOR pins in a product's LEARNINGS head (read-only, `--json`, exit 1 when a queued pin is open)
+    - B1 -- OPERATOR pin (queue item 1): make "an un-retired OPERATOR pin is candidate 1 of every slate and the PM's pick until it ships" permanent in roles/pm.md 1b and roles/pm_scout.md 'Your assigned lens', with a test asserting both cards name OPERATOR pins
+    - B2 -- OPERATOR pin (queue item 2, NEXT): retire the two fossil iteration-local tests EB5/EB6 in tests/test_iter469_behavior.py that go red in every later iteration's worktree
+    - B3 -- Brake against the fossil class: a meta-test that forbids a test from asserting on the WHOLE-tree `git diff HEAD` of the real repo
+    winner: A1
+    ship: pending (not yet decided)
   iter-485
     lenses: narrative-and-docs
     - Candidate A1 -- fix `launch.sh` preflight to accept the dispatcher config
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry company-reverts`: fleet-wide revert inventory roll-up
     - Candidate B3 -- `foundry company-outcomes`: fleet-wide gate-outcome roll-up
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 0387c96
   iter-484
     lenses: unknown
     - Candidate A1 -- add the `awsCredentialExport` auth needle to `ATTEMPT_FAILURE_MARKERS`
@@ -2163,4 +2173,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-217 scouted iterations
+218 scouted iterations

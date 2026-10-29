@@ -66,6 +66,12 @@ the same work checkpointed early survives the kill.
     `DIRECTIONS.md`) reads that uppercase label first, before any other id in
     the section. Diversity guard: do not pick a near-clone of the previous 2
     shipped features when a viable candidate from the other lens exists.
+    OPERATOR-pin override: an un-retired OPERATOR pin (its bullet still sits
+    above `## Archive of completed operator directives` in the product's
+    LEARNINGS.md) is candidate 1 of every slate and your pick until it ships,
+    whether or not any scout slate lists it and even if no lens covers it; it
+    outranks the COMBINED-slate pool rule, the diversity guard and any
+    repetition-brake rut verdict. Work a multi-item pin one item per iteration.
 2. Every iteration: pick exactly ONE next feature — the smallest thing that adds
    real user value AND is behavior-testable in under ~30 minutes of focused work.
    (Hard bar: an iteration's spec + diff + test output should fit comfortably in

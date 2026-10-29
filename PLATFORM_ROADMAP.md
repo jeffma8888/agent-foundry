@@ -284,16 +284,16 @@ in the archive.
 - iter 378 -- watchdog-arm: "no crontab for" -> no-schedule; other read errors -> UNKNOWN.
 - iter 379 -- roles/pm_scout.md teaches dormancy; role_card_verb_gaps: card-verb liveness check.
 - iter 380 -- gather_rescues onto iter-363 _walk_attempt_logs: one walk, two consumers.
-- iter 381 -- head_unowned_lines: doctor names headless bullet bodies; 1,889 dead head chars archived, WARN -> OK.
+- iter 381 -- head_unowned_lines: doctor names headless bullet bodies.
 - iter 382 -- scout card: first checkpoint is a valid 2-3 heading slate; directions labels zero-heading seats.
-- iter 411 -- run_stage: ONE auth attempt then a 30-min STOP-aware hold; every other kind's ladder byte-unchanged.
+- iter 411 -- run_stage: ONE auth attempt then a 30-min STOP-aware hold.
 - iter 412 -- auth_hold_claim_gaps: ONE auth attempt then 30-min hold.
 - iter 413 -- parse_triage_winner Rule 0: PICK label outranks first id.
 - iter 414 -- directions --topic TERM: filter slates by candidate text + archive bullets; exit 2 on no hit.
 - iter 415 -- staged-check: names paths staged as the EMPTY blob over a non-empty worktree file; exit 0/1/2.
 - iter 416 -- _list_item_around: one pure scoper under both claim guards; spent RETRY-205 archived.
 - iter 417 -- tests/_shared.py source_segment: O(1) get_source_segment; 3 slow tests 16.3→<0.1 s.
-- iter 418 -- dual_scout_default_claim_gaps: docs say scouts default ON since 320, not OPT-IN; 4 sites re-worded.
+- iter 418 -- dual_scout_default_claim_gaps: docs say scouts default ON since 320.
 - iter 419 -- final.md VERIFIED: ledger (2-segment key, retry reuse); final_ledger_claim_gaps dormant.
 - iter 420 -- ledger-key verb: one pinned VERIFIED: key recipe + --check current/voided/malformed; card names it.
 - iter 421 -- tester.md duty 1b runs test-quality --files on its own module; reviewer PRECONDITION.
@@ -321,6 +321,7 @@ in the archive.
 - iter 483 -- add test/ to WEAK_TEST_ROOT_DIRS for Node.js repos.
 - iter 484 -- add awsCredentialExport auth needle to ATTEMPT_FAILURE_MARKERS.
 - iter 485 -- fix preflight dispatch to accept dispatcher configs.
+- iter 486 -- OPERATOR-pin priority rule written into pm.md 1b and pm_scout.md lens section.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
