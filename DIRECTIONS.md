@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-485
+    lenses: narrative-and-docs
+    - Candidate A1 -- fix `launch.sh` preflight to accept the dispatcher config
+    - Candidate A2 -- make the operator-pin-priority rule permanent in `roles/pm.md` 1b and `roles/pm_scout.md`
+    - Candidate A3 -- fix the strangler roadmap epic's stale "Steps 2-5 are NEXT" status
+    - Candidate B1 -- fix `launch.sh` preflight to accept the dispatcher config
+    - Candidate B2 -- `foundry company-reverts`: fleet-wide revert inventory roll-up
+    - Candidate B3 -- `foundry company-outcomes`: fleet-wide gate-outcome roll-up
+    winner: A1
+    ship: pending (not yet decided)
   iter-484
     lenses: unknown
     - Candidate A1 -- add the `awsCredentialExport` auth needle to `ATTEMPT_FAILURE_MARKERS`
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- strangler roadmap epic says "Steps 2-5 are NEXT" but step 4 shipped 2026-08-04
     - Candidate B3 -- `docs/artifacts.md` catalogs 1 of 7 products and has never been updated
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 96f307e
   iter-483
     lenses: unknown
     - Candidate A1 -- consolidate 30-file `_fn_names_consts` cluster into `tests/_shared.py` (-~470 lines, 5 hash-distinct variants → 1 canonical)
@@ -326,7 +336,7 @@ foundry directions -- _platform
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- the final gate's `VERIFIED:` ledger (11-14 lines per gate, live at iters 415/417/418) is taught by NO role card: `rg -c 'VERIFIED:' roles/final.md` = 0, and its two-segment key rule lives only at LEARNINGS line 3499
     - Candidate A2 -- ARCHITECTURE.md's final-gate paragraph reports a present-tense figure frozen at iter 194: "8 rounds are still recoverable from the attempt logs on disk" (line 71), 225 iterations later, in the vocabulary of a verb (`recoverable`, iter 215) that measures something else
-    - Candidate A3 -- `dispatcher.py`'s module docstring teaches the launch command the docs call unsupported (`uv run python -X utf8 dispatcher.py --config foundry.config.json`, line 26-27) while USAGE.md says "`./launch.sh` is the supported way in -- do not run `dispatcher.py` in the foreground" because only `launch.sh` gates on `single-brain`
+    - Candidate A3 -- `dispatcher.py` docstring teaches the unsupported launch command while USAGE.md says `./launch.sh` is the supported way in because only `launch.sh` gates on `single-brain`
     - Candidate B1 -- `foundry relaunch --when-idle`: perform the restart the `live-lag` WARN has asked a human to do for 8 shipped iterations, gated on `inflight` reporting no stage running
     - Candidate B2 -- `foundry reverts`: an inventory of every REVERTED iteration with the gate's named reason and a retry class (environmental vs review defect)
     - Candidate B3 -- per-stage cap override in the product config (`stage_caps`), additive-dormant, so a seat that sits AT the 600 s median (pm_scout_b today, 0.0 s headroom) can be given a measured budget instead of passing by luck
@@ -2153,4 +2163,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-216 scouted iterations
+217 scouted iterations

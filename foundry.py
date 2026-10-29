@@ -1533,6 +1533,42 @@ def preflight_cli(cfg: ProductConfig, pattern: str = "dispatcher.py",
     return summary.exit_code
 
 
+def _preflight_dispatch(config_path: str, pattern: str = "dispatcher.py",
+                        as_json: bool = False) -> int:
+    """Route ``preflight`` to the right ``ProductConfig``, accepting both shapes.
+
+    When *config_path* points at a DISPATCHER config (recognised by a top-level
+    ``work_items`` list), extract the first ENABLED work item's product config
+    path, resolve ``{FOUNDRY}``, ``load_config`` that, and forward to
+    ``preflight_cli``.  When no enabled work item exists, report a synthetic
+    doctor FAIL and exit 1 (NO-GO) without crashing.
+
+    When *config_path* is an ordinary PRODUCT config (no ``work_items``),
+    ``load_config`` it directly -- the pre-existing path, byte-identical.
+
+    Seams called by BARE name: ``load_config``, ``parse_dispatch_work_items``,
+    ``preflight_cli`` -- so ``monkeypatch.setattr(foundry, ...)`` bites.
+    """
+    raw = json.loads(pathlib.Path(config_path).expanduser().read_text())
+    if isinstance(raw, dict) and isinstance(raw.get(DISPATCH_ROSTER_KEY), list):
+        for _name, item_config, enabled in parse_dispatch_work_items(raw):
+            if not enabled:
+                continue
+            resolved = item_config.replace("{FOUNDRY}", str(FOUNDRY))
+            cfg = load_config(resolved)
+            return preflight_cli(cfg, pattern=pattern, as_json=as_json)
+        fail_check = Check("doctor", False,
+                           "dispatcher config has no enabled work items")
+        brain = summarize_single_brain((), scan_error=None)
+        summary = summarize_preflight(
+            checks=[fail_check], brain=brain)
+        print(json.dumps(summary.to_dict(), indent=2)
+              if as_json else summary.render())
+        return summary.exit_code
+    cfg = load_config(config_path)
+    return preflight_cli(cfg, pattern=pattern, as_json=as_json)
+
+
 def launch_preflight_gaps(launch_text: str) -> tuple[str, ...]:
     """Dormant guard: non-empty when ``launch.sh`` does NOT gate on ``preflight``.
 
@@ -29220,14 +29256,18 @@ def main(argv: list[str] | None = None) -> int:
     # `preflight` is the composite LAUNCH gate: it runs the env preflight
     # (`doctor`, iter 01) AND the single-brain scan (iter 24) and folds them into
     # ONE three-way GO / NO-GO / CAUTION verdict (human or `--json`) an operator /
-    # launch wrapper checks before starting `dispatcher.py`. It needs `--config`
-    # (for `run_doctor`), so it is dispatched AFTER `load_config` below. Read-only
+    # launch wrapper checks before starting `dispatcher.py`. It accepts BOTH a
+    # product config AND a dispatcher config (containing `work_items`): when given
+    # a dispatcher config it extracts the first enabled work item's product config
+    # path, resolves `{FOUNDRY}`, and loads that. Dispatched BEFORE
+    # `load_config` below (like `single-brain` / `stage-times`) because the
+    # dispatcher config would crash `load_config`'s unknown-key check. Read-only
     # + on-demand: the pipeline/dispatcher NEVER call it, it writes nothing, and it
     # only REPORTS (never kills/signals a competing brain -- the operator decides).
     # Exit 0 GO / 1 NO-GO / 2 CAUTION.
     pfl = sub.add_parser("preflight")
     pfl.add_argument("--config", required=True,
-                     help="path to product JSON config")
+                     help="path to product or dispatcher JSON config")
     pfl.add_argument("--pattern", default="dispatcher.py",
                      help="process-command pattern to scan for a running "
                           "dispatcher (default 'dispatcher.py')")
@@ -29642,6 +29682,13 @@ def main(argv: list[str] | None = None) -> int:
         # above: no product `--config` is needed because `dispatcher.out` is a
         # foundry-root artifact, and this verb only READS it.
         return inflight_cli(args.log, now=args.now, as_json=args.json)
+    if args.cmd == "preflight":
+        # Dispatched BEFORE load_config: the --config may be a DISPATCHER config
+        # (containing `work_items`) which would crash load_config's unknown-key
+        # check. Detect dispatcher configs, extract the first enabled product,
+        # and delegate to preflight_cli with a loaded ProductConfig.
+        return _preflight_dispatch(args.config, pattern=args.pattern,
+                                   as_json=args.json)
     if args.cmd == "stop":
         # Dispatched BEFORE load_config, and the ONLY verb that may be given no
         # product at all: `--global` targets the foundry-root sentinel, so there
@@ -29722,8 +29769,6 @@ def main(argv: list[str] | None = None) -> int:
         return test_quality_cli(cfg, files=args.files, as_json=args.json)
     if args.cmd == "events":
         return events_cli(cfg, kind=args.kind, limit=args.limit, as_json=args.json)
-    if args.cmd == "preflight":
-        return preflight_cli(cfg, pattern=args.pattern, as_json=args.json)
     if args.cmd == "preship":
         return preship_cli(cfg, as_json=args.json)
     if args.cmd == "once":
