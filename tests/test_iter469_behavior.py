@@ -31,6 +31,22 @@ THIS_ITER = 469
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 TESTS_DIR = REPO_ROOT / "tests"
 
+# The commit that shipped iter 469; EB5/EB6 measure it rather than the live tree.
+ITER469_COMMIT = "d9c40f7"
+LEDGER_FILES = frozenset({"DIRECTIONS.md", "PLATFORM_ROADMAP.md", "PLATFORM_ROADMAP_ARCHIVE.md"})
+ORACLE_PATH = "tests/test_iter469_behavior.py"
+
+
+def _require_iter469_commit() -> None:
+    """Skip, not fail, where the commit is absent (e.g. a shallow clone)."""
+    probe = subprocess.run(
+        ["git", "cat-file", "-e", ITER469_COMMIT + "^{commit}"],
+        capture_output=True, text=True,
+        cwd=str(REPO_ROOT),
+    )
+    if probe.returncode != 0:
+        pytest.skip(f"iter-469 commit {ITER469_COMMIT} not available")
+
 
 # ---------------------------------------------------------------------------
 # EB1 -- _co_names_deep defined in _shared.py, callable, returns set[str]
@@ -276,16 +292,23 @@ class TestEB5NoProductionCodeModified:
     """All changes are confined to test files."""
 
     def test_b5_git_diff_only_tests(self):
-        """Unstaged+staged changes touch only tests/ files."""
+        """The iter-469 commit itself touches only tests/ plus the ledger files.
+
+        Scoped to ITER469_COMMIT (iter 487): an unscoped `git diff HEAD` read
+        whatever a LATER iteration had uncommitted, so it was red in every
+        worktree after 469 and green only in a fresh clone.
+        """
+        _require_iter469_commit()
         result = subprocess.run(
-            ["git", "diff", "--name-only", "HEAD"],
+            ["git", "show", "--name-only", "--format=", ITER469_COMMIT],
             capture_output=True, text=True,
             cwd=str(REPO_ROOT),
         )
+        assert result.returncode == 0, result.stderr
         changed_files = [f for f in result.stdout.strip().splitlines() if f.strip()]
         non_test_files = [
             f for f in changed_files
-            if not f.startswith("tests/") and f != "DIRECTIONS.md"
+            if not f.startswith("tests/") and f not in LEDGER_FILES
         ]
         assert non_test_files == [], (
             f"production code was modified: {non_test_files}"
@@ -300,28 +323,33 @@ class TestEB6NetLineReduction:
     """The consolidation removes at least 350 net lines."""
 
     def test_b6_net_reduction_at_least_350(self):
+        """Net reduction over the iter-469 commit's consolidated test modules.
+
+        Counts only tests/ rows minus this oracle file: the commit also added
+        this module and edited the ledger files, which are not the
+        consolidation being measured.
+        """
+        _require_iter469_commit()
         result = subprocess.run(
-            ["git", "diff", "--stat", "HEAD"],
+            ["git", "show", "--numstat", "--format=", ITER469_COMMIT],
             capture_output=True, text=True,
             cwd=str(REPO_ROOT),
         )
-        stat_output = result.stdout.strip()
-        lines = stat_output.splitlines()
-        if not lines:
-            pytest.skip("no diff to measure")
-        summary_line = lines[-1]
+        assert result.returncode == 0, result.stderr
         insertions = 0
         deletions = 0
-        import re
-        m_ins = re.search(r"(\d+) insertion", summary_line)
-        m_del = re.search(r"(\d+) deletion", summary_line)
-        if m_ins:
-            insertions = int(m_ins.group(1))
-        if m_del:
-            deletions = int(m_del.group(1))
+        for row in result.stdout.strip().splitlines():
+            parts = row.split("\t")
+            if len(parts) != 3:
+                continue
+            ins, dels, path = parts
+            if not path.startswith("tests/") or path == ORACLE_PATH:
+                continue
+            if ins.isdigit() and dels.isdigit():
+                insertions += int(ins)
+                deletions += int(dels)
         net_reduction = deletions - insertions
         assert net_reduction >= 350, (
             f"net reduction is {net_reduction} (expected >= 350); "
-            f"insertions={insertions}, deletions={deletions}, "
-            f"summary: {summary_line}"
+            f"insertions={insertions}, deletions={deletions}"
         )

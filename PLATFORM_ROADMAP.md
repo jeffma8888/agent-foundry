@@ -273,7 +273,7 @@ in the archive.
 - iter 366 -- weak-tests: same-module delegation; 9 of 24 non-actionable cleared.
 - iter 368 -- PM/scout prompts gain doctor's drift WARNs; learnings-head excluded and pinned.
 - iter 369 -- stage-budget medians drop credential-loss attempts.
-- iter 370 -- README + roles/pm.md name STAGE_BUDGET_EXCLUDED_KINDS: the copied figure's population, plus a brake.
+- iter 370 -- README + roles/pm.md name STAGE_BUDGET_EXCLUDED_KINDS.
 - iter 371 -- foundry stop writes a reason-bearing STOP sentinel: the WRITE half the shipped reader round-trips.
 - iter 372 -- iter 131's frozen <= 2 zero-parse ceiling becomes the per-file heading implication: 0 of 1343 fail.
 - iter 373 -- foundry watchdog-arm: the framework's only resilience path gets its first armed-or-not gauge.
@@ -295,7 +295,7 @@ in the archive.
 - iter 417 -- tests/_shared.py source_segment: O(1) get_source_segment; 3 slow tests 16.3→<0.1 s.
 - iter 418 -- dual_scout_default_claim_gaps: docs say scouts default ON since 320.
 - iter 419 -- final.md VERIFIED: ledger (2-segment key, retry reuse); final_ledger_claim_gaps dormant.
-- iter 420 -- ledger-key verb: one pinned VERIFIED: key recipe + --check current/voided/malformed; card names it.
+- iter 420 -- ledger-key verb: one pinned VERIFIED: key recipe + --check.
 - iter 421 -- tester.md duty 1b runs test-quality --files on its own module; reviewer PRECONDITION.
 - iter 422 -- USAGE status row -> live verb (+history); ARCH reporter caveat; dormant row guard.
 - iter 423 -- lru_cache dormancy_reference_names (129s -> 1s).
@@ -322,6 +322,7 @@ in the archive.
 - iter 484 -- add awsCredentialExport auth needle to ATTEMPT_FAILURE_MARKERS.
 - iter 485 -- fix preflight dispatch to accept dispatcher configs.
 - iter 486 -- OPERATOR-pin priority rule written into pm.md 1b and pm_scout.md lens section.
+- iter 487 -- re-scope iter-469 EB5/EB6 to commit d9c40f7; add unscoped git-diff guard.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

@@ -1279,7 +1279,13 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # so iter 360's `AUTH_NEEDLE_COUNT` pin stepped 3 -> 4. No
                 # newest-ness pin touched: `newest_ness_pin_sites` over that file
                 # is `()` at HEAD AND in the worktree.
-                "tests/test_iter360_behavior.py"}
+                "tests/test_iter360_behavior.py",
+                # iter 487: FORCED brake amendment. iter 469's EB5/EB6 re-scoped
+                # from an unscoped `git diff HEAD` (red in every later worktree)
+                # to the iter-469 commit itself. No newest-ness pin touched:
+                # `newest_ness_pin_sites` over that file is `()` at HEAD AND in
+                # the worktree.
+                "tests/test_iter469_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

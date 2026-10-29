@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-487
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- OPERATOR pin (last queue item): retire the iter-469 EB5/EB6 fossils by pinning them to commit d9c40f7, and add a suite-wide guard against unscoped working-tree `git diff HEAD` assertions
+    - Candidate A2 -- stop `refresh_directions_file` from re-expanding committed DIRECTIONS.md lines: keep an already-committed iteration block's candidate lines verbatim and re-render only `winner:`/`ship:` lines, new blocks and the count line
+    - Candidate A3 -- `gather_reverts` reason fallback: when `ACTION: REVERTED` carries no trailing text, take the last prose paragraph above the sentinel (skipping `VERIFIED:` lines), bounded to ~160 chars
+    - Candidate B1 -- OPERATOR pin (last queue item): retire or re-scope the red iter-469 EB5/EB6 fossils and add a suite-wide guard against unscoped `git diff HEAD` assertions
+    - Candidate B2 -- `directions` reads each scout's lens from the pipeline's own record (the `for the '<lens>' lens` sentence `run_scout_phase` writes into `pm_scout_{a,b}.attempt1.prompt`) before falling back to the slate title
+    - Candidate B3 -- `directions`/`outcomes` render `ship: ABORTED` (not `unknown`) when final.md is absent but the abort path's own `ABORTED_IMPLEMENTATION.patch` exists in the iter dir
+    winner: A1
+    ship: pending (not yet decided)
   iter-486
     lenses: new-capability, hardening/DX
     - Candidate A1 -- OPERATOR pin (queue item 1): make "an un-retired OPERATOR pin is candidate 1 and the PM's pick" permanent in `roles/pm.md` 1b and `roles/pm_scout.md` 'Your assigned lens', plus a test asserting both cards name OPERATOR pins
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - B2 -- OPERATOR pin (queue item 2, NEXT): retire the two fossil iteration-local tests EB5/EB6 in tests/test_iter469_behavior.py that go red in every later iteration's worktree
     - B3 -- Brake against the fossil class: a meta-test that forbids a test from asserting on the WHOLE-tree `git diff HEAD` of the real repo
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED ade6c23
   iter-485
     lenses: narrative-and-docs
     - Candidate A1 -- fix `launch.sh` preflight to accept the dispatcher config
@@ -2173,4 +2183,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-218 scouted iterations
+219 scouted iterations
