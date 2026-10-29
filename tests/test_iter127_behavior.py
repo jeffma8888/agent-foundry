@@ -651,7 +651,9 @@ def test_b12_no_new_config_field():
     # the PM seat's second external evidence feed (21 -> 22).
     # EXTENDED again by iteration 450: `notify_cmd`, the operator notification hook
     # (22 -> 23).
-    assert len(fields) == 23, fields
+    # EXTENDED again by iteration 488: `auth_resume_max`, the opt-in auth-hold
+    # resume budget (23 -> 24).
+    assert len(fields) == 24, fields
     for f in fields:
         low = f.lower()
         assert "disposition" not in low and "repair" not in low, f

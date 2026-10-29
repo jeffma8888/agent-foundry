@@ -65,6 +65,8 @@ FROZEN_FIELDS = (
     "practice_register",
     # EXTENDED by iteration 450: `notify_cmd`, appended in declaration order.
     "notify_cmd",
+    # EXTENDED by iteration 488: `auth_resume_max`, appended in declaration order.
+    "auth_resume_max",
 )
 
 # behavior 10 -- the state-dir-relative derivation clause the spec retires.

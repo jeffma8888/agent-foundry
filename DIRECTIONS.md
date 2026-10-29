@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-488
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- OPERATOR pin: opt-in `auth_resume_max` re-runs the SAME stage after the auth hold
+    - Candidate A2 -- `refresh_directions_file` keeps committed DIRECTIONS.md blocks verbatim
+    - Candidate A3 -- `gather_directions` takes each scout's lens from the pipeline's own prompt record, not the scout's title
+    - Candidate B1 -- OPERATOR pin: opt-in `auth_resume_max` re-runs the SAME stage after the auth hold
+    - Candidate B2 -- collapse the four copy-pasted test-scan Summary classes + summarizers into one base (-~330 lines)
+    - Candidate B3 -- collapse `CompanyWeakTests` / `CompanyConstantAsserts` / `CompanySkippedTests` onto one roll-up base (-~250 lines)
+    winner: A1
+    ship: pending (not yet decided)
   iter-487
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- OPERATOR pin (last queue item): retire the iter-469 EB5/EB6 fossils by pinning them to commit d9c40f7, and add a suite-wide guard against unscoped working-tree `git diff HEAD` assertions
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `directions` reads each scout's lens from the pipeline's own record (the `for the '<lens>' lens` sentence `run_scout_phase` writes into `pm_scout_{a,b}.attempt1.prompt`) before falling back to the slate title
     - Candidate B3 -- `directions`/`outcomes` render `ship: ABORTED` (not `unknown`) when final.md is absent but the abort path's own `ABORTED_IMPLEMENTATION.patch` exists in the iter dir
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED bc08f21
   iter-486
     lenses: new-capability, hardening/DX
     - Candidate A1 -- OPERATOR pin (queue item 1): make "an un-retired OPERATOR pin is candidate 1 and the PM's pick" permanent in `roles/pm.md` 1b and `roles/pm_scout.md` 'Your assigned lens', plus a test asserting both cards name OPERATOR pins
@@ -2183,4 +2193,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-219 scouted iterations
+220 scouted iterations

@@ -427,6 +427,9 @@ class ProductConfig:
     # existing config must load UNCHANGED and pay no I/O until a product opts in.
     practice_register: str = ""         # dir holding DIGEST.md ("" => feed off)
     notify_cmd: str = ""                # shell command fired on human-required holds
+    # iter-488: re-runs of the SAME stage after an auth hold (0 => today's
+    # one-hold-then-fail). Opt-in; read only through `auth_resume_budget`.
+    auth_resume_max: int = 0
 
     def resolve(self) -> "ProductConfig":
         def expand(p: str) -> str:
@@ -25360,6 +25363,22 @@ def save_stage_prompt(it_dir: pathlib.Path | str, stage: str, attempt: int,
     return path
 
 
+def auth_resume_budget(cfg: object) -> int:
+    """How many times `run_stage` may re-run a stage after an auth hold.
+
+    WHY a guard instead of reading the field directly: the value arrives from
+    hand-edited JSON, and this runs on the failure path, where a total function
+    matters more than a strict one. Only a genuine non-negative `int` opts in; a
+    `bool` (an `int` subclass, so `true` would silently mean 1), a negative, a
+    `str`, a `float`, `None` or a missing attribute all read as 0 -- today's
+    one-hold-then-fail behavior. Pure, never raises.
+    """
+    value = getattr(cfg, "auth_resume_max", 0)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return 0
+    return value
+
+
 def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
               out_name: str, extra: str = "") -> tuple[bool, pathlib.Path]:
     it_dir = cfg.state / f"iter-{iteration:02d}"
@@ -25367,7 +25386,18 @@ def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
     out_file = it_dir / out_name
     prompt = build_prompt(cfg, iteration, stage, role_file, out_file,
                           it_dir, extra)
-    for attempt in range(1, MAX_ATTEMPTS + 1):
+    # iter-488: the attempt budget is EXTENDABLE. Each auth resume taken adds
+    # one attempt, so a resume never eats the non-auth retry budget (spawns <=
+    # MAX_ATTEMPTS + resumes_taken), and `attempt` stays monotonic across
+    # resumes so every `<stage>.attempt<n>.log` / `.prompt` is a fresh name that
+    # `_ATTEMPT_LOG_RE` still parses -- no held attempt's evidence is
+    # overwritten and `losses` keeps counting it. With the default budget 0
+    # `limit` is MAX_ATTEMPTS and this loop is the old `for` loop exactly.
+    resume_max = auth_resume_budget(cfg)
+    resumes_taken = 0
+    attempt = 0
+    while attempt < MAX_ATTEMPTS + resumes_taken:
+        attempt += 1
         if stopping(cfg):
             log(cfg, f"iter {iteration:02d} · {stage} STOP requested; abandoning")
             return False, out_file
@@ -25419,7 +25449,8 @@ def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
             log(cfg, f"iter {iteration:02d} · {stage} produced `{out_file.name}`")
             return True, out_file
         log(cfg, f"iter {iteration:02d} · {stage} no output file "
-            f"(attempt {attempt}/{MAX_ATTEMPTS}); tail: {blob[-160:]!r}")
+            f"(attempt {attempt}/{MAX_ATTEMPTS + resumes_taken}); "
+            f"tail: {blob[-160:]!r}")
         # iter-129: price the wait by WHY the attempt failed, not by its
         # index. iter-411 lifts the classification above the retry guard so it
         # runs on EVERY failed attempt, the last one included: an expired
@@ -25446,16 +25477,26 @@ def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
             _notify_human_hold(cfg, kind,
                                f"auth hold: re-authenticate to resume "
                                f"(stage {stage}, iter {iteration})")
-            sleep_interruptible(cfg, AUTH_HOLD_SECONDS)
-            return False, out_file
-        if attempt < MAX_ATTEMPTS:
+            # iter-488: a STOP during the hold always ends the stage; otherwise
+            # the stage is re-run only while the opt-in resume budget lasts
+            # (default 0 => handed back failed, exactly as before).
+            if (sleep_interruptible(cfg, AUTH_HOLD_SECONDS)
+                    or resumes_taken >= resume_max):
+                return False, out_file
+            resumes_taken += 1
+            log(cfg, f"iter {iteration:02d} · {stage} auth resume "
+                f"{resumes_taken}/{resume_max}: re-running stage after hold")
+            continue
+        if attempt < MAX_ATTEMPTS + resumes_taken:
             # Both seams are called by BARE name so a monkeypatch bites. The
             # line keeps its `backing off` token (the event-kind rules stamp
             # it "backoff" -- and iter-26's guard forbids naming that
             # classifier HERE, even in a comment) and also names the kind, so
             # the decision is observable in dispatcher.out / events.jsonl
             # instead of being invisible.
-            delay = retry_delay(kind, attempt)
+            # iter-488: price by the NON-auth attempt index so a resume never
+            # shifts the ladder (resumes_taken is 0 by default => unchanged).
+            delay = retry_delay(kind, attempt - resumes_taken)
             log(cfg, f"iter {iteration:02d} · {stage} backing off "
                 f"{delay // 60} min (failure kind: {kind})")
             if sleep_interruptible(cfg, delay):

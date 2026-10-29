@@ -157,6 +157,9 @@ core stages above byte-for-byte, so the default path is unchanged.
   `auth` attempt, then holds `AUTH_HOLD_SECONDS` (30 min) through the STOP-aware
   `sleep_interruptible` seam and returns the stage failed -- so recovery after
   re-authentication takes up to 30 min, not 7.
+  Opt-in `auth_resume_max` (default 0 = exactly the above) re-runs the SAME stage
+  after each hold, up to that many times, naming each attempt's log with a
+  monotonic `<stage>.attempt<n>.log`; a STOP during the hold still ends the stage.
   Per loop, in `foundry.run_continuous` ONLY: after 2 consecutive infra-failing
   iterations, cool down 30m→1h→2h→4h. The SUPPORTED entry point has NO such
   ladder: `launch.sh` execs `dispatcher.py`, whose shift loop calls

@@ -323,6 +323,7 @@ in the archive.
 - iter 485 -- fix preflight dispatch to accept dispatcher configs.
 - iter 486 -- OPERATOR-pin priority rule written into pm.md 1b and pm_scout.md lens section.
 - iter 487 -- re-scope iter-469 EB5/EB6 to commit d9c40f7; add unscoped git-diff guard.
+- iter 488 -- opt-in auth_resume_max: run_stage re-runs the stage after the auth hold (default 0).
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
@@ -354,22 +355,7 @@ loop in flight), per the self-modification guardrails.
 
 ## Item 17 -- role-card bench: format validator + card lint (SMALL)
 
-**Problem.** `roles/bench/` now holds 11 role-cards (+ README) written by hand.
-Nothing enforces the card contract (Status/Activation/Tenure/Model-note header +
-Mission + I/O contract sections), so cards will drift as they are edited and a
-future manifest-driven pipeline cannot trust them as machine-readable.
-
-**What ships.** A `foundry.py lint-bench` subcommand (offline, deterministic,
-read-only, exit 0/1/2 like the other linters): parses every `roles/bench/*.md`,
-checks the five declared fields + required sections exist, reports `file:line`
-findings; `--json` for a machine-readable doc. Unit tests: a compliant card
-passes; each missing field/section is caught; a non-card file (README.md) is
-skipped.
-
-**Done when.**
-- [ ] `lint-bench` exists with tests; all 11 current cards pass (fix any card
-      that does not rather than loosening the linter).
-- [ ] README quickstart documents the command; `tests/` stay green.
+SHIPPED (iters 63-66, `lint-bench`). Body moved VERBATIM to the archive by iter 488.
 
 ## Item 18 -- kickoff council: staffing manifest schema + trigger rubric (MEDIUM)
 

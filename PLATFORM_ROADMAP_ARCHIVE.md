@@ -1076,6 +1076,7 @@ future attempt needs a documented LAST-RESORT truncation and its own iteration.
 - **iter 485 -- fix `_preflight_dispatch` to accept dispatcher configs: move `preflight` from post-`load_config` to pre-`load_config` block. New `_preflight_dispatch` wrapper detects dispatcher configs by `isinstance(raw.get(DISPATCH_ROSTER_KEY), list)`, extracts first enabled work item, resolves `{FOUNDRY}`, loads via `load_config`, forwards to `preflight_cli`. No-enabled-items edge builds synthetic doctor FAIL Check. DIRECTIONS.md iter-427 A1 needle restored.**
 - **iter 486 -- make the OPERATOR 2026-10-27 pin's queue item 1 permanent: `roles/pm.md` duty 1b and `roles/pm_scout.md` `## Your assigned lens` now state that an un-retired OPERATOR pin (bullet still above `## Archive of completed operator directives`) is candidate 1 of every slate and the PM's pick until it ships, regardless of lens or the slate-pool rule. Additive prose only; new tests/test_iter486_behavior.py pins both placements with a negative check. Zero production code.**
 - **iter 487 -- retire the last OPERATOR 2026-10-27 queue item: `tests/test_iter469_behavior.py` EB5/EB6 stop reading the unscoped live-tree `git diff HEAD` and instead measure the iter-469 commit `d9c40f7` itself (EB5: its non-test paths are a subset of DIRECTIONS.md + the two roadmap files; EB6: net reduction over `tests/` minus the oracle file = 516-117 = 399 >= 350; both skip when the commit object is absent). New `tests/test_iter487_behavior.py` AST-scans every tests/*.py for a literal/call holding `diff` + `HEAD` with no `--` pathspec and fails on any module outside a reasoned 4-module allowlist (iter151/368/379/420). Zero production code.**
+- **iter 488 -- OPERATOR 2026-10-29 pin: opt-in `ProductConfig.auth_resume_max` (default 0 = byte-identical) plus pure `auth_resume_budget`; after each STOP-aware auth hold `run_stage` re-runs the SAME stage up to N times instead of returning it failed, each resume adding one attempt to the budget and logging `auth resume r/N`; attempt logs/prompts use a monotonic `attempt<n>` counter so `_ATTEMPT_LOG_RE` / `losses` still count every held attempt. Dormant until a config opts in AND the dispatcher relaunches.**
 
 ## Moved from the index by iter 447
 
@@ -1124,3 +1125,24 @@ startup refusals that `return 1` immediately, so a dead stdout there cannot orph
 
 STATUS (iter 323): ledger and archive are current through 323 (193/194/199/201/203/205/221-225 and 241 never
 shipped, so none owes a row; 230 never shipped either -- its work re-landed as 231 -- and keeps its row).
+
+## Moved from the index by iter 488
+
+## Item 17 -- role-card bench: format validator + card lint (SMALL)
+
+**Problem.** `roles/bench/` now holds 11 role-cards (+ README) written by hand.
+Nothing enforces the card contract (Status/Activation/Tenure/Model-note header +
+Mission + I/O contract sections), so cards will drift as they are edited and a
+future manifest-driven pipeline cannot trust them as machine-readable.
+
+**What ships.** A `foundry.py lint-bench` subcommand (offline, deterministic,
+read-only, exit 0/1/2 like the other linters): parses every `roles/bench/*.md`,
+checks the five declared fields + required sections exist, reports `file:line`
+findings; `--json` for a machine-readable doc. Unit tests: a compliant card
+passes; each missing field/section is caught; a non-card file (README.md) is
+skipped.
+
+**Done when.**
+- [ ] `lint-bench` exists with tests; all 11 current cards pass (fix any card
+      that does not rather than loosening the linter).
+- [ ] README quickstart documents the command; `tests/` stay green.
