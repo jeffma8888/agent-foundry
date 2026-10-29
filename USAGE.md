@@ -99,3 +99,8 @@ Once this repo exists you can just say things like:
 | Re-ground after an absence | `foundry.py history --config <cfg> --limit 12` |
 | See what shipped | `git -C <product repo> log --oneline` |
 | See the shift log | `cat DISPATCH_LOG.md` |
+
+Machine-local operator knobs: `products/<name>/config.local.json` (gitignored) is THE home
+for them, e.g. `{"auth_resume_max": 24}`. It is merged over the `config.json` beside it and
+its keys win; an unknown key in it fails closed exactly like one in `config.json` (prefix a
+key with `_` to keep it a comment).

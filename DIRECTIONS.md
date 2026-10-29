@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-490
+    lenses: performance-and-throughput
+    - Candidate A1 -- OPERATOR PIN: `config.local.json` overlay merged over the tracked product config in `load_config`
+    - Candidate A2 -- `find_assertionless_tests` walks each tree once and computes each def's signal once (company-weak-tests 4.01s -> 3.02s, -25%, byte-identical)
+    - Candidate A3 -- scoped def-index + signal memo + paused cyclic GC inside `gather_test_quality` (company-test-quality 8.09s -> 3.82s, -53%, byte-identical)
+    - Candidate B1 -- OPERATOR PIN: `config.local.json` overlay merged over the tracked product config in `load_config`
+    - Candidate B2 -- USAGE.md "Product config reference": one row per `ProductConfig` field, plus a two-way drift test against `config_field_names()`
+    - Candidate B3 -- PLATFORM_ROADMAP.md strangler epic contradicts both STRANGLER_PLAN.md and its own NEXT-UP line; tick step 4 and add a cross-file status check
+    winner: A1
+    ship: pending (not yet decided)
   iter-489
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- fold the 4 per-product test-scan Summary classes onto one `_TestScanSummary` base (about -275 lines)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the one nested `pytest` subprocess in the suite inherits `addopts = "-n auto"` and spawns 12 xdist workers to run 2 tests: pass `-n 0` and add a brake (8.54s in-suite -> ~0.3s; 6.9s CPU -> 0.23s)
     - Candidate B3 -- pause the cyclic GC for the duration of a test-scan scope (company-test-quality -10% alone, 4.74s -> 3.75s on top of B1)
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED e3bd5b9
   iter-488
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- OPERATOR pin: opt-in `auth_resume_max` re-runs the SAME stage after the auth hold
@@ -2203,4 +2213,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-221 scouted iterations
+222 scouted iterations

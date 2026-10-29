@@ -570,19 +570,61 @@ def describe_config_key(key: str) -> str:
     return f"{key!r} (did you mean {suggestion!r}?)"
 
 
-def load_config(path: str) -> ProductConfig:
-    data = json.loads(pathlib.Path(path).expanduser().read_text())
-    # Fail CLOSED on a key this schema cannot accept, BEFORE the mkdir calls below,
-    # so a rejected config leaves no directories behind. The message names the FILE
-    # because the dispatcher logs only the exception repr -- the operator otherwise
-    # sees the mistake without seeing which config they mistyped.
-    unknown = unknown_config_keys(data)
+# The machine-local overlay a product config may carry beside it. Operator knobs
+# (e.g. `auth_resume_max`) belong on the MACHINE, never in a tracked config: the
+# iter-488 guard keeps such keys out of the tracked product configs, and an opt-in
+# written there would ride along in the next release diff. `products/.gitignore`
+# ignores this name, so the ship gate's `git add -A` never stages it and the revert
+# path's `git clean -fd` never deletes it.
+CONFIG_LOCAL_OVERLAY_NAME = "config.local.json"
+
+
+def raise_unknown_config_keys(raw: Mapping[str, object], source: object) -> None:
+    """Raise `ConfigKeyError` naming `source` if `raw` holds a key no field accepts.
+
+    The message names the FILE because the dispatcher logs only the exception repr --
+    the operator otherwise sees the mistake without seeing which file they mistyped.
+    """
+    unknown = unknown_config_keys(raw)
     if unknown:
         raise ConfigKeyError(
-            f"unknown key(s) in product config {path}: "
+            f"unknown key(s) in product config {source}: "
             + ", ".join(describe_config_key(k) for k in unknown)
             + "; known fields: " + ", ".join(config_field_names())
             + f"; prefix a key with {CONFIG_COMMENT_PREFIX!r} to keep it a comment")
+
+
+def merge_local_overlay(config_path: pathlib.Path,
+                        data: dict[str, object]) -> dict[str, object]:
+    """`data` with the sibling `config.local.json` shallow-merged OVER it, if present.
+
+    The overlay is checked ALONE before the merge so a typo in it is reported against
+    the overlay file, not the tracked config the operator did not touch. Malformed
+    JSON propagates its own `ValueError` -- a silently skipped overlay would let an
+    operator believe an opt-in is live when it is not. Loading the overlay file
+    itself as the config never re-merges it onto itself.
+    """
+    if config_path.name == CONFIG_LOCAL_OVERLAY_NAME:
+        return data
+    overlay_path = config_path.parent / CONFIG_LOCAL_OVERLAY_NAME
+    if not overlay_path.exists():
+        return data
+    overlay = json.loads(overlay_path.read_text())
+    if not isinstance(overlay, dict):
+        raise ConfigKeyError(
+            f"product config overlay {overlay_path} must hold a JSON object, "
+            f"got {type(overlay).__name__}")
+    raise_unknown_config_keys(overlay, overlay_path)
+    return {**data, **overlay}
+
+
+def load_config(path: str) -> ProductConfig:
+    config_path = pathlib.Path(path).expanduser()
+    data = json.loads(config_path.read_text())
+    # Fail CLOSED on a key this schema cannot accept, BEFORE the mkdir calls below,
+    # so a rejected config (or overlay) leaves no directories behind.
+    data = merge_local_overlay(config_path, data)
+    raise_unknown_config_keys(data, path)
     known = {f.name for f in dataclasses.fields(ProductConfig)}
     cfg = ProductConfig(**{k: v for k, v in data.items() if k in known})
     cfg.resolve()

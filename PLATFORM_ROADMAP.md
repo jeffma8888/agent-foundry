@@ -325,6 +325,7 @@ in the archive.
 - iter 487 -- re-scope iter-469 EB5/EB6 to commit d9c40f7; add unscoped git-diff guard.
 - iter 488 -- opt-in auth_resume_max: run_stage re-runs the stage after the auth hold (default 0).
 - iter 489 -- fold the 4 test-scan Summary classes onto one _TestScanSummary base.
+- iter 490 -- load_config merges a gitignored config.local.json overlay over the product config.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

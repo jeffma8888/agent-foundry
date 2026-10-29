@@ -24,3 +24,9 @@
 # `dispatcher.py` swallows a config load failure BY DESIGN and reads the roster at STARTUP ONLY, so
 # losing this file has no loud symptom -- team 5 just silently never takes a shift.
 agent-gap-radar/config.json
+
+# Machine-local operator knobs (foundry.py CONFIG_LOCAL_OVERLAY_NAME), merged by `load_config` OVER
+# the tracked config beside it. Ignored for the same two reasons as the entry above: the ship gate's
+# `git add -A` must never commit an operator's local opt-in into a release diff, and the revert
+# path's `git clean -fd` (no `-x`) spares ignored paths, so a revert never deletes it.
+*/config.local.json
