@@ -54,7 +54,7 @@ import tomllib
 import warnings
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import NamedTuple, TypeVar
+from typing import ClassVar, NamedTuple, TypeVar
 
 FOUNDRY = pathlib.Path(__file__).resolve().parent
 # The agent CLI is configurable so the foundry stays tool-agnostic. AGENT_BIN
@@ -9148,17 +9148,32 @@ def find_always_skipped_tests(source: str | ast.AST) -> tuple[str, ...]:
 
 
 @dataclasses.dataclass(frozen=True)
-class WeakTestSummary:
-    """The result of one weak-test scan over a product's test files (item 6).
+class _TestScanSummary:
+    """The shared value core of the four per-file test-scan lenses (iter 489).
+
+    `weak-tests`, `constant-asserts`, `skipped-tests` and `unfailable-asserts`
+    report the SAME shape -- only the verb, the count label and the dirty
+    verdict differ -- so the derivations live here ONCE and each public lens is
+    a thin subclass setting three `ClassVar` strings. A behavior fix is then
+    made in one place, and a fifth lens costs ~10 lines instead of ~110.
+    ClassVars (not fields) keep `dataclasses.fields()` at exactly the four
+    stored values, so equality, hashing, `repr` and `to_dict` are unchanged.
 
     Frozen so a computed summary can't be mutated after the fact (value equality
-    for free, matching the other pure cores). `findings` is a tuple of
-    ``(file_path, test_name)`` pairs (one per assertion-free test) and
-    `parse_errors` a tuple of ``(file_path, message)`` pairs (files that would
-    not parse / read) -- both hashable + order-stable. The three properties are
-    pure derivations of the stored fields, so the scriptable exit code follows
-    deterministically from what was gathered.
+    for free, matching the other pure cores; the generated `__eq__` compares
+    `__class__` too, so two different lenses with equal fields never compare
+    equal). `findings` is a tuple of ``(file_path, test_name)`` pairs (one per
+    flagged test) and `parse_errors` a tuple of ``(file_path, message)`` pairs
+    (files that would not parse / read) -- both hashable + order-stable. The
+    properties are pure derivations of the stored fields, so the scriptable
+    exit code follows deterministically from what was gathered: ``2`` when
+    nothing was scanned, else ``1`` when anything was flagged OR failed to
+    parse, else ``0``. `to_dict()` returns EXACTLY 8 keys in a fixed order.
     """
+    VERB: ClassVar[str]
+    COUNT_LABEL: ClassVar[str]
+    DIRTY_VERDICT: ClassVar[str]
+
     product: str
     files_scanned: int
     findings: tuple[tuple[str, str], ...]
@@ -9166,7 +9181,7 @@ class WeakTestSummary:
 
     @property
     def total_findings(self) -> int:
-        """How many assertion-free `test*` functions were flagged."""
+        """How many `test*` functions this lens flagged."""
         return len(self.findings)
 
     @property
@@ -9175,7 +9190,7 @@ class WeakTestSummary:
 
         Scanning zero files is NOT clean (there was nothing to certify), so the
         operator can distinguish "verified clean" from "found nothing to look
-        at" -- see Behavior 16."""
+        at"."""
         return (self.files_scanned > 0 and not self.findings
                 and not self.parse_errors)
 
@@ -9194,23 +9209,23 @@ class WeakTestSummary:
     def verdict(self) -> str:
         """The single human token for the current `exit_code` -- ONE source of
         truth for `render()`'s last line so text + exit code never drift."""
-        return {0: "clean", 1: "WEAK TESTS FOUND",
+        return {0: "clean", 1: self.DIRTY_VERDICT,
                 2: "nothing to scan"}[self.exit_code]
 
     def render(self) -> str:
         """A deterministic multi-line report carrying every gathered signal.
 
-        Contains, as substrings (the CLI's black-box contract): the product
-        name; ``files scanned: N``; ``assertion-free tests: N``; one
-        ``  <file> :: <test_name>`` line per finding (so a dirty report names
-        BOTH the file path and the test -- Behavior 11); ``parse errors: N``
-        with one ``  <file>: <message>`` line each (Behavior 15); and a final
-        ``verdict:`` token matching `exit_code`. When clean, no test-function
-        name is printed (Behavior 12)."""
+        Contains, as substrings (the CLI's black-box contract): the literal
+        ``foundry <VERB> -- <product>``; ``files scanned: N``;
+        ``<COUNT_LABEL>: N``; one ``  <file> :: <test_name>`` line per finding
+        (so a dirty report names BOTH the file path and the test);
+        ``parse errors: N`` with one ``  <file>: <message>`` line each; and a
+        final ``verdict:`` token matching `exit_code` as the LAST non-empty
+        line. When clean, no test-function name is printed."""
         lines = [
-            f"foundry weak-tests -- {self.product}",
+            f"foundry {self.VERB} -- {self.product}",
             f"  files scanned: {self.files_scanned}",
-            f"  assertion-free tests: {self.total_findings}",
+            f"  {self.COUNT_LABEL}: {self.total_findings}",
         ]
         for path, name in self.findings:
             lines.append(f"  {path} :: {name}")
@@ -9221,10 +9236,8 @@ class WeakTestSummary:
         return "\n".join(lines)
 
     def to_dict(self) -> dict:
-        """A pure, JSON-safe serialization of the whole weak-test scan for
-        machine consumers (roadmap item 10's "machine-readable status for
-        dashboards / the reporter"), mirroring iter-19's `StatusSummary.
-        to_dict()` and iter-20's `HistorySummary.to_dict()`.
+        """A pure, JSON-safe serialization of the whole scan for machine
+        consumers (roadmap item 10), mirroring `StatusSummary.to_dict()`.
 
         Returns EXACTLY 8 keys in a fixed order: `product`/`files_scanned` as
         the stored fields verbatim, then the four DERIVED values each REUSING
@@ -9250,6 +9263,16 @@ class WeakTestSummary:
             "parse_errors": [{"file": path, "message": message}
                              for path, message in self.parse_errors],
         }
+
+
+@dataclasses.dataclass(frozen=True)
+class WeakTestSummary(_TestScanSummary):
+    """The result of one weak-test scan over a product's test files (item 6):
+    `test*` functions with NO assertion signal at all. All behavior lives in
+    `_TestScanSummary`; only the three report strings are this lens's own."""
+    VERB = "weak-tests"
+    COUNT_LABEL = "assertion-free tests"
+    DIRTY_VERDICT = "WEAK TESTS FOUND"
 
 
 def summarize_weak_tests(*, product: str, files_scanned: int,
@@ -9473,115 +9496,18 @@ def weak_tests_cli(cfg: ProductConfig, files=None, as_json: bool = False) -> int
 
 
 @dataclasses.dataclass(frozen=True)
-class ConstantAssertSummary:
+class ConstantAssertSummary(_TestScanSummary):
     """The result of one constant-assert scan over a product's test files.
 
-    Frozen structural mirror of `WeakTestSummary` (iter 22) that surfaces the
-    iter-47 `find_constant_assert_tests` detector: `test*` functions whose ONLY
-    assertion signal is a constant/tautological assert (`assert True`,
-    `assert 1`, `assert "x"`). Such a test reports green yet validates nothing,
-    and it slips past `find_assertionless_tests` -- and thus `foundry
-    weak-tests` -- because the `assert` node itself reads as "has a signal", so
-    this is the exact false-green class `weak-tests` structurally MISSES.
-    `findings` is a tuple of ``(file_path, test_name)`` pairs (one per
-    constant-assert test) and `parse_errors` a tuple of ``(file_path,
-    message)`` pairs (files that would not parse / read) -- both hashable +
-    order-stable. The three properties are pure derivations of the stored
-    fields, so the scriptable exit code follows deterministically from what was
-    gathered.
-    """
-    product: str
-    files_scanned: int
-    findings: tuple[tuple[str, str], ...]
-    parse_errors: tuple[tuple[str, str], ...]
-
-    @property
-    def total_findings(self) -> int:
-        """How many constant-assert `test*` functions were flagged."""
-        return len(self.findings)
-
-    @property
-    def clean(self) -> bool:
-        """True iff >=1 file was scanned AND nothing was flagged or unparseable.
-
-        Scanning zero files is NOT clean (there was nothing to certify), so the
-        operator can distinguish "verified clean" from "found nothing to look
-        at" -- mirroring `WeakTestSummary.clean` (Behavior 2)."""
-        return (self.files_scanned > 0 and not self.findings
-                and not self.parse_errors)
-
-    @property
-    def exit_code(self) -> int:
-        """Scriptable verdict: ``2`` when nothing was scanned, else ``1`` when
-        anything was flagged OR failed to parse, else ``0`` (clean). Nothing-to-
-        scan is checked FIRST so an empty run is `2`, never a false `0`
-        (Behavior 2)."""
-        if self.files_scanned == 0:
-            return 2
-        if self.findings or self.parse_errors:
-            return 1
-        return 0
-
-    @property
-    def verdict(self) -> str:
-        """The single human token for the current `exit_code` -- ONE source of
-        truth for `render()`'s last line so text + exit code never drift
-        (Behavior 2)."""
-        return {0: "clean", 1: "CONSTANT ASSERTS FOUND",
-                2: "nothing to scan"}[self.exit_code]
-
-    def render(self) -> str:
-        """A deterministic multi-line report carrying every gathered signal.
-
-        Contains, as substrings (the CLI's black-box contract): the literal
-        ``foundry constant-asserts -- <product>``; ``files scanned: N``;
-        ``constant-assert tests: N``; one ``  <file> :: <test_name>`` line per
-        finding (so a dirty report names BOTH the file path and the test);
-        ``parse errors: N`` with one ``  <file>: <message>`` line each; and a
-        final ``verdict:`` token matching `exit_code` as the LAST non-empty
-        line. When clean, no test-function name is printed (Behavior 3)."""
-        lines = [
-            f"foundry constant-asserts -- {self.product}",
-            f"  files scanned: {self.files_scanned}",
-            f"  constant-assert tests: {self.total_findings}",
-        ]
-        for path, name in self.findings:
-            lines.append(f"  {path} :: {name}")
-        lines.append(f"  parse errors: {len(self.parse_errors)}")
-        for path, message in self.parse_errors:
-            lines.append(f"  {path}: {message}")
-        lines.append(f"verdict: {self.verdict}")
-        return "\n".join(lines)
-
-    def to_dict(self) -> dict:
-        """A pure, JSON-safe serialization of the whole constant-assert scan for
-        machine consumers, mirroring `WeakTestSummary.to_dict()` (iter 22).
-
-        Returns EXACTLY 8 keys in a fixed order: `product`/`files_scanned` as
-        the stored fields verbatim, then the four DERIVED values each REUSING
-        the frozen properties -- `total_findings`/`clean`/`exit_code`/`verdict`
-        -- so the payload can never disagree with what `render()` prints or the
-        exit code returns (`to_dict` re-derives nothing), then `findings` as a
-        JSON array of ``{"file","test"}`` objects in the SAME order as
-        `self.findings` and `parse_errors` as a JSON array of
-        ``{"file","message"}`` objects in the SAME order as `self.parse_errors`.
-        Every value is JSON-native (str / int / bool / list of str-only dicts),
-        so `json.dumps(...)` never raises and the dict round-trips through
-        `json.loads(json.dumps(...))` -- including when both lists are empty
-        (Behavior 4). Pure: touches no filesystem, only the already-gathered
-        snapshot."""
-        return {
-            "product": self.product,
-            "files_scanned": self.files_scanned,
-            "total_findings": self.total_findings,
-            "clean": self.clean,
-            "exit_code": self.exit_code,
-            "verdict": self.verdict,
-            "findings": [{"file": path, "test": name}
-                         for path, name in self.findings],
-            "parse_errors": [{"file": path, "message": message}
-                             for path, message in self.parse_errors],
-        }
+    Surfaces the iter-47 `find_constant_assert_tests` detector: `test*`
+    functions whose ONLY assertion signal is a constant/tautological assert
+    (`assert True`, `assert 1`, `assert "x"`). Such a test reports green yet
+    validates nothing, and it slips past `weak-tests` because the `assert`
+    node itself reads as "has a signal" -- the exact false-green class
+    `weak-tests` structurally MISSES. Behavior lives in `_TestScanSummary`."""
+    VERB = "constant-asserts"
+    COUNT_LABEL = "constant-assert tests"
+    DIRTY_VERDICT = "CONSTANT ASSERTS FOUND"
 
 
 def summarize_constant_asserts(*, product: str, files_scanned: int,
@@ -9660,118 +9586,19 @@ def constant_asserts_cli(cfg: ProductConfig, files=None,
 
 
 @dataclasses.dataclass(frozen=True)
-class SkippedTestSummary:
+class SkippedTestSummary(_TestScanSummary):
     """The result of one always-skipped-test scan over a product's test files.
 
-    Frozen structural mirror of `ConstantAssertSummary` (iter 48) that surfaces
-    the iter-55 `find_always_skipped_tests` detector: `test*` functions that are
-    UNCONDITIONALLY skipped -- decorated with `@pytest.mark.skip` /
+    Surfaces the iter-55 `find_always_skipped_tests` detector: `test*`
+    functions that are UNCONDITIONALLY skipped -- `@pytest.mark.skip` /
     `@unittest.skip`, or a constant-condition `@skipif(True)` /
-    `@skipUnless(False)`. Such a test NEVER runs, validates nothing, yet reports
-    the suite green, and no existing gate catches it (the item-11 fresh-clone
-    re-run passes a skipped test too). It COMPLEMENTS `weak-tests` /
-    `constant-asserts` (which flag tests that DO run but assert nothing
-    meaningful) by catching a DIFFERENT antipattern -- a test that does not run
-    at all -- so unlike the DISJOINT `constant-asserts` its findings can OVERLAP
-    those detectors (a skipped test may also be assertion-free). `findings` is a
-    tuple of ``(file_path, test_name)`` pairs (one per always-skipped test) and
-    `parse_errors` a tuple of ``(file_path, message)`` pairs (files that would
-    not parse / read) -- both hashable + order-stable. The three properties are
-    pure derivations of the stored fields, so the scriptable exit code follows
-    deterministically from what was gathered.
-    """
-    product: str
-    files_scanned: int
-    findings: tuple[tuple[str, str], ...]
-    parse_errors: tuple[tuple[str, str], ...]
-
-    @property
-    def total_findings(self) -> int:
-        """How many always-skipped `test*` functions were flagged."""
-        return len(self.findings)
-
-    @property
-    def clean(self) -> bool:
-        """True iff >=1 file was scanned AND nothing was flagged or unparseable.
-
-        Scanning zero files is NOT clean (there was nothing to certify), so the
-        operator can distinguish "verified clean" from "found nothing to look
-        at" -- mirroring `ConstantAssertSummary.clean` (Behavior 2)."""
-        return (self.files_scanned > 0 and not self.findings
-                and not self.parse_errors)
-
-    @property
-    def exit_code(self) -> int:
-        """Scriptable verdict: ``2`` when nothing was scanned, else ``1`` when
-        anything was flagged OR failed to parse, else ``0`` (clean). Nothing-to-
-        scan is checked FIRST so an empty run is `2`, never a false `0`
-        (Behavior 2)."""
-        if self.files_scanned == 0:
-            return 2
-        if self.findings or self.parse_errors:
-            return 1
-        return 0
-
-    @property
-    def verdict(self) -> str:
-        """The single human token for the current `exit_code` -- ONE source of
-        truth for `render()`'s last line so text + exit code never drift
-        (Behavior 2)."""
-        return {0: "clean", 1: "ALWAYS-SKIPPED TESTS FOUND",
-                2: "nothing to scan"}[self.exit_code]
-
-    def render(self) -> str:
-        """A deterministic multi-line report carrying every gathered signal.
-
-        Contains, as substrings (the CLI's black-box contract): the literal
-        ``foundry skipped-tests -- <product>``; ``files scanned: N``;
-        ``always-skipped tests: N``; one ``  <file> :: <test_name>`` line per
-        finding (so a dirty report names BOTH the file path and the test);
-        ``parse errors: N`` with one ``  <file>: <message>`` line each; and a
-        final ``verdict:`` token matching `exit_code` as the LAST non-empty
-        line. When clean, no test-function name is printed (Behavior 3)."""
-        lines = [
-            f"foundry skipped-tests -- {self.product}",
-            f"  files scanned: {self.files_scanned}",
-            f"  always-skipped tests: {self.total_findings}",
-        ]
-        for path, name in self.findings:
-            lines.append(f"  {path} :: {name}")
-        lines.append(f"  parse errors: {len(self.parse_errors)}")
-        for path, message in self.parse_errors:
-            lines.append(f"  {path}: {message}")
-        lines.append(f"verdict: {self.verdict}")
-        return "\n".join(lines)
-
-    def to_dict(self) -> dict:
-        """A pure, JSON-safe serialization of the whole skipped-test scan for
-        machine consumers, mirroring `ConstantAssertSummary.to_dict()` (iter 48).
-
-        Returns EXACTLY 8 keys in a fixed order: `product`/`files_scanned` as
-        the stored fields verbatim, then the four DERIVED values each REUSING
-        the frozen properties -- `total_findings`/`clean`/`exit_code`/`verdict`
-        -- so the payload can never disagree with what `render()` prints or the
-        exit code returns (`to_dict` re-derives nothing), then `findings` as a
-        JSON array of ``{"file","test"}`` objects in the SAME order as
-        `self.findings` and `parse_errors` as a JSON array of
-        ``{"file","message"}`` objects in the SAME order as `self.parse_errors`.
-        Every value is JSON-native (str / int / bool / list of str-only dicts),
-        so `json.dumps(...)` never raises and the dict round-trips through
-        `json.loads(json.dumps(...))` -- including when both lists are empty
-        (Behavior 4). Pure: touches no filesystem, only the already-gathered
-        snapshot."""
-        return {
-            "product": self.product,
-            "files_scanned": self.files_scanned,
-            "total_findings": self.total_findings,
-            "clean": self.clean,
-            "exit_code": self.exit_code,
-            "verdict": self.verdict,
-            "findings": [{"file": path, "test": name}
-                         for path, name in self.findings],
-            "parse_errors": [{"file": path, "message": message}
-                             for path, message in self.parse_errors],
-        }
+    `@skipUnless(False)`. Such a test NEVER runs yet reports the suite green,
+    and no other gate catches it (the fresh-clone re-run passes a skipped test
+    too). Its findings can OVERLAP `weak-tests` / `constant-asserts` (a skipped
+    test may also be assertion-free). Behavior lives in `_TestScanSummary`."""
+    VERB = "skipped-tests"
+    COUNT_LABEL = "always-skipped tests"
+    DIRTY_VERDICT = "ALWAYS-SKIPPED TESTS FOUND"
 
 
 def summarize_skipped_tests(*, product: str, files_scanned: int,
@@ -9852,120 +9679,21 @@ def skipped_tests_cli(cfg: ProductConfig, files=None,
 
 
 @dataclasses.dataclass(frozen=True)
-class UnfailableAssertSummary:
+class UnfailableAssertSummary(_TestScanSummary):
     """The result of one unfailable-assert scan over a product's test files.
 
-    Frozen structural mirror of `SkippedTestSummary` (iter 56) that surfaces the
-    iter-186 `find_unfailable_assert_tests` detector: `test*` functions carrying
-    an assert that CANNOT FAIL -- a truthy literal (`assert True`), a non-empty
-    tuple (`assert (cond, "msg")`, the classic parenthesized-message typo) or a
-    disjunction holding a truthy literal (`assert cond or True`). THE FOURTH
-    LENS, and the only one of the four that asks *can this assertion fail?*
-    rather than *is there an assertion?* -- which is what earns it: an
-    `assert <real check> or True` carries a REAL signal, so
-    `find_assertionless_tests`, `find_constant_assert_tests` and
-    `find_always_skipped_tests` ALL return `()` for it. Such a test does not
-    merely escape the three shipped lenses, it VOUCHES for the function holding
-    it -- the false-green the vision's quality bar names this framework's #1
-    verification failure. Its findings can therefore OVERLAP the others (a
-    function whose ONLY signal is `assert True` is flagged here AND by
-    `constant-asserts`), mirroring the documented `skipped-tests` overlap rather
-    than the by-construction-disjoint `weak`/`constant` pair. `findings` is a
-    tuple of ``(file_path, test_name)`` pairs (one per flagged test) and
-    `parse_errors` a tuple of ``(file_path, message)`` pairs (files that would
-    not parse / read) -- both hashable + order-stable. The four properties are
-    pure derivations of the stored fields, so the scriptable exit code follows
-    deterministically from what was gathered.
-    """
-    product: str
-    files_scanned: int
-    findings: tuple[tuple[str, str], ...]
-    parse_errors: tuple[tuple[str, str], ...]
-
-    @property
-    def total_findings(self) -> int:
-        """How many `test*` functions carrying an unfailable assert were flagged."""
-        return len(self.findings)
-
-    @property
-    def clean(self) -> bool:
-        """True iff >=1 file was scanned AND nothing was flagged or unparseable.
-
-        Scanning zero files is NOT clean (there was nothing to certify), so the
-        operator can distinguish "verified clean" from "found nothing to look
-        at" -- mirroring `SkippedTestSummary.clean`."""
-        return (self.files_scanned > 0 and not self.findings
-                and not self.parse_errors)
-
-    @property
-    def exit_code(self) -> int:
-        """Scriptable verdict: ``2`` when nothing was scanned, else ``1`` when
-        anything was flagged OR failed to parse, else ``0`` (clean). Nothing-to-
-        scan is checked FIRST so an empty run is `2`, never a false `0`."""
-        if self.files_scanned == 0:
-            return 2
-        if self.findings or self.parse_errors:
-            return 1
-        return 0
-
-    @property
-    def verdict(self) -> str:
-        """The single human token for the current `exit_code` -- ONE source of
-        truth for `render()`'s last line so text + exit code never drift."""
-        return {0: "clean", 1: "UNFAILABLE ASSERTS FOUND",
-                2: "nothing to scan"}[self.exit_code]
-
-    def render(self) -> str:
-        """A deterministic multi-line report carrying every gathered signal.
-
-        Contains, as substrings (the CLI's black-box contract): the literal
-        ``foundry unfailable-asserts -- <product>``; ``files scanned: N``;
-        ``unfailable-assert tests: N``; one ``  <file> :: <test_name>`` line per
-        finding (so a dirty report names BOTH the file path and the test);
-        ``parse errors: N`` with one ``  <file>: <message>`` line each; and a
-        final ``verdict:`` token matching `exit_code` as the LAST non-empty
-        line. When clean, no test-function name is printed."""
-        lines = [
-            f"foundry unfailable-asserts -- {self.product}",
-            f"  files scanned: {self.files_scanned}",
-            f"  unfailable-assert tests: {self.total_findings}",
-        ]
-        for path, name in self.findings:
-            lines.append(f"  {path} :: {name}")
-        lines.append(f"  parse errors: {len(self.parse_errors)}")
-        for path, message in self.parse_errors:
-            lines.append(f"  {path}: {message}")
-        lines.append(f"verdict: {self.verdict}")
-        return "\n".join(lines)
-
-    def to_dict(self) -> dict:
-        """A pure, JSON-safe serialization of the whole scan for machine
-        consumers, mirroring `SkippedTestSummary.to_dict()` (iter 56).
-
-        Returns EXACTLY 8 keys in a fixed order: `product`/`files_scanned` as
-        the stored fields verbatim, then the four DERIVED values each REUSING
-        the frozen properties -- `total_findings`/`clean`/`exit_code`/`verdict`
-        -- so the payload can never disagree with what `render()` prints or the
-        exit code returns (`to_dict` re-derives nothing), then `findings` as a
-        JSON array of ``{"file","test"}`` objects in the SAME order as
-        `self.findings` and `parse_errors` as a JSON array of
-        ``{"file","message"}`` objects in the SAME order as `self.parse_errors`.
-        Every value is JSON-native (str / int / bool / list of str-only dicts),
-        so `json.dumps(...)` never raises and the dict round-trips through
-        `json.loads(json.dumps(...))` -- including when both lists are empty.
-        Pure: touches no filesystem, only the already-gathered snapshot."""
-        return {
-            "product": self.product,
-            "files_scanned": self.files_scanned,
-            "total_findings": self.total_findings,
-            "clean": self.clean,
-            "exit_code": self.exit_code,
-            "verdict": self.verdict,
-            "findings": [{"file": path, "test": name}
-                         for path, name in self.findings],
-            "parse_errors": [{"file": path, "message": message}
-                             for path, message in self.parse_errors],
-        }
+    Surfaces the iter-186 `find_unfailable_assert_tests` detector: `test*`
+    functions carrying an assert that CANNOT FAIL -- a truthy literal
+    (`assert True`), a non-empty tuple (`assert (cond, "msg")`, the classic
+    parenthesized-message typo) or a disjunction holding a truthy literal
+    (`assert cond or True`). The only lens asking *can this assertion fail?*
+    rather than *is there an assertion?*: an `assert <real check> or True`
+    carries a REAL signal, so the other three lenses ALL miss it while it
+    VOUCHES for the function holding it. Findings can OVERLAP
+    `constant-asserts`. Behavior lives in `_TestScanSummary`."""
+    VERB = "unfailable-asserts"
+    COUNT_LABEL = "unfailable-assert tests"
+    DIRTY_VERDICT = "UNFAILABLE ASSERTS FOUND"
 
 
 def summarize_unfailable_asserts(*, product: str, files_scanned: int,

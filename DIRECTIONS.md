@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-489
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- fold the 4 per-product test-scan Summary classes onto one `_TestScanSummary` base (about -275 lines)
+    - Candidate A2 -- item (q) subset bite: the 4 summed properties x3 Company test-scan roll-ups become `property(fn)` (about -50 lines)
+    - Candidate A3 -- retire the superseded explicit `"dual_pm_scouts": true` from the 4 tracked product configs
+    - Candidate B1 -- memoize the per-tree function-node walk inside `gather_test_quality`'s existing `TEST_TREE_CACHE` scope (company-test-quality 7.65s -> 4.74s, -38%, byte-identical)
+    - Candidate B2 -- the one nested `pytest` subprocess in the suite inherits `addopts = "-n auto"` and spawns 12 xdist workers to run 2 tests: pass `-n 0` and add a brake (8.54s in-suite -> ~0.3s; 6.9s CPU -> 0.23s)
+    - Candidate B3 -- pause the cyclic GC for the duration of a test-scan scope (company-test-quality -10% alone, 4.74s -> 3.75s on top of B1)
+    winner: A1
+    ship: pending (not yet decided)
   iter-488
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- OPERATOR pin: opt-in `auth_resume_max` re-runs the SAME stage after the auth hold
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- collapse the four copy-pasted test-scan Summary classes + summarizers into one base (-~330 lines)
     - Candidate B3 -- collapse `CompanyWeakTests` / `CompanyConstantAsserts` / `CompanySkippedTests` onto one roll-up base (-~250 lines)
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED fab6797
   iter-487
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- OPERATOR pin (last queue item): retire the iter-469 EB5/EB6 fossils by pinning them to commit d9c40f7, and add a suite-wide guard against unscoped working-tree `git diff HEAD` assertions
@@ -2193,4 +2203,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-220 scouted iterations
+221 scouted iterations
