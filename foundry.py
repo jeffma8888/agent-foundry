@@ -673,6 +673,9 @@ EVENT_KIND_RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("stop", ("stop requested", "stop honored")),
     ("lifecycle", ("foundry started", "foundry stopped")),
     ("fix", ("fix pass",)),
+    # iter 493: names run_stage's iter-488 `auth resume k/M` re-run line, so
+    # `events --kind resume` can tell a resumed hold from a dead one.
+    ("resume", ("auth resume",)),
     ("iteration", ("iteration",)),
     ("stage", ("attempt", "produced", "no output file")),
 )

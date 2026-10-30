@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-493
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- `lint-config` reports a `config.local.json` key typo as an exit-1 finding (naming the overlay), and stops a tracked typo hiding it
+    - Candidate A2 -- a malformed `config.local.json` raises an error that NAMES the overlay file, on every `--config` verb and in the dispatcher log
+    - Candidate A3 -- `directions` takes each scout's lens from the pipeline's own prompt record, so 110 of 212 seats stop rendering a wrong or missing `lenses:` label
+    - Candidate B1 -- `status` (and `company-status`) report the effective `config.local.json` overlay: which keys it overrides, by NAME only
+    - Candidate B2 -- the `auth resume N/M` log line gets its own event kind, so `events --kind` / `company-events` / `kind_counts` can see resumes
+    - Candidate B3 -- doctor's `auth-loss:` line consults the resumes it currently calls "clean", and names the effective `auth_resume_max`
+    winner: B2
+    ship: pending (not yet decided)
   iter-492
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `foundry config --config P [--json]`: print the EFFECTIVE product config with per-field provenance (tracked / config.local.json overlay / dataclass default)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `lint-config` reports a `config.local.json` key typo as an exit-1 finding instead of exit-2 "cannot read config", and stops masking it behind a tracked typo
     - Candidate B3 -- a malformed `config.local.json` raises an error that NAMES the overlay file (today the dispatcher silently skips the team with a bare `JSONDecodeError`)
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 6a4a07a
   iter-491
     lenses: narrative-and-docs
     - Candidate A1 -- USAGE.md "Product config reference": one row per `ProductConfig` field, plus a two-way drift test against `config_field_names()`
@@ -2230,4 +2240,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-224 scouted iterations
+225 scouted iterations

@@ -327,6 +327,7 @@ in the archive.
 - iter 489 -- fold the 4 test-scan Summary classes onto one _TestScanSummary base.
 - iter 490 -- load_config merges a gitignored config.local.json overlay over the product config.
 - iter 492 -- refresh_directions_file keeps committed DIRECTIONS.md candidate lines verbatim.
+- iter 493 -- new `resume` event kind: auth resume k/M log lines leave `info`.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
