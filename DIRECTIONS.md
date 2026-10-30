@@ -1,6 +1,23 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-492
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- `foundry config --config P [--json]`: print the EFFECTIVE product config with per-field provenance (tracked / config.local.json overlay / dataclass default)
+    - Candidate A2 -- `foundry auth-holds --config P [--limit N] [--json]`: per-iteration ledger of auth holds and auth resumes and how each held iteration ended
+    - Candidate A3 -- `foundry resume --config P --reason R` (and `--global`): the inverse of `foundry stop` -- show the sentinel's own text, then lift it
+    - Candidate B1 -- `refresh_directions_file` keeps already-committed DIRECTIONS.md blocks' `lenses:`/candidate lines verbatim (re-render only `winner:`/`ship:`, new blocks, the count line)
+    - Candidate B2 -- `lint-config` reports a `config.local.json` key typo as an exit-1 finding instead of exit-2 "cannot read config", and stops masking it behind a tracked typo
+    - Candidate B3 -- a malformed `config.local.json` raises an error that NAMES the overlay file (today the dispatcher silently skips the team with a bare `JSONDecodeError`)
+    winner: B1
+    ship: pending (not yet decided)
+  iter-491
+    lenses: narrative-and-docs
+    - Candidate A1 -- USAGE.md "Product config reference": one row per `ProductConfig` field, plus a two-way drift test against `config_field_names()`
+    - Candidate A2 -- `directions_ship_label` gets the evidence ladder `winner:` got in iter 377, so the decision log stops saying `ship: unknown` for iterations whose outcome is on disk
+    - Candidate A3 -- `refresh_directions_file` keeps already-committed iteration blocks' candidate lines verbatim (re-render only `winner:`/`ship:`, new blocks, and the count line)
+    winner: absent (no pm.md)
+    ship: unknown
   iter-490
     lenses: performance-and-throughput
     - Candidate A1 -- OPERATOR PIN: `config.local.json` overlay merged over the tracked product config in `load_config`
@@ -10,7 +27,7 @@ foundry directions -- _platform
     - Candidate B2 -- USAGE.md "Product config reference": one row per `ProductConfig` field, plus a two-way drift test against `config_field_names()`
     - Candidate B3 -- PLATFORM_ROADMAP.md strangler epic contradicts both STRANGLER_PLAN.md and its own NEXT-UP line; tick step 4 and add a cross-file status check
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED ebd8f4f
   iter-489
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- fold the 4 per-product test-scan Summary classes onto one `_TestScanSummary` base (about -275 lines)
@@ -2213,4 +2230,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-222 scouted iterations
+224 scouted iterations

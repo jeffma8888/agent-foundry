@@ -19204,6 +19204,69 @@ def iteration_is_scouted(cfg: ProductConfig, n: int) -> bool:
         return False
 
 
+def _directions_candidate_lines(lines: list[str]) -> dict[int, list[int]]:
+    """Map each `iter-NN` block of a rendered decision log to its candidate-line indices.
+
+    A block opens at a `_DIRECTIONS_ITER_LINE_RE` line and runs to the next opener;
+    its candidate lines are the ones whose stripped form starts with `- `. Lines
+    before the first opener belong to no block. Indices (not text) are returned so
+    the caller can swap lines IN PLACE and every non-candidate line keeps its
+    position. A repeated iteration number keeps its FIRST block, so a malformed
+    document can never make one block borrow another's rows."""
+    blocks: dict[int, list[int]] = {}
+    current: list[int] | None = None
+    for idx, line in enumerate(lines):
+        opener = _DIRECTIONS_ITER_LINE_RE.match(line)
+        if opener is not None:
+            n = _iter_number(opener.group(1))
+            if n is None or n in blocks:
+                current = None
+            else:
+                current = blocks[n] = []
+            continue
+        if current is not None and line.strip().startswith("- "):
+            current.append(idx)
+    return blocks
+
+
+def merge_committed_directions(rendered: str, committed: str) -> str:
+    """Freeze the candidate lines of every block `committed` already holds (pure, total).
+
+    WHY: `DIRECTIONS.md` is TRACKED public history, yet `refresh_directions_file`
+    re-derives every OLD block from scout slates in the state dirs -- which undoes
+    hand redactions/shortenings already committed (the iter-427 A1 line re-leaked a
+    denylisted vendor token, the iter-419 A3 line re-expanded) and cost FINAL a hand
+    restore every iteration. A committed row should never change except for its
+    outcome labels, which legitimately settle later. So, for each `rendered` block
+    whose iteration also has a block in `committed`, its candidate (`- `) lines are
+    replaced by the committed block's candidate lines verbatim, in committed order;
+    every other line (header, `lenses:`/`stubs:`/`empty:`/`winner:`/`ship:`, the
+    rollup count, blocks absent from `committed`) stays exactly as rendered.
+
+    A candidate-COUNT mismatch is a structural change, not drift, so that block keeps
+    its RENDERED lines. A non-`str` / empty / block-less `committed` returns
+    `rendered` byte-for-byte; a non-`str` `rendered` is returned unchanged. Splits on
+    `\n` (not `splitlines`) so the join round-trips the input exactly. Never raises.
+    """
+    if not isinstance(rendered, str) or not isinstance(committed, str) or not committed:
+        return rendered
+    try:
+        old_lines = committed.split("\n")
+        old_blocks = _directions_candidate_lines(old_lines)
+        if not old_blocks:
+            return rendered
+        lines = rendered.split("\n")
+        for n, slots in _directions_candidate_lines(lines).items():
+            frozen = old_blocks.get(n)
+            if frozen is None or len(frozen) != len(slots):
+                continue
+            for slot, old_idx in zip(slots, frozen):
+                lines[slot] = old_lines[old_idx]
+        return "\n".join(lines)
+    except Exception:  # noqa: BLE001 -- total by contract; a merge bug must not lose the render
+        return rendered
+
+
 def refresh_directions_file(cfg: ProductConfig) -> bool:
     """Regenerate the tracked `<cfg.repo>/DIRECTIONS.md` decision log (bite 4b).
 
@@ -19221,10 +19284,19 @@ def refresh_directions_file(cfg: ProductConfig) -> bool:
     untouched (and writes no file when none existed). Returns `True` ONLY when the
     file was written. Regenerating the whole file each call makes it idempotent (two
     consecutive calls over unchanged state leave the file byte-identical) and
-    revert-safe."""
+    revert-safe. When `DIRECTIONS.md` already exists its committed blocks' candidate
+    lines are kept verbatim via `merge_committed_directions` (iter 492), so a
+    hand-redacted history row is never re-derived from the state dirs; a failure to
+    read or merge the existing file falls back to the plain render."""
     try:
         doc = render_directions_doc(gather_directions(cfg))
-        (pathlib.Path(cfg.repo) / "DIRECTIONS.md").write_text(doc)
+        target = pathlib.Path(cfg.repo) / "DIRECTIONS.md"
+        try:
+            if target.exists():
+                doc = merge_committed_directions(doc, target.read_text())
+        except Exception:  # noqa: BLE001 -- unreadable history: ship the plain render
+            pass
+        target.write_text(doc)
         return True
     except Exception as exc:  # noqa: BLE001 -- off the gate path; must NEVER raise
         # Best-effort WARNING; the log call is itself wrapped so a logging failure
