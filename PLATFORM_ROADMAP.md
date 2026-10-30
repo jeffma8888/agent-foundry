@@ -334,6 +334,7 @@ in the archive.
 - iter 497 -- `resume` verb lifts a team/global STOP sentinel, reporting its reason before deleting it.
 - iter 498 -- malformed config.local.json raises ConfigOverlayError naming the overlay file.
 - iter 499 -- lint-config reports a wrongly-typed config value as an error instead of passing or crashing.
+- iter 500 -- `status` prints a `stop:` line (scope, reason, resume lift verb) when a STOP is in effect.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

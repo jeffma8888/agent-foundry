@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-500
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- tester.md duty 1b also runs the shipped `unfailable-asserts --files` scan, so the tester stops reporting `verdict: clean` on `assert (x == 2, "msg")`
+    - Candidate A2 -- `foundry status` reports an active STOP sentinel (scope + reason + the shipped lift verb) instead of a bare `verdict: OK` for a retired team
+    - Candidate A3 -- USAGE.md's on-ramp migrates from `touch STOP` to the shipped `stop --reason` verb, so the documented action stops producing the reason-less sentinel `company-stops` cannot explain
+    - Candidate B1 -- fold `CompanyWeakTests` / `CompanyConstantAsserts` / `CompanySkippedTests` onto shared module-level `property(fn)` bodies plus two ClassVar strings (roadmap item (q), about -210 lines)
+    - Candidate B2 -- `test_quality_cli`'s inline print/JSON/exit body collapses onto `_thin_gather_cli`, so the per-product thin-printer contract lives in one place instead of two
+    - Candidate B3 -- retire roadmap item (x) from PLATFORM_ROADMAP.md: its "NEXT BITE" (the render triplet on the three test-quality Summary classes) shipped in iter 489, yet the index still lists it OPEN
+    winner: A2
+    ship: pending (not yet decided)
   iter-499
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- `lint-config` reports a config value of the WRONG JSON TYPE as an exit-1 finding, and stops crashing on one
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry status` reports the team's STOP sentinel (scope + reason) instead of `verdict: OK` for a retired team
     - Candidate B3 -- STOP on-ramps teach the shipped `stop` / `resume` verbs instead of `touch` / `rm`, and `company-stops` names the lift command per stopped team
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 3eb94a9
   iter-498
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `foundry config --config P [--json]`: print the EFFECTIVE product config with per-field provenance (`tracked` / `overlay` / `default`)
@@ -2300,4 +2310,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-231 scouted iterations
+232 scouted iterations

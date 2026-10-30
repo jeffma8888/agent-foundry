@@ -11985,6 +11985,12 @@ class StatusSummary:
         no PUSHED outcome exists. REPORT-ONLY.
       * `iters_since_last_ship` -- `latest_iter - last_ship_iter`, or `None` when
         no PUSHED outcome exists. REPORT-ONLY.
+      * `stop_scope` -- `"team"` / `"global"` when a STOP sentinel is in effect
+        (from `gather_stop`), else `"none"`. REPORT-ONLY: a stopped team keeps
+        its verdict and exit code, but `render()` adds ONE conditional `stop:`
+        line so `verdict: OK` is no longer a silent all-clear for a team that
+        will not run. Deliberately absent from `to_dict()` (a later bite).
+      * `stop_reason` -- the deciding sentinel's one-line reason, `""` when none.
     """
     product: str
     repo: str
@@ -11997,6 +12003,8 @@ class StatusSummary:
     lag_line: str | None = None
     last_ship_iter: int | None = None
     iters_since_last_ship: int | None = None
+    stop_scope: str = "none"
+    stop_reason: str = ""
 
     @property
     def attention(self) -> bool:
@@ -12072,7 +12080,12 @@ class StatusSummary:
         `  live-lag: unknown` fallback reads back as `""` because its lowercase
         `unknown` is not the recognised `UNKNOWN` token -- NOT because of the
         indent. Either way the fallback carries no verdict, which is the correct
-        answer for a summary that has no lag sentence."""
+        answer for a summary that has no lag sentence.
+
+        When `stop_scope` is `team` or `global` ONE extra line, `  stop: <scope>
+        -- <reason> (lift: <resume verb>)`, goes just before `verdict:`. It is
+        CONDITIONAL so the unstopped report stays byte-identical (10 lines), and
+        REPORT-ONLY: the verdict token below it never changes."""
         iter_line = (f"latest iteration: {self.latest_iter}"
                      if self.latest_iter > 0 else "latest iteration: none")
         pr = self.postrelease if self.postrelease is not None else "unknown"
@@ -12087,6 +12100,7 @@ class StatusSummary:
                 f" ({self.iters_since_last_ship} iterations ago)"
                 if self.last_ship_iter is not None else "  last ship: none")
         verdict = self.verdict
+        stop = self._stop_line()
         return "\n".join([
             f"foundry status -- {self.product}",
             f"  repo: {self.repo}  branch {self.branch}",
@@ -12097,8 +12111,25 @@ class StatusSummary:
             f"  prd: {prd}",
             lag,
             ship,
+            *([stop] if stop else []),
             f"verdict: {verdict}",
         ])
+
+    def _stop_line(self) -> str:
+        """The conditional `stop:` line, or `""` when no sentinel is in effect.
+
+        Names the exact `resume` invocation that lifts the stop, because the two
+        scopes are lifted differently. `<config>` is left as a literal
+        placeholder: the snapshot carries no config path, and guessing one could
+        print a command that lifts the wrong team. Any scope other than
+        `team`/`global` renders nothing, so an unknown value can never invent a
+        stop the reader did not report."""
+        lift = {"team": "foundry.py resume --config <config>",
+                "global": "foundry.py resume --global"}.get(self.stop_scope)
+        if lift is None:
+            return ""
+        reason = self.stop_reason or "(no reason recorded)"
+        return f"  stop: {self.stop_scope} -- {reason} (lift: {lift})"
 
     def to_dict(self) -> dict:
         """A pure, JSON-safe health snapshot for machine consumers -- dashboards
@@ -12140,7 +12171,9 @@ def summarize_status(*, product: str, repo: str, branch: str, latest_iter: int,
                      prd_line: str | None,
                      lag_line: str | None = None,
                      last_ship_iter: int | None = None,
-                     iters_since_last_ship: int | None = None) -> StatusSummary:
+                     iters_since_last_ship: int | None = None,
+                     stop_scope: str = "none",
+                     stop_reason: str = "") -> StatusSummary:
     """Pure keyword-only constructor for a `StatusSummary` (item 12).
 
     A thin, total wrapper that just packs the gathered signals into the frozen
@@ -12149,14 +12182,17 @@ def summarize_status(*, product: str, repo: str, branch: str, latest_iter: int,
     decision core stays a pure function the tester can drive without any
     filesystem (Behavior 7).
 
-    `lag_line`, `last_ship_iter`, `iters_since_last_ship` are DEFAULTED rather
-    than required so every caller predating them keeps working."""
+    `lag_line`, `last_ship_iter`, `iters_since_last_ship`, `stop_scope` and
+    `stop_reason` are DEFAULTED rather than required so every caller predating
+    them keeps working. The stop pair only adds the REPORT-ONLY conditional
+    `stop:` line to `render()`; it never moves the verdict."""
     return StatusSummary(
         product=product, repo=repo, branch=branch, latest_iter=latest_iter,
         postrelease=postrelease, hotfix=hotfix, speed_story=speed_story,
         prd_line=prd_line, lag_line=lag_line,
         last_ship_iter=last_ship_iter,
-        iters_since_last_ship=iters_since_last_ship)
+        iters_since_last_ship=iters_since_last_ship,
+        stop_scope=stop_scope, stop_reason=stop_reason)
 
 
 def gather_status(cfg: ProductConfig) -> StatusSummary:
@@ -12189,7 +12225,11 @@ def gather_status(cfg: ProductConfig) -> StatusSummary:
         outcomes ledger in reverse to find the most recent PUSHED iteration,
         yielding `last_ship_iter` and `iters_since_last_ship` (both None when no
         PUSHED outcome exists). GUARDED: an exception degrades to None/None.
-    REPORT-ONLY: the lag sentence and last-ship fields land in the snapshot and
+      * the STOP sentinel in effect via `gather_stop(cfg)` (global first, then
+        the team's own) -- feeds the conditional `stop:` render line, so a
+        stopped team no longer reads as a silent `verdict: OK`. GUARDED: an
+        exception degrades to `"none"` (no line), never a crash.
+    REPORT-ONLY: the lag sentence, last-ship fields and stop line land in the snapshot and
     touch `attention`/`ok`/`exit_code`/`verdict` in NO way, so `status` and
     `company-status` keep their published exit codes byte-for-byte.
     Returns a frozen `StatusSummary`; writes NOTHING to disk (read-only)."""
@@ -12226,6 +12266,15 @@ def gather_status(cfg: ProductConfig) -> StatusSummary:
     except Exception:
         last_ship_iter = None
         iters_since_last_ship = None
+    stop_scope, stop_reason = "none", ""
+    try:
+        row = gather_stop(cfg)
+        if row.stopped:
+            stop_scope, stop_reason = row.scope, row.reason
+    except Exception:
+        # Advisory like the lag probe above: a broken or patched reader degrades
+        # to "no stop line", never sinks the snapshot or changes the verdict.
+        stop_scope, stop_reason = "none", ""
     return summarize_status(
         product=cfg.name, repo=cfg.repo, branch=cfg.branch,
         latest_iter=latest_iter, postrelease=postrelease,
@@ -12234,7 +12283,8 @@ def gather_status(cfg: ProductConfig) -> StatusSummary:
         prd_line=dispatch_progress_line(cfg),
         lag_line=lag_line,
         last_ship_iter=last_ship_iter,
-        iters_since_last_ship=iters_since_last_ship)
+        iters_since_last_ship=iters_since_last_ship,
+        stop_scope=stop_scope, stop_reason=stop_reason)
 
 
 def status_cli(cfg: ProductConfig, as_json: bool = False) -> int:
