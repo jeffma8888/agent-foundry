@@ -8962,15 +8962,19 @@ def find_assertionless_tests(source: str | ast.AST) -> tuple[str, ...]:
     flagged. Gated by `WEAK_TEST_RESOLVE_DELEGATES`, read at CALL time, and
     STRICTLY NARROWING -- for every input the flagged set with it True is a
     SUBSET of the set with it False, because delegation only ever adds a reason
-    to clear.
+    to clear. The delegation table is built LAZILY (iter 495), on the first
+    signal-less test and at most once per call, because most files have none and
+    the eager build was ~45% of the scan's time.
     """
     tree = source if isinstance(source, ast.AST) else ast.parse(source)
-    delegates = (_delegated_signal_names(tree)
-                 if WEAK_TEST_RESOLVE_DELEGATES else frozenset())
+    resolve = WEAK_TEST_RESOLVE_DELEGATES
+    delegates: frozenset[str] | None = None
     flagged = []
     for f in _test_function_nodes(tree):
         if _has_assertion_signal(f):
             continue
+        if delegates is None:
+            delegates = _delegated_signal_names(tree) if resolve else frozenset()
         if delegates and any(
                 _callee_trailing_name(node.func) in delegates
                 for node in ast.walk(f) if isinstance(node, ast.Call)):

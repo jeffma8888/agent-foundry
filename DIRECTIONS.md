@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-495
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- fold `CompanyWeakTests` / `CompanyConstantAsserts` / `CompanySkippedTests` onto shared module-level `property(fn)` / plain-fn bodies plus two `ClassVar[str]` (VERB, LABEL), each MRO staying exactly 3 (about -210 lines)
+    - Candidate A2 -- one `_company_rollup_head(rollup)` helper for the 6-line JSON prefix that 8 `Company*.to_dict` bodies hand-copy (about -25 lines net, about -40 copied lines)
+    - Candidate A3 -- delete `save_work_patch`, the `test-only` composition that its own successor `save_work_cli` documents it must not call (about -24 lines foundry.py)
+    - Candidate B1 -- `find_assertionless_tests` builds the delegation table LAZILY, only when the first signal-less `test*` def appears (company-weak-tests ~4.6-5.6s -> ~3.1-3.2s, -30%, byte-identical)
+    - Candidate B2 -- the suite's one nested `python -m pytest` (test_iter487_blackbox `test_eb1_eb2_pass_in_a_dirty_clone`) passes `-n 0`, plus a brake that any nested pytest argv carries `-n 0`
+    - Candidate B3 -- scoped def-index + signal memo + paused cyclic GC inside `gather_test_quality`'s existing `TEST_TREE_CACHE` scope (company-test-quality ~8.8-10.9s -> ~4s, byte-identical)
+    winner: B1
+    ship: pending (not yet decided)
   iter-494
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A3 -- `events` / `company-events` re-classify `info`-stamped records at READ time, so the shipped `resume` kind finds its 7 real records
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- retire the superseded explicit `"dual_pm_scouts": true` from the 4 tracked product configs
     - Candidate B3 -- delete `save_work_patch`, the test-only "programmatic entry point" its own successor `save_work_cli` documents it must not call
     winner: A3
-    ship: pending (not yet decided)
+    ship: PUSHED 46313e8
   iter-493
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- `lint-config` reports a `config.local.json` key typo as an exit-1 finding (naming the overlay), and stops a tracked typo hiding it
@@ -2250,4 +2260,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-226 scouted iterations
+227 scouted iterations

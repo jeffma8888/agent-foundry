@@ -329,6 +329,7 @@ in the archive.
 - iter 492 -- refresh_directions_file keeps committed DIRECTIONS.md candidate lines verbatim.
 - iter 493 -- new `resume` event kind: auth resume k/M log lines leave `info`.
 - iter 494 -- events/company-events --reclassify re-derive info-stamped kinds at read time.
+- iter 495 -- find_assertionless_tests builds the delegation table lazily (weak-tests ~-30%).
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
