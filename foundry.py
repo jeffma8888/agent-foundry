@@ -702,6 +702,28 @@ def classify_event(msg: str) -> str:
     return EVENT_KIND_DEFAULT
 
 
+def effective_event_kind(record: object) -> str:
+    """The kind an `events.jsonl` record would get if it were written TODAY.
+
+    WHY (iter 494): `kind` is stamped at WRITE time, so a classifier row added
+    later (iter 493's `resume`) can never reach history -- every old resume line
+    still reads `info`. This re-derives the kind from `msg` with today's
+    `classify_event`, but ONLY for a record whose stamp says nothing (missing,
+    non-str, empty or `EVENT_KIND_DEFAULT`): a meaningful stamp is the writer's
+    verdict and is never overridden. Pure and total: never raises, never mutates
+    its argument, and looks `classify_event` / `EVENT_KIND_DEFAULT` up by bare
+    name at CALL time so a `monkeypatch` of `EVENT_KIND_RULES` bites."""
+    if not isinstance(record, dict):
+        return EVENT_KIND_DEFAULT
+    stamped = record.get("kind")
+    if isinstance(stamped, str) and stamped and stamped != EVENT_KIND_DEFAULT:
+        return stamped
+    msg = record.get("msg")
+    if isinstance(msg, str):
+        return classify_event(msg)
+    return EVENT_KIND_DEFAULT
+
+
 def emit_event(events_path: pathlib.Path, event: str, /, **fields) -> None:
     """Append ONE JSON object (one line) to the machine-readable event log.
 
@@ -23500,6 +23522,45 @@ def events_cli(cfg: ProductConfig, kind: str | None = None,
     return summary.exit_code
 
 
+def gather_events_reclassified(cfg: ProductConfig, kind: str | None = None,
+                               limit: int | None = None) -> EventsSummary:
+    """`gather_events` with every record's kind re-derived at READ time (iter 494,
+    `--reclassify`).
+
+    WHY a sibling and not a `reclassify=` keyword on `gather_events`: the
+    signatures of `gather_events`, `events_cli` and `company_events_cli` are
+    pinned by shipped tests (test_iter44 b4/b5, test_iter152 b02), so the opt-in
+    path gets its own seam and the default path stays byte-identical, untouched.
+
+    Reads through the SHIPPED `gather_events(cfg)` (unfiltered, untailed, so its
+    read/parse degradation and `total`/`parse_errors` are reused verbatim), then
+    replaces each record with a COPY whose `kind` is `effective_event_kind(record)`
+    BEFORE the exact-match `kind` filter, so `--kind`, `matched` and the kind
+    tally all see the read-time kind; a positive int `limit` then tails the
+    matched records in file order, exactly like `gather_events`. Writes NOTHING:
+    the events file is never rewritten."""
+    base = gather_events(cfg)
+    records = [{**r, "kind": effective_event_kind(r)} for r in base.records]
+    matched = [r for r in records if kind is None or r.get("kind") == kind]
+    shown = matched[-limit:] if isinstance(limit, int) and limit > 0 else matched
+    return summarize_events(
+        product=base.product, records=shown, total=base.total,
+        matched=len(matched), parse_errors=base.parse_errors, kind_filter=kind)
+
+
+def events_reclassified_cli(cfg: ProductConfig, kind: str | None = None,
+                            limit: int | None = None,
+                            as_json: bool = False) -> int:
+    """`foundry events --reclassify`: `events_cli`'s printer over the
+    `gather_events_reclassified` seam (iter 494), so `--kind resume` finds the
+    `info`-stamped history a later classifier row describes. Same human /
+    `--json` output shape and the same 0/2 exit code; writes nothing. A separate
+    function because `events_cli`'s signature is pinned by shipped tests."""
+    summary = gather_events_reclassified(cfg, kind, limit)
+    print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
+    return summary.exit_code
+
+
 # --------------------------------------------------------------------------- #
 # Company-wide event roll-up (`company-events`) -- roadmap item 10, bite 2 of 2
 # (the company view on the iter-44 `gather_events` foundation).
@@ -23746,6 +23807,25 @@ def company_events_cli(dispatch_path: str, kind: str | None = None,
     # the synthetic-error and the normal path inside the shared body).
     return _company_rollup_cli(dispatch_path, as_json,
                                gather_events, summarize_company_events,
+                               gather_args=(kind, limit),
+                               summarize_kwargs={"kind_filter": kind})
+
+
+def company_events_reclassified_cli(dispatch_path: str, kind: str | None = None,
+                                    limit: int | None = None,
+                                    as_json: bool = False) -> int:
+    """`foundry company-events --reclassify` (iter 494): the `company-events`
+    roll-up with EVERY enabled team gathered through
+    `gather_events_reclassified`, so the summed `matched` and the merged per-kind
+    tally count read-time kinds (an `info`-stamped `auth resume` line counts as
+    `resume`). Same shared `_company_rollup_cli` body, resilience, 0/1/2 exit
+    code and JSON shape as `company_events_cli`; writes nothing. A separate
+    function because `company_events_cli`'s signature is pinned by shipped
+    tests; seams are resolved by BARE name here at call time so a monkeypatch
+    bites."""
+    return _company_rollup_cli(dispatch_path, as_json,
+                               gather_events_reclassified,
+                               summarize_company_events,
                                gather_args=(kind, limit),
                                summarize_kwargs={"kind_filter": kind})
 
@@ -29139,6 +29219,10 @@ def main(argv: list[str] | None = None) -> int:
     evt.add_argument("--json", action="store_true",
                      help="emit the digest as one JSON document (machine-readable) "
                           "instead of the human report; same 0/2 exit code, honours --kind/--limit")
+    evt.add_argument("--reclassify", action="store_true",
+                     help="re-derive the kind of info/unstamped records from their "
+                          "msg with today's classifier at read time (never rewrites "
+                          "the file; a non-info stamp is kept)")
     # `preflight` is the composite LAUNCH gate: it runs the env preflight
     # (`doctor`, iter 01) AND the single-brain scan (iter 24) and folds them into
     # ONE three-way GO / NO-GO / CAUTION verdict (human or `--json`) an operator /
@@ -29368,6 +29452,10 @@ def main(argv: list[str] | None = None) -> int:
                      help="emit the company roll-up as one JSON document "
                           "(machine-readable) instead of the human report; "
                           "same 0/1/2 exit code, honours --kind/--limit")
+    cev.add_argument("--reclassify", action="store_true",
+                     help="re-derive the kind of info/unstamped records from their "
+                          "msg at read time, in every team's gather (never "
+                          "rewrites any file)")
     # `company-constant-asserts` rolls up EVERY enabled dispatch team's iter-21
     # `constant-asserts` scan into ONE company view (summed files-scanned /
     # constant-assert-tests / parse-errors + a per-product breakdown -- the
@@ -29541,6 +29629,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "company-weak-tests":
         return company_weak_tests_cli(args.config, as_json=args.json)
     if args.cmd == "company-events":
+        if args.reclassify:
+            return company_events_reclassified_cli(
+                args.config, kind=args.kind, limit=args.limit, as_json=args.json)
         return company_events_cli(args.config, kind=args.kind,
                                   limit=args.limit, as_json=args.json)
     if args.cmd == "company-constant-asserts":
@@ -29654,6 +29745,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "test-quality":
         return test_quality_cli(cfg, files=args.files, as_json=args.json)
     if args.cmd == "events":
+        if args.reclassify:
+            return events_reclassified_cli(cfg, kind=args.kind, limit=args.limit,
+                                           as_json=args.json)
         return events_cli(cfg, kind=args.kind, limit=args.limit, as_json=args.json)
     if args.cmd == "preship":
         return preship_cli(cfg, as_json=args.json)

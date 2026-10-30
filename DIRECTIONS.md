@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-494
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A3 -- `events` / `company-events` re-classify `info`-stamped records at READ time, so the shipped `resume` kind finds its 7 real records
+    - Candidate A2 -- doctor's `auth-loss:` line stops calling a 4-hold, 2-hour iteration "clean": count the auth resumes in the window and name the effective `auth_resume_max`
+    - Candidate A1 -- `status` / `company-status` name which keys the `config.local.json` overlay sets (names only, never values)
+    - Candidate B1 -- fold `CompanyWeakTests` / `CompanyConstantAsserts` / `CompanySkippedTests` onto shared module-level `property(fn)` bodies plus two ClassVar strings, keeping each MRO at exactly 3 (about -210 lines)
+    - Candidate B2 -- retire the superseded explicit `"dual_pm_scouts": true` from the 4 tracked product configs
+    - Candidate B3 -- delete `save_work_patch`, the test-only "programmatic entry point" its own successor `save_work_cli` documents it must not call
+    winner: A3
+    ship: pending (not yet decided)
   iter-493
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- `lint-config` reports a `config.local.json` key typo as an exit-1 finding (naming the overlay), and stops a tracked typo hiding it
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the `auth resume N/M` log line gets its own event kind, so `events --kind` / `company-events` / `kind_counts` can see resumes
     - Candidate B3 -- doctor's `auth-loss:` line consults the resumes it currently calls "clean", and names the effective `auth_resume_max`
     winner: B2
-    ship: pending (not yet decided)
+    ship: PUSHED 687eae4
   iter-492
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `foundry config --config P [--json]`: print the EFFECTIVE product config with per-field provenance (tracked / config.local.json overlay / dataclass default)
@@ -2240,4 +2250,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-225 scouted iterations
+226 scouted iterations
