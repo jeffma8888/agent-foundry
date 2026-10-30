@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-498
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- `foundry config --config P [--json]`: print the EFFECTIVE product config with per-field provenance (`tracked` / `overlay` / `default`)
+    - Candidate A2 -- `foundry iteration --config P --iter N [--json]`: a one-iteration dossier (winner, per-stage attempts and verdicts, ship action)
+    - Candidate A3 -- `foundry company-unfailable-asserts --config DISPATCH [--json]`: the fleet roll-up for the 4th false-green lens
+    - Candidate B1 -- a malformed `config.local.json` raises an error that NAMES the overlay file, everywhere it surfaces
+    - Candidate B2 -- `events` / `company-events --kind <unknown>` say the kind is unknown and list the valid kinds
+    - Candidate B3 -- `lint-config` reports a `config.local.json` key typo as an exit-1 finding that names the overlay
+    winner: B1
+    ship: pending (not yet decided)
   iter-497
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- ARCHITECTURE.md's `events.jsonl` kind list gains iter 493's `resume` kind and iter 494's read-time `--reclassify`, pinned by a two-way set-equality test against `EVENT_KIND_RULES`
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry config --config P [--json]`: print the EFFECTIVE product config with per-field provenance (`tracked` / `overlay` / `default`)
     - Candidate B3 -- `foundry company-unfailable-asserts --config DISPATCH [--json]`: the fleet roll-up for the 4th false-green lens, which is the only one of the four with no company view
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED f394182
   iter-496
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- postrelease reuses the same-sha `foundry preship` verdict instead of re-running the whole suite (bite 1: preship persists its verdict, plus a pure reuse decision, dormant)
@@ -2280,4 +2290,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-229 scouted iterations
+230 scouted iterations

@@ -1085,6 +1085,7 @@ future attempt needs a documented LAST-RESORT truncation and its own iteration.
 - **iter 495 -- throughput: lazy delegation table.** `find_assertionless_tests` now calls `_delegated_signal_names(tree)` only on the first `test*` def that has no assertion signal of its own (at most once per call, never when `WEAK_TEST_RESOLVE_DELEGATES` is False), instead of eagerly per file. Output is byte-identical by construction; scout B's cProfile put the eager build at 45% of the finder, and the prototype cut `company-weak-tests` from ~4.6-5.6s to ~3.1-3.2s. Chosen over A1 (Company test-scan triple fold, ~-210 lines), which stays queued.
 - **iter 496 -- docs: product config reference.** USAGE.md gains a `## Product config reference` section after the Controls cheat-sheet: one `Field | Default | Meaning` row per `ProductConfig` field, defaults written as the JSON literal an operator types (`required` for name/repo/allowed_push_repo), plus prose on the `config.local.json` overlay, the fail-closed unknown-key rule and the `_` comment prefix. `tests/test_iter496_behavior.py` keeps the row names equal to `config_field_names()` in order and each default equal to `json.dumps(field.default)`, both proved two-sided in memory. No code change. Picked over scout A2 (GC pause, a near-clone of iter 495's perf shape) and B1 (ARCHITECTURE kind list, queued next).
 - **iter 497 -- control plane: `resume`, the LIFT half of STOP.** `foundry resume --config P | --global [--json]` is the inverse of iter 371's `stop`: a REQUIRED mutually-exclusive target group, dispatched before `load_config`. The pure `resume_verdict` gives a frozen `ResumeVerdict` (LIFTED 0 / ABSENT 1 / FAILED 2, `exit_code` an init=False field). One filesystem seam, `resume_cli`, reads the sentinel through the shipped `stop_reason` (fail-closed to `STOP_REASON_UNREADABLE`), reports the reason (and in `--json` the full text it is about to destroy, since the file is gitignored and unrecoverable), then unlinks it. It refuses a directory in place of the file, and an OSError is reported by TYPE name only. The human line says a team runs again on the dispatcher's next round while a lifted global STOP needs a dispatcher restart. It lost 4x (371/372/378/492) to budget or ranking, never on merit. Dormant/on-demand: dispatcher.py, `stop`, `company-stops` and the USAGE cheat-sheet are byte-untouched. Verb census 64 -> 65 (test_iter362 re-pin), README #66.
+- **iter 498 -- hardening: a malformed config overlay names its own file.** `merge_local_overlay` wraps ONLY the overlay's `read_text()` + `json.loads` and re-raises `json.JSONDecodeError` / `UnicodeDecodeError` as the new `ConfigOverlayError(ValueError)` (deliberately NOT a `ConfigKeyError`, so lint-config keeps its exit-2 "cannot read" path), message `product config overlay <path> is not valid JSON: <detail>`, chained `from exc`. Before it, one stray comma in the gitignored overlay (live on 4 of 7 teams) made the dispatcher skip that team every round with a file-less `JSONDecodeError(...)` and made lint-config blame the TRACKED config.json at the overlay's line/col. dispatcher.py, lint_config_cli and the tracked-config decode are byte-unchanged; success paths identical. Picked over A1 `foundry config` provenance verb (queued).
 
 ## Moved from the index by iter 447
 
@@ -1154,3 +1155,22 @@ skipped.
 - [ ] `lint-bench` exists with tests; all 11 current cards pass (fix any card
       that does not rather than loosening the linter).
 - [ ] README quickstart documents the command; `tests/` stay green.
+
+## Moved from the index by iter 498
+
+## Item 19 -- manifest-driven pipeline (MEDIUM, gated on 18)
+
+**Problem.** The stage list is hard-coded; the org cannot actually staff
+lean-or-wider per product.
+
+**What ships.** `foundry.py` reads `staffing.json` when present and derives the
+stage sequence from it (absent manifest = exact current fixed behavior, bit-for-
+bit -- the default path must not change). A manifest naming only the five core
+seats reproduces today's pipeline; extra activated seats insert their bounded
+stage at their declared position. Stage success stays output-file-based.
+
+**Done when.**
+- [x] With no manifest, behavior is unchanged (regression-tested).
+- [x] With a core-only manifest, behavior is unchanged.
+- [x] With one extra seat activated, its stage runs at the declared point and
+      its artifact is required; `tests/` green.

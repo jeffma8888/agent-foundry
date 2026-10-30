@@ -515,6 +515,22 @@ class ConfigKeyError(ValueError):
     """
 
 
+class ConfigOverlayError(ValueError):
+    """The machine-local `config.local.json` overlay is not readable JSON text.
+
+    WHY a type of its own: a bare `json.JSONDecodeError` names no file, so the
+    dispatcher's `{exc!r}` skip line and lint-config's "cannot read config <path>"
+    both pointed the operator at the TRACKED config.json -- a file they never
+    touched -- at the overlay's line/column. This message names the overlay path.
+
+    WHY NOT a `ConfigKeyError` subclass: lint-config's `ConfigKeyError` branch
+    re-reads the TRACKED config for key findings; an unparseable overlay has no keys
+    to report, so it must keep lint-config's unchanged exit-2 "cannot read" path.
+    WHY `ValueError`: same reason as `ConfigKeyError` -- the dispatcher's existing
+    `except Exception` skip path already handles it, with no dispatcher change.
+    """
+
+
 # Keys starting with this prefix are adopter COMMENTS, never fields. Grounded, not
 # guessed: this repo's own `foundry.config.json` / `foundry.config.example.json`
 # document a `_comment` / `_note` convention, so an adopter will copy that habit
@@ -600,16 +616,21 @@ def merge_local_overlay(config_path: pathlib.Path,
 
     The overlay is checked ALONE before the merge so a typo in it is reported against
     the overlay file, not the tracked config the operator did not touch. Malformed
-    JSON propagates its own `ValueError` -- a silently skipped overlay would let an
-    operator believe an opt-in is live when it is not. Loading the overlay file
-    itself as the config never re-merges it onto itself.
+    JSON (or non-UTF-8 bytes) raises `ConfigOverlayError` naming the overlay path --
+    never swallowed, since a silently skipped overlay would let an operator believe
+    an opt-in is live when it is not. An `OSError` is left alone: it already names
+    its file. Loading the overlay file itself as the config never re-merges it.
     """
     if config_path.name == CONFIG_LOCAL_OVERLAY_NAME:
         return data
     overlay_path = config_path.parent / CONFIG_LOCAL_OVERLAY_NAME
     if not overlay_path.exists():
         return data
-    overlay = json.loads(overlay_path.read_text())
+    try:
+        overlay = json.loads(overlay_path.read_text())
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ConfigOverlayError(
+            f"product config overlay {overlay_path} is not valid JSON: {exc}") from exc
     if not isinstance(overlay, dict):
         raise ConfigKeyError(
             f"product config overlay {overlay_path} must hold a JSON object, "

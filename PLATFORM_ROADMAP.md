@@ -332,6 +332,7 @@ in the archive.
 - iter 495 -- find_assertionless_tests builds the delegation table lazily (weak-tests ~-30%).
 - iter 496 -- USAGE.md Product config reference table (field/default/meaning) + drift test.
 - iter 497 -- `resume` verb lifts a team/global STOP sentinel, reporting its reason before deleting it.
+- iter 498 -- malformed config.local.json raises ConfigOverlayError naming the overlay file.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
@@ -371,20 +372,7 @@ Moved VERBATIM to the archive by iter 209.
 
 ## Item 19 -- manifest-driven pipeline (MEDIUM, gated on 18)
 
-**Problem.** The stage list is hard-coded; the org cannot actually staff
-lean-or-wider per product.
-
-**What ships.** `foundry.py` reads `staffing.json` when present and derives the
-stage sequence from it (absent manifest = exact current fixed behavior, bit-for-
-bit -- the default path must not change). A manifest naming only the five core
-seats reproduces today's pipeline; extra activated seats insert their bounded
-stage at their declared position. Stage success stays output-file-based.
-
-**Done when.**
-- [x] With no manifest, behavior is unchanged (regression-tested).
-- [x] With a core-only manifest, behavior is unchanged.
-- [x] With one extra seat activated, its stage runs at the declared point and
-      its artifact is required; `tests/` green.
+SHIPPED (all Done-when boxes ticked). Body moved VERBATIM to the archive by iter 498.
 
 ## Item 20 -- tri-perspective product gate + decorrelated adversarial seat (MEDIUM, gated on 19)
 
