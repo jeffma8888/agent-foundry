@@ -104,3 +104,38 @@ Machine-local operator knobs: `products/<name>/config.local.json` (gitignored) i
 for them, e.g. `{"auth_resume_max": 24}`. It is merged over the `config.json` beside it and
 its keys win; an unknown key in it fails closed exactly like one in `config.json` (prefix a
 key with `_` to keep it a comment).
+
+## Product config reference
+
+Every key a `products/<name>/config.json` may hold, in declaration order. Any key may live in
+either the tracked `config.json` or the gitignored `config.local.json` beside it (the overlay's
+keys win). An unknown key fails closed at load time, so a typo stops the team instead of being
+silently ignored; prefix a key with `_` to keep it as a comment. Path values accept `~` and
+`{FOUNDRY}` (the foundry checkout).
+
+| Field | Default | Meaning |
+|---|---|---|
+| `name` | required | Product name; names the team and its `products/<name>/` work dir. |
+| `repo` | required | Path to the product's git repo, the tree every stage edits. |
+| `allowed_push_repo` | required | Repo basename the final gate is allowed to push; any other target is refused. |
+| `branch` | `"main"` | Branch the final gate commits to and pushes. |
+| `vision` | `""` | Path to VISION.md, the fixed product intent every stage stays inside. |
+| `roadmap` | `""` | Path to the roadmap file the PM owns. |
+| `prd` | `""` | Path to the prd.json machine roadmap; empty resolves to `prd.json` in `repo`. |
+| `quality_ref` | `""` | Sibling repo whose conventions set the quality bar. |
+| `test_cmd` | `"uv run pytest"` | Quality-check command; the full suite must pass before a ship. |
+| `roles_dir` | `""` | Directory of role cards; empty resolves to `roles/` under the foundry checkout. |
+| `work_root` | `""` | Team state dir (iteration state, logs, STOP); empty resolves to `products/<name>/` under the foundry checkout. |
+| `learnings` | `""` | Learnings log path; empty resolves to `LEARNINGS.md` in `work_root`. |
+| `staffing` | `""` | Staffing manifest path; empty resolves to `staffing.json` in `work_root`. |
+| `quality_bar` | `""` | Free-form quality constraints inlined into every stage prompt. |
+| `push_enabled` | `true` | Whether the final gate may push; `false` is a dry-run / review-only team. |
+| `postrelease_enabled` | `true` | Whether each ship is re-verified from a throwaway fresh clone. |
+| `setup_cmd` | `"uv sync"` | How the fresh-clone re-verify installs dependencies. |
+| `smoke_cmd` | `null` | Optional smoke command for the fresh-clone re-verify; `null` skips it. |
+| `dual_pm_scouts` | `true` | Two-scout PM pre-phase; `false` runs the single-PM lead only. |
+| `gap_register` | `""` | Directory holding an external `gaps/*.json` register; empty turns the feed off. |
+| `gap_layers` | `[]` | Stack layers kept from the gap register; empty keeps every layer. |
+| `practice_register` | `""` | Directory holding an external practice `DIGEST.md`; empty turns the feed off. |
+| `notify_cmd` | `""` | Shell command fired when a hold needs a human; empty sends nothing. |
+| `auth_resume_max` | `0` | Re-runs of the same stage after an auth hold; `0` keeps one hold then fail. |

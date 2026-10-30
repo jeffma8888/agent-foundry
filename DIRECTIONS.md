@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-496
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- postrelease reuses the same-sha `foundry preship` verdict instead of re-running the whole suite (bite 1: preship persists its verdict, plus a pure reuse decision, dormant)
+    - Candidate A2 -- pause the cyclic GC for the duration of `gather_test_quality`'s existing `TEST_TREE_CACHE` scope (ONLY the GC pause; drop the def-index memo)
+    - Candidate A3 -- the suite's one nested `python -m pytest` (test_iter487_blackbox `test_eb1_eb2_pass_in_a_dirty_clone`) passes `-n 0`, plus a brake that every nested pytest argv carries `-n 0`
+    - Candidate B1 -- ARCHITECTURE.md's `events.jsonl` kind list is missing iter 493's `resume` kind; fix the list and add a two-way test against `EVENT_KIND_RULES`
+    - Candidate B2 -- USAGE.md "Product config reference": one row per `ProductConfig` field, plus a two-way drift test against `config_field_names()`
+    - Candidate B3 -- PLATFORM_ROADMAP.md's strangler epic says "Steps 2-5 are NEXT" and leaves step 4 unticked, while docs/STRANGLER_PLAN.md:92 records step 4 "DONE 2026-08-04"; tick it and add a cross-file status check
+    winner: B2
+    ship: pending (not yet decided)
   iter-495
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- fold `CompanyWeakTests` / `CompanyConstantAsserts` / `CompanySkippedTests` onto shared module-level `property(fn)` / plain-fn bodies plus two `ClassVar[str]` (VERB, LABEL), each MRO staying exactly 3 (about -210 lines)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the suite's one nested `python -m pytest` (test_iter487_blackbox `test_eb1_eb2_pass_in_a_dirty_clone`) passes `-n 0`, plus a brake that any nested pytest argv carries `-n 0`
     - Candidate B3 -- scoped def-index + signal memo + paused cyclic GC inside `gather_test_quality`'s existing `TEST_TREE_CACHE` scope (company-test-quality ~8.8-10.9s -> ~4s, byte-identical)
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 4998996
   iter-494
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A3 -- `events` / `company-events` re-classify `info`-stamped records at READ time, so the shipped `resume` kind finds its 7 real records
@@ -2260,4 +2270,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-227 scouted iterations
+228 scouted iterations
