@@ -24506,6 +24506,176 @@ def stop_cli(cfg: ProductConfig | None, *, reason: str, force: bool = False,
     print(json.dumps(verdict.to_dict(), indent=2) if as_json else verdict.render())
     return verdict.exit_code
 
+# The three verdicts `resume` can reach, in exit-code order (0 / 1 / 2).
+RESUME_ACTIONS = ("LIFTED", "ABSENT", "FAILED")
+
+# The error a `resume` reports when the sentinel path holds a DIRECTORY. A fixed
+# sentence, never an exception message, so no absolute path can reach the line.
+# The seam refuses before any unlink: removing a tree is never a STOP lift.
+RESUME_NOT_A_FILE_ERROR = (
+    "the sentinel path is not a regular file; a directory is never removed")
+
+
+@dataclasses.dataclass(frozen=True)
+class ResumeVerdict:
+    """One decision about lifting ONE STOP sentinel -- the `resume` verb's core.
+
+    The LIFT half of the `stop` contract. Frozen, like `StopWriteVerdict`, so a
+    computed verdict cannot be edited after the fact and value equality is free.
+
+    Fields:
+      * `action` -- a member of `RESUME_ACTIONS`: `LIFTED` (the sentinel was
+        removed), `ABSENT` (there was nothing to lift), `FAILED` (it could not
+        be removed, or no target was named).
+      * `scope` -- `"global"` (`<foundry>/STOP`) or `"team"` (`<work_root>/STOP`).
+      * `sentinel` -- the path decided upon.
+      * `reason` -- `stop_reason` of the text the sentinel carried, or
+        `STOP_REASON_UNREADABLE`. Reported on EVERY action, FAILED included,
+        because it is the text the operator must read before the file is gone.
+      * `text` -- the sentinel's FULL text, verbatim (`""` when unreadable or
+        absent). The file is gitignored, so this payload is the last place a
+        reactivation condition beyond its first line is still visible.
+      * `existed` -- whether a sentinel was at `sentinel` when probed.
+      * `error` -- `""`, an exception TYPE name, `RESUME_NOT_A_FILE_ERROR`, or the
+        no-target sentence. Never an exception MESSAGE: those embed absolute
+        paths, and this text ships into public logs.
+      * `exit_code` -- an `init=False` FIELD set in `__post_init__` (the
+        `StopWriteVerdict` idiom), so no caller can supply it: 0 `LIFTED` /
+        1 `ABSENT` / 2 `FAILED`. ABSENT is 1 rather than 0 because "your
+        instruction changed nothing" is worth a script noticing.
+    """
+    action: str
+    scope: str
+    sentinel: str
+    reason: str
+    text: str
+    existed: bool
+    error: str
+    exit_code: int = dataclasses.field(init=False, default=2)
+
+    def __post_init__(self) -> None:
+        """Derive `exit_code` once from `action`, so the two can never disagree."""
+        codes = {"LIFTED": 0, "ABSENT": 1}
+        object.__setattr__(self, "exit_code", codes.get(self.action, 2))
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe payload whose keys are EXACTLY the field names, so
+        the machine contract and the verdict cannot drift apart."""
+        return {field.name: getattr(self, field.name)
+                for field in dataclasses.fields(self)}
+
+    def render(self) -> str:
+        """The ONE human line this verb prints, chosen per action.
+
+        A LIFTED line names what happens NEXT, because the two scopes differ: a
+        team lift is picked up on the dispatcher's next round, while the
+        dispatcher EXITS after honoring a global STOP, so it must be restarted."""
+        head = f"resume: {self.action} -- {self.scope} scope; sentinel {self.sentinel}"
+        if self.action == "ABSENT":
+            return f"{head} does not exist; nothing to lift"
+        shown = self.reason or "(no reason recorded)"
+        if self.action == "FAILED":
+            return f"{head}; nothing was removed: {self.error}; reason: {shown}"
+        nxt = ("restart the dispatcher to run again (it exits after a global STOP)"
+               if self.scope == "global"
+               else "the dispatcher picks this team up on its next round")
+        return f"{head} removed; reason was: {shown}; {nxt}"
+
+
+def resume_verdict(scope: str, sentinel: str, *, existed: bool,
+                   existing_reason: str = "", text: str = "",
+                   error: str = "") -> ResumeVerdict:
+    """Decide what lifting `sentinel` amounts to -- PURE and TOTAL.
+
+    Takes the SITUATION as plain values (whether a sentinel was there, what it
+    said, and any error already suffered) and returns the frozen verdict. No
+    filesystem, subprocess, network or clock access; equal inputs give `==`
+    results -- probing and unlinking is the CALLER's job (`resume_cli`).
+
+    Rules, first match wins: a non-empty `error` is `FAILED` (a lift that raised
+    or was refused did not happen); a falsy `existed` is `ABSENT`; else `LIFTED`.
+
+    TOTAL: raises for NO input. Non-`str` `scope` / `sentinel` /
+    `existing_reason` / `text` / `error` are coerced with `str()`, `None`
+    becoming `""`, and `existed` is read for truthiness.
+
+    DORMANT: zero call site in the running pipeline -- only `resume_cli` calls it.
+    """
+    def _s(value: object) -> str:
+        return "" if value is None else str(value)
+
+    cause = _s(error)
+    if cause:
+        action = "FAILED"
+    elif not existed:
+        action = "ABSENT"
+    else:
+        action = "LIFTED"
+    return ResumeVerdict(action=action, scope=_s(scope), sentinel=_s(sentinel),
+                         reason=_s(existing_reason), text=_s(text),
+                         existed=bool(existed), error=cause)
+
+
+def resume_cli(cfg: ProductConfig | None, *, global_scope: bool = False,
+               as_json: bool = False) -> int:
+    """On-demand CLI: lift (delete) the STOP sentinel of a team, or the company.
+
+    The inverse of `stop_cli` and its ONE filesystem seam (the pure core is
+    `resume_verdict`). It resolves the same target `stop_cli` does --
+    `<foundry>/STOP` for `global_scope`, else `cfg.stop_file` -- READS the
+    sentinel's reason and full text BEFORE removing it, and reports both, because
+    the file is gitignored and may hold a reactivation condition a hand `rm`
+    would destroy unseen.
+
+    Order is the safety argument: `exists()` and `is_file()` are checked BEFORE
+    any unlink, so a DIRECTORY at the sentinel path is refused with
+    `RESUME_NOT_A_FILE_ERROR` and nothing is removed. Removal is `Path.unlink()`,
+    and an `OSError` from it becomes a FAILED verdict naming the exception TYPE
+    only. EXISTENCE DECIDES THE LIFT: undecodable text still lifts, reported with
+    `STOP_REASON_UNREADABLE`, matching `gather_stop`.
+
+    With `as_json=True` stdout is exactly ONE `json.dumps(to_dict(), indent=2)`
+    document; either way the return value is the verdict's `exit_code`
+    (0 lifted / 1 absent / 2 failed).
+
+    DORMANT: on-demand only. The pipeline, the final gate and `dispatcher.py`
+    never call it, so a loop in flight resumes byte-identically."""
+    if global_scope:
+        sentinel, scope = FOUNDRY / "STOP", "global"
+    elif cfg is None:
+        # Unreachable through the parser (the target group is REQUIRED), but the
+        # function is total for direct callers rather than trusting argparse.
+        verdict = resume_verdict("team", "", existed=False,
+                                 error="no target: pass --config or --global")
+        print(json.dumps(verdict.to_dict(), indent=2) if as_json
+              else verdict.render())
+        return verdict.exit_code
+    else:
+        sentinel, scope = cfg.stop_file, "team"
+
+    existed = sentinel.exists()
+    reason, text, error = "", "", ""
+    if existed and not sentinel.is_file():
+        error = RESUME_NOT_A_FILE_ERROR
+    elif existed:
+        try:
+            text = sentinel.read_text()
+            reason = stop_reason(text)
+        except (OSError, UnicodeDecodeError, ValueError):
+            # Same fail-CLOSED reading as `gather_stop`: the file is still there,
+            # so it still lifts; only its reason is unknown.
+            text, reason = "", STOP_REASON_UNREADABLE
+        try:
+            sentinel.unlink()
+        except OSError as exc:
+            # TYPE only, never the message -- it embeds the absolute path.
+            error = type(exc).__name__
+    verdict = resume_verdict(scope, str(sentinel), existed=existed,
+                             existing_reason=reason, text=text, error=error)
+    print(json.dumps(verdict.to_dict(), indent=2) if as_json else verdict.render())
+    return verdict.exit_code
+
+
 
 # --------------------------------------------------------------------------- #
 # Prompt + stage runner
@@ -29359,6 +29529,23 @@ def main(argv: list[str] | None = None) -> int:
                      help="emit the write verdict as one JSON document "
                           "(machine-readable) instead of the human line; "
                           "same 0/1/2 exit code")
+    # `resume` is the LIFT half of `stop`: it reports the sentinel's reason (and,
+    # in --json, its full text) and then deletes it. Same REQUIRED
+    # mutually-exclusive target group as `stop`, for the same blast-radius
+    # reason, and dispatched BEFORE load_config because `--global` names no
+    # product. Exit 0 lifted / 1 absent (nothing to lift) / 2 failed.
+    rsm = sub.add_parser("resume")
+    rtarget = rsm.add_mutually_exclusive_group(required=True)
+    rtarget.add_argument("--config",
+                         help="path to ONE PRODUCT config -- lift just that "
+                              "team's <work_root>/STOP (no default: exactly one "
+                              "of --config / --global is required)")
+    rtarget.add_argument("--global", dest="global_scope", action="store_true",
+                         help="lift <foundry>/STOP instead; the dispatcher exits "
+                              "after a global STOP, so restart it afterwards")
+    rsm.add_argument("--json", action="store_true",
+                     help="emit the lift verdict as one JSON document, including "
+                          "the sentinel's full text; same 0/1/2 exit code")
     # `company-history` rolls up EVERY enabled dispatch team's iter-17
     # ship LEDGER into ONE company-wide view (total iterations / shipped /
     # reverted / broken summed across all teams). Its `--config` points at the
@@ -29677,6 +29864,10 @@ def main(argv: list[str] | None = None) -> int:
         return stop_cli(load_config(args.config) if args.config else None,
                         reason=args.reason, force=args.force,
                         global_scope=args.global_scope, as_json=args.json)
+    if args.cmd == "resume":
+        # Dispatched BEFORE load_config, like `stop`: `--global` names no product.
+        return resume_cli(load_config(args.config) if args.config else None,
+                          global_scope=args.global_scope, as_json=args.json)
 
     cfg = load_config(args.config)
     if args.cmd == "doctor":

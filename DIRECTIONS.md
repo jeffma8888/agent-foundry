@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-497
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- ARCHITECTURE.md's `events.jsonl` kind list gains iter 493's `resume` kind and iter 494's read-time `--reclassify`, pinned by a two-way set-equality test against `EVENT_KIND_RULES`
+    - Candidate A2 -- the `events` / `company-events` `--kind` help text lists the valid kinds, built from `EVENT_KIND_RULES`, and the "no events" line says when the requested kind is not a known kind
+    - Candidate A3 -- the operator-flag narrative stops calling `RESTART_NEEDED.md` live: an ARCHITECTURE.md §5 inventory of the per-product flag files with each one's REAL status, pinned against the `dormancy` classifier
+    - Candidate B1 -- `foundry resume --config P | --global`: the inverse of `foundry stop`. It prints the sentinel's own text (the reactivation condition), then lifts it
+    - Candidate B2 -- `foundry config --config P [--json]`: print the EFFECTIVE product config with per-field provenance (`tracked` / `overlay` / `default`)
+    - Candidate B3 -- `foundry company-unfailable-asserts --config DISPATCH [--json]`: the fleet roll-up for the 4th false-green lens, which is the only one of the four with no company view
+    winner: B1
+    ship: pending (not yet decided)
   iter-496
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- postrelease reuses the same-sha `foundry preship` verdict instead of re-running the whole suite (bite 1: preship persists its verdict, plus a pure reuse decision, dormant)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- USAGE.md "Product config reference": one row per `ProductConfig` field, plus a two-way drift test against `config_field_names()`
     - Candidate B3 -- PLATFORM_ROADMAP.md's strangler epic says "Steps 2-5 are NEXT" and leaves step 4 unticked, while docs/STRANGLER_PLAN.md:92 records step 4 "DONE 2026-08-04"; tick it and add a cross-file status check
     winner: B2
-    ship: pending (not yet decided)
+    ship: PUSHED 6a1651b
   iter-495
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- fold `CompanyWeakTests` / `CompanyConstantAsserts` / `CompanySkippedTests` onto shared module-level `property(fn)` / plain-fn bodies plus two `ClassVar[str]` (VERB, LABEL), each MRO staying exactly 3 (about -210 lines)
@@ -2270,4 +2280,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-228 scouted iterations
+229 scouted iterations
