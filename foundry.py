@@ -54,7 +54,7 @@ import tomllib
 import warnings
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import ClassVar, NamedTuple, TypeVar
+from typing import ClassVar, NamedTuple, TypeVar, get_args, get_origin, get_type_hints
 
 FOUNDRY = pathlib.Path(__file__).resolve().parent
 # The agent CLI is configurable so the foundry stays tool-agnostic. AGENT_BIN
@@ -4363,6 +4363,86 @@ class ConfigLint:
         }
 
 
+def _config_type_rule(hint: object) -> tuple[Callable[[object], bool], str] | None:
+    """The `(predicate, label)` JSON-type rule for one `ProductConfig` type hint.
+
+    Covers exactly the hint shapes `ProductConfig` declares (`bool`, `int`, `str`,
+    `str | None`, `tuple[str, ...]`). WHY `None` for any other shape: a future field
+    with a new type must not get a guessed rule that flags a valid config -- it
+    simply goes unchecked until a rule is written for it. `bool` is tested with
+    `type(v) is bool` and excluded from `int` because JSON `true` and `1` are
+    different operator intents, and `isinstance(True, int)` would wave one through
+    as the other. `tuple[str, ...]` accepts a bare `str` and a list because that is
+    exactly what `ProductConfig.resolve()` normalizes (`gap_layers`).
+    """
+    if hint is bool:
+        return (lambda v: type(v) is bool), "bool"
+    if hint is int:
+        return (lambda v: isinstance(v, int) and not isinstance(v, bool)), "int"
+    if hint is str:
+        return (lambda v: isinstance(v, str)), "str"
+    args = get_args(hint)
+    if set(args) == {str, type(None)} and len(args) == 2:
+        return (lambda v: v is None or isinstance(v, str)), "str or null"
+    if get_origin(hint) is tuple and args == (str, Ellipsis):
+        return (lambda v: isinstance(v, str) or (
+            isinstance(v, (list, tuple)) and all(isinstance(x, str) for x in v))
+        ), "list of str"
+    return None
+
+
+def _safe_repr(value: object) -> str:
+    """`repr(value)`, or a placeholder if that `repr` itself raises -- so a finding
+    can always be built and `config_type_findings` stays total."""
+    try:
+        return repr(value)
+    except Exception:
+        return f"<unrepresentable {type(value).__name__}>"
+
+
+def config_type_findings(cfg: ProductConfig) -> tuple[ConfigFinding, ...]:
+    """One error-level `ConfigFinding` per `ProductConfig` field whose value has the
+    wrong JSON type, in `dataclasses.fields` declaration order (at most one each).
+
+    WHY: config files are hand-edited, and `load_config` passes a value of ANY type
+    straight into the dataclass. `"auth_resume_max": "24"` then silently reads as 0
+    (the opt-in does nothing), `"push_enabled": "false"` stays a TRUTHY string (the
+    opposite of the intent), and `"test_cmd": 5` crashed `lint_config` with an
+    `AttributeError`. This is the third class after an unknown key (`ConfigKeyError`)
+    and an unreadable overlay (`ConfigOverlayError`): a value that is present but
+    cannot mean what the operator wrote.
+
+    The expected type is read from `typing.get_type_hints(ProductConfig)` AT CALL
+    TIME, never a hand-kept list, so a new field is covered (or deliberately left
+    unchecked by `_config_type_rule`) without a second edit. `detail` reads
+    `expected <T>, got <type>: <repr>`.
+
+    SCOPE, deliberately LINT-ONLY: `load_config` is NOT changed and still loads a
+    mistyped value without raising, so the dispatcher and the running pipeline are
+    unaffected; failing closed at load time is a separate, later decision. Pure and
+    total: no filesystem, no mutation of `cfg`, never raises (a predicate or `repr`
+    that raises is contained).
+    """
+    hints = get_type_hints(ProductConfig)
+    findings: list[ConfigFinding] = []
+    for field in dataclasses.fields(ProductConfig):
+        rule = _config_type_rule(hints.get(field.name))
+        if rule is None:
+            continue
+        predicate, label = rule
+        value = getattr(cfg, field.name, None)
+        try:
+            ok = bool(predicate(value))
+        except Exception:
+            ok = False
+        if not ok:
+            findings.append(ConfigFinding(
+                field.name, "error",
+                f"wrong value type: expected {label}, got "
+                f"{type(value).__name__}: {_safe_repr(value)}"))
+    return tuple(findings)
+
+
 def lint_config(cfg: ProductConfig) -> ConfigLint:
     """Lint one product config for the misconfigurations that silently waste a
     shift or defeat the push guard (the pure core behind `foundry lint-config`).
@@ -4370,9 +4450,17 @@ def lint_config(cfg: ProductConfig) -> ConfigLint:
     Deterministic + OFFLINE: filesystem-existence (`Path.exists()`) + string
     checks ONLY -- no network (remote reachability stays `doctor`'s job), no
     subprocess, no clock -- so it is fully offline-testable and NEVER raises for
-    any `ProductConfig`. Findings are emitted in a FIXED check order (name,
-    repo, allowed_push_repo, test_cmd, roles_dir, vision, roadmap, quality_ref)
-    so the verdict is deterministic.
+    any `ProductConfig`, including one carrying wrongly-typed JSON values.
+    Findings are emitted in a FIXED check order: FIRST every wrong-type finding
+    from `config_type_findings` (called by bare module name, so a monkeypatch
+    bites), then name, repo, allowed_push_repo, test_cmd, roles_dir, vision,
+    roadmap, quality_ref -- so the verdict is deterministic.
+
+    A check that would READ a field that already has a type finding is SKIPPED
+    (the `allowed_push_repo` safety rule is skipped if EITHER it or
+    `push_enabled` is mistyped). WHY: the type finding is the true problem, and
+    running a string check on a non-string either raised (`test_cmd=5` used to
+    end in an `AttributeError`) or produced a misleading second finding.
 
     Works on a RESOLVED COPY (`dataclasses.replace` then `.resolve()`, inside a
     guard so a pathological `~`-expansion can never raise) so `{FOUNDRY}`/`~` are
@@ -4398,14 +4486,19 @@ def lint_config(cfg: ProductConfig) -> ConfigLint:
         # back to the config as-given rather than break the "never raises"
         # contract; in practice this branch is unreachable for a real config.
         resolved = cfg
-    findings: list[ConfigFinding] = []
+    # bare module name so `monkeypatch.setattr(foundry, ...)` bites
+    findings: list[ConfigFinding] = list(config_type_findings(cfg))
+    mistyped = {f.field for f in findings}
 
-    if not resolved.name.strip():
+    if "name" not in mistyped and not resolved.name.strip():
         findings.append(ConfigFinding(
             "name", "error", "product name is empty"))
 
-    repo = pathlib.Path(resolved.repo) if resolved.repo else None
-    if repo is None or not repo.exists():
+    repo = (pathlib.Path(resolved.repo)
+            if resolved.repo and "repo" not in mistyped else None)
+    if "repo" in mistyped:
+        pass
+    elif repo is None or not repo.exists():
         findings.append(ConfigFinding(
             "repo", "error", f"repo path does not exist: {resolved.repo!r}"))
     elif not (repo / ".git").exists():
@@ -4413,23 +4506,29 @@ def lint_config(cfg: ProductConfig) -> ConfigLint:
             "repo", "error",
             f"repo is not a git repository (no .git entry): {resolved.repo!r}"))
 
-    if resolved.push_enabled and not resolved.allowed_push_repo.strip():
+    if (not mistyped & {"push_enabled", "allowed_push_repo"}
+            and resolved.push_enabled
+            and not resolved.allowed_push_repo.strip()):
         findings.append(ConfigFinding(
             "allowed_push_repo", "error",
             "allowed_push_repo is empty while push_enabled is true -- the push "
             "guard would block EVERY ship"))
 
-    if not resolved.test_cmd.strip():
+    if "test_cmd" not in mistyped and not resolved.test_cmd.strip():
         findings.append(ConfigFinding(
             "test_cmd", "error",
             "test_cmd is empty (no quality-check command)"))
 
-    if not resolved.roles_dir or not pathlib.Path(resolved.roles_dir).exists():
+    if "roles_dir" not in mistyped and (
+            not resolved.roles_dir
+            or not pathlib.Path(resolved.roles_dir).exists()):
         findings.append(ConfigFinding(
             "roles_dir", "error",
             f"roles_dir does not exist: {resolved.roles_dir!r}"))
 
-    if not resolved.vision:
+    if "vision" in mistyped:
+        pass
+    elif not resolved.vision:
         findings.append(ConfigFinding(
             "vision", "warn",
             "vision path is unset (no fixed product intent to hold to)"))
@@ -4438,13 +4537,15 @@ def lint_config(cfg: ProductConfig) -> ConfigLint:
             "vision", "error",
             f"vision file does not exist: {resolved.vision!r}"))
 
-    if resolved.roadmap and not pathlib.Path(resolved.roadmap).exists():
+    if ("roadmap" not in mistyped and resolved.roadmap
+            and not pathlib.Path(resolved.roadmap).exists()):
         findings.append(ConfigFinding(
             "roadmap", "warn",
             f"roadmap file does not exist yet: {resolved.roadmap!r} "
             "(the PM creates it on the first iteration)"))
 
-    if resolved.quality_ref and not pathlib.Path(resolved.quality_ref).exists():
+    if ("quality_ref" not in mistyped and resolved.quality_ref
+            and not pathlib.Path(resolved.quality_ref).exists()):
         findings.append(ConfigFinding(
             "quality_ref", "warn",
             f"quality_ref path does not exist: {resolved.quality_ref!r}"))

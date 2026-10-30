@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-499
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- `lint-config` reports a config value of the WRONG JSON TYPE as an exit-1 finding, and stops crashing on one
+    - Candidate A2 -- `resume --config P` stops promising "picks this team up on its next round" while a global STOP still halts every team
+    - Candidate A3 -- `events` / `company-events --kind <unknown>` say the kind is unknown and list the valid kinds
+    - Candidate B1 -- the pipeline's mandated `test-quality` scan consults the 4th false-green lens (`unfailable-asserts`), so `assert (x == 2, "msg")` stops scanning `verdict: clean`
+    - Candidate B2 -- `foundry status` reports the team's STOP sentinel (scope + reason) instead of `verdict: OK` for a retired team
+    - Candidate B3 -- STOP on-ramps teach the shipped `stop` / `resume` verbs instead of `touch` / `rm`, and `company-stops` names the lift command per stopped team
+    winner: A1
+    ship: pending (not yet decided)
   iter-498
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `foundry config --config P [--json]`: print the EFFECTIVE product config with per-field provenance (`tracked` / `overlay` / `default`)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `events` / `company-events --kind <unknown>` say the kind is unknown and list the valid kinds
     - Candidate B3 -- `lint-config` reports a `config.local.json` key typo as an exit-1 finding that names the overlay
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 235b75e
   iter-497
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- ARCHITECTURE.md's `events.jsonl` kind list gains iter 493's `resume` kind and iter 494's read-time `--reclassify`, pinned by a two-way set-equality test against `EVENT_KIND_RULES`
@@ -2290,4 +2300,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-230 scouted iterations
+231 scouted iterations
