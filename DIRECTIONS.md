@@ -1,6 +1,26 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-502
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- RETRY iter 501's APPROVED `-n 0` patch: the suite's one nested `python -m pytest` stops spawning 12 xdist workers inside a 12-worker suite
+    - Candidate A2 -- test_iter338 `test_ac_the_live_verb_runs_as_a_subprocess_with_the_documented_codes` keeps ONE subprocess for the exit-code contract and runs the other two `dormancy` calls in-process
+    - Candidate A3 -- test_iter155 (the largest module in this run's slow list) builds each distinct hermetic fill fixture ONCE per module instead of once per test
+    - Candidate B1 -- ARCHITECTURE.md's `events.jsonl` kind list gains iter 493's `resume` kind, plus a two-way drift test against `EVENT_KIND_RULES`
+    - Candidate B2 -- the stop/lift on-ramp prose (README #59/#66 tail, CONTINUOUS.md "Stopping is a file", USAGE.md:67/86) names `stop --reason` / `resume` instead of `touch` / `rm`, leaving the sha-pinned cheat-sheet alone
+    - Candidate B3 -- `directions` renders `ship: REVERTED (abort patch on disk)` instead of `unknown` when final.md is absent but `revert_repo`'s own `ABORTED_IMPLEMENTATION.patch` is in the iter dir
+    winner: A1
+    ship: pending (not yet decided)
+  iter-501
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- delete the never-raised `RESTART_NEEDED.md` flag family (`dispatch_restart_line` + its 4 helpers, -137 lines foundry.py)
+    - Candidate A2 -- one `CompanyRollupCounts._rollup_head()` for the 8-line JSON prefix that 10 `Company*.to_dict` bodies hand-copy (item (q) subset bite, about -45 net)
+    - Candidate A3 -- retire roadmap item (x) from PLATFORM_ROADMAP.md's open index: its NEXT BITE shipped in iter 489 and the bucket finds nothing left in its scope
+    - Candidate B1 -- the suite's one nested `python -m pytest` (test_iter487_blackbox `test_eb1_eb2_pass_in_a_dirty_clone`) passes `-n 0`, plus a brake that every nested pytest argv carries `-n 0`
+    - Candidate B2 -- the live-smoke fixture runs `company-weak-tests` human + JSON inside ONE shared `TEST_TREE_CACHE` scope, so the slowest test in the suite stops parsing the fleet's ~1150 test files twice
+    - Candidate B3 -- test_iter338 `test_ac_the_live_verb_runs_as_a_subprocess_with_the_documented_codes` pays the full dormancy census 3 times in 3 subprocesses; keep ONE subprocess for the exit-code contract and run the other two in-process, where the per-process `lru_cache` makes them nearly free
+    winner: B1
+    ship: unknown
   iter-500
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- tester.md duty 1b also runs the shipped `unfailable-asserts --files` scan, so the tester stops reporting `verdict: clean` on `assert (x == 2, "msg")`
@@ -10,7 +30,7 @@ foundry directions -- _platform
     - Candidate B2 -- `test_quality_cli`'s inline print/JSON/exit body collapses onto `_thin_gather_cli`, so the per-product thin-printer contract lives in one place instead of two
     - Candidate B3 -- retire roadmap item (x) from PLATFORM_ROADMAP.md: its "NEXT BITE" (the render triplet on the three test-quality Summary classes) shipped in iter 489, yet the index still lists it OPEN
     winner: A2
-    ship: pending (not yet decided)
+    ship: PUSHED 5400894
   iter-499
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- `lint-config` reports a config value of the WRONG JSON TYPE as an exit-1 finding, and stops crashing on one
@@ -2310,4 +2330,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-232 scouted iterations
+234 scouted iterations

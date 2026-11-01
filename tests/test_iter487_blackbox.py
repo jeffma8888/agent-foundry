@@ -74,7 +74,7 @@ def test_eb1_eb2_pass_in_a_dirty_clone(tmp_path):
     assert "foundry.py" in st.stdout and "README.md" in st.stdout
     run = subprocess.run(
         [sys.executable, "-m", "pytest", "-q", "-rs", "-p", "no:cacheprovider",
-         "tests/test_iter469_behavior.py", "-k", "b5_git or b6_net"],
+         "-n", "0", "tests/test_iter469_behavior.py", "-k", "b5_git or b6_net"],
         capture_output=True, text=True, cwd=str(clone), timeout=300,
     )
     out = run.stdout + run.stderr

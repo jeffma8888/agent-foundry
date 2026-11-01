@@ -1285,7 +1285,13 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # to the iter-469 commit itself. No newest-ness pin touched:
                 # `newest_ness_pin_sites` over that file is `()` at HEAD AND in
                 # the worktree.
-                "tests/test_iter469_behavior.py"}
+                "tests/test_iter469_behavior.py",
+                # iter 502: FORCED brake amendment. iter 487's nested pytest argv
+                # gains `"-n", "0"` so it no longer spawns xdist workers inside an
+                # already-parallel suite. No assertion literal touched and no
+                # newest-ness pin touched: `newest_ness_pin_sites` over that file
+                # is `()` at HEAD AND in the worktree.
+                "tests/test_iter487_blackbox.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the
