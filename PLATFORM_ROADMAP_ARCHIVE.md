@@ -1092,6 +1092,7 @@ future attempt needs a documented LAST-RESORT truncation and its own iteration.
 - **iter 503 -- operator DX: `foundry overlay`, the WRITE half of the machine-local config overlay.** `foundry overlay --config P (--set KEY=VALUE | --unset KEY)` edits the `config.local.json` beside P through a pure `overlay_edit_verdict` core and ONE `overlay_cli` seam: unknown keys are refused with the `describe_config_key` hint, VALUE is stored as the first of its JSON / raw-string readings that passes the field's `config_type_findings` type rule (so `auth_resume_max=24x` is refused instead of loading as a silent no-op), every other key (comments included) and key order is preserved, the write is a temp file + `os.replace`, and an overlay that is invalid JSON, not an object, or already holds an unknown key is never rewritten by `--set` (exit 2); `--unset` of a present key is the repair path. Exit 0 written / 1 refused / 2 unreadable or bad target. Dormant: `load_config`, `merge_local_overlay` and `dispatcher.py` are byte-untouched, so no restart is owed. Forced re-pins: test_iter362 / test_iter497 verb count 65 -> 66, plus the test_iter204 b15 allow-list row for the edited test_iter497.
 - **iter 504 -- hardening: the gitignored config overlay can no longer escalate push.** A pure `overlay_push_escalations(tracked, overlay)` names, in fixed order, every field among `push_enabled` / `repo` / `allowed_push_repo` where `config.local.json` would turn push ON (overlay `true` over an effective tracked value that is not `true`) or change the push target. `overlay --set` refuses such an edit (exit 1, overlay unchanged, message names the tracked config to edit instead); de-escalation (`push_enabled=false`) and `--unset` stay allowed. `lint-config` appends one `error` finding per escalation naming the overlay file. WHY: the overlay never appears in a diff, review or ship gate, so a reviewed `push_enabled: false` could be silently overridden on one machine. `load_config`, `merge_local_overlay` and `dispatcher.py` are byte-untouched (fail-closed loading is a later bite); all 4 on-disk overlays hold only `auth_resume_max`, so no live verdict changes.
 - **iter 505 -- hardening: the push-safety fields of an overlay are IGNORED at load time, not just refused at write time.** `merge_local_overlay` calls the iter-504 pure `overlay_push_escalations(data, overlay)` by bare name after the unknown-key check and drops every escalating key (`push_enabled` turned on over a tracked effective value that is not `true`, or a changed `repo` / `allowed_push_repo`) from the overlay before merging, so `load_config`, the final gate's `Push target ... push_enabled=` prompt line, and the dispatcher all see the REVIEWED tracked value. One stderr line per ignored key names the key, the overlay path and `foundry overlay --config <P> --unset <key>`. Fail-SAFE, not fail-closed: the load still succeeds (the team is never skipped), de-escalation and every other key still merge byte-identically, and `lint-config` keeps its iter-504 error findings. WHY: iter 504 closed the writer and added a linter, but a hand-edited or pre-504 overlay still pushed past review because nothing in the running loop calls `lint-config`. All 4 on-disk overlays hold only `_comment`/`auth_resume_max`, so no live verdict changes. Forced re-pins: test_iter504 b12 x2 (the deferral pin flips to `is False`), test_iter503 `READ_SIDE_GOLDENS['merge_local_overlay']`, plus their test_iter204 b15 allow-list rows.
+- **iter 506 -- operator DX: an unreadable product config no longer crashes the ~33 per-product verbs with a traceback.** `main()` wraps ONLY its shared `cfg = load_config(args.config)` call in `except (OSError, ValueError, TypeError)` and prints one `foundry <verb>: cannot read config <path>: <ExcType>: <message>` line to stderr, returning 1 -- the exit code an uncaught exception already gave, so no script sees a new value; stdout stays empty so `status --json` never emits partial JSON. `load_config`, `merge_local_overlay`, the pre-load verbs (lint-config, overlay, stop/resume, scout-plan, preflight, company-*) and dispatcher.py are unchanged. Picked scout A3 over B2 (`company_rollup_head` fold, invisible to operators) and A2 (overlay typo names `--unset`, the next bite). The PM also moved Item 20's body VERBATIM to the archive to restore index headroom under test_iter447's ceiling.
 
 ## Moved from the index by iter 447
 
@@ -1180,3 +1181,27 @@ stage at their declared position. Stage success stays output-file-based.
 - [x] With a core-only manifest, behavior is unchanged.
 - [x] With one extra seat activated, its stage runs at the declared point and
       its artifact is required; `tests/` green.
+
+## Moved from the index by iter 506
+
+## Item 20 -- tri-perspective product gate + decorrelated adversarial seat (MEDIUM, gated on 19)
+
+**Problem.** Proposals enter the loop without a Business/Product/Engineering
+kill-gate, and every seat runs on the same model as the builder
+(self-preference bias: a same-model reviewer favors its own author).
+
+**What ships.**
+- A `product-gate` stage runnable at kickoff and on strategic-surface triggers:
+  three seat prompts (business, product-gate-pm, senior-engineer), verdicts
+  Go / Kill / Recycle, **default Kill**; deterministic pre-checks (impact number
+  present, appetite stated, alternatives listed) run before any agent call and
+  bounce for free.
+- Per-role model override: the manifest's model note maps to per-role agent-CLI
+  env/args so the product-gate PM and the release gate can run a DIFFERENT
+  model than the builder. Absent an override, current behavior is unchanged.
+- Every verdict logged as structured data (events.jsonl kind: `gate`).
+
+**Done when.**
+- [ ] Gate + pre-checks + logging exist with tests; a Go carries a fixed
+      iteration bet recorded in the manifest; per-role model override is
+      exercised by at least one test (env-level, no real second model needed).

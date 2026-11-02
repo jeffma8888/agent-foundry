@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-506
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- `company-lint-config` consults iter 504's overlay push-escalation guard, so the fleet roll-up stops saying `verdict: clean`, exit 0, over a team whose own `lint-config` exits 1
+    - Candidate A2 -- the overlay unknown-key `ConfigKeyError` names the shipped repair verb, `foundry overlay --config P --unset <key>`, so every surface that prints it (dispatcher skip line, `lint-config` exit 2, `company-*` ERROR rows, status/doctor) teaches the writer instead of the hand edit
+    - Candidate A3 -- the ~33 per-product verbs that load through `main()`'s bare `cfg = load_config(args.config)` (foundry.py:30374) print ONE `foundry <verb>: cannot read config P: <Exc>: <msg>` line instead of a 16-line Python traceback when the config or overlay is unreadable
+    - Candidate B1 -- delete the test-only `DirectionsDigest._ship_label` staticmethod; it is by its own docstring "exactly `directions_ship_label(entry, ())`"
+    - Candidate B2 -- one module-level `company_rollup_head(rollup)` for the 8-line JSON prefix that 7 `Company*.to_dict` bodies hand-copy (item (q), one subset group)
+    - Candidate B3 -- `test_quality_cli`'s hand-copied print/JSON/exit body collapses onto `_thin_gather_cli(gather_test_quality, cfg, files, as_json)`
+    winner: A3
+    ship: pending (not yet decided)
   iter-505
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- the stage prompt and `load_config` stop honouring an overlay push escalation: the final gate is still TOLD `push_enabled=True` over a reviewed `false`
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the overlay's load-time unknown-key error names the shipped repair verb, `foundry overlay --config P --unset <key>`, everywhere it surfaces (dispatcher log, `lint-config` exit 2, the `status` traceback)
     - Candidate B3 -- the tester's mandated scan (tester.md duty 1b) also runs the shipped `unfailable-asserts --files`, so `assert (x == 2, "msg")` stops scanning `verdict: clean`
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED b52bccf
   iter-504
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `foundry iteration --config P --iter N [--json]`: a one-iteration dossier (picked candidate, per-stage attempt count and last-attempt cause, review/tester/ship verdicts, preserved patches)
@@ -2360,4 +2370,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-237 scouted iterations
+238 scouted iterations

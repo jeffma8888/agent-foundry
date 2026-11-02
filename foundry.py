@@ -30371,7 +30371,21 @@ def main(argv: list[str] | None = None) -> int:
         key, value = args.set_pair
         return overlay_cli(args.config, key=key, raw_value=value)
 
-    cfg = load_config(args.config)
+    try:
+        cfg = load_config(args.config)
+    except (OSError, ValueError, TypeError) as exc:
+        # One stderr line instead of a raw traceback: the remedy-bearing sentence
+        # (e.g. which overlay key is unknown) used to sit on the LAST of ~16 lines,
+        # and `--json` callers got no parseable output either way. Exit 1 is kept
+        # on purpose -- it is exactly what the uncaught exception already exited
+        # with, so no script sees a new value. That 1 also overlaps `status`'s
+        # ATTENTION code; that is a known, separate contract question.
+        # load_config itself still raises, so dispatcher.py's own handling is
+        # unchanged; only this CLI boundary converts the failure.
+        prefix = f"foundry {args.cmd}" if args.cmd else "foundry"
+        print(f"{prefix}: cannot read config {args.config}: "
+              f"{type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
     if args.cmd == "doctor":
         return run_doctor_cli(cfg)
     if args.cmd == "save-work":

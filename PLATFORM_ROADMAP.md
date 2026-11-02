@@ -339,6 +339,7 @@ in the archive.
 - iter 503 -- `overlay` verb: validated, atomic config.local.json --set/--unset; never rewrites a broken file.
 - iter 504 -- overlay can't turn push on or re-point repo/allowed_push_repo; lint-config flags it.
 - iter 505 -- load_config drops overlay push escalations (stderr: --unset hint).
+- iter 506 -- per-product verbs print one `cannot read config` line, not a traceback (exit 1).
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
@@ -382,25 +383,7 @@ SHIPPED (all Done-when boxes ticked). Body moved VERBATIM to the archive by iter
 
 ## Item 20 -- tri-perspective product gate + decorrelated adversarial seat (MEDIUM, gated on 19)
 
-**Problem.** Proposals enter the loop without a Business/Product/Engineering
-kill-gate, and every seat runs on the same model as the builder
-(self-preference bias: a same-model reviewer favors its own author).
-
-**What ships.**
-- A `product-gate` stage runnable at kickoff and on strategic-surface triggers:
-  three seat prompts (business, product-gate-pm, senior-engineer), verdicts
-  Go / Kill / Recycle, **default Kill**; deterministic pre-checks (impact number
-  present, appetite stated, alternatives listed) run before any agent call and
-  bounce for free.
-- Per-role model override: the manifest's model note maps to per-role agent-CLI
-  env/args so the product-gate PM and the release gate can run a DIFFERENT
-  model than the builder. Absent an override, current behavior is unchanged.
-- Every verdict logged as structured data (events.jsonl kind: `gate`).
-
-**Done when.**
-- [ ] Gate + pre-checks + logging exist with tests; a Go carries a fixed
-      iteration bet recorded in the manifest; per-role model override is
-      exercised by at least one test (env-level, no real second model needed).
+OPEN (no Done-when box ticked). Body moved VERBATIM to the archive by iter 506.
 
 ## Item 21 -- CEO escalation predicates (SMALL-MEDIUM, pattern exists)
 
