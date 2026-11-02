@@ -9066,10 +9066,29 @@ def _test_function_nodes(
     FLAGGED subset by `lineno`, so preserving the walk order here is what keeps
     each finder's output byte-identical to the pre-iter-159 inline prologue.
     Considers a method inside a class as well as a top-level function. Pure: no I/O.
+
+    Statement-only walk (iter 507): the traversal is `ast.walk`'s own breadth-first
+    order, but it enqueues only `ast.stmt` / `ast.excepthandler` / `ast.match_case`
+    / `ast.mod` children, taken in `node._fields` order exactly as
+    `ast.iter_child_nodes` yields them. Python never nests a statement inside an
+    expression, so every ancestor of a `def` is one of those four kinds: pruning
+    the expression subtrees keeps each `def` at its `ast.walk` depth and in its
+    `ast.walk` relative order, while skipping ~90% of the nodes (this prologue runs
+    3x per file in the test-hygiene composite). `_fields` order, never a
+    hand-picked field tuple, is what keeps e.g. `Try`'s handlers/orelse order right.
     """
     tree = source if isinstance(source, ast.AST) else ast.parse(source)
+    kinds = (ast.stmt, ast.excepthandler, ast.match_case, ast.mod)
+    queue: list[ast.AST] = [tree]
+    for node in queue:  # a list grown while iterated is a FIFO queue
+        for field in node._fields:
+            value = getattr(node, field, None)
+            if isinstance(value, list):
+                queue.extend(v for v in value if isinstance(v, kinds))
+            elif isinstance(value, kinds):
+                queue.append(value)
     return [
-        node for node in ast.walk(tree)
+        node for node in queue
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name.startswith("test")
     ]

@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-507
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- delete the `RESTART_NEEDED.md` flag family nothing ever raises: `dispatch_restart_line` (test-only) plus `write_restart_flag` / `clear_restart_flag` / `restart_flag_path` / `RESTART_FLAG_NAME`, and its `products/.gitignore:12` entry
+    - Candidate A2 -- delete the test-only `DirectionsDigest._ship_label` staticmethod, a one-line alias for `directions_ship_label(entry, ())`
+    - Candidate A3 -- retire roadmap item (x) from PLATFORM_ROADMAP.md's open index: its NEXT BITE (the render triplet on the test-quality Summary classes) shipped in iter 489 (`e3bd5b9`)
+    - Candidate B1 -- `_test_function_nodes` walks only statement-bearing nodes: `company-test-quality` 7.10 s -> 4.02 s, `company-weak-tests` 3.02 s -> 2.03 s, byte-identical
+    - Candidate B2 -- pause the cyclic GC for the duration of `gather_test_quality`'s `TEST_TREE_CACHE` scope: composite parse cost 2.53 s -> 1.50 s
+    - Candidate B3 -- the constant-assert lens stops walking a test's subtree once it holds a real signal: `company-constant-asserts` 2.99 s -> 2.17 s, byte-identical
+    winner: B1
+    ship: pending (not yet decided)
   iter-506
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- `company-lint-config` consults iter 504's overlay push-escalation guard, so the fleet roll-up stops saying `verdict: clean`, exit 0, over a team whose own `lint-config` exits 1
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- one module-level `company_rollup_head(rollup)` for the 8-line JSON prefix that 7 `Company*.to_dict` bodies hand-copy (item (q), one subset group)
     - Candidate B3 -- `test_quality_cli`'s hand-copied print/JSON/exit body collapses onto `_thin_gather_cli(gather_test_quality, cfg, files, as_json)`
     winner: A3
-    ship: pending (not yet decided)
+    ship: PUSHED 04b1705
   iter-505
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- the stage prompt and `load_config` stop honouring an overlay push escalation: the final gate is still TOLD `push_enabled=True` over a reviewed `false`
@@ -2370,4 +2380,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-238 scouted iterations
+239 scouted iterations
