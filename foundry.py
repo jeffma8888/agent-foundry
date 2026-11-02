@@ -24848,6 +24848,189 @@ def resume_cli(cfg: ProductConfig | None, *, global_scope: bool = False,
     return verdict.exit_code
 
 
+# Sentinel for "this key is not in the overlay" in an `overlay:` line. Parenthesized
+# so it can never be mistaken for a JSON-rendered value (`json.dumps` never emits it).
+OVERLAY_UNSET_LABEL = "(unset)"
+
+
+@dataclasses.dataclass(frozen=True)
+class OverlayEdit:
+    """The decision for ONE `foundry overlay` edit: what to write, what to say, and
+    the exit code (0 write `new` / 1 refused / 2 unreadable overlay or bad target).
+
+    `new` is None on every refusal, so the seam's rule is simply "write iff `new` is
+    not None" and can never write a file the verdict did not approve."""
+
+    exit_code: int
+    message: str
+    new: dict[str, object] | None = None
+
+
+def _reject_json_constant(token: str) -> object:
+    """`json.loads` `parse_constant` hook: refuse `NaN` / `Infinity` / `-Infinity`.
+
+    WHY: Python's `json` reads them but they are not JSON, so storing one would
+    write an overlay every strict reader (and `json.dumps(allow_nan=False)`)
+    rejects. Raising makes the value fall through to its raw-string reading."""
+    raise ValueError(f"non-JSON constant {token}")
+
+
+def overlay_value_readings(raw_value: str) -> tuple[object, ...]:
+    """Candidate stored values for one `--set KEY=VALUE`, in preference order: the
+    JSON reading (when VALUE parses as strict JSON), then the raw string. Pure."""
+    readings: list[object] = []
+    try:
+        readings.append(json.loads(raw_value, parse_constant=_reject_json_constant))
+    except ValueError:
+        pass
+    readings.append(raw_value)
+    return tuple(readings)
+
+
+def overlay_edit_verdict(existing: object, key: str, raw_value: str | None, *,
+                         unset: bool, overlay_path: str,
+                         read_error: str = "") -> OverlayEdit:
+    """Decide ONE edit to a `config.local.json` overlay -- the pure core of `overlay`.
+
+    WHY a writer at all: the overlay is hand-typed JSON, and iters 498/499 paid for
+    both ways a hand edit fails -- a syntax error that skipped the team every round,
+    and `"auth_resume_max": "24"` loading SILENTLY as a no-op opt-in. This core
+    makes the correct edit the easy one by REUSING the shipped validators, never a
+    second copy of them: `unknown_config_keys` / `describe_config_key` for the key,
+    and `_config_type_rule` over `get_type_hints(ProductConfig)` (the exact rule
+    `config_type_findings` applies) for the value.
+
+    `existing` is the parsed overlay (None when the file is absent); `read_error`
+    is the seam's description of a file it could not read or a bad target. Fail
+    order is the safety argument: an unreadable / non-object overlay, or (for
+    `--set`) one already holding an unknown key, is exit 2 and is NEVER rewritten,
+    because a rewrite would either destroy the operator's text or bless a file
+    `load_config` refuses. `--unset` accepts ANY key physically present, so it is
+    the repair path for exactly that typo. A new key is appended; an existing key
+    keeps its position, so comments and key order survive. Pure and total: no I/O,
+    `existing` is never mutated."""
+    if read_error:
+        return OverlayEdit(2, f"overlay: cannot edit {overlay_path}: {read_error}")
+    if existing is not None and not isinstance(existing, dict):
+        return OverlayEdit(2, f"overlay: cannot edit {overlay_path}: it must hold a "
+                              f"JSON object, got {type(existing).__name__}")
+    current: dict[str, object] = dict(existing or {})
+    old = (json.dumps(current[key]) if key in current else OVERLAY_UNSET_LABEL)
+    if unset:
+        if key not in current:
+            return OverlayEdit(1, f"overlay: refused: {key!r} is not set in "
+                                  f"{overlay_path}")
+        del current[key]
+        return OverlayEdit(0, f"overlay: {key} {old} -> {OVERLAY_UNSET_LABEL} "
+                              f"({overlay_path})", current)
+    if key.startswith(CONFIG_COMMENT_PREFIX):
+        return OverlayEdit(1, f"overlay: refused: {key!r} is a comment key; comment "
+                              f"keys are hand-written, edit {overlay_path} directly")
+    if unknown_config_keys({key: None}):
+        return OverlayEdit(1, f"overlay: refused: unknown key {describe_config_key(key)}"
+                              f"; known fields: {', '.join(config_field_names())}")
+    stale = unknown_config_keys(current)
+    if stale:
+        return OverlayEdit(2, f"overlay: cannot edit {overlay_path}: it already holds "
+                              "unknown key(s) "
+                              + ", ".join(describe_config_key(k) for k in stale)
+                              + "; remove them with --unset first")
+    readings = overlay_value_readings(raw_value or "")
+    rule = _config_type_rule(get_type_hints(ProductConfig).get(key))
+    if rule is None:
+        value = readings[0]
+    else:
+        predicate, label = rule
+        valid = [r for r in readings if predicate(r)]
+        if not valid:
+            return OverlayEdit(1, f"overlay: refused: {key}: wrong value type: "
+                                  f"expected {label}, got {raw_value!r}")
+        value = valid[0]
+    current[key] = value
+    return OverlayEdit(0, f"overlay: {key} {old} -> {json.dumps(value)} "
+                          f"({overlay_path})", current)
+
+
+def _overlay_read(overlay_path: pathlib.Path) -> tuple[object, str]:
+    """`(parsed overlay or None if absent, read_error)` -- never raises.
+
+    The error text names the overlay path's problem but never embeds an OS message
+    (an `OSError` carries absolute paths): only its TYPE is reported."""
+    if not overlay_path.exists():
+        return None, ""
+    if not overlay_path.is_file():
+        return None, "it is not a regular file"
+    try:
+        return json.loads(overlay_path.read_bytes().decode("utf-8")), ""
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        return None, f"it is not valid JSON ({type(exc).__name__}); fix it by hand"
+    except OSError as exc:
+        return None, f"it could not be read ({type(exc).__name__})"
+
+
+def _overlay_write(overlay_path: pathlib.Path, data: Mapping[str, object]) -> str:
+    """Atomically replace `overlay_path` with `data` (indent=2 + trailing newline);
+    returns "" on success, else the exception TYPE.
+
+    A temp file in the SAME directory then `os.replace`, so a reader never sees a
+    half-written overlay; mode "x" keeps the umask's normal permissions, an existing
+    overlay's mode is copied over, and the temp file is removed on every failure."""
+    tmp = overlay_path.with_name(f".{overlay_path.name}.{os.getpid()}.tmp")
+    try:
+        with open(tmp, "x", encoding="utf-8") as fh:
+            fh.write(json.dumps(data, indent=2, allow_nan=False) + "\n")
+        if overlay_path.exists():
+            shutil.copymode(overlay_path, tmp)
+        os.replace(tmp, overlay_path)
+    except (OSError, ValueError) as exc:
+        tmp.unlink(missing_ok=True)
+        return type(exc).__name__
+    return ""
+
+
+def overlay_cli(config_path: str, *, key: str, raw_value: str | None = None,
+                unset: bool = False) -> int:
+    """On-demand CLI: set or unset ONE key in the `config.local.json` beside the
+    product config `config_path` -- the WRITE half of the iter-490 overlay.
+
+    The ONE filesystem seam over the pure `overlay_edit_verdict`: it reads the
+    overlay, asks the verdict, and writes only when the verdict carries a new dict.
+    It never loads the product config (so it works on a BROKEN overlay, which
+    `load_config` would refuse) and never touches the tracked config. A missing
+    config, or a path that is itself the overlay, is exit 2 with nothing created.
+    Prints exactly one `overlay:` line; returns the verdict's exit code.
+
+    DORMANT: on-demand only. The pipeline, the final gate and `dispatcher.py` never
+    call it, and `load_config` / `merge_local_overlay` are unchanged."""
+    target = pathlib.Path(config_path).expanduser()
+    overlay_path = target.parent / CONFIG_LOCAL_OVERLAY_NAME
+    if target.name == CONFIG_LOCAL_OVERLAY_NAME:
+        existing, error = None, ("--config names the overlay itself; pass the "
+                                 "product config beside it")
+    elif not target.is_file():
+        existing, error = None, f"product config {target} does not exist"
+    else:
+        existing, error = _overlay_read(overlay_path)
+    verdict = overlay_edit_verdict(existing, key, raw_value, unset=unset,
+                                   overlay_path=str(overlay_path), read_error=error)
+    if verdict.new is not None:
+        failure = _overlay_write(overlay_path, verdict.new)
+        if failure:
+            print(f"overlay: cannot write {overlay_path}: {failure}")
+            return 2
+    print(verdict.message)
+    return verdict.exit_code
+
+
+def _overlay_set_arg(text: str) -> tuple[str, str]:
+    """argparse `type=` for `--set KEY=VALUE`: split on the FIRST `=` (a value may
+    contain `=`); a missing `=` or an empty KEY is an argparse error (exit 2)."""
+    key, sep, value = text.partition("=")
+    if not sep or not key:
+        raise argparse.ArgumentTypeError(f"expected KEY=VALUE, got {text!r}")
+    return key, value
+
+
 
 # --------------------------------------------------------------------------- #
 # Prompt + stage runner
@@ -29718,6 +29901,24 @@ def main(argv: list[str] | None = None) -> int:
     rsm.add_argument("--json", action="store_true",
                      help="emit the lift verdict as one JSON document, including "
                           "the sentinel's full text; same 0/1/2 exit code")
+    # `overlay` is the WRITE half of the machine-local `config.local.json`
+    # overlay: one validated --set/--unset, written atomically. Dispatched BEFORE
+    # load_config because it must work on a BROKEN overlay that load_config
+    # refuses. Exit 0 written / 1 refused / 2 unreadable overlay or bad target.
+    ovl = sub.add_parser("overlay")
+    ovl.add_argument("--config", required=True,
+                     help="path to ONE PRODUCT config; the edited file is the "
+                          "config.local.json beside it (the config itself is "
+                          "never modified)")
+    oedit = ovl.add_mutually_exclusive_group(required=True)
+    oedit.add_argument("--set", dest="set_pair", metavar="KEY=VALUE",
+                       type=_overlay_set_arg,
+                       help="set KEY; VALUE is stored as the first of its JSON / "
+                            "raw-string readings that matches the field's type "
+                            "(unknown keys and wrong types are refused)")
+    oedit.add_argument("--unset", metavar="KEY",
+                       help="remove KEY (any key present, so it also repairs a "
+                            "mistyped unknown key)")
     # `company-history` rolls up EVERY enabled dispatch team's iter-17
     # ship LEDGER into ONE company-wide view (total iterations / shipped /
     # reverted / broken summed across all teams). Its `--config` points at the
@@ -30040,6 +30241,13 @@ def main(argv: list[str] | None = None) -> int:
         # Dispatched BEFORE load_config, like `stop`: `--global` names no product.
         return resume_cli(load_config(args.config) if args.config else None,
                           global_scope=args.global_scope, as_json=args.json)
+    if args.cmd == "overlay":
+        # Dispatched BEFORE load_config: the overlay it repairs may be one
+        # load_config refuses.
+        if args.unset is not None:
+            return overlay_cli(args.config, key=args.unset, unset=True)
+        key, value = args.set_pair
+        return overlay_cli(args.config, key=key, raw_value=value)
 
     cfg = load_config(args.config)
     if args.cmd == "doctor":

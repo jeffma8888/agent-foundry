@@ -336,6 +336,7 @@ in the archive.
 - iter 499 -- lint-config reports a wrongly-typed config value as an error instead of passing or crashing.
 - iter 500 -- `status` prints a `stop:` line (scope, reason, resume lift verb) when a STOP is in effect.
 - iter 502 -- nested suite pytest run passes `-n 0` (no xdist oversubscription) + AST brake (retry of 501).
+- iter 503 -- `overlay` verb: validated, atomic config.local.json --set/--unset; never rewrites a broken file.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

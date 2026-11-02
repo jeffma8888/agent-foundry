@@ -1291,7 +1291,13 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # already-parallel suite. No assertion literal touched and no
                 # newest-ness pin touched: `newest_ness_pin_sites` over that file
                 # is `()` at HEAD AND in the worktree.
-                "tests/test_iter487_blackbox.py"}
+                "tests/test_iter487_blackbox.py",
+                # iter 503: FORCED brake amendment. The `overlay` verb takes the
+                # CLI census 65 -> 66, so iter 497's b11 verb-count literals (its
+                # own and its read of iter 362's pin) stepped to 66. No
+                # newest-ness pin touched: `newest_ness_pin_sites` over that file
+                # is `()` at HEAD AND in the worktree.
+                "tests/test_iter497_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

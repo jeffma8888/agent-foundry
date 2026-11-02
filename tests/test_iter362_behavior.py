@@ -51,7 +51,7 @@ VERDICT_TOKENS = ("verdict: DUAL", "verdict: SINGLE")
 # Counted, not enumerated, so the check stays about the INVARIANT rather than
 # re-typing a table the census already owns -- keep it an EXACT equality, never
 # `>=`, so an accidental verb still reds.
-EXPECTED_VERB_COUNT = 65  # +1 for `reverts` (iter 468), +1 for `resume` (iter 497)
+EXPECTED_VERB_COUNT = 66  # +1 for `reverts` (iter 468), +1 for `resume` (iter 497), +1 for `overlay` (iter 503)
 
 
 def _cap(fn):

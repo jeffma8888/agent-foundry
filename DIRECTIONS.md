@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-503
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- README #9 and `StatusSummary.render`'s docstring name every line `foundry status` prints (live-lag, last ship, iter 500's `stop:`), plus a drift test derived from `render()`
+    - Candidate A2 -- the unpinned stop/lift prose teaches `stop --reason` / `resume` instead of `touch` / "remove the file", and the dispatcher's global-STOP refusal names `resume --global`
+    - Candidate A3 -- USAGE.md's config reference and README #27 say what a WRONG-TYPED value does: it loads silently, and only `lint-config` catches it (iter 499)
+    - Candidate B1 -- `foundry overlay --config P --set KEY=VALUE | --unset KEY`: a validated WRITER for `config.local.json`, so the machine-local opt-ins stop being hand-typed JSON
+    - Candidate B2 -- `foundry company-unfailable-asserts --config DISPATCH [--json]`: the fleet roll-up for the 4th false-green lens, which `company-test-quality` cannot see
+    - Candidate B3 -- `foundry config --config P [--json]`: print the EFFECTIVE product config with per-field provenance (`tracked` / `overlay` / `default`) and an inline wrong-type mark
+    winner: B1
+    ship: pending (not yet decided)
   iter-502
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- RETRY iter 501's APPROVED `-n 0` patch: the suite's one nested `python -m pytest` stops spawning 12 xdist workers inside a 12-worker suite
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the stop/lift on-ramp prose (README #59/#66 tail, CONTINUOUS.md "Stopping is a file", USAGE.md:67/86) names `stop --reason` / `resume` instead of `touch` / `rm`, leaving the sha-pinned cheat-sheet alone
     - Candidate B3 -- `directions` renders `ship: REVERTED (abort patch on disk)` instead of `unknown` when final.md is absent but `revert_repo`'s own `ABORTED_IMPLEMENTATION.patch` is in the iter dir
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 0034e68
   iter-501
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- delete the never-raised `RESTART_NEEDED.md` flag family (`dispatch_restart_line` + its 4 helpers, -137 lines foundry.py)
@@ -2330,4 +2340,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-234 scouted iterations
+235 scouted iterations

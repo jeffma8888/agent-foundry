@@ -378,7 +378,7 @@ def test_b11_census_and_readme_index():
     src = (_ROOT / "foundry.py").read_text()
     verbs = foundry.foundry_cli_verbs(src)
     assert "resume" in verbs
-    assert len(set(verbs)) == 65
+    assert len(set(verbs)) == 66
     readme = (_ROOT / "README.md").read_text()
     audit = foundry.readme_verb_index_gaps(readme, verbs)
     assert audit.ok is True and tuple(audit.missing_verbs) == (), audit
@@ -387,7 +387,7 @@ def test_b11_census_and_readme_index():
     assert entry and "resume" in entry[0], entry
     t362 = (_ROOT / "tests" / "test_iter362_behavior.py").read_text()
     pin = [ln for ln in t362.splitlines() if ln.startswith("EXPECTED_VERB_COUNT")]
-    assert len(pin) == 1 and pin[0].split("=")[1].split("#")[0].strip() == "65", pin
+    assert len(pin) == 1 and pin[0].split("=")[1].split("#")[0].strip() == "66", pin
 
 
 def test_b11_help_lists_resume():
