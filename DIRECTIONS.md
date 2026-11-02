@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-504
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- `foundry iteration --config P --iter N [--json]`: a one-iteration dossier (picked candidate, per-stage attempt count and last-attempt cause, review/tester/ship verdicts, preserved patches)
+    - Candidate A2 -- `foundry overlay --config P --show [--json]`: the READ half of the shipped writer. It lists each key `config.local.json` sets, the value it sets, the value the field would have without it (tracked or dataclass default), the overlay's `_comment`, and a per-key type verdict
+    - Candidate A3 -- `foundry learnings --config P --role <stage> [--recent N] [--json]`: a seat's OWN lessons, untruncated, newest N
+    - Candidate B1 -- a machine-local `config.local.json` can silently turn push ON and re-point the push target; `overlay --set` refuses that, and `lint-config` reports it as an error naming the overlay
+    - Candidate B2 -- `resume --config P` stops saying "the dispatcher picks this team up on its next round" while a global STOP is still in effect
+    - Candidate B3 -- `rescues` stops printing `verdict: no lost attempts` over a window where `losses` reports 25 lost attempts
+    winner: B1
+    ship: pending (not yet decided)
   iter-503
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- README #9 and `StatusSummary.render`'s docstring name every line `foundry status` prints (live-lag, last ship, iter 500's `stop:`), plus a drift test derived from `render()`
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry company-unfailable-asserts --config DISPATCH [--json]`: the fleet roll-up for the 4th false-green lens, which `company-test-quality` cannot see
     - Candidate B3 -- `foundry config --config P [--json]`: print the EFFECTIVE product config with per-field provenance (`tracked` / `overlay` / `default`) and an inline wrong-type mark
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 395f4c0
   iter-502
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- RETRY iter 501's APPROVED `-n 0` patch: the suite's one nested `python -m pytest` stops spawning 12 xdist workers inside a 12-worker suite
@@ -2340,4 +2350,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-235 scouted iterations
+236 scouted iterations

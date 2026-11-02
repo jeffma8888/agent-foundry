@@ -4969,6 +4969,38 @@ def _report_unreadable_config(config_path: str, exc: BaseException,
     return 2
 
 
+def overlay_escalation_findings(config_path: str) -> tuple[ConfigFinding, ...]:
+    """One error `ConfigFinding` per field the sibling `config.local.json` of
+    `config_path` escalates over the tracked config (`overlay_push_escalations`
+    order); `()` when there is no overlay, `config_path` IS the overlay, or any read
+    fails. Never raises.
+
+    WHY in the CLI and not in `lint_config`: the pure core lints a merged
+    `ProductConfig` and cannot tell which file a value came from, and past tests
+    call it directly; the escalation is only visible by comparing the two raw files.
+    FAIL-SAFE like the key-findings branch: a failed re-read adds nothing rather
+    than costing the operator the lint they already had."""
+    try:
+        target = pathlib.Path(config_path).expanduser()
+        if target.name == CONFIG_LOCAL_OVERLAY_NAME:
+            return ()
+        overlay_path = target.parent / CONFIG_LOCAL_OVERLAY_NAME
+        if not overlay_path.is_file():
+            return ()
+        tracked = json.loads(target.read_text())
+        overlay = json.loads(overlay_path.read_text())
+        return tuple(
+            ConfigFinding(field=key, level="error",
+                          detail=f"{overlay_path} overrides {key} past review (the "
+                                 "overlay is gitignored, so it may not turn push on "
+                                 f"or change the push target); move {key} into "
+                                 f"{target} or remove it with "
+                                 f"`foundry overlay --config {target} --unset {key}`")
+            for key in overlay_push_escalations(tracked, overlay))
+    except Exception:
+        return ()
+
+
 def lint_config_cli(config_path: str, as_json: bool = False) -> int:
     """On-demand CLI: lint a PRODUCT config file for misconfigurations.
 
@@ -5006,6 +5038,10 @@ def lint_config_cli(config_path: str, as_json: bool = False) -> int:
     module name inside its OWN `try`, so if it returns `None` or raises, this input's
     pre-existing behaviour is untouched: the roster falls through to the unknown-key
     findings report (exit `1`) exactly as before.
+
+    On a successful load, `overlay_escalation_findings` errors (a gitignored overlay
+    turning push on or changing the push target) are APPENDED after every
+    `lint_config` finding, so an unescalated config's report is byte-identical.
     """
     try:
         cfg = load_config(config_path)
@@ -5041,6 +5077,11 @@ def lint_config_cli(config_path: str, as_json: bool = False) -> int:
     except Exception as exc:
         return _report_unreadable_config(config_path, exc, as_json)
     lint = lint_config(cfg)
+    # bare module name so `monkeypatch.setattr(foundry, ...)` bites
+    escalations = overlay_escalation_findings(config_path)
+    if escalations:
+        lint = ConfigLint(config_path=lint.config_path,
+                          findings=lint.findings + escalations)
     if as_json:
         print(json.dumps(lint.to_dict(), indent=2))
     else:
@@ -24853,6 +24894,44 @@ def resume_cli(cfg: ProductConfig | None, *, global_scope: bool = False,
 OVERLAY_UNSET_LABEL = "(unset)"
 
 
+# The push-safety fields an overlay may never raise past review, in report order.
+OVERLAY_PUSH_GUARDED_FIELDS = ("push_enabled", "repo", "allowed_push_repo")
+
+
+def overlay_push_escalations(tracked: object, overlay: object) -> tuple[str, ...]:
+    """The guarded fields `overlay` would ESCALATE over the tracked config, in
+    `OVERLAY_PUSH_GUARDED_FIELDS` order. Pure and total: never raises, and a
+    non-dict argument is read as `{}`.
+
+    WHY: `config.local.json` is gitignored, so it never reaches a diff, a review or
+    the ship gate -- yet `merge_local_overlay` lets it override ANY field. A push
+    enable, or a new push target, is exactly the decision that must be reviewed, so
+    an overlay that turns push ON (`True` over a tracked effective value that is not
+    `True`; the dataclass default counts) or changes `repo` / `allowed_push_repo`
+    (replacing both would let the push-target guard compare overlay values with each
+    other) escalates. Turning push OFF is always safe and never reported. A value
+    whose comparison raises is reported (fail closed), never propagated."""
+    tracked_map = tracked if isinstance(tracked, dict) else {}
+    overlay_map = overlay if isinstance(overlay, dict) else {}
+    hits: list[str] = []
+    for field in OVERLAY_PUSH_GUARDED_FIELDS:
+        if field not in overlay_map:
+            continue
+        value = overlay_map[field]
+        if field == "push_enabled":
+            current = tracked_map.get(field, ProductConfig.push_enabled)
+            if value is True and current is not True:
+                hits.append(field)
+            continue
+        try:
+            changed = bool(value != tracked_map.get(field))
+        except Exception:
+            changed = True
+        if changed:
+            hits.append(field)
+    return tuple(hits)
+
+
 @dataclasses.dataclass(frozen=True)
 class OverlayEdit:
     """The decision for ONE `foundry overlay` edit: what to write, what to say, and
@@ -24889,7 +24968,8 @@ def overlay_value_readings(raw_value: str) -> tuple[object, ...]:
 
 def overlay_edit_verdict(existing: object, key: str, raw_value: str | None, *,
                          unset: bool, overlay_path: str,
-                         read_error: str = "") -> OverlayEdit:
+                         read_error: str = "", tracked: object = None,
+                         tracked_path: str = "") -> OverlayEdit:
     """Decide ONE edit to a `config.local.json` overlay -- the pure core of `overlay`.
 
     WHY a writer at all: the overlay is hand-typed JSON, and iters 498/499 paid for
@@ -24908,7 +24988,14 @@ def overlay_edit_verdict(existing: object, key: str, raw_value: str | None, *,
     `load_config` refuses. `--unset` accepts ANY key physically present, so it is
     the repair path for exactly that typo. A new key is appended; an existing key
     keeps its position, so comments and key order survive. Pure and total: no I/O,
-    `existing` is never mutated."""
+    `existing` is never mutated.
+
+    `tracked` is the parsed TRACKED config; when given (not None), a `--set` that
+    `overlay_push_escalations` flags -- push turned on, or a changed `repo` /
+    `allowed_push_repo` -- is refused (exit 1, nothing written), because a gitignored
+    file must not decide a push. It runs AFTER the type check, so a wrong-typed value
+    keeps its type message. None skips the check (the pre-iter-504 behaviour);
+    `tracked_path` only names the file to edit instead in the refusal."""
     if read_error:
         return OverlayEdit(2, f"overlay: cannot edit {overlay_path}: {read_error}")
     if existing is not None and not isinstance(existing, dict):
@@ -24946,6 +25033,12 @@ def overlay_edit_verdict(existing: object, key: str, raw_value: str | None, *,
             return OverlayEdit(1, f"overlay: refused: {key}: wrong value type: "
                                   f"expected {label}, got {raw_value!r}")
         value = valid[0]
+    # bare module name so `monkeypatch.setattr(foundry, ...)` bites
+    if tracked is not None and overlay_push_escalations(tracked, {key: value}):
+        where = tracked_path or "the tracked product config"
+        return OverlayEdit(1, f"overlay: refused: {key}={json.dumps(value)} would "
+                              "escalate push past review (the overlay is gitignored); "
+                              f"set {key} in {where} through review instead")
     current[key] = value
     return OverlayEdit(0, f"overlay: {key} {old} -> {json.dumps(value)} "
                           f"({overlay_path})", current)
@@ -24988,6 +25081,17 @@ def _overlay_write(overlay_path: pathlib.Path, data: Mapping[str, object]) -> st
     return ""
 
 
+def _tracked_config_json(target: pathlib.Path) -> object:
+    """The parsed tracked config at `target`, or `{}` when it cannot be read or
+    parsed -- never raises. `{}` still guards `repo` / `allowed_push_repo` (and
+    reads `push_enabled` as its default), so an unreadable file never disables
+    the push-escalation refusal."""
+    try:
+        return json.loads(target.read_bytes().decode("utf-8"))
+    except Exception:
+        return {}
+
+
 def overlay_cli(config_path: str, *, key: str, raw_value: str | None = None,
                 unset: bool = False) -> int:
     """On-demand CLI: set or unset ONE key in the `config.local.json` beside the
@@ -24999,6 +25103,9 @@ def overlay_cli(config_path: str, *, key: str, raw_value: str | None = None,
     `load_config` would refuse) and never touches the tracked config. A missing
     config, or a path that is itself the overlay, is exit 2 with nothing created.
     Prints exactly one `overlay:` line; returns the verdict's exit code.
+
+    It READS the tracked config (never writes it) only to refuse a push escalation;
+    see `overlay_push_escalations`.
 
     DORMANT: on-demand only. The pipeline, the final gate and `dispatcher.py` never
     call it, and `load_config` / `merge_local_overlay` are unchanged."""
@@ -25012,7 +25119,9 @@ def overlay_cli(config_path: str, *, key: str, raw_value: str | None = None,
     else:
         existing, error = _overlay_read(overlay_path)
     verdict = overlay_edit_verdict(existing, key, raw_value, unset=unset,
-                                   overlay_path=str(overlay_path), read_error=error)
+                                   overlay_path=str(overlay_path), read_error=error,
+                                   tracked=_tracked_config_json(target),
+                                   tracked_path=str(target))
     if verdict.new is not None:
         failure = _overlay_write(overlay_path, verdict.new)
         if failure:
