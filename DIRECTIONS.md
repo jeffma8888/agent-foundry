@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-508
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- `find_constant_assert_tests` stops walking a test's subtree at its first real signal: 0.654 s -> 0.166 s per 305-file scan (4x), byte-identical
+    - Candidate A2 -- test_iter179 b16's artifact-read scan skips any file whose text names no artifact: 1.95 s -> 0.11-0.21 s, provably the same findings
+    - Candidate A3 -- test_iter186 b11 parses each tests/ file ONCE and hands the tree to both its census and the lens: 1.91 s -> 1.44 s (-25%), identical totals and findings
+    - Candidate B1 -- USAGE.md and README #27/#67 still say a `config.local.json` key wins for ANY field, but since iters 504-505 an overlay cannot turn push on or retarget it
+    - Candidate B2 -- README #9 and `gather_status`'s docstring say `status` shows "the last ship's POSTRELEASE verdict"; it actually reads the in-flight iteration's dir, so it says `unknown` for almost the whole shift
+    - Candidate B3 -- ARCHITECTURE.md's `events.jsonl` kind list still omits iter 493's `resume` kind, plus a two-way drift test against `EVENT_KIND_RULES`
+    winner: B1
+    ship: pending (not yet decided)
   iter-507
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- delete the `RESTART_NEEDED.md` flag family nothing ever raises: `dispatch_restart_line` (test-only) plus `write_restart_flag` / `clear_restart_flag` / `restart_flag_path` / `RESTART_FLAG_NAME`, and its `products/.gitignore:12` entry
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- pause the cyclic GC for the duration of `gather_test_quality`'s `TEST_TREE_CACHE` scope: composite parse cost 2.53 s -> 1.50 s
     - Candidate B3 -- the constant-assert lens stops walking a test's subtree once it holds a real signal: `company-constant-asserts` 2.99 s -> 2.17 s, byte-identical
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 684f847
   iter-506
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- `company-lint-config` consults iter 504's overlay push-escalation guard, so the fleet roll-up stops saying `verdict: clean`, exit 0, over a team whose own `lint-config` exits 1
@@ -2380,4 +2390,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-239 scouted iterations
+240 scouted iterations

@@ -102,14 +102,21 @@ Once this repo exists you can just say things like:
 
 Machine-local operator knobs: `products/<name>/config.local.json` (gitignored) is THE home
 for them, e.g. `{"auth_resume_max": 24}`. It is merged over the `config.json` beside it and
-its keys win; an unknown key in it fails closed exactly like one in `config.json` (prefix a
-key with `_` to keep it a comment).
+its keys win, EXCEPT the push-safety fields `push_enabled`, `repo` and `allowed_push_repo`:
+the overlay is never reviewed, so it may turn push off (`"push_enabled": false`) but an
+overlay `"push_enabled": true` over a tracked non-true value, or any change to `repo` /
+`allowed_push_repo`, is ignored at load time (one `ignored <key>` stderr line per key; the
+tracked value is kept). Put a push enable or a new push target in the tracked `config.json`.
+An unknown key in the overlay fails closed exactly like one in `config.json` (prefix a key
+with `_` to keep it a comment).
 
 ## Product config reference
 
 Every key a `products/<name>/config.json` may hold, in declaration order. Any key may live in
-either the tracked `config.json` or the gitignored `config.local.json` beside it (the overlay's
-keys win). An unknown key fails closed at load time, so a typo stops the team instead of being
+either the tracked `config.json` or the gitignored `config.local.json` beside it, and the
+overlay's value is used, except that an overlay may not escalate push: turning `push_enabled`
+on, or changing `repo` / `allowed_push_repo`, from the overlay is ignored (turning push off is
+allowed). An unknown key fails closed at load time, so a typo stops the team instead of being
 silently ignored; prefix a key with `_` to keep it as a comment. Path values accept `~` and
 `{FOUNDRY}` (the foundry checkout).
 

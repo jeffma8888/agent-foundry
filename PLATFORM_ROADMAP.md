@@ -341,6 +341,7 @@ in the archive.
 - iter 505 -- load_config drops overlay push escalations (stderr: --unset hint).
 - iter 506 -- per-product verbs print one `cannot read config` line, not a traceback (exit 1).
 - iter 507 -- _test_function_nodes walks only stmt-bearing nodes (test-hygiene verbs ~-40%).
+- iter 508 -- USAGE/README document the overlay push guard (push off ok, never on) + drift test.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
