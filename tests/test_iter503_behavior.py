@@ -463,9 +463,11 @@ def test_b13_overlay_cli_referenced_only_from_main():
 
 
 # sha256 of each function's source segment at the pre-iteration HEAD (0034e68).
+# iter 505 re-pinned merge_local_overlay: it now drops overlay push escalations
+# (load-side half of iter 504's guard); load_config's golden is unchanged.
 READ_SIDE_GOLDENS = {
     "load_config": "5eccbde05ea36bb7f86ba3085437bb6b2af98a237aa4cd927d96e3bc8f40f241",
-    "merge_local_overlay": "a85cfd33983a6357d771cb5d14116ce9c0dc717274fdeb12478de439d36dab3d",
+    "merge_local_overlay": "6eb3b6453d42a22ae5efcd963ca1c3a741f94492a10afa74794f92f66548e75f",
 }
 
 

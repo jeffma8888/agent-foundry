@@ -338,6 +338,7 @@ in the archive.
 - iter 502 -- nested suite pytest run passes `-n 0` (no xdist oversubscription) + AST brake (retry of 501).
 - iter 503 -- `overlay` verb: validated, atomic config.local.json --set/--unset; never rewrites a broken file.
 - iter 504 -- overlay can't turn push on or re-point repo/allowed_push_repo; lint-config flags it.
+- iter 505 -- load_config drops overlay push escalations (stderr: --unset hint).
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

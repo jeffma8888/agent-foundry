@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-505
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- the stage prompt and `load_config` stop honouring an overlay push escalation: the final gate is still TOLD `push_enabled=True` over a reviewed `false`
+    - Candidate A2 -- `resume --config P` stops promising "the dispatcher picks this team up on its next round" while a global STOP is still in effect
+    - Candidate A3 -- `rescues` stops printing a bare `verdict: no lost attempts` over a window where `losses` counts 25 lost attempts
+    - Candidate B1 -- `company-lint-config` uses iter 504's overlay push-escalation guard, so the fleet view stops saying `verdict: clean` over a team whose own `lint-config` exits 1
+    - Candidate B2 -- the overlay's load-time unknown-key error names the shipped repair verb, `foundry overlay --config P --unset <key>`, everywhere it surfaces (dispatcher log, `lint-config` exit 2, the `status` traceback)
+    - Candidate B3 -- the tester's mandated scan (tester.md duty 1b) also runs the shipped `unfailable-asserts --files`, so `assert (x == 2, "msg")` stops scanning `verdict: clean`
+    winner: A1
+    ship: pending (not yet decided)
   iter-504
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `foundry iteration --config P --iter N [--json]`: a one-iteration dossier (picked candidate, per-stage attempt count and last-attempt cause, review/tester/ship verdicts, preserved patches)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `resume --config P` stops saying "the dispatcher picks this team up on its next round" while a global STOP is still in effect
     - Candidate B3 -- `rescues` stops printing `verdict: no lost attempts` over a window where `losses` reports 25 lost attempts
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED f7230b2
   iter-503
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- README #9 and `StatusSummary.render`'s docstring name every line `foundry status` prints (live-lag, last ship, iter 500's `stop:`), plus a drift test derived from `render()`
@@ -2350,4 +2360,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-236 scouted iterations
+237 scouted iterations

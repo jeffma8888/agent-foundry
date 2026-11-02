@@ -364,7 +364,8 @@ def test_b12_escalating_overlay_still_loads(tmp_path):
     P, O = _setup(tmp_path, push_enabled=False,
                   content={"push_enabled": True, "auth_resume_max": 24})
     cfg = foundry.load_config(P)
-    assert cfg.push_enabled is True
+    # iter 505 re-pin: the load still succeeds, but the escalation is dropped.
+    assert cfg.push_enabled is False
     assert cfg.auth_resume_max == 24
 
 
@@ -375,7 +376,8 @@ def test_b12_escalating_overlay_loads_in_subprocess(tmp_path):
     proc = subprocess.run([sys.executable, "-c", code, str(P)], cwd=str(_ROOT),
                           capture_output=True, text=True, timeout=120)
     assert proc.returncode == 0, proc.stderr
-    assert proc.stdout.strip() == "True"
+    # iter 505 re-pin: the escalation is ignored at load time.
+    assert proc.stdout.strip() == "False"
 
 
 def test_b12_import_probe():

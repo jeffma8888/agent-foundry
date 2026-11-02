@@ -620,6 +620,13 @@ def merge_local_overlay(config_path: pathlib.Path,
     never swallowed, since a silently skipped overlay would let an operator believe
     an opt-in is live when it is not. An `OSError` is left alone: it already names
     its file. Loading the overlay file itself as the config never re-merges it.
+
+    A push ESCALATION (`overlay_push_escalations`: push turned on, or a changed
+    `repo` / `allowed_push_repo`) is DROPPED after the key check, with one stderr
+    line per key: the overlay is gitignored, so it never reaches review, and push
+    must be decided by the reviewed tracked config. Fail-safe, not fail-closed --
+    the load still succeeds so a stray overlay never takes a team dark, and the
+    merge is unchanged whenever nothing escalates.
     """
     if config_path.name == CONFIG_LOCAL_OVERLAY_NAME:
         return data
@@ -636,7 +643,13 @@ def merge_local_overlay(config_path: pathlib.Path,
             f"product config overlay {overlay_path} must hold a JSON object, "
             f"got {type(overlay).__name__}")
     raise_unknown_config_keys(overlay, overlay_path)
-    return {**data, **overlay}
+    escalated = overlay_push_escalations(data, overlay)
+    for key in escalated:
+        print(f"foundry: config overlay {overlay_path}: ignored {key} (an overlay may "
+              f"not turn push on or change the push target; the tracked value in "
+              f"{config_path} is kept) -- remove it with "
+              f"`foundry overlay --config {config_path} --unset {key}`", file=sys.stderr)
+    return {**data, **{k: v for k, v in overlay.items() if k not in escalated}}
 
 
 def load_config(path: str) -> ProductConfig:

@@ -1297,7 +1297,17 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # own and its read of iter 362's pin) stepped to 66. No
                 # newest-ness pin touched: `newest_ness_pin_sites` over that file
                 # is `()` at HEAD AND in the worktree.
-                "tests/test_iter497_behavior.py"}
+                "tests/test_iter497_behavior.py",
+                # iter 505: FORCED re-pins. `merge_local_overlay` now DROPS an
+                # overlay push escalation at load time, so iter 504's two b12
+                # pins of the deferral (`push_enabled is True` / stdout "True")
+                # flip to exact `False` pins, and iter 503's sha golden for
+                # `merge_local_overlay` takes the new body (the `load_config`
+                # golden is unchanged). No newest-ness pin touched:
+                # `newest_ness_pin_sites` over both files is `()` at HEAD AND
+                # in the worktree.
+                "tests/test_iter503_behavior.py",
+                "tests/test_iter504_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the
