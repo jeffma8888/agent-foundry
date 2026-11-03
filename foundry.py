@@ -12043,10 +12043,13 @@ class StatusSummary:
 
     Fields:
       * `product`/`repo`/`branch` -- identity, echoed into `render()`.
-      * `latest_iter` -- the highest shipped iteration number (`<= 0` == nothing
-        shipped yet).
-      * `postrelease` -- the latest ship's verdict: `"HEALTHY"` / `"BROKEN"` /
-        `None` (no `postrelease.md`, i.e. a no-ship / in-progress iteration).
+      * `latest_iter` -- the newest iteration dir's number (`<= 0` == no
+        iteration has run yet); while the loop runs this is usually the
+        in-flight iteration, not the last ship.
+      * `postrelease` -- the last ship's verdict: `"HEALTHY"` / `"BROKEN"` /
+        `None` (that ship has no `postrelease.md` yet). Read from the most
+        recent PUSHED iteration's dir, or from `latest_iter`'s dir when no
+        PUSHED outcome exists (see `gather_status`).
       * `hotfix` -- whether the blocking `HOTFIX_NEEDED.md` flag is raised.
       * `speed_story` -- whether the ADVISORY `SPEED_STORY_NEEDED.md` flag is
         raised (never affects `attention`/`exit_code` -- it is non-blocking).
@@ -12280,10 +12283,15 @@ def gather_status(cfg: ProductConfig) -> StatusSummary:
 
     Reads every signal through the EXISTING module-level seams -- each called by
     BARE name so a `monkeypatch.setattr(foundry, ...)` in a test bites:
-      * `latest_iter` = `next_iteration(cfg) - 1` (the highest shipped iter);
-      * the latest iter's `state/iter-NN/postrelease.md` (2-digit zero-pad), read
-        GUARDED through `parse_postrelease_verdict` (absent file / read error ->
-        `None`, so a no-ship iteration reads as `unknown`, never an error);
+      * `latest_iter` = `next_iteration(cfg) - 1` (the newest iteration dir,
+        usually the in-flight one while the loop runs -- NOT the last ship);
+      * the post-release verdict from `state/iter-NN/postrelease.md` (2-digit
+        zero-pad) of the LAST SHIP (`last_ship_iter`, below), falling back to
+        `latest_iter`'s dir only when no PUSHED outcome exists or the outcomes
+        walk failed. Read GUARDED through `parse_postrelease_verdict` (absent
+        file / read error -> `None` == `unknown`, never an error). Iter 509:
+        reading the newest dir left the line `unknown` for almost the whole
+        shift, so a BROKEN previous ship could never raise exit 1 here;
       * the two flag files via `hotfix_flag_path(cfg).exists()` /
         `speed_story_flag_path(cfg).exists()`;
       * the prd progress via `dispatch_progress_line(cfg)`;
@@ -12298,18 +12306,37 @@ def gather_status(cfg: ProductConfig) -> StatusSummary:
         outcomes ledger in reverse to find the most recent PUSHED iteration,
         yielding `last_ship_iter` and `iters_since_last_ship` (both None when no
         PUSHED outcome exists). GUARDED: an exception degrades to None/None.
+        ONE walk feeds both these fields and the post-release source above.
       * the STOP sentinel in effect via `gather_stop(cfg)` (global first, then
         the team's own) -- feeds the conditional `stop:` render line, so a
         stopped team no longer reads as a silent `verdict: OK`. GUARDED: an
         exception degrades to `"none"` (no line), never a crash.
     REPORT-ONLY: the lag sentence, last-ship fields and stop line land in the snapshot and
-    touch `attention`/`ok`/`exit_code`/`verdict` in NO way, so `status` and
+    touch `attention`/`ok`/`exit_code`/`verdict` in NO way (the last-ship walk only
+    chooses WHICH dir's post-release verdict is read), so `status` and
     `company-status` keep their published exit codes byte-for-byte.
     Returns a frozen `StatusSummary`; writes NOTHING to disk (read-only)."""
     latest_iter = next_iteration(cfg) - 1
+    last_ship_iter: int | None = None
+    iters_since_last_ship: int | None = None
+    try:
+        outcomes = gather_outcomes(cfg)
+        for rec in reversed(outcomes.records):
+            if rec.action == "PUSHED":
+                last_ship_iter = rec.iteration
+                iters_since_last_ship = latest_iter - rec.iteration
+                break
+    except Exception:
+        last_ship_iter = None
+        iters_since_last_ship = None
+    # The post-release verdict belongs to the last SHIP, not the newest dir:
+    # mid-shift the newest dir is the in-flight iteration, which never holds a
+    # postrelease.md, so reading it left the probe `unknown` (and a BROKEN
+    # previous ship unable to raise exit 1) exactly when an operator looked.
+    postrelease_iter = last_ship_iter if last_ship_iter is not None else latest_iter
     postrelease: str | None = None
-    if latest_iter > 0:
-        artifact = cfg.state / f"iter-{latest_iter:02d}" / "postrelease.md"
+    if postrelease_iter > 0:
+        artifact = cfg.state / f"iter-{postrelease_iter:02d}" / "postrelease.md"
         try:
             if artifact.exists():
                 postrelease = parse_postrelease_verdict(artifact.read_text())
@@ -12327,18 +12354,6 @@ def gather_status(cfg: ProductConfig) -> StatusSummary:
         # empty verdict -- the same no-news-is-good-news direction as the
         # postrelease read above. Never UPGRADES to an alarm.
         lag_line = None
-    last_ship_iter: int | None = None
-    iters_since_last_ship: int | None = None
-    try:
-        outcomes = gather_outcomes(cfg)
-        for rec in reversed(outcomes.records):
-            if rec.action == "PUSHED":
-                last_ship_iter = rec.iteration
-                iters_since_last_ship = latest_iter - rec.iteration
-                break
-    except Exception:
-        last_ship_iter = None
-        iters_since_last_ship = None
     stop_scope, stop_reason = "none", ""
     try:
         row = gather_stop(cfg)

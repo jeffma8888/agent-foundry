@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-509
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- README #9 and `gather_status`'s docstring say `status` shows "the last ship's POSTRELEASE verdict"; it reads the in-flight iteration's dir and prints `unknown` for the whole iteration
+    - Candidate A2 -- iter 506's one-line `foundry <verb>: cannot read config P: ...` failure, and its exit 1 that collides with `status`'s ATTENTION code, are documented nowhere a reader looks
+    - Candidate A3 -- docs/artifacts.md, README's "Catalog of products the foundry has produced", lists 1 of the 3 external product teams and quotes repolens figures from its 10th iteration
+    - Candidate B1 -- `foundry overlay --config P --show [--json]`: the READ half of the shipped writer, listing each overlay key as tracked -> overlay -> effective, with `IGNORED (push guard)` marked
+    - Candidate B2 -- `foundry iteration --config P --iter N [--json]`: a one-iteration dossier from the iter dir (winner, per-stage attempt count, review/tester/ship/post-release verdicts, preserved patches)
+    - Candidate B3 -- `foundry company-unfailable-asserts --config DISPATCH [--json]`: the fleet roll-up of the 4th false-green lens (roadmap item (z), still OPEN)
+    winner: A1
+    ship: pending (not yet decided)
   iter-508
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- `find_constant_assert_tests` stops walking a test's subtree at its first real signal: 0.654 s -> 0.166 s per 305-file scan (4x), byte-identical
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- README #9 and `gather_status`'s docstring say `status` shows "the last ship's POSTRELEASE verdict"; it actually reads the in-flight iteration's dir, so it says `unknown` for almost the whole shift
     - Candidate B3 -- ARCHITECTURE.md's `events.jsonl` kind list still omits iter 493's `resume` kind, plus a two-way drift test against `EVENT_KIND_RULES`
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED f2701f6
   iter-507
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- delete the `RESTART_NEEDED.md` flag family nothing ever raises: `dispatch_restart_line` (test-only) plus `write_restart_flag` / `clear_restart_flag` / `restart_flag_path` / `RESTART_FLAG_NAME`, and its `products/.gitignore:12` entry
@@ -2390,4 +2400,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-240 scouted iterations
+241 scouted iterations
