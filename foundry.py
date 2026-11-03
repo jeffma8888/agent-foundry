@@ -894,13 +894,14 @@ def head_of_branch(cfg: ProductConfig) -> str:
 
 
 def next_iteration(cfg: ProductConfig) -> int:
-    highest = 0
-    for d in cfg.state.glob("iter-*"):
-        try:
-            highest = max(highest, int(d.name.split("-")[1]))
-        except (IndexError, ValueError):
-            pass
-    return highest + 1
+    """One past the highest `iter-<digits>` entry under `cfg.state`; 1 when none.
+
+    WHY `iteration_numbers` (bare name): it is the ONE dir-name rule every other
+    reader of the state dir (history, outcomes, directions, save-work) applies,
+    so `iter-12-bak` or `iter- 9` is ignored here exactly as it is there instead
+    of being counted as iteration 12 / 9. Files count like dirs, as before."""
+    names = [d.name for d in cfg.state.glob("iter-*")]
+    return max(iteration_numbers(names), default=0) + 1
 
 
 def contains(path: pathlib.Path, needle: str) -> bool:
@@ -941,20 +942,10 @@ def capture_abort_patch(cfg: ProductConfig, reason: str) -> pathlib.Path | None:
     Returns the patch `pathlib.Path` when one was written, else `None`.
     """
     try:
-        # Newest iteration dir IS the current one: every earlier stage of this
-        # iteration already wrote its output there. Derived rather than passed
-        # so none of `revert_repo`'s call sites change. `iteration_numbers`
-        # (bare name -> monkeypatchable) accepts only exact `iter-<digits>`
-        # names; keeping the winning Path rather than rebuilding it avoids
-        # depending on the dir name's zero-padding.
-        target: pathlib.Path | None = None
-        highest = -1
-        for entry in cfg.state.iterdir():
-            if not entry.is_dir():
-                continue
-            numbers = iteration_numbers([entry.name])
-            if numbers and numbers[0] > highest:
-                target, highest = entry, numbers[0]
+        # The SAME newest-iter-dir rule `save-work` uses (bare name ->
+        # monkeypatchable), so the abort rescue can never drift to another dir.
+        # Derived rather than passed so none of `revert_repo`'s call sites change.
+        target = save_work_target(cfg)
         if target is None:
             return None
         git(cfg, "add", "-A", "-N")

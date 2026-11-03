@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-512
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- `foundry preship` names the failing tests: `verify_local_clone` keeps the suite's `FAILED`/`ERROR` lines (via iter 510's `test_failure_lines`) instead of only `.ok`, and prints them above `PRESHIP: BROKEN`
+    - Candidate A2 -- `status` / `status --json` name a BROKEN post-release's failing tests, read back from the last ship's `postrelease.md` (one conditional line)
+    - Candidate A3 -- the `directions` decision log (and committed DIRECTIONS.md) marks a shipped row whose post-release went BROKEN: `ship: PUSHED 634ec8f (post-release BROKEN)`
+    - Candidate B1 -- `capture_abort_patch` reuses `save_work_target` instead of carrying a verbatim copy of its "newest iter dir" loop
+    - Candidate B2 -- `next_iteration` stops hand-parsing `iter-*` names and uses `iteration_numbers`, the last private parser of the dir-name rule
+    - Candidate B3 -- the abort path's patch export collapses onto iter 162's `worktree_patch_text` seam, which also stops it silently losing the rescue on a non-UTF-8 file
+    winner: B1
+    ship: pending (not yet decided)
   iter-511
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- a failed fresh-clone test run with no `FAILED`/`ERROR` line keeps the last 5 non-empty lines of its output as `failures`
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `status` / `company-status` (and `status --json`) name a BROKEN post-release's failing tests, read back from the last ship's `postrelease.md`
     - Candidate B3 -- the dispatcher's `iter NN post-release POSTRELEASE: BROKEN` log line (NIGHT_LOG.md + `events.jsonl`, kind `postrelease`) carries the failing-test count and first id
     winner: A2
-    ship: pending (not yet decided)
+    ship: PUSHED 77f59a3
   iter-510
     lenses: new-capability, hardening/DX
     - Candidate A1 -- post-release names the failing tests: `postrelease.md` and `HOTFIX_NEEDED.md` carry the pytest `FAILED`/`ERROR` lines that `verify_fresh_clone` already captures and then throws away
@@ -2420,4 +2430,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-243 scouted iterations
+244 scouted iterations
