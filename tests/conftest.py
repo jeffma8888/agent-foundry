@@ -7,6 +7,23 @@ import sys
 import pytest
 
 
+@pytest.hookimpl(tryfirst=True)
+def pytest_pycollect_makeitem(collector, name, obj):
+    """Never collect a callable re-exported from ``foundry`` or ``dispatcher``.
+
+    WHY: foundry.py has module-level seams named ``test_*`` (``test_tree``,
+    ``test_failure_lines``, ...). ``from foundry import test_tree`` in a test
+    module makes pytest collect the seam as a test, whose parameters then show
+    up as ``fixture '...' not found`` ERROR rows and turn a green suite red.
+    Returning ``[]`` drops exactly those objects; anything else (``None``)
+    keeps pytest's default collection, so a test a module defines itself is
+    never hidden.
+    """
+    if callable(obj) and getattr(obj, "__module__", None) in ("foundry", "dispatcher"):
+        return []
+    return None
+
+
 @pytest.fixture(autouse=True)
 def _clear_drift_cache():
     """Reset the per-iteration drift prompt cache between tests."""

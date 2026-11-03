@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-511
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- a failed fresh-clone test run with no `FAILED`/`ERROR` line keeps the last 5 non-empty lines of its output as `failures`
+    - Candidate A2 -- conftest refuses to collect any callable defined in `foundry`/`dispatcher`, closing the `test_*` re-export hazard for all 6 names at once
+    - Candidate A3 -- post-release clones the configured push branch (`git clone --branch <cfg.branch>`), not the remote's default branch
+    - Candidate B1 -- `foundry preship` names the failing tests: `verify_local_clone` keeps the suite's `FAILED`/`ERROR` lines (via iter 510's `test_failure_lines`) instead of only `.ok`, and prints them above `PRESHIP: BROKEN`
+    - Candidate B2 -- `status` / `company-status` (and `status --json`) name a BROKEN post-release's failing tests, read back from the last ship's `postrelease.md`
+    - Candidate B3 -- the dispatcher's `iter NN post-release POSTRELEASE: BROKEN` log line (NIGHT_LOG.md + `events.jsonl`, kind `postrelease`) carries the failing-test count and first id
+    winner: A2
+    ship: pending (not yet decided)
   iter-510
     lenses: new-capability, hardening/DX
     - Candidate A1 -- post-release names the failing tests: `postrelease.md` and `HOTFIX_NEEDED.md` carry the pytest `FAILED`/`ERROR` lines that `verify_fresh_clone` already captures and then throws away
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- post-release verifies the PUSHED sha, not whatever origin's tip is by clone time (a later push to the same branch is infra, not a BROKEN)
     - Candidate B3 -- the suite's wall-clock budget assertions measure CPU time (`time.process_time`), so a loaded fresh-clone run cannot go red on contention alone
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 7f063f2
   iter-509
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- README #9 and `gather_status`'s docstring say `status` shows "the last ship's POSTRELEASE verdict"; it reads the in-flight iteration's dir and prints `unknown` for the whole iteration
@@ -2410,4 +2420,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-242 scouted iterations
+243 scouted iterations
