@@ -1307,7 +1307,13 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # `newest_ness_pin_sites` over both files is `()` at HEAD AND
                 # in the worktree.
                 "tests/test_iter503_behavior.py",
-                "tests/test_iter504_behavior.py"}
+                "tests/test_iter504_behavior.py",
+                # iter 510: FORCED re-pin. `PostReleaseResult` gains the
+                # verdict-inert `failures` field, so iter 156's b12 field-list
+                # freeze appends it. No newest-ness pin touched:
+                # `newest_ness_pin_sites` over that file is `()` at HEAD AND in
+                # the worktree.
+                "tests/test_iter156_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

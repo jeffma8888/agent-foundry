@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-510
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- post-release names the failing tests: `postrelease.md` and `HOTFIX_NEEDED.md` carry the pytest `FAILED`/`ERROR` lines that `verify_fresh_clone` already captures and then throws away
+    - Candidate A2 -- `foundry recheck-release --config P [--json]`: re-run post-release verification for the last PUSHED sha on demand, keep the original verdict, and clear the hotfix flag only on a genuine HEALTHY
+    - Candidate A3 -- `foundry iteration --config P --iter N [--json]`: a one-iteration dossier (winner, per-stage attempt count and last cause, review/tester/ship/post-release verdicts plus post-release suite_seconds/detail, preserved patches, flags raised)
+    - Candidate B1 -- post-release stops raising a hotfix when the test command never reached the test runner (a `uv` resolve/network failure inside `test_cmd` is infra, not BROKEN)
+    - Candidate B2 -- post-release verifies the PUSHED sha, not whatever origin's tip is by clone time (a later push to the same branch is infra, not a BROKEN)
+    - Candidate B3 -- the suite's wall-clock budget assertions measure CPU time (`time.process_time`), so a loaded fresh-clone run cannot go red on contention alone
+    winner: A1
+    ship: pending (not yet decided)
   iter-509
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- README #9 and `gather_status`'s docstring say `status` shows "the last ship's POSTRELEASE verdict"; it reads the in-flight iteration's dir and prints `unknown` for the whole iteration
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry iteration --config P --iter N [--json]`: a one-iteration dossier from the iter dir (winner, per-stage attempt count, review/tester/ship/post-release verdicts, preserved patches)
     - Candidate B3 -- `foundry company-unfailable-asserts --config DISPATCH [--json]`: the fleet roll-up of the 4th false-green lens (roadmap item (z), still OPEN)
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 634ec8f
   iter-508
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- `find_constant_assert_tests` stops walking a test's subtree at its first real signal: 0.654 s -> 0.166 s per 305-file scan (4x), byte-identical
@@ -2400,4 +2410,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-241 scouted iterations
+242 scouted iterations

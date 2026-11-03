@@ -10445,6 +10445,33 @@ def suite_timing_line(seconds: float, threshold: float) -> str:
     return base
 
 
+# Per-line cap for a kept failure line: one giant assertion message must not
+# bloat postrelease.md / HOTFIX_NEEDED.md (iter 510, Behavior 4).
+TEST_FAILURE_LINE_MAX = 300
+
+
+def test_failure_lines(out: str | None, limit: int = 10) -> tuple[str, ...]:
+    """Extract pytest's `FAILED `/`ERROR ` summary lines from test output.
+
+    WHY: `verify_fresh_clone` used to keep only `.ok` from the test command, so
+    every BROKEN post-release said just `fresh-clone test suite failed` and the
+    next PM could not tell a real regression from a load flake. Pure + total:
+    a line is kept when its left-stripped form starts with the case-sensitive
+    prefix `FAILED ` or `ERROR ` (trailing space required, so `=== FAILURES`
+    and `1 failed` never match); kept lines are stripped and cut to
+    `TEST_FAILURE_LINE_MAX` chars. Beyond `limit` matches, one trailing
+    `... and N more` element stands in for the rest. `None`/`""` -> `()`.
+    """
+    if not out:
+        return ()
+    matches = [line.strip()[:TEST_FAILURE_LINE_MAX]
+               for line in str(out).splitlines()
+               if line.lstrip().startswith(("FAILED ", "ERROR "))]
+    if len(matches) <= limit:
+        return tuple(matches)
+    return (*matches[:limit], f"... and {len(matches) - limit} more")
+
+
 @dataclasses.dataclass(frozen=True)
 class PostReleaseResult:
     """Verdict of a fresh-clone verification.
@@ -10461,6 +10488,10 @@ class PostReleaseResult:
     # `None` whenever the fresh-clone test command did not run (infra-skip,
     # postrelease disabled, or a verify error) -- see `verify_fresh_clone`.
     test_seconds: float | None = None
+    # pytest `FAILED `/`ERROR ` lines from a FAILED fresh-clone test command
+    # (iter 510). EVIDENCE ONLY: inert to `healthy`/`skipped_infra`/`sentinel`;
+    # `()` whenever the test command passed or never ran.
+    failures: tuple[str, ...] = ()
 
     @property
     def sentinel(self) -> str:
@@ -10515,6 +10546,7 @@ def verify_fresh_clone(cfg: "ProductConfig", expected_sha: str,
     smoke_ran = False
     smoke_ok = True  # only consulted when smoke_ran is True
     test_seconds: float | None = None  # set ONLY when the test command runs
+    failures: tuple[str, ...] = ()  # set ONLY when the test command FAILED
     result: "PostReleaseResult"
     try:
         # 1. discover the clone source (origin remote URL) in cfg.repo
@@ -10537,8 +10569,11 @@ def verify_fresh_clone(cfg: "ProductConfig", expected_sha: str,
             # seam so a test scripts the two bracketing reads; the delta is a
             # non-negative float threaded onto the verdict below.
             _t0 = _monotonic()
-            test_ok = run_cmd(shlex.split(cfg.test_cmd), cwd=clone_dir).ok
+            test_res = run_cmd(shlex.split(cfg.test_cmd), cwd=clone_dir)
             test_seconds = _monotonic() - _t0
+            test_ok = test_res.ok
+            if not test_ok:  # keep the evidence a BROKEN verdict needs
+                failures = test_failure_lines(test_res.out)
             head_res = run_cmd(["git", "-C", str(clone_dir),
                                 "rev-parse", "HEAD"])
             sha_ok = head_res.ok and sha_matches(
@@ -10555,7 +10590,8 @@ def verify_fresh_clone(cfg: "ProductConfig", expected_sha: str,
         # Thread the measured wall-time onto the PURE verdict WITHOUT touching
         # its decision logic (test_seconds is inert; Behaviors 6/12). It stays
         # None on the infra-skip path where the test command never ran.
-        result = dataclasses.replace(result, test_seconds=test_seconds)
+        result = dataclasses.replace(result, test_seconds=test_seconds,
+                                     failures=failures)
     except Exception as exc:  # a seam blew up => infra, never a false hotfix
         result = PostReleaseResult(
             True, True, f"verification errored, treated as infra: {exc!r}")
@@ -10584,19 +10620,34 @@ def hotfix_flag_path(cfg: ProductConfig) -> pathlib.Path:
     return pathlib.Path(cfg.work_root) / "HOTFIX_NEEDED.md"
 
 
-def write_hotfix_flag(cfg: ProductConfig, sha: str, detail: str) -> None:
+def _failure_bullets(header: str, failures: tuple[str, ...]) -> str:
+    """Render `header` + one indented bullet per failure; `""` when empty.
+
+    Empty -> `""` keeps both writers byte-identical to their pre-iter-510
+    output when there is no failing-test evidence.
+    """
+    if not failures:
+        return ""
+    return f"- {header}\n" + "".join(f"  - {f}\n" for f in failures)
+
+
+def write_hotfix_flag(cfg: ProductConfig, sha: str, detail: str,
+                      failures: tuple[str, ...] = ()) -> None:
     """Raise the hotfix flag after a BROKEN post-release.
 
     Overwrites any existing flag (newest breakage wins -- no append pile-up) and
     embeds both the pushed `sha` and the verbatim `detail` so the next PM has
-    the evidence it needs. Never raises for a normal writable work_root.
+    the evidence it needs; any `failures` (pytest FAILED/ERROR lines) follow the
+    evidence line so the flag names its own cause. Never raises for a normal
+    writable work_root.
     """
     path = hotfix_flag_path(cfg)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         "# HOTFIX NEEDED -- post-release verification is BROKEN\n\n"
         f"- Pushed sha: {sha}\n"
-        f"- Evidence: {detail}\n\n"
+        f"- Evidence: {detail}\n"
+        f"{_failure_bullets('Failing tests:', tuple(failures))}\n"
         "The next PM's ONLY feature this iteration is the hotfix that makes the "
         "post-release verification HEALTHY again (which clears this flag). Do "
         "NOT revert or force-push the bad commit -- fix it forward.\n")
@@ -10687,7 +10738,8 @@ def _write_postrelease_artifact(artifact: pathlib.Path, expected_sha: str,
         f"# Post-release fresh-clone verification -- pushed sha {expected_sha}\n\n"
         f"- skipped_infra: {result.skipped_infra}\n"
         f"- suite_seconds: {secs}\n"
-        f"- detail: {result.detail}\n\n"
+        f"- detail: {result.detail}\n"
+        f"{_failure_bullets('failing tests:', result.failures)}\n"
         f"{result.sentinel}\n")
 
 
@@ -10730,7 +10782,7 @@ def postrelease_step(cfg: ProductConfig, iteration: int,
             f"post-release verification errored, treated as infra: {exc!r}")
 
     if not result.healthy:
-        write_hotfix_flag(cfg, expected_sha, result.detail)
+        write_hotfix_flag(cfg, expected_sha, result.detail, result.failures)
     elif not result.skipped_infra:
         clear_hotfix_flag(cfg)
     # infra-skipped HEALTHY: leave any pre-existing flag intact -- an unverified

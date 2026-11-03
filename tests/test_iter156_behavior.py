@@ -600,7 +600,8 @@ def test_b12_postrelease_siblings_keep_their_signatures() -> None:
         ["remote_ok", "clone_ok", "setup_ok", "test_ok", "sha_ok",
          "smoke_ran", "smoke_ok"]
     assert [f.name for f in dataclasses.fields(foundry.PostReleaseResult)] == \
-        ["healthy", "skipped_infra", "detail", "test_seconds"]
+        ["healthy", "skipped_infra", "detail", "test_seconds",
+         "failures"]  # iter 510: evidence-only field, verdict-inert
 
 
 def test_b12_runtime_clone_dir_is_git_ignored() -> None:

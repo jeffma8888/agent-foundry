@@ -343,6 +343,7 @@ in the archive.
 - iter 507 -- _test_function_nodes walks only stmt-bearing nodes (test-hygiene verbs ~-40%).
 - iter 508 -- USAGE/README document the overlay push guard (push off ok, never on) + drift test.
 - iter 509 -- status reads post-release from the last PUSHED iter's dir, not the in-flight one.
+- iter 510 -- HOTFIX: post-release + HOTFIX_NEEDED.md list the suite's FAILED/ERROR lines.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
