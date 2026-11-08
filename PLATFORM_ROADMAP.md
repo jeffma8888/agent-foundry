@@ -346,6 +346,7 @@ in the archive.
 - iter 510 -- HOTFIX: post-release + HOTFIX_NEEDED.md list the suite's FAILED/ERROR lines.
 - iter 511 -- tests/conftest.py never collects a foundry/dispatcher `test_*` re-export as a test.
 - iter 512 -- abort rescue + next_iteration share iteration_numbers' iter-<digits> rule.
+- iter 514 -- 7 run-path docstrings stop claiming ZERO call site/DORMANT; closure drift test.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-514
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- pause the cyclic GC for the duration of `gather_test_quality`'s `TEST_TREE_CACHE` scope: `company-test-quality --json` 5.12 s -> 3.63 s CPU (-29%), byte-identical
+    - Candidate A2 -- the session `live_smoke_result` fixture shares ONE `TEST_TREE_CACHE` (with GC paused) across its calls: test_iter43 b8, the slowest test in the suite, goes 4.59 s -> 2.54 s CPU (-45%), byte-identical
+    - Candidate A3 -- conftest raises the gen-0 GC threshold for the test session (`gc.set_threshold(100000, 50, 100)`): AST-heavy subset user CPU 18.1-18.7 s -> 16.1-16.2 s (-11%), same pass count
+    - Candidate B1 -- seven `foundry.py` docstrings still say "DORMANT / ZERO call site" about functions the running loop has called for 100-500 iterations, plus a drift test that reds when that claim lies
+    - Candidate B2 -- ARCHITECTURE §3 says post-release "never raises a false hotfix", and pm.md duty 0 doesn't say what iter 510 now puts in the flag; both should state what a BROKEN actually tells the next PM
+    - Candidate B3 -- ARCHITECTURE.md's events.jsonl kind list omits `resume`, which now stamps 125 live records across 6 teams; add a two-way drift test against `EVENT_KIND_RULES`
+    winner: B1
+    ship: pending (not yet decided)
   iter-512
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- `foundry preship` names the failing tests: `verify_local_clone` keeps the suite's `FAILED`/`ERROR` lines (via iter 510's `test_failure_lines`) instead of only `.ok`, and prints them above `PRESHIP: BROKEN`
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `next_iteration` stops hand-parsing `iter-*` names and uses `iteration_numbers`, the last private parser of the dir-name rule
     - Candidate B3 -- the abort path's patch export collapses onto iter 162's `worktree_patch_text` seam, which also stops it silently losing the rescue on a non-UTF-8 file
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 6cfe8cc
   iter-511
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- a failed fresh-clone test run with no `FAILED`/`ERROR` line keeps the last 5 non-empty lines of its output as `failures`
@@ -2430,4 +2440,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-244 scouted iterations
+245 scouted iterations

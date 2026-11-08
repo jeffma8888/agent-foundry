@@ -6203,9 +6203,10 @@ def derive_execution_plan(
     bit-for-bit (Behavior 7), and an extra activated seat gets the `bench` gate
     at its declared position. `StagePlan.spec` is the identical input object.
     Accepts any finite iterable of `StageSpec` (a list or a tuple) and returns a
-    tuple in both cases; two calls on equal input return equal output. This has
-    ZERO call site -- the manifest-driven executor (bite 3b) will consume it;
-    nothing runs it yet.
+    tuple in both cases; two calls on equal input return equal output. Live
+    caller: `run_iteration` maps a NON-default staffing-manifest sequence through
+    it on every iteration and hands the plan to `run_execution_plan`; the default
+    sequence never reaches it.
     """
     return tuple(
         StagePlan(spec=spec, gate=_gate_kind_for_seat(spec.seat))
@@ -6248,17 +6249,19 @@ def run_execution_plan(cfg: ProductConfig, iteration: int,
         revert + no-ship. No plan step after a release gate is ever run.
       * `pm` / `build` / `bench` gates -> no post-success work; continue.
 
-    `base` is a PARAMETER, not re-read here, so the eventual wiring (bite 3b-ii)
-    can pass the head `run_iteration` already captured for its log line without a
-    second `head_of_branch` call. Every external effect (`run_stage`,
+    `base` is a PARAMETER, not re-read here, so the wiring in `run_iteration`
+    passes the head it already captured for its log line without a second
+    `head_of_branch` call. Every external effect (`run_stage`,
     `revert_repo`, `head_of_branch`, `postrelease_step`, `contains`,
     `read_review_disposition`, `read_test_disposition`, `log`) is
     called by its BARE module name so a test's `monkeypatch.setattr` bites, and
     module globals are read inside the call. If the plan has NO release gate and
     every stage passes, the loop completes and returns no-ship WITHOUT reverting
     (defensive totality; a well-formed manifest always ends in a release gate,
-    which 3b-ii's lint gate enforces). This has ZERO call site -- 3b-ii wires it
-    behind an absent-or-default guard; nothing runs it yet.
+    which 3b-ii's lint gate enforces). Live caller: `run_iteration` delegates to
+    it behind an absent-or-default guard, ONLY for a non-default staffing manifest
+    that lints clean and whose plan ends on the ship gate; every other product
+    runs the fixed pipeline instead.
     """
     for step in plan:
         spec = step.spec
@@ -8280,8 +8283,10 @@ def select_scout_lenses(iteration: int) -> tuple[str, str]:
     (Behavior 6). Pure and total: never raises for ANY int -- Python's ``%``
     wraps negatives, so ``select_scout_lenses(-1)`` selects the last window --
     performs NO filesystem/subprocess/network/clock access, and returns a fresh
-    tuple each call. DORMANT: no orchestrator/dispatcher references this; the
-    sole in-module caller is ``scout_plan_cli`` (Behavior 8).
+    tuple each call. Callers: `run_iteration` passes
+    `list(select_scout_lenses(iteration))` to `scout_phase_outcome` on every
+    iteration (the live scout-lens rotation), and `scout_plan_cli` previews the
+    same window offline.
     """
     pool = PM_SCOUT_LENS_POOL
     i = iteration % len(pool)
@@ -8424,11 +8429,10 @@ def resolve_agent_endpoint(sock_dir: str | os.PathLike | None = None) -> str | N
     socket (``_AGENT_SOCK_GLOB``, a ``<name>-<pid>.sock`` file under a runtime
     dir) on every restart, so an endpoint captured at dispatcher launch goes
     dead after a restart and every stage child then instant-fails against it. A
-    later, separately-specced bite uses this resolver to hand each stage child a
+    Live caller: `run_stage` calls it once PER ATTEMPT to hand each stage child a
     freshly resolved LIVE endpoint, falling back to the inherited environment
     untouched when this returns ``None`` -- so it can never make a working setup
-    worse. DORMANT this iteration: it has ZERO call site in the running pipeline
-    (a new pure function with no caller changes no resume semantics).
+    worse, and an unconfigured machine spawns byte-identically.
 
     Liveness is proven ONLY by an actual ``connect()`` probe, never by parsing a
     pid out of the filename and calling ``os.kill(pid, 0)``: pid REUSE makes that
@@ -8737,8 +8741,8 @@ def derive_scout_stage_specs(plan: ScoutPhasePlan) -> tuple[ScoutStageSpec, ...]
     enabled-but-empty plan yields an empty tuple (Behaviors 1/7). Pure, total,
     deterministic, offline: performs NO filesystem/subprocess/network/clock
     access and never raises for any ``ScoutPhasePlan`` input (Behavior 12).
-    ZERO call site -- the operator-gated bite-3b wiring loops over the result;
-    nothing in the running loop constructs or calls it, so the disabled path is
+    Live caller: `run_scout_phase` loops over the result; a disabled plan never
+    gets that far (`scout_phase_outcome` returns first), so the disabled path is
     byte-identical (Behavior 14).
     """
     return tuple(
@@ -8769,12 +8773,11 @@ class ScoutPhaseResult:
 
 def run_scout_phase(cfg: ProductConfig, iteration: int, plan: ScoutPhasePlan,
                     role_file: str) -> ScoutPhaseResult:
-    """Run the ordered dual-PM-scout pre-phase for one iteration (DORMANT executor).
+    """Run the ordered dual-PM-scout pre-phase for one iteration (live executor).
 
-    The direct analog of iter-70's ``run_execution_plan``: a dormant full executor
-    built as a pure-seam, offline-testable function now, so the operator-gated
-    wiring (bite 3b-ii) collapses to a trivial ``if plan.enabled: run_scout_phase(
-    ...)`` call. Given the iter-80 ``ScoutPhasePlan`` it derives the iter-82 per-
+    The direct analog of iter-70's ``run_execution_plan``: a full executor built
+    as a pure-seam, offline-testable function, so the operator-gated wiring in
+    `scout_phase_outcome` is a trivial pre-tested call. Given the iter-80 ``ScoutPhasePlan`` it derives the iter-82 per-
     scout ``ScoutStageSpec``s (via ``derive_scout_stage_specs``) and runs each scout
     stage SEQUENTIALLY through the ``run_stage`` seam -- concurrency 1 preserved,
     single-brain (Behavior 3) -- keying each on its ``spec.out_name`` (ties output-
@@ -8794,8 +8797,9 @@ def run_scout_phase(cfg: ProductConfig, iteration: int, plan: ScoutPhasePlan,
     external effect goes through the ``run_stage`` seam (Behavior 12); ``run_stage``
     and ``derive_scout_stage_specs`` are called by BARE module name so a test's
     ``monkeypatch.setattr`` bites and the module globals are read at call time
-    (Behavior 13). ZERO call site -- no orchestrator runs it yet, so the disabled
-    path is byte-identical (Behavior 14).
+    (Behavior 13). Live caller: `scout_phase_outcome` runs it from
+    `run_iteration` only when ``cfg.dual_pm_scouts`` is on, so the disabled path
+    is byte-identical (Behavior 14).
     """
     specs = derive_scout_stage_specs(plan)
     outputs: list[str] = []
@@ -10524,11 +10528,14 @@ def postrelease_verdict(*, remote_ok: bool, clone_ok: bool, setup_ok: bool,
 
 def verify_fresh_clone(cfg: "ProductConfig", expected_sha: str,
                        clone_dir) -> "PostReleaseResult":
-    """Re-verify a pushed commit from a throwaway clone (DORMANT this iter).
+    """Re-verify a pushed commit from a throwaway clone (live post-release gate).
+
+    Live caller: `postrelease_step` runs it after every shipped iteration unless
+    ``cfg.postrelease_enabled`` is off, and catches any error it raises.
 
     Runs every external effect through the `run_cmd`/`cleanup_clone` module
-    seams — read as module-level names AT CALL TIME so
-    `monkeypatch.setattr(foundry, "run_cmd"/"cleanup_clone", ...)` bites — and
+    seams -- read as module-level names AT CALL TIME so
+    `monkeypatch.setattr(foundry, "run_cmd"/"cleanup_clone", ...)` bites -- and
     folds the step outcomes through the pure `postrelease_verdict`. Cleanup is
     attempted on EVERY path (Behavior 10); an unexpected seam error is treated
     as infra (HEALTHY + skipped_infra), never a false hotfix (Behavior 11).
