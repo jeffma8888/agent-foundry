@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-517
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- OPERATOR 2026-11-08 pin, verb leg: when the clone suite fails, `foundry preship` re-runs it at HEAD^ in the same clone env; an identical, non-empty, untruncated failing set gives `PRESHIP: INCOMPLETE` (exit 2) naming the set and the interpreter, and anything else stays BROKEN (exit 1)
+    - Candidate A2 -- `tests/conftest.py` gives every str/bytes parametrize value over 60 chars a short stable id (`<argname>-len<N>-<sha8>`), so no two test nodeids share a `TEST_FAILURE_LINE_MAX` prefix and A1's "identical failing set" compares unambiguous strings
+    - Candidate A3 -- the "too deep to parse" SRC_DEEP fixture stops depending on the C stack size: grow the source until `ast.parse` really raises RecursionError (or `pytest.skip` with a reason), instead of a fixed `"1+" * 200000`
+    - Candidate B1 -- OPERATOR 2026-11-08 pin (un-retired, listed first per the card): `preship` keeps the clone suite's failing tests and, on a red suite, re-runs at HEAD^ in the same clone env; an identical non-empty failing set gives `PRESHIP: INCOMPLETE` (exit 2) naming the set and the interpreter, anything else stays BROKEN (exit 1)
+    - Candidate B2 -- the `live-lag` WARN stops telling the operator to "restart the dispatcher" blind: `doctor`/`status` add one `drain:` line saying whether the RUNNING brain can be drained (`drain: ARMED -- kill -USR1 <pid>`) or not (`drain: NOT ARMED -- brain launched before the drain handler; SIGUSR1 would kill it mid-shift; restart once with STOP between shifts`)
+    - Candidate B3 -- `foundry stop --global --drain`: the operator verb that reads the armed pid itself, confirms it is the live brain, and sends SIGUSR1, or REFUSES (exit 1, STOP remedy printed) when the running brain was never armed
+    winner: A1
+    ship: pending (not yet decided)
   iter-516
     lenses: new-capability, hardening/DX
     - Candidate A1 -- OPERATOR 2026-11-08 pin, hotfix leg (owed by HOTFIX_NEEDED.md): change `SRC_DEEP` to `"x = " + "1+" * 200000 + "1"` in test_iter326 and test_iter423 so it fails to parse on every supported interpreter
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- pin the suite interpreter with a tracked root `.python-version` (`3.13`) so a fresh clone resolves the same cpython as the worktree's `.venv`
     - Candidate B3 -- `tests/conftest.py` gives every str/bytes parametrize value longer than 60 chars a short stable id (`<argname>-len<N>-<sha256[:8]>`), so no test nodeid can flood FAILED evidence or collide under `TEST_FAILURE_LINE_MAX`
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED c643f43
   iter-515
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- ARCHITECTURE §3's post-release sentence makes two claims the code does not keep ("re-verifies the *pushed* commit", "never raises a false hotfix"), and no doc mentions iter 510's failing-tests list
@@ -2460,4 +2470,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-247 scouted iterations
+248 scouted iterations

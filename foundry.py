@@ -10467,6 +10467,42 @@ def test_failure_lines(out: str | None, limit: int = 10) -> tuple[str, ...]:
     return (*matches[:limit], f"... and {len(matches) - limit} more")
 
 
+def failing_summary_set(out: str | None) -> frozenset[str]:
+    """The WHOLE set of pytest `FAILED `/`ERROR ` summary lines in `out` (pure, total).
+
+    WHY not `test_failure_lines`: that helper is a DISPLAY cap (10 lines x 300
+    chars), and as a gate ORACLE a cap fakes matches -- two parametrize ids that
+    share their first 300 chars, or an 11th failure hidden behind `... and N
+    more`, would compare equal when the runs differ. So this keeps every
+    matching line whole and uncapped. Same match rule: the left-stripped line
+    starts with the case-sensitive `FAILED ` or `ERROR ` (trailing space
+    required, so `=== FAILURES ===` and `1 failed` never match). A SET because
+    xdist reorders the summary between otherwise identical runs.
+    `None`/`""` -> `frozenset()`.
+    """
+    if not out:
+        return frozenset()
+    return frozenset(line.strip() for line in str(out).splitlines()
+                     if line.lstrip().startswith(("FAILED ", "ERROR ")))
+
+
+def preship_parent_drift(head_out: str | None, parent_out: str | None) -> bool:
+    """True iff HEAD's clone suite and its PARENT's fail the IDENTICAL non-empty set.
+
+    Pure + total. This is the pin's end-state oracle (GAP-021): if the parent
+    commit fails exactly the same tests in the same clone environment, the red is
+    a property of the MACHINE, not of this tree. Everything less certain is
+    False so the pessimistic gate keeps BROKEN: an empty HEAD set (empty ==
+    empty is the lie a missing `timeout` binary once told), a parent that never
+    produced output, and a strict subset/superset in either direction.
+    """
+    try:
+        head = failing_summary_set(head_out)
+        return bool(head) and head == failing_summary_set(parent_out)
+    except Exception:
+        return False
+
+
 @dataclasses.dataclass(frozen=True)
 class PostReleaseResult:
     """Verdict of a fresh-clone verification.
@@ -10886,6 +10922,11 @@ class PreshipResult:
     incomplete: bool
     detail: str
     test_seconds: float | None = None
+    # The clone suite's raw output, kept ONLY so `preship_cli` can compare the
+    # failing set against the parent's (iter 517). Excluded from repr/compare
+    # and from `to_dict()`/`render()` so no report or equality changes.
+    suite_output: str | None = dataclasses.field(
+        default=None, repr=False, compare=False)
     verified_sha: str | None = None
     worktree_scope: str | None = None
 
@@ -11857,6 +11898,7 @@ def verify_local_clone(cfg: "ProductConfig", expected_sha: str,
     clone_ok = setup_ok = test_ok = sha_ok = False
     budget_exhausted = False
     test_seconds: float | None = None
+    suite_output: str | None = None
     result: "PreshipResult"
     budget = PRESHIP_BUDGET_SECONDS  # module global, read at CALL time
 
@@ -11898,8 +11940,10 @@ def verify_local_clone(cfg: "ProductConfig", expected_sha: str,
             else:
                 granted = preship_step_timeout(rem)
                 _t0 = _monotonic()
-                test_ok = run_cmd(shlex.split(cfg.test_cmd), cwd=clone_dir,
-                                  timeout=granted).ok
+                suite_res = run_cmd(shlex.split(cfg.test_cmd), cwd=clone_dir,
+                                    timeout=granted)
+                test_ok = suite_res.ok
+                suite_output = suite_res.out
                 test_seconds = _monotonic() - _t0
                 if not test_ok and test_seconds >= granted:
                     # It consumed its WHOLE granted slice, so the budget killed
@@ -11940,6 +11984,7 @@ def verify_local_clone(cfg: "ProductConfig", expected_sha: str,
         # runs wasted work on a boundary path that has already declared it verified
         # nothing. See `preship_cli` for the probe's threading.
         result = dataclasses.replace(result, test_seconds=test_seconds,
+                                     suite_output=suite_output,
                                      verified_sha=expected_sha)
     except Exception as exc:  # fail-SAFE: cannot decide, so do not bless
         result = PreshipResult(
@@ -11948,6 +11993,119 @@ def verify_local_clone(cfg: "ProductConfig", expected_sha: str,
     finally:
         _try_cleanup_clone(clone_dir)  # every exit path, verdict-preserving
     return result
+
+
+# Wall-clock budget (seconds) for the PARENT re-run leg of `foundry preship`,
+# read at CALL time. Separate from `PRESHIP_BUDGET_SECONDS` because this leg runs
+# only AFTER the HEAD clone suite already failed, and a leg that runs out simply
+# leaves the verdict BROKEN -- it can never manufacture a pass.
+PRESHIP_PARENT_BUDGET_SECONDS: float = 180.0
+
+
+def rerun_suite_at_parent(cfg: "ProductConfig", parent_sha: str,
+                          clone_dir) -> tuple[str | None, str]:
+    """Run the declared suite at `parent_sha` in a throwaway LOCAL clone.
+
+    Returns `(suite_out, interpreter)`. WHY: when HEAD's clone suite fails, the
+    gate must tell "this tree broke it" from "this machine breaks it" by the END
+    STATE, not by an agent's argument (iter 515 pushed on "interpreter drift"
+    and post-release went BROKEN). Re-running the parent in the same kind of
+    clone, under the same interpreter, yields that end state.
+
+    Commands (all through the bare `run_cmd` seam, in order): clone the local
+    repo path, `checkout --detach parent_sha`, setup, suite, `uv python find`.
+    The budget is recomputed before EVERY command and passed as its timeout; a
+    non-positive remainder issues nothing further. `suite_out` is the suite's
+    output whenever it ran to completion (pass or fail) and `None` when an
+    earlier step failed, the budget ran out first, or the suite failed having
+    used its whole slice (a kill is not a failing set). `interpreter` is the
+    first non-empty line of `uv python find`, else `unknown`. Cleanup runs
+    before the clone and on every exit path; any seam exception gives
+    `(None, "unknown")` -- never raises.
+    """
+    budget = PRESHIP_PARENT_BUDGET_SECONDS  # module global, read at CALL time
+    suite_out: str | None = None
+    interpreter = "unknown"
+    try:
+        started = _monotonic()
+
+        def _remaining() -> float:
+            """Seconds of budget left; non-positive means issue nothing more."""
+            return budget - (_monotonic() - started)
+
+        _try_cleanup_clone(clone_dir)
+        prelude = (
+            (["git", "clone", str(cfg.repo), str(clone_dir)], None),
+            (["git", "-C", str(clone_dir), "checkout", "--detach", parent_sha],
+             None),
+            (shlex.split(cfg.setup_cmd), clone_dir),
+        )
+        for args, cwd in prelude:
+            rem = _remaining()
+            if rem <= 0 or not run_cmd(
+                    args, cwd=cwd, timeout=preship_step_timeout(rem)).ok:
+                return None, "unknown"
+        rem = _remaining()
+        if rem <= 0:
+            return None, "unknown"
+        granted = preship_step_timeout(rem)
+        _t0 = _monotonic()
+        suite_res = run_cmd(shlex.split(cfg.test_cmd), cwd=clone_dir,
+                            timeout=granted)
+        if not suite_res.ok and _monotonic() - _t0 >= granted:
+            return None, "unknown"  # the budget killed it: no failing set
+        suite_out = suite_res.out
+        rem = _remaining()
+        if rem > 0:
+            find_res = run_cmd(["uv", "python", "find"], cwd=clone_dir,
+                               timeout=preship_step_timeout(rem))
+            if find_res.ok:
+                interpreter = next(
+                    (ln.strip() for ln in find_res.out.splitlines()
+                     if ln.strip()), "unknown")
+        return suite_out, interpreter
+    except Exception:
+        return None, "unknown"
+    finally:
+        _try_cleanup_clone(clone_dir)
+
+
+def _preship_parent_leg(cfg: "ProductConfig", expected_sha: str,
+                        result: "PreshipResult") -> "PreshipResult":
+    """Downgrade a red-suite BROKEN to INCOMPLETE iff the parent fails identically.
+
+    Runs ONLY for exit 1 with a non-empty failing set (a sha-mismatch BROKEN or
+    an output with no FAILED/ERROR line issues no command). If the parent sha
+    cannot be resolved (e.g. a root commit) or its run differs in ANY way, the
+    BROKEN result is returned unchanged. Fail-safe: any raise keeps BROKEN, so
+    this leg can only ever move a verdict from "tree broken" to "machine
+    cannot decide" -- never to VERIFIED.
+    """
+    try:
+        if result.exit_code != 1:
+            return result
+        failing = failing_summary_set(result.suite_output)
+        if not failing:
+            return result
+        parent_res = run_cmd(
+            ["git", "-C", str(cfg.repo), "rev-parse", expected_sha + "^"])
+        parent_sha = parent_res.out.strip() if parent_res.ok else ""
+        if not parent_sha:
+            return result
+        parent_out, interpreter = rerun_suite_at_parent(
+            cfg, parent_sha, cfg.state / "preship_parent_clone")
+        if not preship_parent_drift(result.suite_output, parent_out):
+            return result
+        detail = (
+            "the declared suite FAILED inside a clean local clone, but its "
+            f"PARENT {parent_sha} fails the IDENTICAL set of {len(failing)} "
+            f"test(s) in the same clone environment (interpreter: "
+            f"{interpreter}), so the failure is evidence about the MACHINE, "
+            "not this tree: "
+            + "; ".join(test_failure_lines(result.suite_output)))
+        return dataclasses.replace(result, incomplete=True, detail=detail)
+    except Exception:
+        return result
 
 
 def preship_cli(cfg: ProductConfig, as_json: bool = False) -> int:
@@ -11960,9 +12118,15 @@ def preship_cli(cfg: ProductConfig, as_json: bool = False) -> int:
     `products/*/state/`, which is already git-ignored, so the runtime clone can
     never leak into a ship diff.
 
+    A red-suite BROKEN then goes through `_preship_parent_leg`: if HEAD's
+    parent fails the IDENTICAL non-empty set in a second throwaway clone
+    (`cfg.state / "preship_parent_clone"`), the verdict becomes INCOMPLETE,
+    exit 2 -- evidence about the machine, not the tree. Anything else stays
+    BROKEN.
+
     Prints `render()` (or one `--json` document) and returns the DERIVED
     `exit_code`: 0 verified / 1 broken / 2 could-not-complete. Read-only with
-    respect to source: it writes nothing except the throwaway clone it deletes.
+    respect to source: it writes nothing except the throwaway clones it deletes.
     """
     head_res = run_cmd(["git", "-C", str(cfg.repo), "rev-parse", "HEAD"])
     expected_sha = head_res.out.strip()
@@ -11974,6 +12138,9 @@ def preship_cli(cfg: ProductConfig, as_json: bool = False) -> int:
     else:
         result = verify_local_clone(cfg, expected_sha,
                                     cfg.state / "preship_clone")
+        # Parent-drift leg (iter 517): the VERB, not the gate's judgement,
+        # tells a red tree from a red machine. Total; can only reach exit 2.
+        result = _preship_parent_leg(cfg, expected_sha, result)
     # INERT scope diagnostic, threaded onto the FINISHED verdict. It lives here
     # rather than inside `verify_local_clone` for two reasons. (1) Layering: this
     # is already the layer that reads the SOURCE repo (the `rev-parse HEAD` above),
