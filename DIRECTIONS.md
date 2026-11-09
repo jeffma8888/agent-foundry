@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-518
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- `doctor` prints a `drain-arm:` line saying whether the RUNNING brain can be drained (`ARMED -- kill -USR1 <pid>`) or not (`NOT ARMED -- launched before the drain handler; SIGUSR1 would kill it mid-shift`)
+    - Candidate A2 -- post-release records the clone's interpreter in `postrelease.md` and `HOTFIX_NEEDED.md` on a BROKEN suite, reusing iter 517's `uv python find` probe
+    - Candidate A3 -- the `live-lag` restart nag counts only ships that touch a module the brain holds in memory (`foundry.py` / `dispatcher.py`)
+    - Candidate B1 -- one `ACTION:` sentinel reader: `parse_ship_action`, `parse_ship_sha` and the `reverts` reason stop re-implementing the last-non-empty-line rule (3 private copies -> 1)
+    - Candidate B2 -- delete the `RESTART_NEEDED.md` flag family nothing has raised in 377 iterations (`dispatch_restart_line` + `write_restart_flag` / `clear_restart_flag` / `restart_flag_path` / `RESTART_FLAG_NAME`, ~135 lines of foundry.py 22158-22292)
+    - Candidate B3 -- the pytest `FAILED `/`ERROR ` match rule is written twice, 7 iterations apart: `test_failure_lines` (iter 510) and `failing_summary_set` (iter 517) share one extractor
+    winner: A1
+    ship: pending (not yet decided)
   iter-517
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- OPERATOR 2026-11-08 pin, verb leg: when the clone suite fails, `foundry preship` re-runs it at HEAD^ in the same clone env; an identical, non-empty, untruncated failing set gives `PRESHIP: INCOMPLETE` (exit 2) naming the set and the interpreter, and anything else stays BROKEN (exit 1)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the `live-lag` WARN stops telling the operator to "restart the dispatcher" blind: `doctor`/`status` add one `drain:` line saying whether the RUNNING brain can be drained (`drain: ARMED -- kill -USR1 <pid>`) or not (`drain: NOT ARMED -- brain launched before the drain handler; SIGUSR1 would kill it mid-shift; restart once with STOP between shifts`)
     - Candidate B3 -- `foundry stop --global --drain`: the operator verb that reads the armed pid itself, confirms it is the live brain, and sends SIGUSR1, or REFUSES (exit 1, STOP remedy printed) when the running brain was never armed
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 57b79fe
   iter-516
     lenses: new-capability, hardening/DX
     - Candidate A1 -- OPERATOR 2026-11-08 pin, hotfix leg (owed by HOTFIX_NEEDED.md): change `SRC_DEEP` to `"x = " + "1+" * 200000 + "1"` in test_iter326 and test_iter423 so it fails to parse on every supported interpreter
@@ -2470,4 +2480,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-248 scouted iterations
+249 scouted iterations

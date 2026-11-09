@@ -1187,6 +1187,13 @@ def run_doctor_cli(cfg: ProductConfig) -> int:
     except Exception as exc:  # pragma: no cover - contract-impossible belt
         print(f"{WATCHDOG_ARM_PREFIX} UNKNOWN -- watchdog-arm line errored: "
               f"{exc!r}")
+    # Iter 518: a restart-safety NOTE, not one of the seven drift lines the
+    # docstring counts (that count is pinned). It tells the operator whether the
+    # documented `kill -USR1 <pid>` drains the running brain or kills it.
+    try:
+        print(drain_arm_status_line(cfg))
+    except Exception as exc:
+        print(f"{DRAIN_ARM_PREFIX} UNKNOWN -- drain-arm line errored: {exc!r}")
     ok = doctor_ok(checks)
     passed = sum(1 for c in checks if c.ok)
     print(f"doctor: {passed}/{len(checks)} checks ok — "
@@ -21723,6 +21730,98 @@ def parse_brain_launch(log_text: str, year: int | None = None) -> float | None:
     except Exception:
         # Out-of-range fields, a non-int `year`, or anything else: UNKNOWN.
         return None
+
+
+# The `drain armed` line `dispatcher.main` logs once its SIGUSR1 handler is
+# installed (iter 515), as emitted by `dlog`:
+#   `- `MM-DD HH:MM:SS` drain armed: kill -USR1 <pid>`
+# Anchored on the WHOLE stripped line -- optional bullet, stamp, payload, end --
+# for the same anti-spoof reason as `_BRAIN_UP_RE`: a `no output file` line that
+# quotes an armed fragment inside its repr payload must never claim a handler.
+_DRAIN_ARMED_RE = re.compile(
+    r"^(?:[-*]\s+)?`\d\d-\d\d \d\d:\d\d:\d\d`\s+drain armed: kill -USR1 (\d+)\s*$")
+
+DRAIN_ARM_PREFIX = "drain-arm:"
+
+
+def parse_drain_armed(log_text: object) -> int | None:
+    """Pid the CURRENT brain logged as drain-armed, else `None`.
+
+    WHY: the documented zero-loss restart is `kill -USR1 <pid>`, but only a
+    brain launched AFTER iter 515 installs that handler; on an older brain the
+    same signal takes the DEFAULT action and kills it mid-shift. The log the
+    brain writes is the only offline evidence of which kind is running.
+
+    Only text AFTER the LAST `_BRAIN_UP_RE` banner counts (selected by position,
+    like `parse_brain_launch`, but WITHOUT its stamp-date validation, because no
+    instant is computed here): an armed line before that banner belonged to a
+    previous process. No banner means the current process is unknown -> `None`.
+    Pure and total: any input, `None` and non-`str` included, yields an `int`
+    or `None`, never an exception.
+    """
+    if not isinstance(log_text, str):
+        return None
+    lines = log_text.splitlines()
+    last = -1
+    for i, raw in enumerate(lines):
+        if _BRAIN_UP_RE.match(raw.strip()):
+            last = i                      # LAST by position, not by stamp order
+    if last < 0:
+        return None
+    for raw in lines[last + 1:]:
+        m = _DRAIN_ARMED_RE.match(raw.strip())
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def drain_arm_line(log_text: object) -> str:
+    """Render the ONE `drain-arm:` doctor line for a dispatcher-log body.
+
+    Three verdicts, fail-SAFE like every drift line: ARMED only on positive
+    evidence; NOT ARMED when the current brain's banner is there but no armed
+    line follows it (the brain predates the handler, so SIGUSR1 would KILL it);
+    UNKNOWN when there is no banner at all. Never raises, never emits a newline.
+    """
+    try:
+        has_banner = isinstance(log_text, str) and any(
+            _BRAIN_UP_RE.match(raw.strip()) for raw in log_text.splitlines())
+        if not has_banner:
+            return (f"{DRAIN_ARM_PREFIX} UNKNOWN -- no `dispatcher up` banner in "
+                    f"the dispatcher log, so nothing is claimed about whether "
+                    f"the running brain drains on SIGUSR1")
+        pid = parse_drain_armed(log_text)
+        if pid is None:
+            return (f"{DRAIN_ARM_PREFIX} NOT ARMED -- the current brain logged no "
+                    f"`drain armed` line, so it predates the SIGUSR1 drain handler "
+                    f"and a kill -USR1 would kill it mid-shift; restart it by "
+                    f"STOP file or between iterations instead")
+        return (f"{DRAIN_ARM_PREFIX} ARMED -- the current brain drains at the "
+                f"shift boundary on kill -USR1 {pid}")
+    except Exception as exc:  # pragma: no cover - contract-impossible belt
+        return f"{DRAIN_ARM_PREFIX} UNKNOWN -- drain-arm line errored: {exc!r}"
+
+
+def drain_arm_status_line(cfg: "ProductConfig",
+                          log_path: "str | pathlib.Path | None" = None) -> str:
+    """Read the dispatcher log and return `drain_arm_line` of it. Never raises.
+
+    Defaults to `FOUNDRY / "dispatcher.out"`, the same log `live_lag_status`
+    dates the banner from, so the two lines always judge the same process. A
+    missing or unreadable log reads as `""` -> UNKNOWN, never ARMED. `cfg` is
+    accepted for signature parity with the other doctor-line helpers; the log
+    is machine-wide, not per product. Sends no signal and runs no subprocess.
+    """
+    try:
+        log = (pathlib.Path(log_path) if log_path
+               else (FOUNDRY / "dispatcher.out"))
+        try:
+            text = log.expanduser().read_text(errors="replace")
+        except Exception:
+            text = ""            # missing / unreadable log -> UNKNOWN, not ARMED
+        return drain_arm_line(text)
+    except Exception as exc:
+        return f"{DRAIN_ARM_PREFIX} UNKNOWN -- drain-arm line errored: {exc!r}"
 
 
 def inert_iterations(launch_epoch: float | None,

@@ -350,6 +350,7 @@ in the archive.
 - iter 515 -- dispatcher drains on SIGUSR1: finishes the shift in flight, then exits 0.
 - iter 516 -- HOTFIX: SRC_DEEP fixtures deepen to 200000 so they fail to parse on cpython 3.14.
 - iter 517 -- preship: PARENT fails the identical set -> INCOMPLETE (2), not BROKEN.
+- iter 518 -- doctor drain-arm: line: ARMED <pid> / NOT ARMED / UNKNOWN from the log.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
@@ -397,21 +398,7 @@ OPEN (no Done-when box ticked). Body moved VERBATIM to the archive by iter 506.
 
 ## Item 21 -- CEO escalation predicates (SMALL-MEDIUM, pattern exists)
 
-**Problem.** ORG_DESIGN.md section 9 reserves five categories for human
-escalation (security/credentials, personal data/PII, spending, legal/licensing,
-public visibility). Only category 2 is enforced today (the leak-guard at the
-release gate).
-
-**What ships.** Generalize the leak-guard pattern: a deterministic diff-predicate
-scanner (offline, stdlib-only) with one predicate per category (extensible
-committed config), run by the final gate; any hit blocks the ship and writes a
-structured escalation record (events.jsonl kind: `escalation`) + a per-product
-`ESCALATION.md` flag for the human operator. No auto-page, no network.
-
-**Done when.**
-- [ ] Five predicate categories exist with unit tests (hit + benign near-miss
-      each); a hit fails the gate to the revert path; the escalation record is
-      written; leak-guard remains the category-2 implementation (no dup scan).
+OPEN (no Done-when box ticked). Body moved VERBATIM to the archive by iter 518.
 
 ## Item 22 -- bounded re-staffing review + N=5 no-trigger fallback (SMALL, gated on 18/19)
 

@@ -1103,6 +1103,7 @@ future attempt needs a documented LAST-RESORT truncation and its own iteration.
 - **iter 515 -- operator control: graceful dispatcher drain.** `dispatcher.py` installs a `SIGUSR1` handler (`request_drain`) for the session, logs `drain armed: kill -USR1 <pid>`, and at the top of each shift (right after the STOP check) exits 0 with `drain honored after N shifts` once a drain was requested, so the iteration in flight finishes instead of being abandoned (STOP abandoned 8 fleet iterations; iter 491 died to a restart). The previous handler is restored in `finally`; `run_stage`/`stopping()`/STOP are untouched. Signal, not a `DRAIN` file: root `.gitignore` is frozen by ~13 permanent guards (PM priced the file variant: 13 reds), and an unignored sentinel would leak into a ship's `git add -A`. A dispatcher launched before this ship still dies on SIGUSR1 (default action), so the first restart uses STOP. Picked scout B1 over A1 (ARCHITECTURE §3 post-release overclaims: docs-only).
 - **iter 516 -- hotfix: the deep-nesting parse-failure fixtures are interpreter-proof.** HOTFIX_NEEDED.md was raised for iter 515's `3061e71`: a fresh clone (`requires-python >=3.12`, no `.venv`) now resolves to uv-managed cpython 3.14.4, which PARSES `"x = " + "1+" * 10000 + "1"`, so 4 `SRC_DEEP` cases in test_iter326 b6 and test_iter423 b2[deep] went red with no tree change (parent `55dbdc6` fails identically). Both constants deepen to `"1+" * 200000`, which raises RecursionError under `ast.parse` on 3.12.7, 3.13.0 and 3.14.4 (measured). test_iter326's two b6 parametrizes gain `ids=["syntax", "nul", "deep"]` so a future FAILED line names the case instead of a 20k-char id, and test_iter204's b15 allow-list takes the test_iter423 path (test_iter326 was already listed). Picked scout A1 (the pin's hotfix leg) over B2 (`.python-version` pin: masks drift rather than fixing the fixture); the pin's verb leg (preship parent re-run -> INCOMPLETE) is next.
 - **iter 517 -- gate: `preship` tells tree from machine itself (OPERATOR 2026-11-08 pin, verb leg).** When the clone suite fails, `preship_cli` re-runs it at `HEAD^` in a second throwaway clone (`rerun_suite_at_parent`, own `PRESHIP_PARENT_BUDGET_SECONDS`); if the UNTRUNCATED, UNCAPPED FAILED/ERROR line sets are equal and non-empty (`failing_summary_set` / `preship_parent_drift`) the verdict is `PRESHIP: INCOMPLETE` (exit 2) naming parent sha, interpreter and set; anything else stays BROKEN (exit 1). `PreshipResult.suite_output` (repr/compare off) carries the suite text; `to_dict()` keeps 8 keys, render unchanged.
+- **iter 518 -- operator safety: `doctor` says whether the running brain can be drained.** `parse_drain_armed` reads the dispatch log after the LAST `dispatcher up` banner for an anchored, stamped `drain armed: kill -USR1 <pid>` line; `drain_arm_line` renders `drain-arm: ARMED` (with the pid), `NOT ARMED` (brain predates iter 515's handler, so SIGUSR1 would kill it mid-shift) or `UNKNOWN` (no banner/unreadable log). `run_doctor_cli` prints it after `watchdog-arm:`, guarded, exit code unchanged; no signal, no subprocess.
 
 ## Moved from the index by iter 447
 
@@ -1215,3 +1216,23 @@ kill-gate, and every seat runs on the same model as the builder
 - [ ] Gate + pre-checks + logging exist with tests; a Go carries a fixed
       iteration bet recorded in the manifest; per-role model override is
       exercised by at least one test (env-level, no real second model needed).
+
+## Moved from the index by iter 518
+
+## Item 21 -- CEO escalation predicates (SMALL-MEDIUM, pattern exists)
+
+**Problem.** ORG_DESIGN.md section 9 reserves five categories for human
+escalation (security/credentials, personal data/PII, spending, legal/licensing,
+public visibility). Only category 2 is enforced today (the leak-guard at the
+release gate).
+
+**What ships.** Generalize the leak-guard pattern: a deterministic diff-predicate
+scanner (offline, stdlib-only) with one predicate per category (extensible
+committed config), run by the final gate; any hit blocks the ship and writes a
+structured escalation record (events.jsonl kind: `escalation`) + a per-product
+`ESCALATION.md` flag for the human operator. No auto-page, no network.
+
+**Done when.**
+- [ ] Five predicate categories exist with unit tests (hit + benign near-miss
+      each); a hit fails the gate to the revert path; the escalation record is
+      written; leak-guard remains the category-2 implementation (no dup scan).
