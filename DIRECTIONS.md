@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-516
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- OPERATOR 2026-11-08 pin, hotfix leg (owed by HOTFIX_NEEDED.md): change `SRC_DEEP` to `"x = " + "1+" * 200000 + "1"` in test_iter326 and test_iter423 so it fails to parse on every supported interpreter
+    - Candidate A2 -- OPERATOR 2026-11-08 pin, verb leg: when the clone suite fails, `foundry preship` re-runs it at the parent in the same clone env; an identical failing set is `PRESHIP: INCOMPLETE` (exit 2) naming the set + interpreter, anything else stays BROKEN (exit 1)
+    - Candidate A3 -- post-release and preship report the interpreter that ran the suite (`interpreter: /…/cpython-3.14…/python3.14`) in postrelease.md, HOTFIX_NEEDED.md and the preship report/JSON
+    - Candidate B1 -- OPERATOR 2026-11-08 pin (un-retired): clear the 4 `SRC_DEEP` reds first, then `foundry preship` tells tree from machine itself (parent re-run in the same clone env; identical failing set -> `PRESHIP: INCOMPLETE` exit 2 naming set + interpreter, else BROKEN 1)
+    - Candidate B2 -- pin the suite interpreter with a tracked root `.python-version` (`3.13`) so a fresh clone resolves the same cpython as the worktree's `.venv`
+    - Candidate B3 -- `tests/conftest.py` gives every str/bytes parametrize value longer than 60 chars a short stable id (`<argname>-len<N>-<sha256[:8]>`), so no test nodeid can flood FAILED evidence or collide under `TEST_FAILURE_LINE_MAX`
+    winner: A1
+    ship: pending (not yet decided)
   iter-515
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- ARCHITECTURE §3's post-release sentence makes two claims the code does not keep ("re-verifies the *pushed* commit", "never raises a false hotfix"), and no doc mentions iter 510's failing-tests list
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `notify_cmd` also fires when post-release raises `HOTFIX_NEEDED.md` (`FOUNDRY_HOLD_KIND=hotfix`, detail = sha + first failing test)
     - Candidate B3 -- `foundry recheck-release --config P [--json]`: re-verify the sha named in a raised `HOTFIX_NEEDED.md` on demand; clear the flag only on a genuine HEALTHY at that exact sha
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 3061e71
   iter-514
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- pause the cyclic GC for the duration of `gather_test_quality`'s `TEST_TREE_CACHE` scope: `company-test-quality --json` 5.12 s -> 3.63 s CPU (-29%), byte-identical
@@ -2450,4 +2460,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-246 scouted iterations
+247 scouted iterations

@@ -46,7 +46,7 @@ PRODUCTION_MODULES = ("foundry.py", "dispatcher.py", "watchdog.py")
 # adversarial-but-legal sources reused by several behaviours
 SRC_BAD_SYNTAX = "def (:\n"
 SRC_NUL = "x = 1\x00"
-SRC_DEEP = "x = " + "1+" * 10000 + "1"  # RecursionError during AST construction
+SRC_DEEP = "x = " + "1+" * 200000 + "1"  # RecursionError during AST construction
 
 
 class _Stringy:
@@ -277,13 +277,15 @@ def test_b5_prose_cannot_upgrade_a_code_reference():
 # Behaviour 6 -- a source that does not parse -> unparseable (fail-CLOSED),
 # NEVER dormant and never test-only
 # --------------------------------------------------------------------------
-@pytest.mark.parametrize("bad", [SRC_BAD_SYNTAX, SRC_NUL, SRC_DEEP])
+@pytest.mark.parametrize("bad", [SRC_BAD_SYNTAX, SRC_NUL, SRC_DEEP],
+                         ids=["syntax", "nul", "deep"])
 def test_b6_every_parse_failure_class_folds_to_one_word_in_production(bad):
     got = _classify(symbol="foo", production=(bad,))
     assert got == "unparseable", f"expected unparseable, got {got!r}"
 
 
-@pytest.mark.parametrize("bad", [SRC_BAD_SYNTAX, SRC_NUL, SRC_DEEP])
+@pytest.mark.parametrize("bad", [SRC_BAD_SYNTAX, SRC_NUL, SRC_DEEP],
+                         ids=["syntax", "nul", "deep"])
 def test_b6_every_parse_failure_class_folds_to_one_word_in_tests(bad):
     got = _classify(symbol="foo", tests=(bad,))
     assert got == "unparseable", f"expected unparseable, got {got!r}"

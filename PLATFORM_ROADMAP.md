@@ -348,6 +348,7 @@ in the archive.
 - iter 512 -- abort rescue + next_iteration share iteration_numbers' iter-<digits> rule.
 - iter 514 -- 7 run-path docstrings stop claiming ZERO call site/DORMANT; closure drift test.
 - iter 515 -- dispatcher drains on SIGUSR1: finishes the shift in flight, then exits 0.
+- iter 516 -- HOTFIX: SRC_DEEP fixtures deepen to 200000 so they fail to parse on cpython 3.14.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

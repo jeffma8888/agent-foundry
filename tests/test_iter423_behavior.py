@@ -49,7 +49,7 @@ PRODUCTION_MODULES = ("foundry.py", "dispatcher.py", "watchdog.py")
 
 SRC_BAD_SYNTAX = "def (:"
 SRC_NUL = "x = 1\x00"
-SRC_DEEP = "x = " + "1+" * 10000 + "1"  # RecursionError during AST construction
+SRC_DEEP = "x = " + "1+" * 200000 + "1"  # RecursionError during AST construction
 
 
 class _Stringy:

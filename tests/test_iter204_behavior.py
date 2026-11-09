@@ -1313,7 +1313,13 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # freeze appends it. No newest-ness pin touched:
                 # `newest_ness_pin_sites` over that file is `()` at HEAD AND in
                 # the worktree.
-                "tests/test_iter156_behavior.py"}
+                "tests/test_iter156_behavior.py",
+                # iter 516: FORCED hotfix. cpython 3.14 parses iter 423's
+                # 10000-deep SRC_DEEP fixture, so it deepens to 200000 to
+                # fail `ast.parse` on every supported interpreter. Fixture-only:
+                # no newest-ness pin touched, `newest_ness_pin_sites` over that
+                # file is `()` at HEAD AND in the worktree.
+                "tests/test_iter423_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the
