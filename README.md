@@ -367,7 +367,12 @@ Stop any time with #59 above -- `uv run python foundry.py stop --config
 products/<name>/config.json --reason "..."` retires one team, `--global` halts the
 whole company, and deleting the sentinel resumes. Plain `touch STOP` still works
 and is what the dispatcher checks, but it writes ZERO bytes, so #52 `company-stops`
-can only report THAT a team is stopped and never why. See **[USAGE.md](USAGE.md)** for pointing it at a brand-new
+can only report THAT a team is stopped and never why. STOP abandons the
+iteration in flight; to restart the brain with zero lost work, `kill -USR1 <pid>`
+(the pid is on the `drain armed` dispatch-log line) DRAINS it instead: the shift in
+flight finishes, `drain honored after N shifts` is logged and the dispatcher exits 0.
+A dispatcher launched before iteration 515 has no handler and DIES on SIGUSR1 (the
+default action), so restart such a brain once with STOP first. See **[USAGE.md](USAGE.md)** for pointing it at a brand-new
 idea or an existing project, and **[CONTINUOUS.md](CONTINUOUS.md)** for the
 always-on operating contract (AC power, the single-brain rule, the STOP files).
 

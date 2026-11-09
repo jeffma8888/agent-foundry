@@ -100,6 +100,13 @@ Once this repo exists you can just say things like:
 | See what shipped | `git -C <product repo> log --oneline` |
 | See the shift log | `cat DISPATCH_LOG.md` |
 
+Restart after the current shift (no lost work): `kill -USR1 <pid>`, with the pid from the
+`drain armed: kill -USR1 <pid>` dispatch-log line. This DRAINS the dispatcher: the shift in
+flight finishes, `drain honored after N shifts` is logged and it exits 0 at the next shift
+boundary, whereas STOP abandons the iteration in flight. A dispatcher launched before
+iteration 515 has no handler and DIES on SIGUSR1 (the default action), so restart such a
+brain once with STOP first.
+
 Machine-local operator knobs: `products/<name>/config.local.json` (gitignored) is THE home
 for them, e.g. `{"auth_resume_max": 24}`. It is merged over the `config.json` beside it and
 its keys win, EXCEPT the push-safety fields `push_enabled`, `repo` and `allowed_push_repo`:

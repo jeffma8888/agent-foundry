@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-515
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- ARCHITECTURE §3's post-release sentence makes two claims the code does not keep ("re-verifies the *pushed* commit", "never raises a false hotfix"), and no doc mentions iter 510's failing-tests list
+    - Candidate A2 -- README's "Repo map" omits 9 tracked top-level paths and 5 of 7 `docs/*.md`; `evals/` (iter 227's committed gate-replay corpus) is described in NO doc at all
+    - Candidate A3 -- docs/artifacts.md, README's "Catalog of products the foundry has produced", is v0.1 text: 1 of 3 tracked external teams, repolens figures from its 10th iteration
+    - Candidate B1 -- `foundry stop --global --drain --reason R`: a one-shot DRAIN sentinel that makes the dispatcher exit at the next iteration boundary instead of abandoning the iteration in flight
+    - Candidate B2 -- `notify_cmd` also fires when post-release raises `HOTFIX_NEEDED.md` (`FOUNDRY_HOLD_KIND=hotfix`, detail = sha + first failing test)
+    - Candidate B3 -- `foundry recheck-release --config P [--json]`: re-verify the sha named in a raised `HOTFIX_NEEDED.md` on demand; clear the flag only on a genuine HEALTHY at that exact sha
+    winner: B1
+    ship: pending (not yet decided)
   iter-514
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- pause the cyclic GC for the duration of `gather_test_quality`'s `TEST_TREE_CACHE` scope: `company-test-quality --json` 5.12 s -> 3.63 s CPU (-29%), byte-identical
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- ARCHITECTURE §3 says post-release "never raises a false hotfix", and pm.md duty 0 doesn't say what iter 510 now puts in the flag; both should state what a BROKEN actually tells the next PM
     - Candidate B3 -- ARCHITECTURE.md's events.jsonl kind list omits `resume`, which now stamps 125 live records across 6 teams; add a two-way drift test against `EVENT_KIND_RULES`
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 55dbdc6
   iter-512
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- `foundry preship` names the failing tests: `verify_local_clone` keeps the suite's `FAILED`/`ERROR` lines (via iter 510's `test_failure_lines`) instead of only `.ok`, and prints them above `PRESHIP: BROKEN`
@@ -2440,4 +2450,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-245 scouted iterations
+246 scouted iterations
