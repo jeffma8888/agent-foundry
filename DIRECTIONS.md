@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-520
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- the final gate stops running the full suite twice on one tree: a VERIFIED `preship` clone suite satisfies checklist item 3, and the worktree suite runs only as the fallback when preship is INCOMPLETE (exit 2) or absent
+    - Candidate A2 -- the fresh-clone suite (preship + post-release, twice per ship) pays a ~85 s CPU cold-compile tax: pre-warm pytest's rewritten pycs once, serially, before the `-n auto` run
+    - Candidate A3 -- retire the suite's triple-nested re-run: test_iter502 EB2 spawns a second pytest to re-run a test the suite already runs directly
+    - Candidate B1 -- roles/final.md and README #50 explain preship's exit 2 only as "clone, install or budget"; since iter 517 exit 2 also means "the suite FAILED, and HEAD^ fails the identical set", and the gate card never says so
+    - Candidate B2 -- CONTINUOUS.md, "the always-on operating contract", still says "Stopping is a file, not a signal" and that `touch STOP` makes the company "drain"; since iter 515 the drain IS a signal, and STOP abandons the iteration in flight
+    - Candidate B3 -- ARCHITECTURE §3 says post-release "never raises a false hotfix", and iter 515 raised one
+    winner: B1
+    ship: pending (not yet decided)
   iter-519
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- one `dispatcher.out` reader: the 4 private "default path + read + swallow" copies (`gather_stage_times`, `gather_pending_stages`, `live_lag_status`, `drain_arm_status_line`) collapse onto one `read_dispatcher_log(log_path=None)` seam, so 4 decode policies become 1
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- post-release reuses the same-sha preship clone-suite verdict instead of re-running the suite (re-pitch of iter 496 A1, with new numbers)
     - Candidate B3 -- one session-scoped `--collect-only` result for the suite's nested whole-suite collections
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED e1e6357
   iter-518
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- `doctor` prints a `drain-arm:` line saying whether the RUNNING brain can be drained (`ARMED -- kill -USR1 <pid>`) or not (`NOT ARMED -- launched before the drain handler; SIGUSR1 would kill it mid-shift`)
@@ -2490,4 +2500,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-250 scouted iterations
+251 scouted iterations
