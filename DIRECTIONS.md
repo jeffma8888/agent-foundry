@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-519
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- one `dispatcher.out` reader: the 4 private "default path + read + swallow" copies (`gather_stage_times`, `gather_pending_stages`, `live_lag_status`, `drain_arm_status_line`) collapse onto one `read_dispatcher_log(log_path=None)` seam, so 4 decode policies become 1
+    - Candidate A2 -- the pytest `FAILED `/`ERROR ` match rule is written once: `test_failure_lines` (iter 510) becomes a display cap over `failing_summary_set`'s extractor (iter 517) instead of a second copy of the predicate
+    - Candidate A3 -- `parse_ship_sha` and the `gather_reverts` reason stop hand-parsing the `ACTION:` line; both read one private `_ship_action_fields(text) -> (token, rest) | None`, and `parse_ship_action` stays BYTE-UNCHANGED
+    - Candidate B1 -- an `auth` failure whose tail says `(last: connect_error|timeout)` gets the short network backoff, not the 30-min auth hold
+    - Candidate B2 -- post-release reuses the same-sha preship clone-suite verdict instead of re-running the suite (re-pitch of iter 496 A1, with new numbers)
+    - Candidate B3 -- one session-scoped `--collect-only` result for the suite's nested whole-suite collections
+    winner: A1
+    ship: pending (not yet decided)
   iter-518
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- `doctor` prints a `drain-arm:` line saying whether the RUNNING brain can be drained (`ARMED -- kill -USR1 <pid>`) or not (`NOT ARMED -- launched before the drain handler; SIGUSR1 would kill it mid-shift`)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- delete the `RESTART_NEEDED.md` flag family nothing has raised in 377 iterations (`dispatch_restart_line` + `write_restart_flag` / `clear_restart_flag` / `restart_flag_path` / `RESTART_FLAG_NAME`, ~135 lines of foundry.py 22158-22292)
     - Candidate B3 -- the pytest `FAILED `/`ERROR ` match rule is written twice, 7 iterations apart: `test_failure_lines` (iter 510) and `failing_summary_set` (iter 517) share one extractor
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 6860684
   iter-517
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- OPERATOR 2026-11-08 pin, verb leg: when the clone suite fails, `foundry preship` re-runs it at HEAD^ in the same clone env; an identical, non-empty, untruncated failing set gives `PRESHIP: INCOMPLETE` (exit 2) naming the set and the interpreter, and anything else stays BROKEN (exit 1)
@@ -2480,4 +2490,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-249 scouted iterations
+250 scouted iterations

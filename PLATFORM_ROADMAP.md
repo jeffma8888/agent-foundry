@@ -351,6 +351,7 @@ in the archive.
 - iter 516 -- HOTFIX: SRC_DEEP fixtures deepen to 200000 so they fail to parse on cpython 3.14.
 - iter 517 -- preship: PARENT fails the identical set -> INCOMPLETE (2), not BROKEN.
 - iter 518 -- doctor drain-arm: line: ARMED <pid> / NOT ARMED / UNKNOWN from the log.
+- iter 519 -- one dispatcher.out reader: 5 lenses share a path seam + errors=replace read.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

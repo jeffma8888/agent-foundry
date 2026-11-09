@@ -20980,6 +20980,40 @@ def summarize_stage_times(attempts, *, budget: int | None = None,
                              cap=effective_cap)
 
 
+def dispatcher_log_path(log_path: "str | pathlib.Path | None" = None
+                        ) -> pathlib.Path:
+    """Resolve a `dispatcher.out` argument: falsy means THIS checkout's log.
+
+    The ONE place the default lives, so the doctor lines that default
+    (`live_lag_status`, `drain_arm_status_line`, `stage_budget_line`) can never
+    drift onto different files. `FOUNDRY` is read INSIDE the body, at call time,
+    so a `monkeypatch.setattr(foundry, "FOUNDRY", tmp_path)` redirects every one
+    of them to a fixture. Deliberately SEPARATE from `read_dispatcher_log`: the
+    gather seams must NOT default, or `gather_stage_times(None)` would silently
+    read the ambient, gitignored brain log instead of nothing."""
+    return pathlib.Path(log_path) if log_path else FOUNDRY / "dispatcher.out"
+
+
+def read_dispatcher_log(log_path: "str | pathlib.Path | None") -> str:
+    """Return the text of a `dispatcher.out` path; `""` on ANY failure. Never raises.
+
+    The ONE reader every `dispatcher.out` lens shares, so they all apply ONE
+    decode rule. The rule is UTF-8 with `errors="replace"` because the log is an
+    append-only file holding raw agent `tail:` text: under a strict decode a
+    single bad byte blinded some lenses for the rest of a brain's life while
+    another lens, reading the same file leniently, still saw the banner -- two
+    doctor lines contradicting each other about one process. A replaced byte
+    becomes U+FFFD, which none of the line parsers match on, so valid lines on
+    either side of it parse exactly as before. A missing path, a directory, a
+    permission error or `None` all degrade to `""` (no news is good news). No
+    defaulting happens here -- see `dispatcher_log_path`."""
+    try:
+        return pathlib.Path(log_path).expanduser().read_text(
+            encoding="utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
 def gather_stage_times(log_path, *, budget: int | None = None,
                        team: str | None = None,
                        limit: int | None = None,
@@ -20991,9 +21025,11 @@ def gather_stage_times(log_path, *, budget: int | None = None,
     Reads the file at `log_path`, runs `parse_stage_attempts` on its text (called
     by BARE name so a `monkeypatch.setattr(foundry, ...)` bites), optionally keeps
     ONLY attempts whose `team` equals the `team` filter, then returns
-    `summarize_stage_times(...)`. A missing / unreadable / undecodable `log_path`
-    degrades to an EMPTY summary (exit_code 2) and NEVER raises -- the same
-    no-news-is-good-news contract as the other read-only lenses.
+    `summarize_stage_times(...)`. The read goes through `read_dispatcher_log`
+    (bare name), so a bad byte is replaced rather than blinding the whole log,
+    and a missing / unreadable `log_path` degrades to an EMPTY summary
+    (exit_code 2) and NEVER raises -- the same no-news-is-good-news contract as
+    the other read-only lenses.
 
     `cap` is forwarded UNTOUCHED to `summarize_stage_times` (iter 190) so a test can
     move the cap-hit threshold offline without patching a module global. Called
@@ -21015,11 +21051,7 @@ def gather_stage_times(log_path, *, budget: int | None = None,
     history -- see the body comment for the measurement. `included` then counts
     the windowed iterations that still hold a KEPT attempt, i.e. how many recent
     iterations actually did measurable work."""
-    try:
-        text = pathlib.Path(log_path).expanduser().read_text()
-    except Exception:
-        # Missing / permission / decode error -> nothing to report, never crash.
-        text = ""
+    text = read_dispatcher_log(log_path)
     attempts = parse_stage_attempts(text)
     if team is not None:
         attempts = [a for a in attempts if a.team == team]
@@ -21316,8 +21348,7 @@ def stage_budget_line(cfg: "ProductConfig",
     decorates is worse than no diagnostic. Writes NOTHING to disk.
     """
     try:
-        log = (pathlib.Path(log_path) if log_path
-               else (FOUNDRY / "dispatcher.out"))
+        log = dispatcher_log_path(log_path)
         team = str(getattr(cfg, "name", "") or "")
         try:
             # HISTORICAL: `parse_stage_attempts` no longer emits a strptime
@@ -21567,15 +21598,12 @@ def gather_pending_stages(log_path, *, now: str | None = None,
 
     `now=None` means "the real instant", formatted with the family's own
     `_TS_FMT` so it re-dates through `parse_log_stamp` into the same synthetic
-    year the log's stamps do (see `pending_stage_starts` on why that matters). A
-    missing / unreadable / undecodable `log_path` degrades to EMPTY text and
+    year the log's stamps do (see `pending_stage_starts` on why that matters).
+    The read goes through `read_dispatcher_log` (bare name): a bad byte is
+    replaced, and a missing / unreadable `log_path` degrades to EMPTY text and
     therefore to no records -- the same no-news-is-good-news contract as the
     other read-only lenses -- and NEVER raises."""
-    try:
-        text = pathlib.Path(log_path).expanduser().read_text()
-    except Exception:
-        # Missing / permission / decode error -> nothing pending, never crash.
-        text = ""
+    text = read_dispatcher_log(log_path)
     stamp = dt.datetime.now().strftime(_TS_FMT) if now is None else now
     return pending_stage_starts(text, stamp, cap=cap)
 
@@ -21807,19 +21835,17 @@ def drain_arm_status_line(cfg: "ProductConfig",
     """Read the dispatcher log and return `drain_arm_line` of it. Never raises.
 
     Defaults to `FOUNDRY / "dispatcher.out"`, the same log `live_lag_status`
-    dates the banner from, so the two lines always judge the same process. A
+    dates the banner from, so the two lines always judge the same process:
+    both resolve it via `dispatcher_log_path` and read it via
+    `read_dispatcher_log`, so they share one decode rule too. A
     missing or unreadable log reads as `""` -> UNKNOWN, never ARMED. `cfg` is
     accepted for signature parity with the other doctor-line helpers; the log
     is machine-wide, not per product. Sends no signal and runs no subprocess.
     """
     try:
-        log = (pathlib.Path(log_path) if log_path
-               else (FOUNDRY / "dispatcher.out"))
-        try:
-            text = log.expanduser().read_text(errors="replace")
-        except Exception:
-            text = ""            # missing / unreadable log -> UNKNOWN, not ARMED
-        return drain_arm_line(text)
+        log = dispatcher_log_path(log_path)
+        # missing / unreadable log -> "" -> UNKNOWN, never ARMED
+        return drain_arm_line(read_dispatcher_log(log))
     except Exception as exc:
         return f"{DRAIN_ARM_PREFIX} UNKNOWN -- drain-arm line errored: {exc!r}"
 
@@ -22128,12 +22154,9 @@ def live_lag_status(cfg: "ProductConfig",
     verdict as a value instead of as a sentence somebody has to re-read.
     """
     try:
-        log = (pathlib.Path(log_path) if log_path
-               else (FOUNDRY / "dispatcher.out"))
-        try:
-            text = log.expanduser().read_text()
-        except Exception:
-            text = ""            # missing / unreadable log -> UNKNOWN, not WARN
+        log = dispatcher_log_path(log_path)
+        # missing / unreadable log -> "" -> UNKNOWN, not WARN
+        text = read_dispatcher_log(log)
         launch = parse_brain_launch(text, year=dt.datetime.now().year)
         if launch is None:
             return summarize_live_lag(unknown_reason=(
