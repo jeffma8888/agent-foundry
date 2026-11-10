@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-522
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- a weekly goal that expires: optional `goal_until` (YYYY-MM-DD) stops the goal line after its date
+    - Candidate A2 -- `directions` records the goal that steered each iteration: a `goal:` row label read from that iteration's saved PM prompt
+    - Candidate A3 -- `foundry stop --global --drain`: the operator verb that drains the armed brain safely
+    - Candidate B1 -- `lint-config` warns when iter 521's `goal` is set but will not reach the prompt as written (blank after whitespace-collapse, or longer than `GOAL_MAX_CHARS`)
+    - Candidate B2 -- `foundry preship` writes one stderr heartbeat line per phase (clone / setup / suite / parent re-run), so the doubled red path is never ~110 s of silence
+    - Candidate B3 -- the `live-lag` WARN line, inlined into every prompt, names the safe remedy that `drain-arm` already knows instead of a bare "restart the dispatcher to activate"
+    winner: B1
+    ship: pending (not yet decided)
   iter-521
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- CONTINUOUS.md's stop section ("Stopping is a file, not a signal"; `touch STOP` makes the company "drain"; a stop "takes effect within ~30s") is false on all three counts since iter 515
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry stop --global --drain`: the operator verb that drains the company safely, sending SIGUSR1 to the armed brain pid only after it confirms that pid is a live `dispatcher.py`, and refusing (exit 1) otherwise
     - Candidate B3 -- `foundry stop --config P --drain`: retire ONE team at its next iteration boundary instead of abandoning its iteration in flight
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED a9347c7
   iter-520
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- the final gate stops running the full suite twice on one tree: a VERIFIED `preship` clone suite satisfies checklist item 3, and the worktree suite runs only as the fallback when preship is INCOMPLETE (exit 2) or absent
@@ -2510,4 +2520,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-252 scouted iterations
+253 scouted iterations

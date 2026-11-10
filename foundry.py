@@ -4468,7 +4468,8 @@ def lint_config(cfg: ProductConfig) -> ConfigLint:
     Findings are emitted in a FIXED check order: FIRST every wrong-type finding
     from `config_type_findings` (called by bare module name, so a monkeypatch
     bites), then name, repo, allowed_push_repo, test_cmd, roles_dir, vision,
-    roadmap, quality_ref -- so the verdict is deterministic.
+    roadmap, quality_ref, goal -- so the verdict is deterministic (the goal
+    check is always LAST).
 
     A check that would READ a field that already has a type finding is SKIPPED
     (the `allowed_push_repo` safety rule is skipped if EITHER it or
@@ -4491,6 +4492,14 @@ def lint_config(cfg: ProductConfig) -> ConfigLint:
     `vision`, or a missing `roadmap`/`quality_ref` FILE -- the PM creates the
     roadmap on the first iteration). An empty (unset) `roadmap`/`quality_ref` is
     optional and produces no finding.
+
+    The `goal` check WARNS when a set str goal will not reach the PM seats as
+    written: it is whitespace-only (so `goal_line` renders no prompt line), or
+    its whitespace-collapsed form is longer than `GOAL_MAX_CHARS` (so the prompt
+    carries a truncation). WHY a warn, never an error: the config still runs a
+    shift, and nothing green today may turn red. It measures the COLLAPSED text,
+    the same rule `goal_line` applies, and reads `GOAL_MAX_CHARS` as a module
+    global at call time; the default empty goal produces no finding.
     """
     try:
         resolved = dataclasses.replace(cfg).resolve()
@@ -4563,6 +4572,20 @@ def lint_config(cfg: ProductConfig) -> ConfigLint:
         findings.append(ConfigFinding(
             "quality_ref", "warn",
             f"quality_ref path does not exist: {resolved.quality_ref!r}"))
+
+    goal = getattr(resolved, "goal", "")
+    if "goal" not in mistyped and isinstance(goal, str) and goal:
+        collapsed = " ".join(goal.split())
+        if not collapsed:
+            findings.append(ConfigFinding(
+                "goal", "warn",
+                "goal is whitespace-only and renders no prompt line"))
+        elif len(collapsed) > GOAL_MAX_CHARS:
+            findings.append(ConfigFinding(
+                "goal", "warn",
+                f"goal is {len(collapsed)} chars once whitespace collapses, over "
+                f"GOAL_MAX_CHARS={GOAL_MAX_CHARS}, so the PM seats see it "
+                "truncated"))
 
     return ConfigLint(config_path=resolved.name, findings=tuple(findings))
 
