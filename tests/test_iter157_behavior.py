@@ -59,7 +59,10 @@ ALL_STAGES = ("pm", "engineer", "reviewer", "tester", "fix", "final")
 FROZEN_FIELDS = (
     "name", "repo", "allowed_push_repo", "branch", "vision", "roadmap", "prd",
     "quality_ref", "test_cmd", "roles_dir", "work_root", "learnings", "staffing",
-    "quality_bar", "push_enabled", "postrelease_enabled", "setup_cmd", "smoke_cmd",
+    "quality_bar",
+    # EXTENDED by iteration 521: `goal`, declared right after `quality_bar`.
+    "goal",
+    "push_enabled", "postrelease_enabled", "setup_cmd", "smoke_cmd",
     "dual_pm_scouts", "gap_register", "gap_layers",
     # EXTENDED by iteration 334: `practice_register`, appended in declaration order.
     "practice_register",

@@ -353,6 +353,7 @@ in the archive.
 - iter 518 -- doctor drain-arm: line: ARMED <pid> / NOT ARMED / UNKNOWN from the log.
 - iter 519 -- one dispatcher.out reader: 5 lenses share a path seam + errors=replace read.
 - iter 520 -- final.md + README #50: preship exit 2 also = PARENT fails the identical set.
+- iter 521 -- optional `goal` config field -> one Operator goal Context line for PM seats.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

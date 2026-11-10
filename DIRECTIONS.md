@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-521
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- CONTINUOUS.md's stop section ("Stopping is a file, not a signal"; `touch STOP` makes the company "drain"; a stop "takes effect within ~30s") is false on all three counts since iter 515
+    - Candidate A2 -- `doctor` prints 8 prefixed lines, but README #0 and `run_doctor_cli`'s docstring name only 6 of the 8 prefixes: `drain-arm:` (iter 518) appears nowhere, and `learnings-head:` is documented only as "the steering-head line"
+    - Candidate A3 -- the rule "no test may freeze foundry.py / README.md / roles/ with `git diff --quiet HEAD --`; only scripts/ is a freezable control path" lives only inside three meta-tests, so PMs keep speccing it and testers keep tripping it
+    - Candidate B1 -- `goal`: an optional per-product config field (settable machine-locally with the existing `overlay --set goal=...`) whose text reaches the PM and both scouts as one `## Context` line, "Operator goal (steer within the vision): ..."
+    - Candidate B2 -- `foundry stop --global --drain`: the operator verb that drains the company safely, sending SIGUSR1 to the armed brain pid only after it confirms that pid is a live `dispatcher.py`, and refusing (exit 1) otherwise
+    - Candidate B3 -- `foundry stop --config P --drain`: retire ONE team at its next iteration boundary instead of abandoning its iteration in flight
+    winner: B1
+    ship: pending (not yet decided)
   iter-520
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- the final gate stops running the full suite twice on one tree: a VERIFIED `preship` clone suite satisfies checklist item 3, and the worktree suite runs only as the fallback when preship is INCOMPLETE (exit 2) or absent
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- CONTINUOUS.md, "the always-on operating contract", still says "Stopping is a file, not a signal" and that `touch STOP` makes the company "drain"; since iter 515 the drain IS a signal, and STOP abandons the iteration in flight
     - Candidate B3 -- ARCHITECTURE §3 says post-release "never raises a false hotfix", and iter 515 raised one
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 2542d7c
   iter-519
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- one `dispatcher.out` reader: the 4 private "default path + read + swallow" copies (`gather_stage_times`, `gather_pending_stages`, `live_lag_status`, `drain_arm_status_line`) collapse onto one `read_dispatcher_log(log_path=None)` seam, so 4 decode policies become 1
@@ -2500,4 +2510,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-251 scouted iterations
+252 scouted iterations

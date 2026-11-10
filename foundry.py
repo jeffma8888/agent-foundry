@@ -410,6 +410,9 @@ class ProductConfig:
     learnings: str = ""          # defaults to <work_root>/LEARNINGS.md
     staffing: str = ""           # defaults to <work_root>/staffing.json (item 19)
     quality_bar: str = ""        # free-form product quality constraints
+    # iter-521: optional operator goal for the PM seats only ("" => no line).
+    # Declared here, not last, so the iter-188/488 tail pins stay intact.
+    goal: str = ""
     push_enabled: bool = True    # gate may push (False => dry-run / review-only)
     # Post-release fresh-clone verification (dormant until wired in iter 03).
     # Backward-compatible: old configs that omit these load with these defaults.
@@ -25663,6 +25666,43 @@ PROMPT_DRIFT_BLOCK_CHARS = 2000
 # inclusion by pattern.
 PROMPT_DRIFT_STAGES: tuple[str, ...] = ("pm", "pm_scout_a", "pm_scout_b")
 
+# Per-product OPERATOR GOAL line (iter 521). VISION's target user turns "a
+# weekly-defined goal" into shipped software, but before this the only steering
+# channel was an OPERATOR bullet in the shared, fleet-wide LEARNINGS head, which
+# every stage of every product reads and which keeps steering until someone
+# retires it by hand. `ProductConfig.goal` belongs to ONE product and reaches the
+# PM seats only (`PROMPT_DRIFT_STAGES`); the label carries the instruction to
+# stay inside the vision. The cap keeps a pasted essay from bloating the prompt.
+PROMPT_GOAL_LABEL = "- Operator goal (steer within the vision, never outside it): "
+GOAL_MAX_CHARS = 300
+
+
+def goal_line(cfg: ProductConfig, stage: str) -> str:
+    """One `## Context` line carrying `cfg.goal`, or "" when it must not render.
+
+    WHY "" so often: an empty/absent goal, a non-PM stage, or a non-str value
+    (a hand-edited overlay can hold any JSON) must leave the prompt
+    byte-identical, so the feature stays additive-dormant until an operator sets
+    a goal. Whitespace runs collapse to one space so a multi-line goal can never
+    inject extra Context lines. `PROMPT_DRIFT_STAGES` / `GOAL_MAX_CHARS` are read
+    as module globals at call time so `monkeypatch.setattr` bites. Pure: no I/O.
+    """
+    try:
+        if stage not in PROMPT_DRIFT_STAGES:
+            return ""
+        goal = getattr(cfg, "goal", "")
+        if not isinstance(goal, str):
+            return ""
+        body = " ".join(goal.split())
+        if not body:
+            return ""
+        if len(body) > GOAL_MAX_CHARS:
+            body = body[:GOAL_MAX_CHARS - 3] + "..."
+        return PROMPT_GOAL_LABEL + body + "\n"
+    except Exception:
+        return ""
+
+
 # Per-iteration cache for `drift_prompt_block` keyed on cfg.name + renderer ids.
 # Cleared at the top of every `run_iteration` call via `clear_drift_cache()`.
 _drift_cache: dict[tuple, str] = {}
@@ -25921,6 +25961,7 @@ def build_prompt(cfg: ProductConfig, iteration: int, stage: str,
         f"- Push target (final gate only): repo '{cfg.allowed_push_repo}', "
         f"branch '{cfg.branch}', push_enabled={cfg.push_enabled}\n"
         f"- Product vision (fixed intent, stay inside it): {cfg.vision}\n"
+        f"{goal_line(cfg, stage)}"
         f"- Product roadmap file (PM owns): {cfg.roadmap}\n"
         f"- Quality-reference repo (mirror its conventions): {cfg.quality_ref}\n"
         f"- Product quality bar: {cfg.quality_bar or '(see VISION)'}\n"

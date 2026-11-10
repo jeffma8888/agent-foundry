@@ -143,6 +143,7 @@ silently ignored; prefix a key with `_` to keep it as a comment. Path values acc
 | `learnings` | `""` | Learnings log path; empty resolves to `LEARNINGS.md` in `work_root`. |
 | `staffing` | `""` | Staffing manifest path; empty resolves to `staffing.json` in `work_root`. |
 | `quality_bar` | `""` | Free-form quality constraints inlined into every stage prompt. |
+| `goal` | `""` | Optional operator goal rendered as one Context line for the PM and the two scouts only; empty changes no prompt. |
 | `push_enabled` | `true` | Whether the final gate may push; `false` is a dry-run / review-only team. |
 | `postrelease_enabled` | `true` | Whether each ship is re-verified from a throwaway fresh clone. |
 | `setup_cmd` | `"uv sync"` | How the fresh-clone re-verify installs dependencies. |

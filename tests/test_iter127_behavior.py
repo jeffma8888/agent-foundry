@@ -653,7 +653,9 @@ def test_b12_no_new_config_field():
     # (22 -> 23).
     # EXTENDED again by iteration 488: `auth_resume_max`, the opt-in auth-hold
     # resume budget (23 -> 24).
-    assert len(fields) == 24, fields
+    # EXTENDED again by iteration 521: `goal`, the optional per-product operator
+    # goal for the PM seats (24 -> 25).
+    assert len(fields) == 25, fields
     for f in fields:
         low = f.lower()
         assert "disposition" not in low and "repair" not in low, f
