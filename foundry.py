@@ -11001,6 +11001,37 @@ def postrelease_step(cfg: ProductConfig, iteration: int,
 # iteration.
 PRESHIP_BUDGET_SECONDS: float = 240.0
 
+# The red-suite BROKEN detail, lifted into a constant (iter 525) so
+# `_preship_parent_leg` can tell THIS kind of BROKEN apart from the sha-mismatch
+# one: both are exit 1 and both carry `suite_output`, so only the detail differs.
+PRESHIP_SUITE_FAILED_DETAIL: str = (
+    "the declared test suite FAILED inside a clean local clone of the commit "
+    "about to be pushed")
+
+# Cap on the declared test command echoed in a BROKEN detail, read at call time,
+# so a pathological command line cannot swamp the one-line report.
+PRESHIP_RUNNER_LABEL_MAX: int = 120
+
+
+def preship_runner_label(test_cmd) -> str:
+    """Name the runner a red suite came from, for a BROKEN detail; never raises.
+
+    WHY: a red suite whose output names no failure used to print only the bare
+    BROKEN detail, and the final seat read that as noise and re-ran preship
+    until it passed. The label is the DECLARED command, whitespace-collapsed and
+    capped -- deliberately no runner inference, so it can never guess wrong.
+    """
+    try:
+        c = " ".join(str(test_cmd).split()) if test_cmd is not None else ""
+        if not c:
+            return "unknown"
+        cap = PRESHIP_RUNNER_LABEL_MAX
+        if len(c) > cap:
+            c = c[:cap - 3] + "..."
+        return "`" + c + "`"
+    except Exception:
+        return "unknown"
+
 
 @dataclasses.dataclass(frozen=True)
 class PreshipResult:
@@ -11119,9 +11150,7 @@ def preship_verdict(*, clone_ok: bool, setup_ok: bool, test_ok: bool,
             "the dependency setup step could not complete (cfg.setup_cmd "
             "failed inside the clone); nothing was verified")
     if not test_ok:
-        return PreshipResult(
-            False, False, "the declared test suite FAILED inside a clean local "
-                          "clone of the commit about to be pushed")
+        return PreshipResult(False, False, PRESHIP_SUITE_FAILED_DETAIL)
     if not sha_ok:
         return PreshipResult(
             False, False, "the cloned HEAD sha does not match the expected "
@@ -12179,7 +12208,10 @@ def _preship_parent_leg(cfg: "ProductConfig", expected_sha: str,
     """Downgrade a red-suite BROKEN to INCOMPLETE iff the parent fails identically.
 
     Runs ONLY for exit 1 with a non-empty failing set (a sha-mismatch BROKEN or
-    an output with no failure summary line issues no command). The set comes
+    an output with no failure summary line issues no command). A red-suite
+    BROKEN whose output names NO failure instead gains a `BROKEN -- no failing
+    names parsed from <runner>` clause (iter 525), so the final seat reads "the
+    verb could not NAME the failures", never "there were none"; it stays exit 1. The set comes
     from `failure_summary_line`'s three runner shapes -- pytest `FAILED `/
     `ERROR `, vitest ` FAIL  <file> > <name>`, TAP `not ok` minus its number --
     so vitest/node products can reach INCOMPLETE too; vitest `×` lines are
@@ -12195,7 +12227,12 @@ def _preship_parent_leg(cfg: "ProductConfig", expected_sha: str,
             return result
         failing = failing_summary_set(result.suite_output)
         if not failing:
-            return result
+            if result.detail != PRESHIP_SUITE_FAILED_DETAIL:
+                return result
+            return dataclasses.replace(
+                result,
+                detail=(result.detail + "; BROKEN -- no failing names parsed "
+                        "from " + preship_runner_label(cfg.test_cmd)))
         parent_res = run_cmd(
             ["git", "-C", str(cfg.repo), "rev-parse", expected_sha + "^"])
         parent_sha = parent_res.out.strip() if parent_res.ok else ""

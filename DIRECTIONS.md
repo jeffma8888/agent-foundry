@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-525
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- OPERATOR 2026-11-10 pin, items 2+3 (still open): a red-suite BROKEN with an empty failing set says `BROKEN -- no failing names parsed from <runner>`, and roles/final.md says a passing re-run never overturns exit 1
+    - Candidate A2 -- delete the `RESTART_NEEDED.md` flag family nothing has raised since iter 141 (`dispatch_restart_line`, `write_restart_flag`, `clear_restart_flag`, `restart_flag_path`, `RESTART_FLAG_NAME`; foundry.py 22382-22515, ~134 lines)
+    - Candidate A3 -- `test_quality_cli` stops carrying the 9th private copy of the thin-printer body and becomes `return _thin_gather_cli(gather_test_quality, cfg, files, as_json)`
+    - Candidate B1 -- OPERATOR 2026-11-10 pin, items 2+3 (un-retired, listed first per the card): exit 1 with an empty failing set prints `BROKEN -- no failing names parsed from <runner>`, and roles/final.md says a passing re-run never overturns exit 1
+    - Candidate B2 -- preship's red-path parent leg re-runs only HEAD's failing pytest node ids at HEAD^, not the whole suite (about 55 s -> about 9 s)
+    - Candidate B3 -- remove the suite's only live-network call: test_iter363's doctor subprocess runs a real `git ls-remote origin` against GitHub (typical 0.3-0.4 s, 30.72 s observed today, bounded only by a 120 s timeout)
+    winner: A1
+    ship: pending (not yet decided)
   iter-524
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- OPERATOR 2026-11-10 pin: `failing_summary_set` learns vitest/node summary lines, and a red BROKEN with an empty set says so by name
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- delete the never-called `RESTART_NEEDED.md` flag family (`dispatch_restart_line`, `write_restart_flag`, `clear_restart_flag`, `restart_flag_path`, `RESTART_FLAG_NAME`)
     - Candidate B3 -- one `ACTION:` sentinel reader: `parse_ship_action` and `parse_ship_sha` reuse a `_sentinel_tokens(text, prefix)` split out of `_sentinel_token` instead of carrying 2 private copies of the last-non-empty-line rule
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 3aef001
   iter-523
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- `preflight`, `stop --config` and `resume --config` print iter 506's one `cannot read config` line instead of a raw traceback
@@ -2540,4 +2550,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-255 scouted iterations
+256 scouted iterations

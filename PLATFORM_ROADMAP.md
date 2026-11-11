@@ -357,6 +357,7 @@ in the archive.
 - iter 522 -- lint-config warns when `goal` is blank or over GOAL_MAX_CHARS once collapsed.
 - iter 523 -- preflight/stop/resume --config: one `cannot read config` line, not a traceback.
 - iter 524 -- one failing-line predicate: vitest ` FAIL ` + TAP `not ok` lines feed both extractors.
+- iter 525 -- preship empty-set BROKEN says `no failing names parsed from <runner>`; final.md: re-run never overturns 1.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
