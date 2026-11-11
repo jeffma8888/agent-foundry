@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-526
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- preship's red-path parent leg re-runs only HEAD's failing pytest node ids at HEAD^, not the whole suite (~55 s -> ~9 s)
+    - Candidate A2 -- remove the suite's only live-network call: test_iter363's doctor subprocess dials `git ls-remote origin` through a gitignored dir
+    - Candidate A3 -- `retry_directive` stops telling an attempt to "CUT SCOPE" when every earlier attempt died of `auth` in seconds, not of the budget
+    - Candidate B1 -- CONTINUOUS.md and launch.sh still say `touch STOP` *drains* the company; dispatcher.py and README say STOP *abandons* the iteration in flight
+    - Candidate B2 -- README #0 and `run_doctor_cli`'s docstring never mention `doctor`'s 8th line, `drain-arm:` (iter 518), the line that tells the operator whether a restart is safe
+    - Candidate B3 -- the `live-lag` WARN that every stage prompt carries says "restart the dispatcher to activate" but never names the safe way, even though `drain_arm_status_line` (iter 518) already knows it
+    winner: B1
+    ship: pending (not yet decided)
   iter-525
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- OPERATOR 2026-11-10 pin, items 2+3 (still open): a red-suite BROKEN with an empty failing set says `BROKEN -- no failing names parsed from <runner>`, and roles/final.md says a passing re-run never overturns exit 1
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- preship's red-path parent leg re-runs only HEAD's failing pytest node ids at HEAD^, not the whole suite (about 55 s -> about 9 s)
     - Candidate B3 -- remove the suite's only live-network call: test_iter363's doctor subprocess runs a real `git ls-remote origin` against GitHub (typical 0.3-0.4 s, 30.72 s observed today, bounded only by a 120 s timeout)
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 165092f
   iter-524
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- OPERATOR 2026-11-10 pin: `failing_summary_set` learns vitest/node summary lines, and a red BROKEN with an empty set says so by name
@@ -2550,4 +2560,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-256 scouted iterations
+257 scouted iterations

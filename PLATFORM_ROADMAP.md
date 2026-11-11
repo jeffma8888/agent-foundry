@@ -358,6 +358,7 @@ in the archive.
 - iter 523 -- preflight/stop/resume --config: one `cannot read config` line, not a traceback.
 - iter 524 -- one failing-line predicate: vitest ` FAIL ` + TAP `not ok` lines feed both extractors.
 - iter 525 -- preship empty-set BROKEN says `no failing names parsed from <runner>`; final.md: re-run never overturns 1.
+- iter 526 -- CONTINUOUS.md + launch.sh: `touch STOP` abandons; `kill -USR1 <pid>` drains.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
@@ -409,24 +410,7 @@ OPEN (no Done-when box ticked). Body moved VERBATIM to the archive by iter 518.
 
 ## Item 22 -- bounded re-staffing review + N=5 no-trigger fallback (SMALL, gated on 18/19)
 
-**Problem.** Team composition can only change by hand-editing files (drift), and
-a quiet loop can run indefinitely with no strategic look (ORG_DESIGN.md
-section 7 adopts: if no trigger fires for 5 iterations, CEO + PM review anyway;
-relax toward 10 once history shows steering is rarely needed).
-
-**What ships.**
-- A re-staffing review stage that emits a **diff against staffing.json** (never
-  edits it directly) constrained by hysteresis: minimum tenure K iterations
-  before deactivation, capped changes per review, every change citing a logged
-  trigger. Applying the diff is a separate explicit step.
-- An iteration counter since the last fired trigger; at 5, the pipeline queues
-  the CEO+PM review (reads ship ledger + learnings, emits a steer-or-confirm
-  record, resets the counter). N configurable, default 5.
-
-**Done when.**
-- [ ] Review emits a valid manifest diff under hysteresis rules with tests;
-      the N=5 fallback fires in a simulated quiet run and resets; `tests/`
-      green; ARCHITECTURE.md notes the new stages + a migration note here.
+OPEN (no Done-when box ticked). Body moved VERBATIM to the archive by iter 526.
 
 ---
 

@@ -1111,6 +1111,7 @@ future attempt needs a documented LAST-RESORT truncation and its own iteration.
 - **iter 523 -- operator DX: the launch gate and the retire/unretire verbs stop dumping a traceback on an unreadable config.** Iter 506 left the pre-load verbs unchanged; `preflight` (launch.sh's gate) gave a 19-22 line traceback with absolute machine paths on a missing/`{bad`/rejected `$FOUNDRY_CONFIG` (and `--json` emitted nothing), as did `stop --config` / `resume --config` (measured by scout A). `_preflight_dispatch` now wraps ONLY its raw JSON read and its two `load_config` calls (naming the resolved work-item path for a dispatcher config), and main()'s stop/resume branches wrap their `load_config`, in `except (OSError, ValueError, TypeError)`, printing iter 506's `foundry <verb>: cannot read config <path>: <ExcType>: <message>` line to stderr with stdout empty and exit 1 -- the code the uncaught exception already gave, so launch.sh's NO-GO branch is untouched. `preflight_cli` stays outside the try; `load_config` still raises. Picked A1 over B2 (drain-arm line in preflight's CONFLICT: a riskier edit to the same gate, next bite) and B1/B3 (goal consumers: near-clones of 521/522, diversity guard).
 - **iter 524 -- OPERATOR 2026-11-10 pin, item 1: the failing-test extractors stop being pytest-only.** `failing_summary_set` (iter 517 parent-leg oracle) and `test_failure_lines` (iter 510 post-release display) each carried a private `FAILED `/`ERROR ` rule, so for a vitest product (graphql-rest-gateway) both returned empty: the parent leg could never say INCOMPLETE and gql iter 83's final re-ran past a nameless exit 1. Both now call one pure, total `failure_summary_line(line)` that also keeps vitest ` FAIL  <file> > <name>` lines (stripped) and TAP `not ok N - <desc>` lines with the run-order number removed; vitest's `×` lines are excluded because their per-run timings would make identical runs differ. Matching is shape-based, not keyed on `test_cmd` (gql's `npm test` hides the runner); pytest output stays byte-identical. Items 2 (`BROKEN -- no failing names parsed from <runner>`) and 3 (roles/final.md: a passing re-run never overturns exit 1) remain; the pin stays un-retired. Picked B1 (collapse-then-extend delivery of the pin, = A1) over B2 (delete the never-raised RESTART_NEEDED.md family: hygiene, no deadline, loses to the pin override).
 - **iter 525 -- OPERATOR 2026-11-10 pin, items 2+3: an unnamed red suite stops reading as noise.** Iter 524 taught the extractors vitest/TAP shapes, but `_preship_parent_leg` still returned a bare `the declared test suite FAILED ...` BROKEN whenever `failing_summary_set` came back empty, the shape gql iter 83's final re-ran until green and pushed (post-release BROKEN, HOTFIX armed). Now a red-suite BROKEN with an empty set (detail == new `PRESHIP_SUITE_FAILED_DETAIL`) appends `; BROKEN -- no failing names parsed from <runner>`, where `<runner>` is pure `preship_runner_label(cfg.test_cmd)` (collapsed, backticked, capped at `PRESHIP_RUNNER_LABEL_MAX`=120, else `unknown`); still exit 1, still zero extra commands, sha-mismatch and non-empty-set paths byte-identical, a raising label keeps the original BROKEN. roles/final.md's single preship bullet gains `A passing re-run never overturns exit 1`. Picked over B2 (node-id-scoped parent re-run, a gate semantic change owed its own review) by the pin override; pin retired to the LEARNINGS archive.
+- **iter 526 -- narrative: the operating contract stops telling a restart to `touch STOP`.** Since iter 515 the dispatcher drains on SIGUSR1 (dispatcher.py docstring, README), but CONTINUOUS.md (last edited iter 412, the README's "always-on operating contract") still said `touch STOP` makes "the whole company drain" and launch.sh's `# Stop:` comment said the dispatcher "finishes its shift" -- so an operator obeying the live-lag WARN (521-525 unlive) would abandon the iteration in flight. CONTINUOUS.md's stop section now says STOP abandons and `kill -USR1 <pid>` drains (pid from doctor's `drain-arm:` / the `drain armed` log line, pre-515 caveat); launch.sh's comment matches; tests/test_iter526 forbids a `touch STOP` line that also says drain/finishes its shift in CONTINUOUS.md, launch.sh, dispatcher.py's docstring and README. Docs + one test, zero code change. Index paydown in the same commit: Item 22's open body moved VERBATIM here under `## Moved from the index by iter 526` (test_iter447's >=2500-char shrink brake had 42 chars of slack, so the 526 row alone would red it). Picked over A1 (node-id-scoped preship parent re-run: a gate-semantics change and a near-clone of 524/525's preship leg).
 
 ## Moved from the index by iter 447
 
@@ -1243,3 +1244,26 @@ structured escalation record (events.jsonl kind: `escalation`) + a per-product
 - [ ] Five predicate categories exist with unit tests (hit + benign near-miss
       each); a hit fails the gate to the revert path; the escalation record is
       written; leak-guard remains the category-2 implementation (no dup scan).
+
+## Moved from the index by iter 526
+
+## Item 22 -- bounded re-staffing review + N=5 no-trigger fallback (SMALL, gated on 18/19)
+
+**Problem.** Team composition can only change by hand-editing files (drift), and
+a quiet loop can run indefinitely with no strategic look (ORG_DESIGN.md
+section 7 adopts: if no trigger fires for 5 iterations, CEO + PM review anyway;
+relax toward 10 once history shows steering is rarely needed).
+
+**What ships.**
+- A re-staffing review stage that emits a **diff against staffing.json** (never
+  edits it directly) constrained by hysteresis: minimum tenure K iterations
+  before deactivation, capped changes per review, every change citing a logged
+  trigger. Applying the diff is a separate explicit step.
+- An iteration counter since the last fired trigger; at 5, the pipeline queues
+  the CEO+PM review (reads ship ledger + learnings, emits a steer-or-confirm
+  record, resets the counter). N configurable, default 5.
+
+**Done when.**
+- [ ] Review emits a valid manifest diff under hysteresis rules with tests;
+      the N=5 fallback fires in a simulated quiet run and resets; `tests/`
+      green; ARCHITECTURE.md notes the new stages + a migration note here.

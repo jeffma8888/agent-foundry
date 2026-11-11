@@ -21,15 +21,29 @@ process so it outlives the launching shell (e.g. `nohup ... &`, or your agent
 runner's own background-task mechanism). The process self-daemonizes nothing;
 the background job IS the supervisor.
 
-## Stopping is a file, not a signal
+## Stopping: STOP abandons, a SIGUSR1 drain loses nothing
 
-- `touch STOP` — the whole company drains: the current stage finishes or is
-  abandoned at the next check, and the loop exits cleanly with a final report.
+- `touch STOP` — halt the whole company. This ABANDONS the iteration in
+  flight: it is cut off at the next check, never shipped, and the loop exits
+  with a final report.
 - `touch products/<name>/STOP` — retire just that team; the dispatcher skips it.
 - Remove the STOP file(s) before relaunching.
 
 Sentinels are checked between every stage and during every backoff/cooldown
 sleep, so a stop takes effect within ~30s, never mid-git-push.
+
+To restart the brain with ZERO lost work (e.g. to make freshly shipped code
+live, as the live-lag warning asks), send a graceful drain instead of a STOP:
+
+    kill -USR1 <pid>
+
+The pid is on `doctor`'s `drain-arm: ARMED ...` line, or on the `drain armed`
+dispatch-log line. The dispatcher finishes the shift in flight, logs
+`drain honored after N shifts` and exits 0 at the next shift boundary; the
+watchdog (or a fresh `./launch.sh`) then brings up a brain running the new
+code. CAVEAT: a dispatcher launched before iteration 515 has no SIGUSR1
+handler, and the signal's default action KILLS it mid-shift (`doctor` then
+reports `drain-arm: NOT ARMED`) — restart such a brain once with STOP first.
 
 ## Crash resilience and resume
 

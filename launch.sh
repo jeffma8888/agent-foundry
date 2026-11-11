@@ -36,7 +36,9 @@
 #                       into a commit by "git add -A".
 #
 # Usage:  FOUNDRY_AGENT_BIN=... FOUNDRY_AGENT_ARGS=... ./launch.sh
-# Stop:   touch STOP        (the dispatcher finishes its shift, then exits)
+# Stop:   touch STOP        (ABANDONS the iteration in flight). For a zero-loss
+#         restart, kill -USR1 <pid> drains instead: the shift in flight
+#         finishes, then the dispatcher exits 0 (pid: doctor's drain-arm: line).
 set -u
 
 # Run from the repo root no matter where the caller invoked us from: every path
