@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-524
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- OPERATOR 2026-11-10 pin: `failing_summary_set` learns vitest/node summary lines, and a red BROKEN with an empty set says so by name
+    - Candidate A2 -- `preship` prints the failing set it already holds: render gets a `failing tests:` block and `--json` gets a `failures` list on a red-suite BROKEN
+    - Candidate A3 -- post-release's `failures` (postrelease.md, HOTFIX_NEEDED.md, `status`) reach non-pytest products through the same runner-aware predicate
+    - Candidate B1 -- OPERATOR 2026-11-10 pin, delivered as one failing-line extractor: collapse `test_failure_lines` + `failing_summary_set` onto one ordered `failure_summary_lines(out)`, then teach THAT one function vitest/TAP; exit 1 + empty set prints `BROKEN -- no failing names parsed from <runner>`; roles/final.md: a passing re-run never overturns exit 1
+    - Candidate B2 -- delete the never-called `RESTART_NEEDED.md` flag family (`dispatch_restart_line`, `write_restart_flag`, `clear_restart_flag`, `restart_flag_path`, `RESTART_FLAG_NAME`)
+    - Candidate B3 -- one `ACTION:` sentinel reader: `parse_ship_action` and `parse_ship_sha` reuse a `_sentinel_tokens(text, prefix)` split out of `_sentinel_token` instead of carrying 2 private copies of the last-non-empty-line rule
+    winner: B1
+    ship: pending (not yet decided)
   iter-523
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- `preflight`, `stop --config` and `resume --config` print iter 506's one `cannot read config` line instead of a raw traceback
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `preflight`'s NO-GO on a confirmed running brain carries iter 518's `drain-arm:` line, so launch.sh's refusal names the safe way to restart
     - Candidate B3 -- `overlay --set goal=...` runs iter 522's `lint_config` check right after it writes and prints the finding, so a blank or over-cap goal is flagged when the mistake is made
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 1ab983f
   iter-522
     lenses: new-capability, hardening/DX
     - Candidate A1 -- a weekly goal that expires: optional `goal_until` (YYYY-MM-DD) stops the goal line after its date
@@ -2530,4 +2540,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-254 scouted iterations
+255 scouted iterations

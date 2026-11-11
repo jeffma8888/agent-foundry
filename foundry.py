@@ -10512,46 +10512,82 @@ def suite_timing_line(seconds: float, threshold: float) -> str:
 # bloat postrelease.md / HOTFIX_NEEDED.md (iter 510, Behavior 4).
 TEST_FAILURE_LINE_MAX = 300
 
+# TAP's `not ok <N>` run-order number: stripped so two runs that fail the same
+# descriptions in a different order/numbering yield equal kept lines (iter 524).
+_TAP_NOT_OK_NUMBER_RE = re.compile(r"^not ok \d+(?=\s|$)")
+
+
+def failure_summary_line(line: str) -> str | None:
+    """The kept, normalised failure-summary form of ONE output line, or None.
+
+    WHY one shared predicate: `test_failure_lines` (display) and
+    `failing_summary_set` (the preship parent-leg oracle) must never disagree
+    about which lines name a failure, and both were pytest-only, so a vitest or
+    node product always gave an empty set and the iter-517 parent leg could
+    never fire there (OPERATOR 2026-11-10). Matching is by SHAPE, not keyed on
+    `test_cmd`, because a real `test_cmd` (`sh -c 'npm test ...'`) need not name
+    its runner. Three shapes, all case-sensitive on the left-stripped line:
+    pytest `FAILED `/`ERROR ` and vitest `FAIL ` (trailing space required, so
+    `=== FAILURES ===`, `1 failed` and a bare `FAIL` never match) are kept
+    stripped; TAP `not ok` / `not ok ...` is kept with its run-order number
+    removed (`not ok 2 - x` -> `not ok - x`). vitest's `×` lines are NOT kept:
+    each carries a per-run timing (`3ms`), so identical runs would give
+    different sets, and the ` FAIL  <file> > <name>` lines already name the same
+    tests. Total: any non-str or a raise -> None.
+    """
+    try:
+        kept = line.strip()
+        if kept.startswith(("FAILED ", "ERROR ", "FAIL ")):
+            return kept
+        if kept == "not ok" or kept.startswith("not ok "):
+            return _TAP_NOT_OK_NUMBER_RE.sub("not ok", kept, count=1)
+        return None
+    except Exception:
+        return None
+
 
 def test_failure_lines(out: str | None, limit: int = 10) -> tuple[str, ...]:
-    """Extract pytest's `FAILED `/`ERROR ` summary lines from test output.
+    """Extract the failure summary lines (pytest, vitest, TAP) from test output.
 
     WHY: `verify_fresh_clone` used to keep only `.ok` from the test command, so
     every BROKEN post-release said just `fresh-clone test suite failed` and the
     next PM could not tell a real regression from a load flake. Pure + total:
-    a line is kept when its left-stripped form starts with the case-sensitive
-    prefix `FAILED ` or `ERROR ` (trailing space required, so `=== FAILURES`
-    and `1 failed` never match); kept lines are stripped and cut to
-    `TEST_FAILURE_LINE_MAX` chars. Beyond `limit` matches, one trailing
-    `... and N more` element stands in for the rest. `None`/`""` -> `()`.
+    a line is kept when `failure_summary_line` keeps it -- pytest `FAILED `/
+    `ERROR `, vitest ` FAIL  <file> > <name>`, or TAP `not ok` with its number
+    stripped (vitest `×` lines are excluded: they carry per-run timings and
+    duplicate the `FAIL` lines). Kept lines are cut to `TEST_FAILURE_LINE_MAX`
+    chars. Beyond `limit` matches, one trailing `... and N more` element
+    stands in for the rest. `None`/`""` -> `()`.
     """
     if not out:
         return ()
-    matches = [line.strip()[:TEST_FAILURE_LINE_MAX]
-               for line in str(out).splitlines()
-               if line.lstrip().startswith(("FAILED ", "ERROR "))]
+    matches = [kept[:TEST_FAILURE_LINE_MAX]
+               for kept in map(failure_summary_line, str(out).splitlines())
+               if kept is not None]
     if len(matches) <= limit:
         return tuple(matches)
     return (*matches[:limit], f"... and {len(matches) - limit} more")
 
 
 def failing_summary_set(out: str | None) -> frozenset[str]:
-    """The WHOLE set of pytest `FAILED `/`ERROR ` summary lines in `out` (pure, total).
+    """The WHOLE set of failure summary lines in `out` (pure, total).
 
     WHY not `test_failure_lines`: that helper is a DISPLAY cap (10 lines x 300
     chars), and as a gate ORACLE a cap fakes matches -- two parametrize ids that
     share their first 300 chars, or an 11th failure hidden behind `... and N
     more`, would compare equal when the runs differ. So this keeps every
-    matching line whole and uncapped. Same match rule: the left-stripped line
-    starts with the case-sensitive `FAILED ` or `ERROR ` (trailing space
-    required, so `=== FAILURES ===` and `1 failed` never match). A SET because
-    xdist reorders the summary between otherwise identical runs.
-    `None`/`""` -> `frozenset()`.
+    matching line whole and uncapped. Same match rule, `failure_summary_line`:
+    pytest `FAILED `/`ERROR `, vitest ` FAIL  <file> > <name>`, and TAP
+    `not ok` with its run-order number stripped. vitest `×` lines are excluded
+    because their per-run timings (`3ms`) would make identical runs differ and
+    `preship_parent_drift` would never fire. A SET because xdist reorders the
+    summary between otherwise identical runs. `None`/`""` -> `frozenset()`.
     """
     if not out:
         return frozenset()
-    return frozenset(line.strip() for line in str(out).splitlines()
-                     if line.lstrip().startswith(("FAILED ", "ERROR ")))
+    return frozenset(kept for kept in map(failure_summary_line,
+                                          str(out).splitlines())
+                     if kept is not None)
 
 
 def preship_parent_drift(head_out: str | None, parent_out: str | None) -> bool:
@@ -12143,7 +12179,12 @@ def _preship_parent_leg(cfg: "ProductConfig", expected_sha: str,
     """Downgrade a red-suite BROKEN to INCOMPLETE iff the parent fails identically.
 
     Runs ONLY for exit 1 with a non-empty failing set (a sha-mismatch BROKEN or
-    an output with no FAILED/ERROR line issues no command). If the parent sha
+    an output with no failure summary line issues no command). The set comes
+    from `failure_summary_line`'s three runner shapes -- pytest `FAILED `/
+    `ERROR `, vitest ` FAIL  <file> > <name>`, TAP `not ok` minus its number --
+    so vitest/node products can reach INCOMPLETE too; vitest `×` lines are
+    excluded because their per-run timings would make identical runs differ.
+    If the parent sha
     cannot be resolved (e.g. a root commit) or its run differs in ANY way, the
     BROKEN result is returned unchanged. Fail-safe: any raise keeps BROKEN, so
     this leg can only ever move a verdict from "tree broken" to "machine

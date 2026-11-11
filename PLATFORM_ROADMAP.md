@@ -356,6 +356,7 @@ in the archive.
 - iter 521 -- optional `goal` config field -> one Operator goal Context line for PM seats.
 - iter 522 -- lint-config warns when `goal` is blank or over GOAL_MAX_CHARS once collapsed.
 - iter 523 -- preflight/stop/resume --config: one `cannot read config` line, not a traceback.
+- iter 524 -- one failing-line predicate: vitest ` FAIL ` + TAP `not ok` lines feed both extractors.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
