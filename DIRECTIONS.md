@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-523
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- `preflight`, `stop --config` and `resume --config` print iter 506's one `cannot read config` line instead of a raw traceback
+    - Candidate A2 -- `dormancy` says when a requested symbol is defined NOWHERE, so a typo or an already-deleted name stops reading as a dormant/prose-only deletion candidate
+    - Candidate A3 -- `_read_sentinel` keeps its documented "never raising" contract on an undecodable artifact: one bad byte in one iteration's final.md stops crashing `history` / `reverts` / `outcomes` (and the scout-file read in `directions`)
+    - Candidate B1 -- `status` prints a conditional report-only `goal:` line when a product has an operator goal configured
+    - Candidate B2 -- `preflight`'s NO-GO on a confirmed running brain carries iter 518's `drain-arm:` line, so launch.sh's refusal names the safe way to restart
+    - Candidate B3 -- `overlay --set goal=...` runs iter 522's `lint_config` check right after it writes and prints the finding, so a blank or over-cap goal is flagged when the mistake is made
+    winner: A1
+    ship: pending (not yet decided)
   iter-522
     lenses: new-capability, hardening/DX
     - Candidate A1 -- a weekly goal that expires: optional `goal_until` (YYYY-MM-DD) stops the goal line after its date
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry preship` writes one stderr heartbeat line per phase (clone / setup / suite / parent re-run), so the doubled red path is never ~110 s of silence
     - Candidate B3 -- the `live-lag` WARN line, inlined into every prompt, names the safe remedy that `drain-arm` already knows instead of a bare "restart the dispatcher to activate"
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 8be2bcb
   iter-521
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- CONTINUOUS.md's stop section ("Stopping is a file, not a signal"; `touch STOP` makes the company "drain"; a stop "takes effect within ~30s") is false on all three counts since iter 515
@@ -2520,4 +2530,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-253 scouted iterations
+254 scouted iterations

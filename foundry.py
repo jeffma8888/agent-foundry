@@ -1638,6 +1638,24 @@ def preflight_cli(cfg: ProductConfig, pattern: str = "dispatcher.py",
     return summary.exit_code
 
 
+def _config_read_failure(verb: str | None, config_path: str,
+                         exc: BaseException) -> int:
+    """Print the one-line ``foundry <verb>: cannot read config ...`` failure, return 1.
+
+    WHY one shared helper: ``main()``'s post-load boundary (iter 506) and the
+    verbs dispatched BEFORE that load (``preflight``, ``stop``, ``resume``;
+    iter 523) must render an unreadable config identically -- one stderr line
+    whose cause is on that line, no traceback, no absolute interpreter paths,
+    and an EMPTY stdout so ``--json`` callers never parse a partial document.
+    Exit 1 is what the uncaught exception already exited with, so no caller
+    (launch.sh's NO-GO ``case`` included) sees a new value.
+    """
+    prefix = f"foundry {verb}" if verb else "foundry"
+    print(f"{prefix}: cannot read config {config_path}: "
+          f"{type(exc).__name__}: {exc}", file=sys.stderr)
+    return 1
+
+
 def _preflight_dispatch(config_path: str, pattern: str = "dispatcher.py",
                         as_json: bool = False) -> int:
     """Route ``preflight`` to the right ``ProductConfig``, accepting both shapes.
@@ -1653,14 +1671,28 @@ def _preflight_dispatch(config_path: str, pattern: str = "dispatcher.py",
 
     Seams called by BARE name: ``load_config``, ``parse_dispatch_work_items``,
     ``preflight_cli`` -- so ``monkeypatch.setattr(foundry, ...)`` bites.
+
+    An UNREADABLE config (missing, malformed JSON, or rejected by
+    ``load_config``) prints one ``foundry preflight: cannot read config <path>:
+    ...`` stderr line and returns 1 instead of a raw traceback (iter 523); the
+    path named is the roster's for a failed roster read and the RESOLVED work
+    item's for a failed item load. Only the config READS sit inside the try --
+    ``preflight_cli`` runs outside it, so a crash in a gate check still
+    surfaces as a traceback rather than a misleading config error.
     """
-    raw = json.loads(pathlib.Path(config_path).expanduser().read_text())
+    try:
+        raw = json.loads(pathlib.Path(config_path).expanduser().read_text())
+    except (OSError, ValueError, TypeError) as exc:
+        return _config_read_failure("preflight", config_path, exc)
     if isinstance(raw, dict) and isinstance(raw.get(DISPATCH_ROSTER_KEY), list):
         for _name, item_config, enabled in parse_dispatch_work_items(raw):
             if not enabled:
                 continue
             resolved = item_config.replace("{FOUNDRY}", str(FOUNDRY))
-            cfg = load_config(resolved)
+            try:
+                cfg = load_config(resolved)
+            except (OSError, ValueError, TypeError) as exc:
+                return _config_read_failure("preflight", resolved, exc)
             return preflight_cli(cfg, pattern=pattern, as_json=as_json)
         fail_check = Check("doctor", False,
                            "dispatcher config has no enabled work items")
@@ -1670,7 +1702,10 @@ def _preflight_dispatch(config_path: str, pattern: str = "dispatcher.py",
         print(json.dumps(summary.to_dict(), indent=2)
               if as_json else summary.render())
         return summary.exit_code
-    cfg = load_config(config_path)
+    try:
+        cfg = load_config(config_path)
+    except (OSError, ValueError, TypeError) as exc:
+        return _config_read_failure("preflight", config_path, exc)
     return preflight_cli(cfg, pattern=pattern, as_json=as_json)
 
 
@@ -30793,12 +30828,29 @@ def main(argv: list[str] | None = None) -> int:
         # Dispatched BEFORE load_config, and the ONLY verb that may be given no
         # product at all: `--global` targets the foundry-root sentinel, so there
         # is no product config to load (the `new-product` precedent above).
-        return stop_cli(load_config(args.config) if args.config else None,
+        # An unreadable `--config` gets the shared one-line `cannot read config`
+        # failure (exit 1, empty stdout) BEFORE stop_cli runs, so no STOP file
+        # is ever written for a product that could not be loaded (iter 523).
+        stop_cfg = None
+        if args.config:
+            try:
+                stop_cfg = load_config(args.config)
+            except (OSError, ValueError, TypeError) as exc:
+                return _config_read_failure(args.cmd, args.config, exc)
+        return stop_cli(stop_cfg,
                         reason=args.reason, force=args.force,
                         global_scope=args.global_scope, as_json=args.json)
     if args.cmd == "resume":
         # Dispatched BEFORE load_config, like `stop`: `--global` names no product.
-        return resume_cli(load_config(args.config) if args.config else None,
+        # An unreadable `--config` gets the same one-line `cannot read config`
+        # failure as `stop` before resume_cli runs, so no STOP file is touched.
+        resume_cfg = None
+        if args.config:
+            try:
+                resume_cfg = load_config(args.config)
+            except (OSError, ValueError, TypeError) as exc:
+                return _config_read_failure(args.cmd, args.config, exc)
+        return resume_cli(resume_cfg,
                           global_scope=args.global_scope, as_json=args.json)
     if args.cmd == "overlay":
         # Dispatched BEFORE load_config: the overlay it repairs may be one
@@ -30819,10 +30871,7 @@ def main(argv: list[str] | None = None) -> int:
         # ATTENTION code; that is a known, separate contract question.
         # load_config itself still raises, so dispatcher.py's own handling is
         # unchanged; only this CLI boundary converts the failure.
-        prefix = f"foundry {args.cmd}" if args.cmd else "foundry"
-        print(f"{prefix}: cannot read config {args.config}: "
-              f"{type(exc).__name__}: {exc}", file=sys.stderr)
-        return 1
+        return _config_read_failure(args.cmd, args.config, exc)
     if args.cmd == "doctor":
         return run_doctor_cli(cfg)
     if args.cmd == "save-work":
