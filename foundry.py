@@ -202,6 +202,20 @@ KIND_RETRY_LADDERS: dict[str, list[int]] = {
 # `AUTH_LOSS_KIND`, which test_iter336 pins OUT of the control path.
 AUTH_HOLD_KIND = "auth"
 AUTH_HOLD_SECONDS: int = 1800
+# iter 531: the `unreachable` HOLD -- a request that never left the machine
+# (`Could not connect to the endpoint URL`) heals on its own when the network
+# returns, so it is held and the SAME stage re-run, like `auth` but with no
+# human notified, a shorter hold and its OWN resume cap (separate from the auth
+# budget). MEASURED BASIS (dispatcher.out + attempt logs, all products): the
+# connect blob appears in 25 attempt logs, and it is the blob behind all 3
+# exhausted stage-runs in dispatcher.out -- each infra-failed an iteration whose
+# earlier stages had already produced their outputs, because its `connection
+# stalled` prefix filed it under the 26.5-min `stalled` ladder. 13 holds x 5 min
+# = 65 min of patience, strictly LONGER than the ladder it replaces. Read by
+# BARE name at CALL time inside `run_stage`, so a monkeypatch re-prices it.
+UNREACHABLE_HOLD_KIND = "unreachable"
+UNREACHABLE_HOLD_SECONDS: int = 300
+UNREACHABLE_RESUME_MAX: int = 12
 ATTEMPT_FAILURE_DEFAULT = "other"
 # Marker table for `classify_attempt_failure`, same shape and convention as
 # EVENT_KIND_RULES: lowercase substrings, FIRST rule wins, so ORDER IS
@@ -222,6 +236,14 @@ ATTEMPT_FAILURE_DEFAULT = "other"
 # `timed out` needle claimed it first. It must NOT precede `stalled`: exactly 1
 # of the measured population also says `connection stalled`, and that blob keeps
 # its long ladder, which is what "conservative-first" means here.
+#
+# `unreachable` (iter 531) sits at INDEX 1 -- after `service`, BEFORE `stalled`
+# -- because the engine's connect-failure blob reads `connection stalled: Could
+# not connect to the endpoint URL: ...`, so with FIRST-RULE-WINS the `stalled`
+# needle would claim it. It is a HOLD kind, not a ladder kind: `run_stage` holds
+# `UNREACHABLE_HOLD_SECONDS` and re-runs the same stage (cap
+# `UNREACHABLE_RESUME_MAX`), and `retry_ladder_lines` leaves it out of its
+# universe. A plain 120 s stream stall (no connect phrase) still files `stalled`.
 #
 # MEASURED BASIS, part 1 -- iteration 196, 2026-08-24, 4,273 files matching
 # `products/*/state/iter-*/*.attempt*.log` on the authoring machine:
@@ -289,6 +311,7 @@ ATTEMPT_FAILURE_DEFAULT = "other"
 # of the em dash after `gave up`, so no encoding detail is load-bearing.
 ATTEMPT_FAILURE_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("service", ("service is busy", "too many tokens", "throttl")),
+    ("unreachable", ("could not connect to the endpoint url",)),
     ("stalled", ("connection stalled",)),
     ("auth", ("credential refresh failed", "auth failed",
               "credentials were still being renewed",
@@ -26540,7 +26563,8 @@ def retry_ladder_lines() -> tuple[str, ...]:
     order: list[str] = []
     for kind in (*FAST_RETRY_KINDS, *KIND_RETRY_LADDERS,
                  *(k for k, _ in ATTEMPT_FAILURE_MARKERS), ATTEMPT_FAILURE_DEFAULT):
-        if kind not in order:
+        # iter 531: a HOLD kind has no ladder, so it renders no line.
+        if kind not in order and kind != UNREACHABLE_HOLD_KIND:
             order.append(kind)
     ladders: dict[tuple[int, ...], list[str]] = {}
     for kind in order:
@@ -26645,10 +26669,13 @@ def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
     # `_ATTEMPT_LOG_RE` still parses -- no held attempt's evidence is
     # overwritten and `losses` keeps counting it. With the default budget 0
     # `limit` is MAX_ATTEMPTS and this loop is the old `for` loop exactly.
+    # iter-531: `unreachable_taken` extends the budget the same way, on its OWN
+    # counter, so unreachable holds never spend the auth `resume_max`.
     resume_max = auth_resume_budget(cfg)
     resumes_taken = 0
+    unreachable_taken = 0
     attempt = 0
-    while attempt < MAX_ATTEMPTS + resumes_taken:
+    while attempt < MAX_ATTEMPTS + resumes_taken + unreachable_taken:
         attempt += 1
         if stopping(cfg):
             log(cfg, f"iter {iteration:02d} · {stage} STOP requested; abandoning")
@@ -26701,7 +26728,8 @@ def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
             log(cfg, f"iter {iteration:02d} · {stage} produced `{out_file.name}`")
             return True, out_file
         log(cfg, f"iter {iteration:02d} · {stage} no output file "
-            f"(attempt {attempt}/{MAX_ATTEMPTS + resumes_taken}); "
+            f"(attempt {attempt}/"
+            f"{MAX_ATTEMPTS + resumes_taken + unreachable_taken}); "
             f"tail: {blob[-160:]!r}")
         # iter-129: price the wait by WHY the attempt failed, not by its
         # index. iter-411 lifts the classification above the retry guard so it
@@ -26709,6 +26737,24 @@ def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
         # session on attempt 4 must hold too, or the NEXT stage fails the same
         # way within seconds. Called by BARE name so a monkeypatch bites.
         kind = classify_attempt_failure(blob)
+        if kind == UNREACHABLE_HOLD_KIND:
+            # iter-531: the endpoint could not be reached, so the request never
+            # left the machine -- a network fault that heals on its own. Hold
+            # and re-run the SAME stage (no human is notified: no human action
+            # is needed), up to UNREACHABLE_RESUME_MAX resumes. A STOP during
+            # the hold ends the stage, exactly as it ends a backoff.
+            log(cfg, f"iter {iteration:02d} · {stage} backing off "
+                f"{UNREACHABLE_HOLD_SECONDS // 60} min (failure kind: unreachable) "
+                f"-- unreachable hold: the endpoint could not be reached; "
+                f"re-running the same stage after the hold")
+            if (sleep_interruptible(cfg, UNREACHABLE_HOLD_SECONDS)
+                    or unreachable_taken >= UNREACHABLE_RESUME_MAX):
+                return False, out_file
+            unreachable_taken += 1
+            log(cfg, f"iter {iteration:02d} · {stage} unreachable resume "
+                f"{unreachable_taken}/{UNREACHABLE_RESUME_MAX}: "
+                f"re-running stage after hold")
+            continue
         if kind == AUTH_HOLD_KIND:
             # iter-411: an expired session is the one failure no retry and no
             # sleep can heal (see ATTEMPT_FAILURE_MARKERS), so it is not
@@ -26739,7 +26785,7 @@ def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
             log(cfg, f"iter {iteration:02d} · {stage} auth resume "
                 f"{resumes_taken}/{resume_max}: re-running stage after hold")
             continue
-        if attempt < MAX_ATTEMPTS + resumes_taken:
+        if attempt < MAX_ATTEMPTS + resumes_taken + unreachable_taken:
             # Both seams are called by BARE name so a monkeypatch bites. The
             # line keeps its `backing off` token (the event-kind rules stamp
             # it "backoff" -- and iter-26's guard forbids naming that
@@ -26747,8 +26793,10 @@ def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
             # the decision is observable in dispatcher.out / events.jsonl
             # instead of being invisible.
             # iter-488: price by the NON-auth attempt index so a resume never
-            # shifts the ladder (resumes_taken is 0 by default => unchanged).
-            delay = retry_delay(kind, attempt - resumes_taken)
+            # shifts the ladder (resumes_taken is 0 by default => unchanged);
+            # iter-531: unreachable holds are subtracted the same way.
+            delay = retry_delay(kind,
+                                attempt - resumes_taken - unreachable_taken)
             log(cfg, f"iter {iteration:02d} · {stage} backing off "
                 f"{delay // 60} min (failure kind: {kind})")
             if sleep_interruptible(cfg, delay):

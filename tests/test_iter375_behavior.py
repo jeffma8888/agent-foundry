@@ -319,7 +319,9 @@ def test_b4_at_least_eight_candidate_rows_were_retired():
     retired = [p for p in CANDIDATE_PATHS if p not in resolved]
     # ADVANCED iter 446: iter 373 re-entered `expected` (DORMANT_HOSTS advance),
     # dropping the retired count from 8 to 7.
-    assert len(retired) >= 7, (
+    # ADVANCED iter 531: iter 226 re-entered `expected` (`unreachable` marker
+    # re-pin) with its own allow_list witness, dropping the count from 7 to 6.
+    assert len(retired) >= 6, (
         "the narrowing must retire the rows it freed; retired only "
         f"{sorted(retired)}")
 
@@ -514,13 +516,15 @@ def test_b4_the_retirement_is_exactly_the_witness_free_population():
 
 
 def test_b4_the_maximum_attainable_count_is_measured_not_assumed():
-    """Records WHY the spec's '>= 11' cannot be met: only 7 candidates are free."""
+    """Records WHY the spec's '>= 11' cannot be met: only 6 candidates are free."""
     free = witness_free_candidates(_live_sibling_sources(), OWNER_NAME, CANDIDATE_PATHS)
     assert len(CANDIDATE_PATHS) == 14, "the spec's candidate population is 14 rows"
     # ADVANCED iter 446: iter 373 gained an allow_list witness, so witnessed count
     # went 6 -> 7 and free count went 8 -> 7.
-    assert len(free) == 14 - 7, (
-        "seven candidates are witnessed by a sibling module, so at most seven are "
+    # ADVANCED iter 531: iter 226 gained an allow_list witness, so witnessed count
+    # went 7 -> 8 and free count went 7 -> 6.
+    assert len(free) == 14 - 8, (
+        "eight candidates are witnessed by a sibling module, so at most six are "
         f"retirable this iteration; measured free = {sorted(free)}")
 
 

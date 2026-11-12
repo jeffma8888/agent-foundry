@@ -174,19 +174,23 @@ def test_b3_the_older_needle_still_beats_the_timeout_needle():
 # Behavior 4 -- the table's SHAPE is untouched
 # ===========================================================================
 def test_b4_the_table_still_has_exactly_five_entries():
-    assert len(_table()) == TABLE_LEN
+    # iter 531 added unreachable at index 1
+    assert len(tuple(r for r in _table() if r[0] != "unreachable")) == TABLE_LEN
 
 
 def test_b4_the_auth_entry_is_still_at_index_two():
-    assert _table()[AUTH_INDEX][0] == AUTH
+    # iter 531 added unreachable at index 1
+    assert tuple(r for r in _table() if r[0] != "unreachable")[AUTH_INDEX][0] == AUTH
 
 
 def test_b4_the_other_four_entries_are_byte_identical_to_todays():
-    assert tuple(e for e in _table() if e[0] != AUTH) == FROZEN_NON_AUTH_ENTRIES
+    # iter 531 added unreachable at index 1
+    assert tuple(e for e in tuple(r for r in _table() if r[0] != "unreachable") if e[0] != AUTH) == FROZEN_NON_AUTH_ENTRIES
 
 
 def test_b4_no_kind_was_added_or_renamed():
-    assert tuple(kind for kind, _ in _table()) == \
+    # iter 531 added unreachable at index 1
+    assert tuple(kind for kind, _ in tuple(r for r in _table() if r[0] != "unreachable")) == \
         ("service", "stalled", AUTH, "cli-error", "timeout")
 
 
@@ -254,7 +258,9 @@ def test_b7_the_control_table_is_otherwise_identical_to_the_shipped_one(monkeypa
     # same other-four needles -- only the `auth` tuple shrinks.
     control = _table_with_only_old_auth_needle()
     assert tuple(k for k, _ in control) == tuple(k for k, _ in _table())
-    assert tuple(e for e in control if e[0] != AUTH) == FROZEN_NON_AUTH_ENTRIES
+    # iter 531 added unreachable at index 1
+    assert tuple(e for e in control if e[0] not in (AUTH, "unreachable")) == \
+        FROZEN_NON_AUTH_ENTRIES
     assert dict(control)[AUTH] == (OLD_NEEDLE,)
 
 
@@ -335,3 +341,12 @@ def test_a_dispatcher_imported_in_process_alongside_foundry():
     # import-safety claim is carried by the module-level imports above.
     assert dispatcher is not None
     assert foundry is not None
+
+
+def test_iter531_this_module_is_on_the_b15_allow_list():
+    """iter 531 edited this shipped module (the `unreachable` marker row), so it is
+    status `M` in the shipping tree and the b15 brake needs its allow-list row."""
+    text = (_ROOT / "tests" / "test_iter204_behavior.py").read_text(encoding="utf-8")
+    mine = "tests/test_iter226_behavior.py"
+    assert mine in text, \
+        f"{mine} must be allow-listed or the gate's `git add -A` reds iter 204's b15"

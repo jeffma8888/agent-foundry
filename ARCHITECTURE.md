@@ -160,6 +160,9 @@ core stages above byte-for-byte, so the default path is unchanged.
   Opt-in `auth_resume_max` (default 0 = exactly the above) re-runs the SAME stage
   after each hold, up to that many times, naming each attempt's log with a
   monotonic `<stage>.attempt<n>.log`; a STOP during the hold still ends the stage.
+  A `could not connect to the endpoint url` attempt files as `unreachable` instead: `run_stage`
+  waits `UNREACHABLE_HOLD_SECONDS` (5 min) and re-runs the SAME stage, up to `UNREACHABLE_RESUME_MAX`
+  (12) times, notifying no human; a plain `connection stalled` keeps the `stalled` ladder.
   Per loop, in `foundry.run_continuous` ONLY: after 2 consecutive infra-failing
   iterations, cool down 30m→1h→2h→4h. The SUPPORTED entry point has NO such
   ladder: `launch.sh` execs `dispatcher.py`, whose shift loop calls

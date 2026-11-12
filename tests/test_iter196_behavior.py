@@ -194,7 +194,8 @@ def test_b2_long_ladder_kinds_outrank_auth_in_an_ambiguous_blob(other_marker, ex
 
 
 def test_b2_auth_sits_at_index_two_of_the_marker_table():
-    kinds = _kinds()
+    # iter 531 added unreachable at index 1
+    kinds = tuple(k for k in _kinds() if k != "unreachable")
     assert kinds.index(AUTH) == 2, "expected auth at index 2, table is %r" % (kinds,)
     assert kinds == ("service", "stalled", AUTH, "cli-error", "timeout")
 
@@ -341,7 +342,9 @@ def test_b8_it_still_raises_with_no_input():
 # Acceptance guard A -- exactly one entry added, the other four untouched
 # ===========================================================================
 def test_a_the_marker_table_gained_exactly_one_entry_and_kept_the_other_four():
-    table = tuple((kind, tuple(needles)) for kind, needles in foundry.ATTEMPT_FAILURE_MARKERS)
+    # iter 531 added unreachable at index 1
+    table = tuple((kind, tuple(needles)) for kind, needles in foundry.ATTEMPT_FAILURE_MARKERS
+                  if kind != "unreachable")
     assert len(table) == len(PRE_196_ENTRIES) + 1
     assert tuple(e for e in table if e[0] != AUTH) == PRE_196_ENTRIES
     # Relaxed by iteration 226: the agent CLI changed its wording, so the `auth`

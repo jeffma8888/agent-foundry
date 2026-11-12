@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-531
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- OPERATOR 2026-11-12 pin (un-retired, so it goes first per the card): the special case `kind == AUTH_HOLD_KIND` in `run_stage` becomes a general `kind in HOLD_KINDS` rule, and a new `unreachable` kind (`could not connect to the endpoint url`) holds and re-runs the SAME stage instead of walking the 26-min `stalled` ladder
+    - Candidate A2 -- one `_log_span_s(begin, end) -> int` replaces the three private copies of the "`+_ONE_DAY_S` once on a midnight crossing" arithmetic in `parse_stage_attempts`, `pending_stage_starts` and `open_holds`, as a pure behaviour-preserving collapse
+    - Candidate A3 -- item (q) next subset group: the AST-identical errors-first `exit_code` property in `CompanyHistory` / `CompanyTiming` / `CompanyEvents` becomes ONE module-level `_company_errors_first_exit_code(rollup)`, assigned `exit_code = property(...)` in each class body
+    - Candidate B1 -- OPERATOR 2026-11-12 pin (un-retired, listed first per the card): `could not connect to the endpoint url` becomes its own `unreachable` hold kind. It re-runs the SAME stage through the auth-resume path instead of using up the 26.5-min `stalled` ladder and infra-failing the whole iteration
+    - Candidate B2 -- final gate stops running the full suite twice on one tree: a VERIFIED `preship` clone-suite run of the commit satisfies checklist item 3, and the worktree suite runs only as the fallback when preship returns INCOMPLETE (exit 2)
+    - Candidate B3 -- post-release reuses preship's same-sha verdict: when the pushed `origin/<branch>` sha equals the sha `preship` VERIFIED this iteration, post-release checks that the sha matches and skips its suite run
+    winner: A1
+    ship: pending (not yet decided)
   iter-530
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- `inflight` scopes pending starts AND open holds to the CURRENT brain (log text after the LAST `dispatcher up` banner), so its exit code stops being a permanent 1 that no script can consume
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- one `ACTION:` last-line reader: `parse_ship_action`, `parse_ship_sha` and `gather_reverts`' reason extraction stop carrying 3 private copies of the same rule
     - Candidate B3 -- `test_quality_cli` becomes `return _thin_gather_cli(gather_test_quality, cfg, files, as_json)`, and `_thin_gather_cli`'s stale "All EIGHT public verbs" docstring derives its real count
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 82608eb
   iter-529
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- `_walk_attempt_logs` marks only the stage-run's NEWEST attempt `produced`, so `losses`, `doctor auth-loss` and `rescues` stop erasing every failed retry once a later attempt succeeds
@@ -2600,4 +2610,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-261 scouted iterations
+262 scouted iterations

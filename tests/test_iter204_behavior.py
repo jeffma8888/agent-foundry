@@ -1327,7 +1327,15 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # attempt now sits in its own iteration. Every assertion is
                 # unchanged. `newest_ness_pin_sites` over that file is `()` at HEAD
                 # AND in the worktree.
-                "tests/test_iter172_behavior.py"}
+                "tests/test_iter172_behavior.py",
+                # iter 531: FORCED re-pin. `ATTEMPT_FAILURE_MARKERS` gains the
+                # `unreachable` row at index 1, so iter 174's LOSS_KINDS pin gains
+                # the label and iter 226's table-shape pins compare the table with
+                # that row filtered out (196 and 360 are already rows above). No
+                # newest-ness pin touched: `newest_ness_pin_sites` over each file is
+                # `()` at HEAD AND in the worktree.
+                "tests/test_iter174_behavior.py",
+                "tests/test_iter226_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

@@ -337,16 +337,19 @@ def test_b4_the_re_label_only_moves_blobs_that_carry_the_new_needle(monkeypatch)
 # Behavior 5 -- the table's shape is unchanged, the change is one needle
 # ===========================================================================
 def test_b5_the_table_still_has_exactly_five_entries():
-    assert len(_table()) == TABLE_LEN
+    # iter 531 added unreachable at index 1
+    assert len(tuple(r for r in _table() if r[0] != "unreachable")) == TABLE_LEN
 
 
 def test_b5_the_five_kind_labels_are_unchanged_and_in_the_same_order():
-    assert tuple(kind for kind, _ in _table()) == FROZEN_KIND_ORDER
-    assert _table()[AUTH_INDEX][0] == AUTH
+    # iter 531 added unreachable at index 1
+    assert tuple(kind for kind, _ in tuple(r for r in _table() if r[0] != "unreachable")) == FROZEN_KIND_ORDER
+    assert tuple(r for r in _table() if r[0] != "unreachable")[AUTH_INDEX][0] == AUTH
 
 
 def test_b5_every_non_auth_entry_is_byte_identical_to_the_pre_360_table():
-    assert tuple(e for e in _table() if e[0] != AUTH) == FROZEN_NON_AUTH_ENTRIES
+    # iter 531 added unreachable at index 1
+    assert tuple(e for e in tuple(r for r in _table() if r[0] != "unreachable") if e[0] != AUTH) == FROZEN_NON_AUTH_ENTRIES
 
 
 def test_b5_the_auth_entry_carries_exactly_three_needles():
@@ -377,7 +380,9 @@ def test_b5_the_older_needles_still_classify_auth(blob, label):
 def test_b5_the_control_table_differs_from_the_shipped_one_only_in_the_auth_tuple():
     control = _pre360_table()
     assert tuple(k for k, _ in control) == tuple(k for k, _ in _table())
-    assert tuple(e for e in control if e[0] != AUTH) == FROZEN_NON_AUTH_ENTRIES
+    # iter 531 added unreachable at index 1
+    assert tuple(e for e in control if e[0] not in (AUTH, "unreachable")) == \
+        FROZEN_NON_AUTH_ENTRIES
     assert dict(control)[AUTH] == (NEEDLE_196, NEEDLE_226)
     assert dict(_table())[AUTH] != dict(control)[AUTH]
 

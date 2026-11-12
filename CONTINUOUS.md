@@ -59,6 +59,9 @@ reports `drain-arm: NOT ARMED`) — restart such a brain once with STOP first.
   never walked: `run_stage` makes ONE `auth` attempt, then holds `AUTH_HOLD_SECONDS` (30 min)
   through the STOP-aware sleep seam and returns the stage failed, so recovery after
   re-authentication is up to 30 min.
+  A `could not connect to the endpoint url` attempt files as `unreachable` instead: `run_stage`
+  waits `UNREACHABLE_HOLD_SECONDS` (5 min) and re-runs the SAME stage, up to `UNREACHABLE_RESUME_MAX`
+  (12) times, notifying no human; a plain `connection stalled` keeps the `stalled` ladder.
 - For extra safety across machine reboots, a `scheduled` watchdog is shipped:
   `watchdog.py` re-launches the dispatcher IFF its process is gone AND no STOP
   file exists (single-brain: never a second dispatcher; STOP-respect: never
