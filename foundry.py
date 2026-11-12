@@ -21582,6 +21582,7 @@ def stage_budget_line(cfg: "ProductConfig",
 # and `LIVE_LAG_PREFIX` (`live-lag:`) already play for their one-line reports.
 INFLIGHT_PREFIX = "inflight:"    # the report's FIRST line always starts here
 INFLIGHT_STALE = "STALE"         # ONLY a past-the-cap ROW ever carries it
+INFLIGHT_HOLD = "HOLD"           # ONLY a between-attempts HOLD row carries it
 
 
 @dataclasses.dataclass(frozen=True)
@@ -21747,6 +21748,134 @@ def gather_pending_stages(log_path, *, now: str | None = None,
     return pending_stage_starts(text, stamp, cap=cap)
 
 
+# iter 527: a stage WAITING OUT a backoff / auth hold between attempts. Both of
+# run_stage's emitters (the auth-hold line and the retry-ladder line) write
+# `<stage> backing off N min (failure kind: K)`, and between attempts that line
+# is the NEWEST fact about the stage -- so a reader that only pairs START lines
+# with terminals reports "nothing in flight" for the whole hold. Matched with
+# `.match` on `rest`, never `.search`, for the same reason as the siblings
+# above: a `no output file` tail repr may quote backoff-shaped text.
+_STAGE_BACKOFF_RE = re.compile(
+    r"^(?P<stage>\S+)\s+backing off\s+(?P<min>\d+)\s+min\s+"
+    r"\(failure kind:\s*(?P<kind>[^)]+)\)")
+# iter-488's `<stage> auth resume k/M: ...` line: the hold ended and the stage
+# is re-running (its START line follows, but the resume alone already closes).
+_STAGE_AUTH_RESUME_RE = re.compile(r"^(?P<stage>\S+)\s+auth resume(?:\s|$)")
+
+
+@dataclasses.dataclass(frozen=True)
+class PendingHold:
+    """One stage waiting out a `backing off N min` sleep between two attempts.
+
+    Frozen for the same reason as `PendingStage`: it is a RECORD of one reading.
+    Fields: `team`, `iteration`, `stage` (the key, as in `PendingStage`);
+    `kind` -- the logged failure kind (`auth`, `transient`, ...); `wait_s` --
+    the logged wait in seconds (minutes x 60, so the log's own rounding is
+    kept rather than guessed past); `elapsed_s` -- whole seconds from the
+    backoff stamp to `now`; `remaining_s` -- `wait_s - elapsed_s`, always > 0
+    for a reported hold because only holds still inside their wait report.
+    """
+    team: str
+    iteration: int
+    stage: str
+    kind: str
+    wait_s: int
+    elapsed_s: int
+    remaining_s: int
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-safe serialization of one open hold (JSON-native values)."""
+        return {
+            "team": self.team,
+            "iteration": self.iteration,
+            "stage": self.stage,
+            "kind": self.kind,
+            "wait_s": self.wait_s,
+            "elapsed_s": self.elapsed_s,
+            "remaining_s": self.remaining_s,
+        }
+
+
+def open_holds(text: str, now: str) -> tuple["PendingHold", ...]:
+    """Parse a `dispatcher.out` body into the stages still waiting out a hold.
+
+    WHY: during a 30-minute auth hold the newest line for the stage is its
+    backoff line, so `pending_stage_starts` holds nothing and `inflight` read a
+    company-wide credential outage as an idle company (iter 527, measured: 16
+    holds, ~8 h). This walker keeps, per `(team, iteration, stage)`, the LAST
+    event in line order: a backoff line OPENS (or replaces) the hold, and a
+    START, `produced`, `no output file` or `auth resume` line CLOSES it.
+
+    A surviving hold reports only while `0 <= elapsed_s < wait_s` -- a `0 min`
+    wait never does, and neither does a hold whose wait has fully elapsed
+    (`inflight` asserts no liveness, so a hold the brain never followed up is
+    not dressed up as live). Elapsed follows `pending_stage_starts`'s midnight
+    rule (`+_ONE_DAY_S` once when `now` dates earlier) but is NOT clamped: a
+    still-negative elapsed means the stamp dates after `now`, and that line is
+    skipped rather than read as freshly open.
+
+    Records come back ASCENDING by `remaining_s` (soonest re-run first), ties
+    ASCENDING by `(team, iteration, stage)`. PURE and TOTAL: no I/O, no clock,
+    never raises for any `str`; an empty or undateable `now` returns `()`, and
+    a malformed line is skipped while the rest still reports."""
+    now_dt = parse_log_stamp(now or "")
+    if now_dt is None:
+        return ()
+    holds: dict[tuple[str, int, str], tuple[dt.datetime, int, str]] = {}
+    for raw in (text or "").splitlines():
+        try:
+            m = _STAGE_TS_RE.search(raw)
+            if not m:
+                continue
+            team = m.group("team")
+            iteration = int(m.group("iter"))
+            stamp = parse_log_stamp(m.group("ts"))
+            if stamp is None:
+                continue
+            rest = m.group("rest")
+            mb = _STAGE_BACKOFF_RE.match(rest)
+            if mb:
+                holds[(team, iteration, mb.group("stage").strip())] = (
+                    stamp, int(mb.group("min")) * 60, mb.group("kind").strip())
+                continue
+            ms = _STAGE_START_RE.match(rest)
+            mt = ms or (_STAGE_PRODUCED_RE.match(rest)
+                        or _STAGE_NOOUTPUT_RE.match(rest)
+                        or _STAGE_AUTH_RESUME_RE.match(rest))
+            if mt is None:
+                continue
+            holds.pop((team, iteration, mt.group("stage").strip()), None)
+        except Exception:
+            # Robustness contract: a single malformed line is skipped, never fatal.
+            continue
+    records: list[PendingHold] = []
+    for (team, iteration, stage), (stamp, wait_s, kind) in holds.items():
+        elapsed = int((now_dt - stamp).total_seconds())
+        if elapsed < 0:
+            elapsed += _ONE_DAY_S              # crossed midnight -> add one day
+        if elapsed < 0 or elapsed >= wait_s:
+            continue                           # future ghost, or wait over
+        records.append(PendingHold(
+            team=team, iteration=iteration, stage=stage, kind=kind,
+            wait_s=wait_s, elapsed_s=elapsed, remaining_s=wait_s - elapsed))
+    return tuple(sorted(records, key=lambda r: (r.remaining_s, r.team,
+                                                r.iteration, r.stage)))
+
+
+def gather_open_holds(log_path, *,
+                      now: str | None = None) -> tuple["PendingHold", ...]:
+    """Read a `dispatcher.out` path and return its open backoff holds.
+
+    The impure seam for `open_holds`, shaped exactly like
+    `gather_pending_stages`: it owns the read (via `read_dispatcher_log`, bare
+    name, so a missing / unreadable path or a directory degrades to empty text
+    and therefore `()`) and the clock (`now=None` = the real instant in
+    `_TS_FMT`). Called by BARE name from `inflight_cli` so a monkeypatch bites."""
+    text = read_dispatcher_log(log_path)
+    stamp = dt.datetime.now().strftime(_TS_FMT) if now is None else now
+    return open_holds(text, stamp)
+
+
 def _inflight_cap(records: "Sequence[PendingStage]") -> int:
     """The effective cap the given records were measured against.
 
@@ -21761,7 +21890,8 @@ def _inflight_cap(records: "Sequence[PendingStage]") -> int:
     return STAGE_HARD_CAP_SECONDS
 
 
-def render_inflight(records: "Sequence[PendingStage]") -> str:
+def render_inflight(records: "Sequence[PendingStage]",
+                    holds: "Sequence[PendingHold]" = ()) -> str:
     """Render the pending-attempt report: one head line plus one row per record.
 
     Pure and total (no I/O, no clock) and ALWAYS non-empty: with no pending
@@ -21770,7 +21900,26 @@ def render_inflight(records: "Sequence[PendingStage]") -> str:
     with `INFLIGHT_PREFIX` and names the effective cap; each row names the team,
     iteration, stage, attempt, elapsed and headroom, and a STALE row -- and only
     a stale row -- carries the `INFLIGHT_STALE` token, so `grep STALE` is a
-    decidable question about rows."""
+    decidable question about rows.
+
+    iter 527: open `holds` (stages waiting out a backoff between attempts) are
+    APPENDED after those exact bytes -- one count line, then one row each
+    carrying `INFLIGHT_HOLD` -- so with no holds the output is unchanged."""
+    text = _render_inflight_pending(records)
+    if not holds:
+        return text
+    lines = [text, f"  holds: {len(holds)} stage(s) waiting out a backoff "
+                   f"between attempts"]
+    for h in holds:
+        lines.append(f"  [{h.team}] iter {h.iteration} {h.stage} {INFLIGHT_HOLD} "
+                     f"-- backing off (failure kind: {h.kind}), elapsed "
+                     f"{h.elapsed_s}s of a {h.wait_s}s wait, re-run in "
+                     f"{h.remaining_s}s")
+    return "\n".join(lines)
+
+
+def _render_inflight_pending(records: "Sequence[PendingStage]") -> str:
+    """The iter-240 pending-attempt report, byte-for-byte (see `render_inflight`)."""
     cap = _inflight_cap(records)
     if not records:
         return (f"{INFLIGHT_PREFIX} no pending stage attempt in this log; nothing "
@@ -21799,19 +21948,29 @@ def inflight_cli(log_path, *, now: str | None = None,
     EXIT CODE, the `stage_times_cli` 0/1/2 shape: 2 nothing to report (no
     pending attempt, including an unreadable log), 1 at least one attempt is
     STALE (elapsed has reached the cap, so work is being lost right now), 0 at
-    least one pending attempt and all of them still have headroom."""
+    least one pending attempt and all of them still have headroom.
+
+    iter 527: open backoff holds come from `gather_open_holds(...)` (bare name)
+    and count as "in flight": a hold alone exits 0, not 2, and `--json` adds
+    `hold_count` + `holds` while every pre-existing key keeps its value."""
     records = gather_pending_stages(log_path, now=now)
-    code = 2 if not records else (1 if any(rec.stale for rec in records) else 0)
+    holds = gather_open_holds(log_path, now=now)
+    if any(rec.stale for rec in records):
+        code = 1
+    else:
+        code = 0 if (records or holds) else 2
     if as_json:
         print(json.dumps({
             "cap_s": _inflight_cap(records),
             "pending_count": len(records),
             "stale_count": sum(1 for rec in records if rec.stale),
             "pending": [rec.to_dict() for rec in records],
+            "hold_count": len(holds),
+            "holds": [h.to_dict() for h in holds],
             "exit_code": code,
         }, indent=2))
     else:
-        print(render_inflight(records))
+        print(render_inflight(records, holds))
     return code
 
 

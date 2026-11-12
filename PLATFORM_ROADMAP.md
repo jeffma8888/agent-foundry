@@ -359,6 +359,7 @@ in the archive.
 - iter 524 -- one failing-line predicate: vitest ` FAIL ` + TAP `not ok` lines feed both extractors.
 - iter 525 -- preship empty-set BROKEN says `no failing names parsed from <runner>`; final.md: re-run never overturns 1.
 - iter 526 -- CONTINUOUS.md + launch.sh: `touch STOP` abandons; `kill -USR1 <pid>` drains.
+- iter 528 -- re-land 527: `inflight` shows a backoff/auth hold as a HOLD row (+ JSON `holds`).
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

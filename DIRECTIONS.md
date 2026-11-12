@@ -1,6 +1,26 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-528
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- re-land iteration 527's APPROVED `inflight` auth/backoff-hold rows verbatim from its preserved patch (environmental loss, not a defect)
+    - Candidate A2 -- `foundry stop --config P --drain --reason R`: retire ONE team at its next iteration boundary instead of abandoning its iteration in flight
+    - Candidate A3 -- `changelog` / `company-changelog --since YYYY-MM-DD` (or `7d`): the weekly "what shipped" report, with each row's ship date and short sha
+    - Candidate B1 -- `_walk_attempt_logs` marks only the NEWEST attempt of a stage-run as `produced`, so `losses`, `doctor auth-loss` and `rescues` stop erasing every failed retry once a later attempt succeeds
+    - Candidate B2 -- one `stamp_delta_s(start, end)` helper that survives the Dec-31 -> Jan-01 crossing, used by `parse_stage_attempts` and `pending_stage_starts`
+    - Candidate B3 -- split `unreachable` (`could not connect to the endpoint url`) out of `stalled` in `ATTEMPT_FAILURE_MARKERS`, priced on the IDENTICAL ladder, so every loss surface names the real owner
+    winner: A1
+    ship: pending (not yet decided)
+  iter-527
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- the iter-521 `Operator goal` Context line reaches exactly the PM and both scouts, and neither `roles/pm.md` nor `roles/pm_scout.md` says what a seat should do with it
+    - Candidate A2 -- ARCHITECTURE.md never names `preship`, the BLOCKING pre-push clone gate (iter 156), even though §3's "Independent, pessimistic gate" invariant is what the quality bar asks every iteration to preserve
+    - Candidate A3 -- ARCHITECTURE.md has no record of the iter-515 SIGUSR1 drain, the only way to restart a brain with zero lost work, so its Resilience invariant still describes STOP as the loop's only exit
+    - Candidate B1 -- `inflight` (and `status`) name an auth hold in progress: "pm_scout_b AUTH HOLD -- 16 attempts / 8h10m lost since 07:34, next re-run 16:13:28 (resume 16/24)"
+    - Candidate B2 -- `foundry stop --global --drain`: the verb drains the armed brain itself (reads the armed pid, checks it is the live brain, sends SIGUSR1) or REFUSES with exit 1 and the STOP remedy
+    - Candidate B3 -- `company-status` gets one `holds:` roll-up line across every product in the roster ("1 stage on auth hold: _platform iter 527 pm_scout_b, 8h10m")
+    winner: B1
+    ship: unknown
   iter-526
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- preship's red-path parent leg re-runs only HEAD's failing pytest node ids at HEAD^, not the whole suite (~55 s -> ~9 s)
@@ -10,7 +30,7 @@ foundry directions -- _platform
     - Candidate B2 -- README #0 and `run_doctor_cli`'s docstring never mention `doctor`'s 8th line, `drain-arm:` (iter 518), the line that tells the operator whether a restart is safe
     - Candidate B3 -- the `live-lag` WARN that every stage prompt carries says "restart the dispatcher to activate" but never names the safe way, even though `drain_arm_status_line` (iter 518) already knows it
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 9548449
   iter-525
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- OPERATOR 2026-11-10 pin, items 2+3 (still open): a red-suite BROKEN with an empty failing set says `BROKEN -- no failing names parsed from <runner>`, and roles/final.md says a passing re-run never overturns exit 1
@@ -2560,4 +2580,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-257 scouted iterations
+259 scouted iterations
