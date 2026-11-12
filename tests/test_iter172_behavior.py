@@ -474,14 +474,16 @@ def test_b09_this_file_never_asserts_a_bare_numeric_rate():
 # ==========================================================================
 def test_b10_two_fully_rescued_stages_share_a_rescue_rate_but_differ_in_kill_rate(tmp_path):
     cfg = _cfg(tmp_path)
+    # Iter 529: only a stage-run's NEWEST attempt can count as produced, so each
+    # rescued kill is planted as the ONLY attempt of its own iteration, output present.
     # `hot`: killed on 4 of 5 attempts, output file present -> every kill rescued
     for n in range(1, 5):
-        _plant(cfg, 1, "hot", attempt=n, killed=True, out="hot output")
-    _plant(cfg, 1, "hot", attempt=5, killed=False, out="hot output")
+        _plant(cfg, n, "hot", attempt=1, killed=True, out="hot output")
+    _plant(cfg, 5, "hot", attempt=1, killed=False, out="hot output")
     # `cool`: killed on 1 of 10 attempts, likewise fully rescued
-    _plant(cfg, 2, "cool", attempt=1, killed=True, out="cool output")
-    for n in range(2, 11):
-        _plant(cfg, 2, "cool", attempt=n, killed=False, out="cool output")
+    _plant(cfg, 6, "cool", attempt=1, killed=True, out="cool output")
+    for n in range(7, 16):
+        _plant(cfg, n, "cool", attempt=1, killed=False, out="cool output")
 
     s = foundry.gather_rescues(cfg)
     rows = _by_stage(s)
@@ -509,8 +511,9 @@ def test_b10_two_fully_rescued_stages_share_a_rescue_rate_but_differ_in_kill_rat
 def test_b10_the_cli_verb_reports_the_new_token_and_still_writes_nothing(tmp_path):
     cfg_path = _write_cfg(tmp_path)
     cfg = foundry.load_config(str(cfg_path))
+    # Iter 529: the killed attempt is its own stage-run's newest, so it is rescued.
     _plant(cfg, 1, "pm", attempt=1, killed=True, out="spec")
-    _plant(cfg, 1, "pm", attempt=2, killed=False, out="spec")
+    _plant(cfg, 2, "pm", attempt=1, killed=False, out="spec")
     before = {str(p.relative_to(tmp_path)): p.read_bytes()
               for p in tmp_path.rglob("*") if p.is_file()}
     rc, out = _capture(foundry.rescues_cli, cfg, None, False)

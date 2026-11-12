@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-529
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- `_walk_attempt_logs` marks only the stage-run's NEWEST attempt `produced`, so `losses`, `doctor auth-loss` and `rescues` stop erasing every failed retry once a later attempt succeeds
+    - Candidate A2 -- one `stamp_delta_s(start, end)` used by `parse_stage_attempts`, `pending_stage_starts` AND iter 528's `open_holds`, so the Dec-31 -> Jan-01 crossing stops zeroing durations and erasing holds
+    - Candidate A3 -- `retry_directive` stops telling an attempt "the plan does not fit the per-attempt budget ... CUT SCOPE" when the previous attempt died of an environmental kind (`auth` / `stalled` / `service`) in seconds
+    - Candidate B1 -- `status` (and so `company-status`) prints one report-only `hold:` line from iter 528's `gather_open_holds`, filtered to this team, so the verb an operator runs first stops saying a bare OK through an 8 h auth hold
+    - Candidate B2 -- `inflight` scopes pending starts to the CURRENT brain (text after the last `dispatcher up` banner, the anchor `parse_brain_launch` already trusts), so its exit code stops being a permanent 1 that nothing can script against
+    - Candidate B3 -- doctor's `auth-loss:` line consults `gather_open_holds`: an OPEN `auth`-kind hold for this team vetoes the HEALED arm, so doctor can never say "no human action is owed" while a credential hold is ticking
+    winner: A1
+    ship: pending (not yet decided)
   iter-528
     lenses: new-capability, hardening/DX
     - Candidate A1 -- re-land iteration 527's APPROVED `inflight` auth/backoff-hold rows verbatim from its preserved patch (environmental loss, not a defect)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- one `stamp_delta_s(start, end)` helper that survives the Dec-31 -> Jan-01 crossing, used by `parse_stage_attempts` and `pending_stage_starts`
     - Candidate B3 -- split `unreachable` (`could not connect to the endpoint url`) out of `stalled` in `ATTEMPT_FAILURE_MARKERS`, priced on the IDENTICAL ladder, so every loss surface names the real owner
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 3e2f0ed
   iter-527
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- the iter-521 `Operator goal` Context line reaches exactly the PM and both scouts, and neither `roles/pm.md` nor `roles/pm_scout.md` says what a seat should do with it
@@ -2580,4 +2590,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-259 scouted iterations
+260 scouted iterations

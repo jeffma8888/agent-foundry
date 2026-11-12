@@ -1319,7 +1319,15 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # fail `ast.parse` on every supported interpreter. Fixture-only:
                 # no newest-ness pin touched, `newest_ness_pin_sites` over that
                 # file is `()` at HEAD AND in the worktree.
-                "tests/test_iter423_behavior.py"}
+                "tests/test_iter423_behavior.py",
+                # iter 529: FORCED re-pin, fixture-only. `_walk_attempt_logs` now
+                # marks only a stage-run's NEWEST attempt as produced, so iter 172's
+                # two b10 fixtures (killed attempts followed by a later success in
+                # ONE iteration, called "rescued") encoded the bug; each killed
+                # attempt now sits in its own iteration. Every assertion is
+                # unchanged. `newest_ness_pin_sites` over that file is `()` at HEAD
+                # AND in the worktree.
+                "tests/test_iter172_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

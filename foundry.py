@@ -27941,11 +27941,17 @@ def _walk_attempt_logs(
       * `stage` / `attempt` from the filename via `_ATTEMPT_LOG_RE`, `iteration` from
         the parent dir via `iteration_numbers` (called by BARE name) -- a name of any
         other shape is SKIPPED, never guessed at;
-      * `produced` from `_stage_output_present`, byte-for-byte the condition
-        `run_stage` calls success (that helper resolves the OUTPUT name through
-        `STAGE_OUTPUT_NAMES`, because `run_stage` takes `out_name` SEPARATELY from the
-        stage label), so "rescued" and "lost" downstream mean what they meant to the
-        loop;
+      * `produced` is True ONLY for the NEWEST attempt of its `(iteration, stage)` --
+        the highest attempt number compared NUMERICALLY (the glob is lexicographic, so
+        `attempt10` sorts before `attempt2`) -- AND only when `_stage_output_present`
+        holds, byte-for-byte the condition `run_stage` calls success (that helper
+        resolves the OUTPUT name through `STAGE_OUTPUT_NAMES`, because `run_stage` takes
+        `out_name` SEPARATELY from the stage label). Iteration 529: `run_stage` returns
+        on the FIRST attempt whose output is non-empty and retries only after a
+        no-output attempt (auth resumes keep `attempt` monotonic), so every attempt
+        below the maximum FAILED by construction; asking "does the dir hold the output
+        NOW?" per attempt let one later success erase every earlier loss. So "rescued"
+        and "lost" downstream mean, per attempt, what they meant to the loop;
       * `text` is the log's UTF-8 content, or `""` when it is missing, unreadable or
         UNDECODABLE -- still an attempt, still yielded: absence of evidence is not
         evidence of a kill or of a cause, and dropping the row would under-count the
@@ -27953,8 +27959,9 @@ def _walk_attempt_logs(
     A POSITIVE `limit` keeps only the newest `limit` iteration dirs (the ledger verbs'
     `--limit` semantics, via the same `iteration_numbers` helper); `None` or a
     non-positive value scans them all -- so every consumer shares ONE window BY
-    CONSTRUCTION rather than by copies of one predicate agreeing. A generator, so a
-    consumer pays only for the rows it reads. Read-only and TOTAL: writes nothing,
+    CONSTRUCTION rather than by copies of one predicate agreeing. The matched paths are
+    parsed ONCE up front (the newest-attempt rule needs every attempt number of a stage
+    before its first row), but each log is still read lazily, per yielded row. Read-only and TOTAL: writes nothing,
     creates no directory, and a missing or unreadable `cfg.state` yields nothing rather
     than raising -- the no-news input each caller's pure verdict already handles."""
     state = cfg.state
@@ -27972,6 +27979,8 @@ def _walk_attempt_logs(
             names = []
         # `iteration_numbers` is ascending, so the most-recent N are the LAST N.
         keep = set(iteration_numbers(names)[-limit:])
+    rows: list[tuple[pathlib.Path, str, int, int]] = []
+    newest: dict[tuple[int, str], int] = {}
     for path in paths:
         match = _ATTEMPT_LOG_RE.match(path.name)
         if match is None:
@@ -27982,15 +27991,20 @@ def _walk_attempt_logs(
         iteration = numbers[0]
         if keep is not None and iteration not in keep:
             continue
+        stage, attempt = match.group("stage"), int(match.group("attempt"))
+        rows.append((path, stage, iteration, attempt))
+        key = (iteration, stage)
+        newest[key] = max(newest.get(key, attempt), attempt)
+    for path, stage, iteration, attempt in rows:
         try:
             text = path.read_text(encoding="utf-8")
         except Exception:
             # Missing / permission / decode error -> no evidence, still an attempt
             # (see the `text` bullet above for why the row is neither dropped nor fatal).
             text = ""
-        stage = match.group("stage")
-        yield (stage, iteration, int(match.group("attempt")),
-               _stage_output_present(path.parent, stage, iteration), text)
+        produced = (attempt == newest[(iteration, stage)]
+                    and _stage_output_present(path.parent, stage, iteration))
+        yield (stage, iteration, attempt, produced, text)
 
 
 def gather_rescues(cfg: ProductConfig,
