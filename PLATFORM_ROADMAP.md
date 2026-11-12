@@ -363,6 +363,7 @@ in the archive.
 - iter 529 -- attempt walker: only a stage-run's newest attempt counts as `produced`.
 - iter 530 -- item (q): the 3 scanner Company* roll-ups share one module-level to_dict (JSON byte-identical).
 - iter 531 -- OPERATOR pin: connect failure -> `unreachable` kind; 5-min hold re-runs the same stage (cap 12).
+- iter 532 -- `find_constant_assert_tests` stops a function's walk at its first real signal (output identical).
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

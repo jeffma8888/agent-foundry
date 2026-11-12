@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-532
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- `find_constant_assert_tests` stops walking a test function at its first real assertion signal (byte-identical output, -27% on company-constant-asserts)
+    - Candidate A2 -- the three test-hygiene lenses share ONE `_test_function_nodes` result per parsed file instead of re-walking it 3x (3894 -> 1298 calls)
+    - Candidate A3 -- suite CLI subprocesses run the cached module (`python -c "import foundry, sys; sys.exit(foundry.main(sys.argv[1:]))"`) instead of re-compiling foundry.py as `__main__` on each of 139 spawns
+    - Candidate B1 -- the failure-kind vocabulary in prose names `unreachable` (iter 531), and one check ties every enumeration to `ATTEMPT_FAILURE_MARKERS`
+    - Candidate B2 -- ARCHITECTURE.md's "Independent, pessimistic gate" invariant names the three BLOCKING pre-push verbs the final gate actually runs (`staged-check`, `leak-check`, `preship`)
+    - Candidate B3 -- the `live-lag` WARN that every stage prompt carries names the zero-loss restart instead of a bare "restart the dispatcher"
+    winner: A1
+    ship: pending (not yet decided)
   iter-531
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- OPERATOR 2026-11-12 pin (un-retired, so it goes first per the card): the special case `kind == AUTH_HOLD_KIND` in `run_stage` becomes a general `kind in HOLD_KINDS` rule, and a new `unreachable` kind (`could not connect to the endpoint url`) holds and re-runs the SAME stage instead of walking the 26-min `stalled` ladder
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- final gate stops running the full suite twice on one tree: a VERIFIED `preship` clone-suite run of the commit satisfies checklist item 3, and the worktree suite runs only as the fallback when preship returns INCOMPLETE (exit 2)
     - Candidate B3 -- post-release reuses preship's same-sha verdict: when the pushed `origin/<branch>` sha equals the sha `preship` VERIFIED this iteration, post-release checks that the sha matches and skips its suite run
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED a1671da
   iter-530
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- `inflight` scopes pending starts AND open holds to the CURRENT brain (log text after the LAST `dispatcher up` banner), so its exit code stops being a permanent 1 that no script can consume
@@ -2610,4 +2620,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-262 scouted iterations
+263 scouted iterations
