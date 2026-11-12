@@ -45,7 +45,7 @@ authorises the retry, plus the dispatcher restart that lesson demands). Scout A'
 (l) SHIPPED iter 160 -- detail in the archive.
 (o) OPEN and the PREREQUISITE for any dispatcher-side change -- re-scope the 26 control-path freeze guards to an AST/symbol invariant; TEST-OWNED, own iteration. Detail in the archive.
 (p) SHIPPED iters 169/174/175 -- detail in the archive.
-(q) OPEN -- 235 redundant declared lines remain in the 9 Company* roll-ups; ONE subset group per iteration behind golden output, never a blanket collapse. Detail in the archive.
+(q) OPEN -- 163 redundant declared lines remain in the 11 Company* roll-ups (iter 530 AST census); ONE subset group per iteration behind golden output, never a blanket collapse. Detail in the archive.
 (r) DE-LISTED (iter 154) -- detail in the archive; do NOT re-propose.
 (s) OPEN -- a repo-wide guard over tests/ banning ambient-tree COUNT preconditions (the iter-154 post-release break); owes two-sided calibration. Detail in the archive.
 (t) SHIPPED iter 156 -- detail in the archive.
@@ -361,6 +361,7 @@ in the archive.
 - iter 526 -- CONTINUOUS.md + launch.sh: `touch STOP` abandons; `kill -USR1 <pid>` drains.
 - iter 528 -- re-land 527: `inflight` shows a backoff/auth hold as a HOLD row (+ JSON `holds`).
 - iter 529 -- attempt walker: only a stage-run's newest attempt counts as `produced`.
+- iter 530 -- item (q): the 3 scanner Company* roll-ups share one module-level to_dict (JSON byte-identical).
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

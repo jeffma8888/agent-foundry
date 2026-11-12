@@ -12881,6 +12881,50 @@ def _company_findings_exit_code(rollup: CompanyRollupCounts) -> int:
     return 0
 
 
+def _company_scan_to_dict(rollup: CompanyRollupCounts) -> dict:
+    """The JSON payload the three SCANNER roll-ups share (item (q)).
+
+    ONE body for `CompanyWeakTests`, `CompanyConstantAsserts` and
+    `CompanySkippedTests`, each of which assigns it in its OWN class body as
+    `to_dict = _company_scan_to_dict` (the iter 207 `exit_code` precedent). It
+    replaces three AST-identical hand-copies of the 13-key `--json` contract
+    dashboards and cron jobs script against: three copies of one contract means
+    a key fix can land in one or two of them and the drift is invisible.
+
+    A pure, JSON-safe company roll-up for machine consumers -- a dashboard /
+    cron alert / the reporter. `products` carries the FULL per-product payload
+    (`WeakTestSummary.to_dict()`, `ConstantAssertSummary.to_dict()` or
+    `SkippedTestSummary.to_dict()`: the 8-key per-team detail INCLUDING each
+    team's `findings`/`parse_errors` leaf arrays) in stored order, so no leaf
+    detail is lost even though `render()` prints per-product counts only. Every
+    derived value REUSES the frozen properties, so the payload can never
+    disagree with `render()` or the exit code, and every value is JSON-native,
+    so it round-trips through `json.loads(json.dumps(...))` -- including when
+    `products`/`disabled`/`errors` are all empty. Pure: touches no filesystem.
+
+    Stays a module-level function rather than a `CompanyRollupCounts` method for
+    the same reason as `_company_findings_exit_code`: it reads the summed totals
+    and `n_flagged` the base does not declare, and `CompanyTestQuality` (also a
+    member of the family) emits a DIFFERENT payload and keeps its own.
+    """
+    return {
+        "dispatch_config": rollup.dispatch_path,
+        "products": [p.to_dict() for p in rollup.products],
+        "disabled": list(rollup.disabled),
+        "errors": [{"product": name, "message": message}
+                   for name, message in rollup.errors],
+        "n_products": rollup.n_products,
+        "n_disabled": rollup.n_disabled,
+        "n_errors": rollup.n_errors,
+        "n_flagged": rollup.n_flagged,
+        "files_scanned": rollup.files_scanned,
+        "total_findings": rollup.total_findings,
+        "total_parse_errors": rollup.total_parse_errors,
+        "exit_code": rollup.exit_code,
+        "verdict": rollup.verdict,
+    }
+
+
 @dataclasses.dataclass(frozen=True)
 class CompanyStatus(CompanyRollupCounts):
     """A one-shot COMPANY-wide health roll-up across a dispatch config (item 30).
@@ -23101,32 +23145,7 @@ class CompanyWeakTests(CompanyRollupCounts):
         lines.append(f"verdict: {self.verdict}")
         return "\n".join(lines)
 
-    def to_dict(self) -> dict:
-        """A pure, JSON-safe company roll-up for machine consumers -- a dashboard
-        / cron alert / the reporter. `products` carries the FULL per-product
-        `WeakTestSummary.to_dict()` payload (the 8-key per-team detail INCLUDING
-        each team's `findings`/`parse_errors` leaf arrays) in stored order, so no
-        leaf detail is lost even though `render()` prints per-product counts only.
-        Every derived value REUSES the frozen properties, so the payload can never
-        disagree with `render()` or the exit code, and every value is JSON-native,
-        so it round-trips through `json.loads(json.dumps(...))` -- including when
-        `products`/`disabled`/`errors` are all empty. Pure: touches no filesystem."""
-        return {
-            "dispatch_config": self.dispatch_path,
-            "products": [p.to_dict() for p in self.products],
-            "disabled": list(self.disabled),
-            "errors": [{"product": name, "message": message}
-                       for name, message in self.errors],
-            "n_products": self.n_products,
-            "n_disabled": self.n_disabled,
-            "n_errors": self.n_errors,
-            "n_flagged": self.n_flagged,
-            "files_scanned": self.files_scanned,
-            "total_findings": self.total_findings,
-            "total_parse_errors": self.total_parse_errors,
-            "exit_code": self.exit_code,
-            "verdict": self.verdict,
-        }
+    to_dict = _company_scan_to_dict
 
 
 def summarize_company_weak_tests(*, dispatch_path: str,
@@ -23309,33 +23328,7 @@ class CompanyConstantAsserts(CompanyRollupCounts):
         lines.append(f"verdict: {self.verdict}")
         return "\n".join(lines)
 
-    def to_dict(self) -> dict:
-        """A pure, JSON-safe company roll-up for machine consumers -- a dashboard
-        / cron alert / the reporter. `products` carries the FULL per-product
-        `ConstantAssertSummary.to_dict()` payload (the 8-key per-team detail
-        INCLUDING each team's `findings`/`parse_errors` leaf arrays) in stored
-        order, so no leaf detail is lost even though `render()` prints per-product
-        counts only. Every derived value REUSES the frozen properties, so the
-        payload can never disagree with `render()` or the exit code, and every
-        value is JSON-native, so it round-trips through
-        `json.loads(json.dumps(...))` -- including when `products`/`disabled`/
-        `errors` are all empty. Pure: touches no filesystem."""
-        return {
-            "dispatch_config": self.dispatch_path,
-            "products": [p.to_dict() for p in self.products],
-            "disabled": list(self.disabled),
-            "errors": [{"product": name, "message": message}
-                       for name, message in self.errors],
-            "n_products": self.n_products,
-            "n_disabled": self.n_disabled,
-            "n_errors": self.n_errors,
-            "n_flagged": self.n_flagged,
-            "files_scanned": self.files_scanned,
-            "total_findings": self.total_findings,
-            "total_parse_errors": self.total_parse_errors,
-            "exit_code": self.exit_code,
-            "verdict": self.verdict,
-        }
+    to_dict = _company_scan_to_dict
 
 
 def summarize_company_constant_asserts(*, dispatch_path: str,
@@ -23535,33 +23528,7 @@ class CompanySkippedTests(CompanyRollupCounts):
         lines.append(f"verdict: {self.verdict}")
         return "\n".join(lines)
 
-    def to_dict(self) -> dict:
-        """A pure, JSON-safe company roll-up for machine consumers -- a dashboard
-        / cron alert / the reporter. `products` carries the FULL per-product
-        `SkippedTestSummary.to_dict()` payload (the 8-key per-team detail
-        INCLUDING each team's `findings`/`parse_errors` leaf arrays) in stored
-        order, so no leaf detail is lost even though `render()` prints per-product
-        counts only. Every derived value REUSES the frozen properties, so the
-        payload can never disagree with `render()` or the exit code, and every
-        value is JSON-native, so it round-trips through
-        `json.loads(json.dumps(...))` -- including when `products`/`disabled`/
-        `errors` are all empty. Pure: touches no filesystem."""
-        return {
-            "dispatch_config": self.dispatch_path,
-            "products": [p.to_dict() for p in self.products],
-            "disabled": list(self.disabled),
-            "errors": [{"product": name, "message": message}
-                       for name, message in self.errors],
-            "n_products": self.n_products,
-            "n_disabled": self.n_disabled,
-            "n_errors": self.n_errors,
-            "n_flagged": self.n_flagged,
-            "files_scanned": self.files_scanned,
-            "total_findings": self.total_findings,
-            "total_parse_errors": self.total_parse_errors,
-            "exit_code": self.exit_code,
-            "verdict": self.verdict,
-        }
+    to_dict = _company_scan_to_dict
 
 
 def summarize_company_skipped_tests(*, dispatch_path: str,
