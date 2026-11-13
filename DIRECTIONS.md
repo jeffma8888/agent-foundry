@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-533
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- every prose list of attempt-failure kinds (README #51 `losses`, `StageAttempt.kind` and `LossRow` docstrings, the `losses` argparse comment) names the full `ATTEMPT_FAILURE_MARKERS` vocabulary, pinned by one drift test
+    - Candidate A2 -- README #55 `inflight` documents the HOLD rows and `holds`/`hold_count` JSON keys that iter 528 shipped, and its exit-code sentence stops saying a hold-only log exits 2
+    - Candidate A3 -- the two shared-printer docstrings stop reporting stale verb counts: `_thin_gather_cli` says "All EIGHT public verbs" (AST: 15 callers) and `_company_rollup_cli` says "All NINE" (AST: 12)
+    - Candidate B1 -- `changelog --since 7d|YYYY-MM-DD`: the weekly "what shipped" report
+    - Candidate B2 -- `inflight` prints an `eta:` estimate for each current-brain in-flight iteration
+    - Candidate B3 -- a weekly goal that expires: optional `goal_until` (YYYY-MM-DD) stops the goal line after its date
+    winner: B1
+    ship: pending (not yet decided)
   iter-532
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- `find_constant_assert_tests` stops walking a test function at its first real assertion signal (byte-identical output, -27% on company-constant-asserts)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- ARCHITECTURE.md's "Independent, pessimistic gate" invariant names the three BLOCKING pre-push verbs the final gate actually runs (`staged-check`, `leak-check`, `preship`)
     - Candidate B3 -- the `live-lag` WARN that every stage prompt carries names the zero-loss restart instead of a bare "restart the dispatcher"
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 4663baa
   iter-531
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- OPERATOR 2026-11-12 pin (un-retired, so it goes first per the card): the special case `kind == AUTH_HOLD_KIND` in `run_stage` becomes a general `kind in HOLD_KINDS` rule, and a new `unreachable` kind (`could not connect to the endpoint url`) holds and re-runs the SAME stage instead of walking the 26-min `stalled` ladder
@@ -2620,4 +2630,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-263 scouted iterations
+264 scouted iterations

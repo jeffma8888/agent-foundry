@@ -18517,18 +18517,46 @@ def summarize_changelog(*, product: str,
     return ChangelogSummary(product=product, entries=tuple(entries))
 
 
+def parse_since(text: str, today: dt.date | None = None) -> str:
+    """Normalise a `changelog --since` value to a `YYYY-MM-DD` calendar date.
+
+    WHY: a `--limit N` count has no calendar meaning, but the VISION's weekly
+    goal asks "what shipped this week?", so the user names a window either
+    relatively (`7d` = seven days before today) or absolutely (`2026-11-05`).
+    Pure: `today` is INJECTED (the `practice_age_days` idiom) and the clock is
+    read only when the caller supplies nothing. Raises `ValueError` on any
+    other shape so argparse (`type=parse_since`) turns it into exit 2 BEFORE
+    the git seam runs. The `Nd` form takes ASCII digits plus a lowercase `d`
+    only; the ISO form must be zero-padded AND a real date -- the shape is
+    re-checked here because `date.fromisoformat`'s leniency varies by version."""
+    if re.fullmatch(r"[0-9]+d", text):
+        try:
+            return ((today or dt.date.today())
+                    - dt.timedelta(days=int(text[:-1]))).isoformat()
+        except OverflowError as exc:
+            raise ValueError(f"--since window out of range: {text!r}") from exc
+    if re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", text):
+        return dt.date.fromisoformat(text).isoformat()
+    raise ValueError(f"--since wants Nd or YYYY-MM-DD, got {text!r}")
+
+
 def gather_changelog(cfg: ProductConfig,
-                     limit: int | None = None) -> ChangelogSummary:
+                     limit: int | None = None,
+                     since: str | None = None) -> ChangelogSummary:
     """Gather one product's release notes from conventional ship commits.
 
     Walks `git log --oneline` for the product's repo, filtering to commits
     whose subject matches the `(foundry iter N)` tag, and parses the
     conventional-commit prefix and description from each matching line.
     Returns newest-first. When `limit` is a positive int, returns at most
-    `limit` entries. A repo with no matching commits yields an empty summary
+    `limit` entries. When `since` (a `parse_since` `YYYY-MM-DD`) is given, git
+    itself drops commits before local midnight of that date via ONE extra
+    trailing `--since=` argv item; omitted, the argv is unchanged. A repo with
+    no matching commits yields an empty summary
     (never raising). Reads through the module-level `git` seam by BARE name
     so a `monkeypatch.setattr(foundry, "git", ...)` bites."""
-    raw = git(cfg, "log", "--oneline", "--no-decorate", f"--format=%s")
+    window = () if since is None else (f"--since={since} 00:00:00",)
+    raw = git(cfg, "log", "--oneline", "--no-decorate", f"--format=%s", *window)
     entries: list[ChangelogEntry] = []
     for line in raw.splitlines():
         line = line.strip()
@@ -18552,12 +18580,15 @@ def gather_changelog(cfg: ProductConfig,
 
 
 def changelog_cli(cfg: ProductConfig, limit: int | None = None,
-                  as_json: bool = False) -> int:
+                  as_json: bool = False, since: str | None = None) -> int:
     """On-demand CLI: print a per-product changelog + a 0/2 exit code.
 
-    Gathers the changelog through the `gather_changelog(cfg, limit)` seam
-    then prints the pure `ChangelogSummary` core. Writes NOTHING to disk."""
-    return _thin_gather_cli(gather_changelog, cfg, limit, as_json)
+    Gathers the changelog through the `gather_changelog(cfg, limit, since=)`
+    seam then prints the pure `ChangelogSummary` core. Writes NOTHING to disk.
+    The lambda resolves `gather_changelog` by bare name at CALL time, so a
+    monkeypatched seam still bites through `_thin_gather_cli`."""
+    return _thin_gather_cli(lambda c, n: gather_changelog(c, n, since=since),
+                            cfg, limit, as_json)
 
 
 # --------------------------------------------------------------------------- #
@@ -30211,6 +30242,9 @@ def main(argv: list[str] | None = None) -> int:
     clg.add_argument("--json", action="store_true",
                      help="emit the changelog as a JSON array (machine-readable) "
                           "instead of the human report; same 0/2 exit code, honours --limit")
+    clg.add_argument("--since", type=parse_since, default=None,
+                     help="show only ship commits on or after a date: Nd "
+                          "(N days ago, e.g. 7d) or YYYY-MM-DD")
     # `reverts` prints a read-only, offline per-product revert inventory with
     # reason text and retry classification.  `--limit N` scans only the most-
     # recent N iterations.  On-demand only -- the pipeline/dispatcher NEVER call
@@ -31176,7 +31210,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "outcomes":
         return outcomes_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "changelog":
-        return changelog_cli(cfg, limit=args.limit, as_json=args.json)
+        return changelog_cli(cfg, limit=args.limit, as_json=args.json,
+                             since=args.since)
     if args.cmd == "reverts":
         return reverts_cli(cfg, limit=args.limit, as_json=args.json)
     if args.cmd == "directions":
