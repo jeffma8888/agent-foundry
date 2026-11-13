@@ -26933,6 +26933,38 @@ def run_stage(cfg: ProductConfig, iteration: int, stage: str, role_file: str,
     return False, out_file
 
 
+def await_known_base(cfg: ProductConfig, iteration: int,
+                     base: str) -> str | None:
+    """Hold until origin/<branch>'s head is KNOWN; the known head, or None.
+
+    WHY: since iter 535 both release gates use `heads_moved(base, new)`, which
+    is False for an unknown base, so an iteration started on `"?"` spends every
+    stage on work that can only be recorded as no-ship. Waiting HERE, before
+    any stage, iter dir or worktree change exists, loses nothing and keeps the
+    gate pessimistic. Reuses the iter-531 `unreachable` hold (300 s per hold,
+    `UNREACHABLE_RESUME_MAX` holds), read at CALL time. No local tracking-ref
+    fallback: a stale `origin/<b>` would make a no-push iteration "move" and
+    ship. A known base returns at once with no sleep, re-read or log line."""
+    held = 0
+    while base in _UNKNOWN_HEADS:
+        if held >= UNREACHABLE_RESUME_MAX:
+            log(cfg, f"iter {iteration:02d} · start head still unknown for "
+                f"origin/{cfg.branch} after {held} hold(s); not starting")
+            return None
+        log(cfg, f"iter {iteration:02d} · start backing off "
+            f"{UNREACHABLE_HOLD_SECONDS // 60} min (failure kind: unreachable) "
+            f"-- head unknown for origin/{cfg.branch}; holding before any "
+            f"stage runs")
+        if sleep_interruptible(cfg, UNREACHABLE_HOLD_SECONDS):
+            return None
+        held += 1
+        base = head_of_branch(cfg)
+    if held:
+        log(cfg, f"iter {iteration:02d} · start unreachable resume "
+            f"{held}/{UNREACHABLE_RESUME_MAX}: origin/{cfg.branch} {base}")
+    return base
+
+
 # --------------------------------------------------------------------------- #
 # One full pipeline iteration
 # --------------------------------------------------------------------------- #
@@ -26951,6 +26983,10 @@ def run_iteration(cfg: ProductConfig, iteration: int | None = None) -> dict:
     base = head_of_branch(cfg)
     log(cfg, f"—— iteration {iteration:02d} begins (origin/{cfg.branch} {base}; "
         f"power: {power_state()}) ——")
+    # iter-536: never start on an unknown head (see `await_known_base`).
+    base = await_known_base(cfg, iteration, base)
+    if base is None:
+        return {"status": "infra-fail", "stage": "start", "iteration": iteration}
 
     # item 19 (bite 3b-ii, COMPLETES item 19): READ the staffing manifest each
     # iteration and derive the stage sequence. For a NON-default team whose

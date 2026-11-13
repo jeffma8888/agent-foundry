@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-536
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- OPERATOR 2026-11-12b pin, bite 2: an iteration whose start-of-run `head_of_branch` is `?` holds like `unreachable` (300 s, own cap) and re-reads the head, instead of running blind to a gate that can no longer ship it
+    - Candidate A2 -- `events --kind resume` sees the iter-531 `unreachable resume k/M` re-runs, not only `auth resume`, so the event stream's consumers can tell a held-and-resumed stage from a dead one for BOTH hold kinds
+    - Candidate A3 -- `live-lag` says WHICH lagging iterations actually lag: commits that touch only CLI-reachable code are live the moment they land (each `foundry <verb>` re-imports foundry.py), so only brain-path commits need the restart
+    - Candidate B0 -- OPERATOR 2026-11-12b pin, bite 2 (un-retired, so it is listed first per the card): an iteration whose start-of-run `head_of_branch` is `?` holds on the EXISTING `unreachable` machinery instead of running blind to a gate that can no longer ship it
+    - Candidate B1 -- one `_yearless_span_s(begin, end)` replaces the three hand-copies of the "midnight +1 day, then Dec->Jan re-date" span arithmetic in `parse_stage_attempts`, `pending_stage_starts` and `open_holds`
+    - Candidate B2 -- item (q) next subset group: the AST-identical errors-first `exit_code` in `CompanyHistory` / `CompanyTiming` / `CompanyEvents` becomes ONE module-level `_company_errors_first_exit_code(rollup)`, assigned `exit_code = property(...)` in each class body
+    winner: A1
+    ship: pending (not yet decided)
   iter-535
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- OPERATOR 2026-11-12b pin: `head_of_branch` returns a sha only for a real 40-hex ls-remote token, and the release and post-release gates never compare or clone a non-sha
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `inflight` reads only the CURRENT brain (log text after the LAST `dispatcher up` banner), so its exit code stops being a permanent 1 that no script can branch on
     - Candidate B3 -- `status` (and so `company-status`) prints one report-only `hold:` line for this team from `gather_open_holds`, whose only consumer today is `inflight`
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 2a1a4a2
   iter-534
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `events --since 7d|YYYY-MM-DD`: show only what happened this week on the event stream that every ship, revert, backoff and resume already writes
@@ -2650,4 +2660,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-266 scouted iterations
+267 scouted iterations

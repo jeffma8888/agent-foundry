@@ -239,6 +239,7 @@ def _patch_gate(monkeypatch, *, head, body=SHIP_BODY):
     ev = {"post": [], "revert": [], "log": []}
     monkeypatch.setattr(foundry, "run_stage", _make_run_stage(body))
     monkeypatch.setattr(foundry, "head_of_branch", head)
+    monkeypatch.setattr(foundry, "await_known_base", lambda c, i, b: b)
     monkeypatch.setattr(foundry, "revert_repo",
                         lambda cfg, reason, *a, **k: ev["revert"].append(reason))
 

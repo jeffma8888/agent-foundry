@@ -1343,7 +1343,14 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # `newest_ness_pin_sites` over each file is `()` at HEAD AND in
                 # the worktree.
                 "tests/test_iter234_behavior.py",
-                "tests/test_iter240_behavior.py"}
+                "tests/test_iter240_behavior.py",
+                # iter 536: FORCED re-pin. `run_iteration` now holds on an
+                # unknown start head (`await_known_base`), so iter 535's
+                # `_patch_gate` fakes that hold as identity -- fixture-only, so
+                # its `?`-base gate rows neither sleep 300 s nor change an
+                # assertion. No newest-ness pin touched: `newest_ness_pin_sites`
+                # over that file is `()` at HEAD AND in the worktree.
+                "tests/test_iter535_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the
