@@ -271,7 +271,8 @@ def test_b2_a_now_more_than_a_day_earlier_clamps_at_zero_never_negative():
     text = _mk(_start("12-31 23:59:00", "engineer", 1))
     rec = foundry.pending_stage_starts(text, "01-01 00:01:00")[0]
     assert rec.elapsed_s >= 0, "elapsed_s went negative"
-    assert rec.elapsed_s == 0
+    # iter 534: the Dec -> Jan year crossing is measured truthfully (was 0).
+    assert rec.elapsed_s == 120
 
 
 def test_b2_headroom_is_cap_minus_elapsed_and_may_be_negative():

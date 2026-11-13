@@ -171,13 +171,13 @@ def test_b3b_ordinary_midnight_crossing():
 
 
 def test_b3c_year_rollover_pins_the_known_under_report():
-    """NO-REGRESSION PIN of the separate defect held out by `## Out of Scope` item 2
-    (the two stamps land in the SAME synthetic year, so one added day cannot close a
-    ~364-day gap).  duration_s=0 is PINNED here as today's value, NOT endorsed."""
+    """The year rollover held out by this iteration's `## Out of Scope` item 2 (both
+    stamps land in the SAME synthetic year, so one added day cannot close a ~364-day
+    gap) is now FIXED (iter 534): a Dec -> Jan span is re-dated, 40 s, not 0."""
     log = _mk(_start("12-31 23:59:30", "pm", 1),
               _produced("01-01 00:00:10", "pm", "pm.md"))
     assert _dicts(foundry.parse_stage_attempts(log)) == \
-        [_expect("pm", 1, 0, True, "")]
+        [_expect("pm", 1, 40, True, "")]
 
 
 def test_b3d_terminals_still_carry_their_kind_verdict():

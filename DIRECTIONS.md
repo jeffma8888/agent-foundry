@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-534
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- `events --since 7d|YYYY-MM-DD`: show only what happened this week on the event stream that every ship, revert, backoff and resume already writes
+    - Candidate A2 -- `company-changelog --since 7d|YYYY-MM-DD`: the weekly "what shipped" report across all 7 products in one command
+    - Candidate A3 -- `changelog --dates`: each row also shows its ship date and short sha, so a `--since 7d` window says WHICH day each thing landed
+    - Candidate B1 -- `--since` bad values say WHY they were rejected instead of argparse's opaque "invalid parse_since value"
+    - Candidate B2 -- the three yearless-stamp walkers survive the Dec-31 -> Jan-01 crossing, 49 days before it fires (minimal guard, no new helper)
+    - Candidate B3 -- an empty `changelog --since` window says "no entries since <date>" instead of the false "no entries yet"
+    winner: B2
+    ship: pending (not yet decided)
   iter-533
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- every prose list of attempt-failure kinds (README #51 `losses`, `StageAttempt.kind` and `LossRow` docstrings, the `losses` argparse comment) names the full `ATTEMPT_FAILURE_MARKERS` vocabulary, pinned by one drift test
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `inflight` prints an `eta:` estimate for each current-brain in-flight iteration
     - Candidate B3 -- a weekly goal that expires: optional `goal_until` (YYYY-MM-DD) stops the goal line after its date
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 1c2a451
   iter-532
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- `find_constant_assert_tests` stops walking a test function at its first real assertion signal (byte-identical output, -27% on company-constant-asserts)
@@ -2630,4 +2640,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-264 scouted iterations
+265 scouted iterations

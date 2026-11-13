@@ -1335,7 +1335,15 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # newest-ness pin touched: `newest_ness_pin_sites` over each file is
                 # `()` at HEAD AND in the worktree.
                 "tests/test_iter174_behavior.py",
-                "tests/test_iter226_behavior.py"}
+                "tests/test_iter226_behavior.py",
+                # iter 534: FORCED re-pin. The three yearless-stamp walkers now
+                # measure a Dec -> Jan year crossing, so iter 234 b3c (0 -> 40)
+                # and iter 240 b2 (0 -> 120) -- both self-labelled "not
+                # endorsed" -- advance. No newest-ness pin touched:
+                # `newest_ness_pin_sites` over each file is `()` at HEAD AND in
+                # the worktree.
+                "tests/test_iter234_behavior.py",
+                "tests/test_iter240_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

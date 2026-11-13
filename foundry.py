@@ -20752,6 +20752,12 @@ def parse_stage_attempts(text: str) -> list["StageAttempt"]:
             dur = int((start_dt_ts - begin_dt).total_seconds())
             if dur < 0:
                 dur += _ONE_DAY_S              # crossed midnight -> add one day
+            if dur < 0 and begin_dt.month == 12 and start_dt_ts.month == 1:
+                # Yearless stamps share one synthetic year, so Dec -> Jan reads
+                # as ~-1 year; re-date the December start into the prior year.
+                # Month-scoped (never a modulo) so a same-year ghost stays 0.
+                dur = int((start_dt_ts - begin_dt.replace(
+                    year=begin_dt.year - 1)).total_seconds())
             if dur < 0:
                 dur = 0                        # never negative (paranoia clamp)
             attempts.append(StageAttempt(
@@ -21821,6 +21827,10 @@ def pending_stage_starts(text: str, now: str,
         elapsed = int((now_dt - stamp).total_seconds())
         if elapsed < 0:
             elapsed += _ONE_DAY_S              # crossed midnight -> add one day
+        if elapsed < 0 and stamp.month == 12 and now_dt.month == 1:
+            # Year crossing (see parse_stage_attempts): month-scoped re-date.
+            elapsed = int((now_dt - stamp.replace(
+                year=stamp.year - 1)).total_seconds())
         if elapsed < 0:
             elapsed = 0                        # never negative (paranoia clamp)
         records.append(PendingStage(
@@ -21961,6 +21971,10 @@ def open_holds(text: str, now: str) -> tuple["PendingHold", ...]:
         elapsed = int((now_dt - stamp).total_seconds())
         if elapsed < 0:
             elapsed += _ONE_DAY_S              # crossed midnight -> add one day
+        if elapsed < 0 and stamp.month == 12 and now_dt.month == 1:
+            # Year crossing (see parse_stage_attempts): month-scoped re-date.
+            elapsed = int((now_dt - stamp.replace(
+                year=stamp.year - 1)).total_seconds())
         if elapsed < 0 or elapsed >= wait_s:
             continue                           # future ghost, or wait over
         records.append(PendingHold(
