@@ -20716,6 +20716,34 @@ def parse_log_stamp(ts: str) -> "dt.datetime | None":
         return None
 
 
+def _yearless_span_s(begin: dt.datetime, end: dt.datetime) -> int:
+    """Whole seconds from `begin` to `end`, two `parse_log_stamp` results.
+
+    WHY one owner: `parse_stage_attempts`, `pending_stage_starts` and
+    `open_holds` all measure a span between year-less `dispatcher.out` stamps,
+    and each used to carry its own pasted copy of this rule -- a calendar fix
+    landing in two of the three copies would make `stage-times`, `inflight` and
+    `losses` silently disagree. One function makes them agree by construction.
+
+    The rule: when `end` dates earlier than `begin`, add `_ONE_DAY_S` ONCE (a
+    run that crossed midnight). If the span is STILL negative and `begin` is in
+    December while `end` is in January, both stamps were dated into the same
+    synthetic `_TS_LEAP_YEAR`, so Dec -> Jan reads as ~-1 year: re-date `begin`
+    into the prior year. That re-date is MONTH-SCOPED (never a modulo), so a
+    same-year future ghost (`end` dated days before `begin`) stays negative.
+
+    Deliberately NOT clamped: a negative result means "`begin` dates after
+    `end`", and each caller owns its own answer to that -- the two stage walkers
+    clamp to 0, while `open_holds` drops the line rather than show a ghost hold
+    as freshly open. PURE: no file, clock, subprocess or network access."""
+    span = int((end - begin).total_seconds())
+    if span < 0:
+        span += _ONE_DAY_S                 # crossed midnight -> add one day
+    if span < 0 and begin.month == 12 and end.month == 1:
+        span = int((end - begin.replace(year=begin.year - 1)).total_seconds())
+    return span
+
+
 @dataclasses.dataclass(frozen=True)
 class StageAttempt:
     """One COMPLETED stage attempt parsed from `dispatcher.out` (a stage-times row).
@@ -20765,8 +20793,8 @@ def parse_stage_attempts(text: str) -> list["StageAttempt"]:
     (its timestamp + attempt number). When a terminal line (`produced` OR `no
     output file`) for the same key is seen, it pops the pending start and emits ONE
     `StageAttempt` whose `duration_s` = whole seconds between the two timestamps
-    (non-negative; `+_ONE_DAY_S` once if the terminal parses earlier than the start,
-    i.e. a midnight/boundary crossing) and whose `produced` reflects the terminal
+    (via `_yearless_span_s`: `+_ONE_DAY_S` once if the terminal parses earlier than
+    the start, i.e. a midnight/boundary crossing; then clamped non-negative) and whose `produced` reflects the terminal
     kind. A no-output terminal ALSO records `kind` -- the
     `classify_attempt_failure` verdict of the line's remainder AFTER the `no output
     file` marker (its `tail: '<blob>'` evidence); a `produced` terminal records
@@ -20823,15 +20851,9 @@ def parse_stage_attempts(text: str) -> list["StageAttempt"]:
             if start is None:
                 continue                       # terminal with no preceding start
             begin_dt, attempt = start
-            dur = int((start_dt_ts - begin_dt).total_seconds())
-            if dur < 0:
-                dur += _ONE_DAY_S              # crossed midnight -> add one day
-            if dur < 0 and begin_dt.month == 12 and start_dt_ts.month == 1:
-                # Yearless stamps share one synthetic year, so Dec -> Jan reads
-                # as ~-1 year; re-date the December start into the prior year.
-                # Month-scoped (never a modulo) so a same-year ghost stays 0.
-                dur = int((start_dt_ts - begin_dt.replace(
-                    year=begin_dt.year - 1)).total_seconds())
+            # Bare-name call so the shared span rule has ONE owner (and a
+            # monkeypatch of it bites); a still-negative ghost clamps below.
+            dur = _yearless_span_s(begin_dt, start_dt_ts)
             if dur < 0:
                 dur = 0                        # never negative (paranoia clamp)
             attempts.append(StageAttempt(
@@ -21836,9 +21858,9 @@ def pending_stage_starts(text: str, now: str,
     through the SAME seam makes the two operands commensurable by construction,
     and it keeps every case reproducible offline with no clock at all.
 
-    `elapsed_s` mirrors the sibling's duration rule byte-for-byte (whole seconds;
-    `+_ONE_DAY_S` once when `now` dates EARLIER than the start, i.e. a midnight
-    crossing; clamped at 0), so the two functions cannot disagree. `headroom_s`
+    `elapsed_s` uses the sibling's duration rule via `_yearless_span_s` (whole
+    seconds; `+_ONE_DAY_S` once when `now` dates EARLIER than the start, i.e. a
+    midnight crossing; clamped at 0), so the two functions cannot disagree. `headroom_s`
     is `cap - elapsed_s` and MAY be negative; `stale` is `elapsed_s >= cap`,
     `>=` and not `>` because the CLI kills AT the wall. The effective cap is the
     passed `cap` when not None, else the MODULE-LEVEL `STAGE_HARD_CAP_SECONDS`
@@ -21898,13 +21920,7 @@ def pending_stage_starts(text: str, now: str,
             continue
     records: list[PendingStage] = []
     for (team, iteration, stage), (stamp, attempt) in pending.items():
-        elapsed = int((now_dt - stamp).total_seconds())
-        if elapsed < 0:
-            elapsed += _ONE_DAY_S              # crossed midnight -> add one day
-        if elapsed < 0 and stamp.month == 12 and now_dt.month == 1:
-            # Year crossing (see parse_stage_attempts): month-scoped re-date.
-            elapsed = int((now_dt - stamp.replace(
-                year=stamp.year - 1)).total_seconds())
+        elapsed = _yearless_span_s(stamp, now_dt)
         if elapsed < 0:
             elapsed = 0                        # never negative (paranoia clamp)
         records.append(PendingStage(
@@ -22001,8 +22017,8 @@ def open_holds(text: str, now: str) -> tuple["PendingHold", ...]:
     A surviving hold reports only while `0 <= elapsed_s < wait_s` -- a `0 min`
     wait never does, and neither does a hold whose wait has fully elapsed
     (`inflight` asserts no liveness, so a hold the brain never followed up is
-    not dressed up as live). Elapsed follows `pending_stage_starts`'s midnight
-    rule (`+_ONE_DAY_S` once when `now` dates earlier) but is NOT clamped: a
+    not dressed up as live). Elapsed follows the shared `_yearless_span_s` rule
+    (`+_ONE_DAY_S` once when `now` dates earlier) but is NOT clamped: a
     still-negative elapsed means the stamp dates after `now`, and that line is
     skipped rather than read as freshly open.
 
@@ -22042,13 +22058,7 @@ def open_holds(text: str, now: str) -> tuple["PendingHold", ...]:
             continue
     records: list[PendingHold] = []
     for (team, iteration, stage), (stamp, wait_s, kind) in holds.items():
-        elapsed = int((now_dt - stamp).total_seconds())
-        if elapsed < 0:
-            elapsed += _ONE_DAY_S              # crossed midnight -> add one day
-        if elapsed < 0 and stamp.month == 12 and now_dt.month == 1:
-            # Year crossing (see parse_stage_attempts): month-scoped re-date.
-            elapsed = int((now_dt - stamp.replace(
-                year=stamp.year - 1)).total_seconds())
+        elapsed = _yearless_span_s(stamp, now_dt)   # unclamped by design
         if elapsed < 0 or elapsed >= wait_s:
             continue                           # future ghost, or wait over
         records.append(PendingHold(

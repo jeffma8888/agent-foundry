@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-537
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- one `_yearless_span_s(begin, end)` replaces the three pasted copies of the "midnight +1 day, then Dec->Jan re-date" span rule in `parse_stage_attempts`, `pending_stage_starts` and `open_holds`
+    - Candidate A2 -- item (q) subset group: the AST-identical `verdict` property in the FIVE scan roll-ups (`CompanyWeakTests` / `CompanyConstantAsserts` / `CompanySkippedTests` / `CompanyTestQuality` / `CompanyConfigLint`) becomes ONE module-level `_company_scan_verdict(rollup)`, assigned `verdict = property(_company_scan_verdict)`
+    - Candidate A3 -- one `_backoff_line(iteration, stage, seconds, kind)` writer for the `<stage> backing off N min (failure kind: K)` prefix that `_STAGE_BACKOFF_RE` parses, replacing its FOUR hand-built f-string copies (3 in `run_stage`, 1 in iter 536's `await_known_base`)
+    - Candidate B1 -- the reviewer stops re-running the full suite on the engineer's byte-identical tree: it compares `foundry ledger-key` with the key engineer.md records, and re-runs only on a mismatch
+    - Candidate B2 -- post-release reuses preship's same-sha VERIFIED verdict instead of re-running the suite on a byte-identical clone (re-pitch of 531 B3, with fresh numbers)
+    - Candidate B3 -- one sub-second in-process "ledger headroom" check (the tightest of test_iter447 EB3/EB4 + the 124/140 history-ledger rows) replaces the 45 s, 72-file grep subset that PM and engineer are told to run every iteration
+    winner: A1
+    ship: pending (not yet decided)
   iter-536
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- OPERATOR 2026-11-12b pin, bite 2: an iteration whose start-of-run `head_of_branch` is `?` holds like `unreachable` (300 s, own cap) and re-reads the head, instead of running blind to a gate that can no longer ship it
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B1 -- one `_yearless_span_s(begin, end)` replaces the three hand-copies of the "midnight +1 day, then Dec->Jan re-date" span arithmetic in `parse_stage_attempts`, `pending_stage_starts` and `open_holds`
     - Candidate B2 -- item (q) next subset group: the AST-identical errors-first `exit_code` in `CompanyHistory` / `CompanyTiming` / `CompanyEvents` becomes ONE module-level `_company_errors_first_exit_code(rollup)`, assigned `exit_code = property(...)` in each class body
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 2773e02
   iter-535
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- OPERATOR 2026-11-12b pin: `head_of_branch` returns a sha only for a real 40-hex ls-remote token, and the release and post-release gates never compare or clone a non-sha
@@ -2660,4 +2670,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-267 scouted iterations
+268 scouted iterations

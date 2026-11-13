@@ -368,12 +368,13 @@ in the archive.
 - iter 534 -- stamp walkers: a Dec-31 -> Jan-01 span is measured (was 0 / hold skipped); month-scoped guard.
 - iter 535 -- OPERATOR pin: `head_of_branch` takes only a 40-hex sha (retry, else `?`); gates never ship on `?`.
 - iter 536 -- pin bite 2: a `?` start head holds before any stage.
+- iter 537 -- one `_yearless_span_s` owns the span rule the 3 stamp walkers pasted (output identical).
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
 - items 2, 5, 7, 12, 13 (COMPLETED table rows) — prose ARCHIVED verbatim by iter 204 under `## Compacted from the index by iter 204`; 4-column stubs remain.
 - iter-242 -- `RESULT: BLOCKED` third sentinel token; additive, no migration. Detail in `PLATFORM_ROADMAP_ARCHIVE.md`.
-- iter-243 -- INDEX LAYOUT: items 11 and 14 (both COMPLETED) lose their prose to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 243`; 4-column stubs remain, per the iter-204 precedent for items 2/5/7/12/13. Done-ROW deletion is EXHAUSTED as a paydown: `tests/test_iter122_behavior.py`'s `FROZEN` needs exactly one row HERE for each of 98 iterations <= 119, so only 2 of the 163 rows are unpinned -- the next paydown must use a different mechanism (options in the archive section).
+- iter-243 -- INDEX LAYOUT note moved VERBATIM to the archive by iter 537.
 
 ## Guardrails for self-modification
 - Never change iteration numbering, state layout, or the `VERDICT:`/`RESULT:`/
@@ -389,13 +390,7 @@ Section moved VERBATIM to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Moved from the
 
 # Org-design track (items 17-22) -- adopted 2026-08-01
 
-Blueprint: **`docs/ORG_DESIGN.md`** (rich bench -> cheap kickoff council staffs
-the minimum -> lean always-on core -> trigger/cadence-activated specialists ->
-bounded re-staffing). Evidence: `docs/research/`. Ship these smallest-safe-first
-and IN ORDER -- each item builds on the artifacts of the one before. Every item
-is ADDITIVE and must not change iteration numbering, state layout, or the
-`VERDICT:`/`RESULT:`/`ACTION:`/`POSTRELEASE:` sentinels (resume-safe for any
-loop in flight), per the self-modification guardrails.
+Blueprint and ship-order rules moved VERBATIM to the archive by iter 537.
 
 ## Item 17 -- role-card bench: format validator + card lint (SMALL)
 
