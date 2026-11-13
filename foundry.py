@@ -914,9 +914,58 @@ def git(cfg: ProductConfig, *args: str) -> str:
         return ""
 
 
+# `head_of_branch` retry budget for a NON-SHA ls-remote reply (iter 535). Module
+# globals read at CALL time so a test (or an operator) can monkeypatch them.
+HEAD_OF_BRANCH_RETRIES = 2
+HEAD_OF_BRANCH_RETRY_SECONDS = 5
+
+# The ONLY ls-remote token accepted as a head: a full, lowercase 40-hex object id.
+_REMOTE_SHA_RE = re.compile(r"[0-9a-f]{40}")
+
+# Sentinels meaning "the branch head is not known": `head_of_branch`'s `"?"` and
+# the empty string a timed-out `git()` yields.
+_UNKNOWN_HEADS = ("?", "")
+
+
+def is_remote_sha(tok: object) -> bool:
+    """Is `tok` a full 40-hex sha, i.e. a real `git ls-remote` head?
+
+    WHY: `git()` merges stderr into its return and drops the exit code, so a
+    failed ls-remote reads as `fatal: ...`, and its first token used to be
+    shipped as a head. Pure, total, never raises (non-str -> False)."""
+    return isinstance(tok, str) and _REMOTE_SHA_RE.fullmatch(tok) is not None
+
+
+def heads_moved(base: str, new_head: str) -> bool:
+    """Did the branch head corroborably advance from `base` to `new_head`?
+
+    WHY not `new_head != base`: an UNKNOWN head (`"?"` / `""`) compared unequal
+    to everything, so an unreachable remote "corroborated" a PUSHED claim at
+    both release gates (pessimistic-gate invariant). Only the sentinels are
+    special, so opaque test fakes like `base0000` still compare normally."""
+    if base in _UNKNOWN_HEADS or new_head in _UNKNOWN_HEADS:
+        return False
+    return base != new_head
+
+
 def head_of_branch(cfg: ProductConfig) -> str:
-    out = git(cfg, "ls-remote", "origin", f"refs/heads/{cfg.branch}")
-    return out.split()[0][:9] if out else "?"
+    """The 9-char prefix of origin/<branch>'s sha, or `"?"` when unknown.
+
+    A non-empty NON-sha reply (`fatal: ...`) is retried `HEAD_OF_BRANCH_RETRIES`
+    times, `HEAD_OF_BRANCH_RETRY_SECONDS` apart, then becomes `"?"`. An EMPTY
+    reply is never retried: `git()` returns `""` only after its 120 s timeout
+    (or an OSError / a missing branch), so a retry would stall a gate minutes."""
+    attempts = 1 + max(0, HEAD_OF_BRANCH_RETRIES)
+    for attempt in range(attempts):
+        if attempt:
+            time.sleep(HEAD_OF_BRANCH_RETRY_SECONDS)
+        out = git(cfg, "ls-remote", "origin", f"refs/heads/{cfg.branch}")
+        if not out:
+            return "?"
+        tok = out.split()[0]
+        if is_remote_sha(tok):
+            return tok[:9]
+    return "?"
 
 
 def next_iteration(cfg: ProductConfig) -> int:
@@ -6422,13 +6471,16 @@ def run_execution_plan(cfg: ProductConfig, iteration: int,
                                 "iteration": iteration}
         elif step.gate == "release":
             new_head = head_of_branch(cfg)
-            if contains(report, "ACTION: PUSHED") and new_head != base:
+            pushed = contains(report, "ACTION: PUSHED")
+            if pushed and heads_moved(base, new_head):
                 log(cfg, f"iter {iteration:02d} SHIPPED - origin/{cfg.branch} "
                     f"now {new_head}")
                 post = postrelease_step(cfg, iteration, new_head)
                 log(cfg, f"iter {iteration:02d} post-release {post.sentinel}")
                 return {"status": "shipped", "head": new_head,
                         "iteration": iteration, "postrelease": post.sentinel}
+            if pushed:
+                log_unknown_head_decline(cfg, iteration, base, new_head)
             revert_repo(cfg, "final gate declined to ship")
             log(cfg, f"iter {iteration:02d} completed WITHOUT ship "
                 f"(reverted; see final.md)")
@@ -10914,6 +10966,18 @@ def _write_postrelease_artifact(artifact: pathlib.Path, expected_sha: str,
         f"{result.sentinel}\n")
 
 
+def log_unknown_head_decline(cfg: ProductConfig, iteration: int,
+                             base: str, new_head: str) -> None:
+    """Log why a PUSHED claim was declined when a head was UNKNOWN (iter 535).
+
+    WHY: without it an unreachable remote and a real "head did not move" both
+    read as one bare revert. Silent when both heads are known."""
+    if base in _UNKNOWN_HEADS or new_head in _UNKNOWN_HEADS:
+        log(cfg, f"iter {iteration:02d} - final gate: head unknown for "
+                 f"origin/{cfg.branch} (base {base or '?'}, now {new_head or '?'}); "
+                 "ACTION: PUSHED is uncorroborated -> not shipping")
+
+
 def postrelease_step(cfg: ProductConfig, iteration: int,
                      expected_sha: str) -> "PostReleaseResult":
     """Re-verify a just-pushed commit from a throwaway fresh clone.
@@ -10941,6 +11005,16 @@ def postrelease_step(cfg: ProductConfig, iteration: int,
             True, True,
             "post-release verification disabled (cfg.postrelease_enabled is "
             "False); skipped without touching the hotfix flag")
+        _write_postrelease_artifact(artifact, expected_sha, result)
+        return result
+
+    if expected_sha in _UNKNOWN_HEADS:
+        # iter 535: never clone a non-sha. An unknown head is infra, so it
+        # neither raises a false hotfix nor clears a real one.
+        result = PostReleaseResult(
+            True, True,
+            f"origin/{cfg.branch} head unknown ({expected_sha or '?'}); "
+            "post-release clone skipped as infra without touching the hotfix flag")
         _write_postrelease_artifact(artifact, expected_sha, result)
         return result
 
@@ -27053,7 +27127,7 @@ def run_iteration(cfg: ProductConfig, iteration: int | None = None) -> dict:
                   else None)
         decision = ship_decision(
             action=action,
-            head_moved=new_head != base,
+            head_moved=heads_moved(base, new_head),
             attempt_killed=stage_attempt_killed(cfg, iteration, "final"),
             retries_remaining=round_no < rounds)
         if decision.retry:
@@ -27065,6 +27139,8 @@ def run_iteration(cfg: ProductConfig, iteration: int | None = None) -> dict:
             save_final_gate_round(cfg, iteration, round_no)
             continue
         if not decision.ship:
+            if action == "PUSHED":
+                log_unknown_head_decline(cfg, iteration, base, new_head)
             break
         log(cfg, f"iter {iteration:02d} SHIPPED — origin/{cfg.branch} now {new_head}")
         # Post-release: re-verify the PUSHED commit from a fresh clone. Additive

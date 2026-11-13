@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-535
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- OPERATOR 2026-11-12b pin: `head_of_branch` returns a sha only for a real 40-hex ls-remote token, and the release and post-release gates never compare or clone a non-sha
+    - Candidate A2 -- `revert_repo` checks that its `reset --hard` / `clean -fd` actually worked, and stops logging "repo reverted" over a still-dirty tree
+    - Candidate A3 -- `novelty-check` and `changelog` stop reading git's stderr as commit subjects
+    - Candidate B1 -- OPERATOR 2026-11-12b pin: `head_of_branch` accepts only a 40-hex ls-remote sha; the release and post-release gates never compare or clone a non-sha
+    - Candidate B2 -- `inflight` reads only the CURRENT brain (log text after the LAST `dispatcher up` banner), so its exit code stops being a permanent 1 that no script can branch on
+    - Candidate B3 -- `status` (and so `company-status`) prints one report-only `hold:` line for this team from `gather_open_holds`, whose only consumer today is `inflight`
+    winner: A1
+    ship: pending (not yet decided)
   iter-534
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `events --since 7d|YYYY-MM-DD`: show only what happened this week on the event stream that every ship, revert, backoff and resume already writes
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- the three yearless-stamp walkers survive the Dec-31 -> Jan-01 crossing, 49 days before it fires (minimal guard, no new helper)
     - Candidate B3 -- an empty `changelog --since` window says "no entries since <date>" instead of the false "no entries yet"
     winner: B2
-    ship: pending (not yet decided)
+    ship: PUSHED 8357f2a
   iter-533
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- every prose list of attempt-failure kinds (README #51 `losses`, `StageAttempt.kind` and `LossRow` docstrings, the `losses` argparse comment) names the full `ATTEMPT_FAILURE_MARKERS` vocabulary, pinned by one drift test
@@ -2640,4 +2650,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-265 scouted iterations
+266 scouted iterations

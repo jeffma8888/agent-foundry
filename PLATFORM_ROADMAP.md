@@ -366,6 +366,7 @@ in the archive.
 - iter 532 -- `find_constant_assert_tests` stops a function's walk at its first real signal (output identical).
 - iter 533 -- `changelog --since 7d|YYYY-MM-DD`: the weekly what-shipped report (git `--since` argv).
 - iter 534 -- stamp walkers: a Dec-31 -> Jan-01 span is measured (was 0 / hold skipped); month-scoped guard.
+- iter 535 -- OPERATOR pin: `head_of_branch` takes only a 40-hex sha (retry, else `?`); gates never ship on `?`.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
