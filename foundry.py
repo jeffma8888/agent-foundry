@@ -24591,6 +24591,80 @@ def events_reclassified_cli(cfg: ProductConfig, kind: str | None = None,
     return summary.exit_code
 
 
+def events_window_start(since: str, tz: dt.tzinfo | None = None) -> dt.datetime:
+    """The AWARE instant at 00:00:00 on the `YYYY-MM-DD` date `since`, in `tz`
+    (iter 539, `events --since`).
+
+    WHY local midnight by default: `changelog --since` hands git
+    `--since=<date> 00:00:00`, which git reads in the machine's LOCAL zone, so
+    `events --since` must mean the same calendar day or the two weekly reports
+    disagree at the edges. `tz` is injectable so a test can pin the instant
+    without depending on the machine's zone. `since` is a `parse_since` output,
+    so it is already a validated date."""
+    midnight = dt.datetime.combine(dt.date.fromisoformat(since), dt.time())
+    return midnight.astimezone() if tz is None else midnight.replace(tzinfo=tz)
+
+
+def filter_events_since(records, start: dt.datetime) -> list[dict]:
+    """The records whose `ts` is at or after the aware instant `start`, in file
+    order (iter 539).
+
+    Pure and total: a non-str `ts` (`TypeError` from `fromisoformat`), a
+    malformed one (`ValueError`) or a missing key drops the record and never
+    raises, because a report over a long-lived stream must not die on one bad
+    line. A NAIVE stamp is read as UTC, the zone the event writer stamps in.
+    The input is never mutated; a new list is returned."""
+    kept: list[dict] = []
+    for record in records:
+        try:
+            stamp = dt.datetime.fromisoformat(record.get("ts"))
+        except (TypeError, ValueError):
+            continue
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=dt.timezone.utc)
+        if stamp >= start:
+            kept.append(record)
+    return kept
+
+
+def gather_events_since(cfg: ProductConfig, kind: str | None = None,
+                        limit: int | None = None, since: str | None = None,
+                        reclassify: bool = False) -> EventsSummary:
+    """`gather_events` cut to a calendar window (iter 539, `events --since`).
+
+    WHY a sibling: the signatures of `gather_events`, `events_cli` and
+    `company_events_cli` are pinned by shipped tests, so (the iter-494
+    `--reclassify` precedent) the opt-in path gets its own seam and the default
+    path stays byte-identical, untouched. Takes its base records UNFILTERED and
+    UNTAILED from `gather_events(cfg)` -- or `gather_events_reclassified(cfg)`
+    under `reclassify`, so `--kind` sees the read-time kind -- both by BARE name
+    so a monkeypatch bites. Order: the window FIRST, then the exact-match
+    `kind`, then the positive-int `limit` tail; `total` and `parse_errors` stay
+    the whole file's, `matched` counts window + kind. A `None` `since` applies
+    no window. Writes nothing."""
+    base = gather_events_reclassified(cfg) if reclassify else gather_events(cfg)
+    records = list(base.records)
+    if since is not None:
+        records = filter_events_since(records, events_window_start(since))
+    matched = [r for r in records if kind is None or r.get("kind") == kind]
+    shown = matched[-limit:] if isinstance(limit, int) and limit > 0 else matched
+    return summarize_events(
+        product=base.product, records=shown, total=base.total,
+        matched=len(matched), parse_errors=base.parse_errors, kind_filter=kind)
+
+
+def events_since_cli(cfg: ProductConfig, kind: str | None = None,
+                     limit: int | None = None, as_json: bool = False,
+                     since: str | None = None, reclassify: bool = False) -> int:
+    """`foundry events --since`: `events_cli`'s printer over the
+    `gather_events_since` seam (iter 539). Same human / `--json` output shape
+    and the same 0/2 exit code; writes nothing. A separate function because
+    `events_cli`'s signature is pinned by shipped tests."""
+    summary = gather_events_since(cfg, kind, limit, since, reclassify)
+    print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
+    return summary.exit_code
+
+
 # --------------------------------------------------------------------------- #
 # Company-wide event roll-up (`company-events`) -- roadmap item 10, bite 2 of 2
 # (the company view on the iter-44 `gather_events` foundation).
@@ -30792,6 +30866,10 @@ def main(argv: list[str] | None = None) -> int:
                      help="re-derive the kind of info/unstamped records from their "
                           "msg with today's classifier at read time (never rewrites "
                           "the file; a non-info stamp is kept)")
+    evt.add_argument("--since", type=parse_since, default=None,
+                     help="keep only records stamped at/after local midnight of "
+                          "Nd days ago or of a YYYY-MM-DD date; applied before "
+                          "--kind/--limit, combines with --json/--reclassify")
     # `preflight` is the composite LAUNCH gate: it runs the env preflight
     # (`doctor`, iter 01) AND the single-brain scan (iter 24) and folds them into
     # ONE three-way GO / NO-GO / CAUTION verdict (human or `--json`) an operator /
@@ -31389,6 +31467,10 @@ def main(argv: list[str] | None = None) -> int:
     if args.cmd == "test-quality":
         return test_quality_cli(cfg, files=args.files, as_json=args.json)
     if args.cmd == "events":
+        if args.since is not None:
+            return events_since_cli(cfg, kind=args.kind, limit=args.limit,
+                                    as_json=args.json, since=args.since,
+                                    reclassify=args.reclassify)
         if args.reclassify:
             return events_reclassified_cli(cfg, kind=args.kind, limit=args.limit,
                                            as_json=args.json)

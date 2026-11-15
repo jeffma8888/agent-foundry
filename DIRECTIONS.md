@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-539
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- every prose list of attempt-failure kinds names `unreachable`, and one drift test ties each list to `ATTEMPT_FAILURE_MARKERS`
+    - Candidate A2 -- ARCHITECTURE.md's "Independent, pessimistic gate" and "Resilience" invariants state the iter-535/536 unknown-head rules
+    - Candidate A3 -- README #55 `inflight` documents the HOLD rows and `holds`/`hold_count` JSON keys, and stops saying a hold-only log exits 2
+    - Candidate B1 -- `events --since 7d|YYYY-MM-DD`: the event stream narrowed to a calendar window
+    - Candidate B2 -- `company-changelog --since 7d|YYYY-MM-DD`: one weekly "what shipped" report across every product
+    - Candidate B3 -- a weekly goal that expires: optional `goal_until` (YYYY-MM-DD) stops the goal line after its date
+    winner: B1
+    ship: pending (not yet decided)
   iter-538
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- OPERATOR 2026-11-14 pin: roles/tester.md + roles/reviewer.md forbid a NEW test that pins a sha, line number or locator of a ship-rewritten file, a wall-clock ratio inside the suite, or an optional extra without a skip-guard (reviewer: each one BLOCKING)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- every prose list of failure kinds names `unreachable`, and one drift test ties each list to `ATTEMPT_FAILURE_MARKERS`
     - Candidate B3 -- ARCHITECTURE.md's "Independent, pessimistic gate" and "Resilience" invariants describe the iter-535/536 unknown-head rules (`heads_moved`, `await_known_base`)
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED c716cf5
   iter-537
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- one `_yearless_span_s(begin, end)` replaces the three pasted copies of the "midnight +1 day, then Dec->Jan re-date" span rule in `parse_stage_attempts`, `pending_stage_starts` and `open_holds`
@@ -2680,4 +2690,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-269 scouted iterations
+270 scouted iterations
