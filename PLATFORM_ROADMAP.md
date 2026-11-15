@@ -369,6 +369,7 @@ in the archive.
 - iter 535 -- OPERATOR pin: `head_of_branch` takes only a 40-hex sha (retry, else `?`); gates never ship on `?`.
 - iter 536 -- pin bite 2: a `?` start head holds before any stage.
 - iter 537 -- one `_yearless_span_s` owns the span rule the 3 stamp walkers pasted (output identical).
+- iter 538 -- OPERATOR pin: tester/reviewer cards name 3 ship hazards for a NEW test; reviewer: BLOCKING.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

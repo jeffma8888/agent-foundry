@@ -78,6 +78,22 @@ the tool result behind every claim or cut the claim.
      harder than a PASS faces (see `roles/final.md` item 2) -- so it is never a
      softer FAIL, and it is never a way to avoid earning a verdict.
 
+## SHIP HAZARDS -- a NEW test must survive the ship that carries it
+Three tests written in the same iteration broke their own ship (radar 403, gql 93,
+reflect-mcp 97); the ship gate's fresh-clone re-run caught each one, one iteration apiece.
+A test you ADD this iteration must not do any of these three things:
+- H1 PIN A SHIP-REWRITTEN FILE: no commit sha (for example `PRECHANGE = "<hex>"`), no
+  line number and no `file:line` locator of a file the loop rewrites after your stage
+  or at ship time (for example `DIRECTIONS.md:68`). HEAD moves the moment the ship
+  commits, and the loop rewrites DIRECTIONS.md after you. Anchor on a heading or a
+  substring read at test time instead.
+- H2 ASSERT A WALL-CLOCK RATIO: no elapsed-time bound or throughput ratio inside the
+  suite. The suite runs in parallel on a loaded machine (gql 93: 0.69 < 0.80, green
+  when run alone). Count calls through a seam or assert a structural bound instead.
+- H3 IMPORT AN OPTIONAL EXTRA UNGUARDED: a module that ships only in an optional
+  extra must be skip-guarded (`pytest.importorskip("<module>")`), because the ship gate's
+  clean clone runs a plain `uv sync` without extras.
+
 ## Rules
 - If a spec behavior is ambiguous, test the most reasonable reading and note the
   ambiguity -- that note is valuable PM feedback.

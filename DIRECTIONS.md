@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-538
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- OPERATOR 2026-11-14 pin: roles/tester.md + roles/reviewer.md forbid a NEW test that pins a sha, line number or locator of a ship-rewritten file, a wall-clock ratio inside the suite, or an optional extra without a skip-guard (reviewer: each one BLOCKING)
+    - Candidate A2 -- suite CLI subprocesses run the cached `foundry` module instead of recompiling the 31,406-line foundry.py as `__main__` on each of 139 spawns
+    - Candidate A3 -- the live-smoke fixture shares one parse cache across its company-scan calls, so `test_iter43::test_b8` stops parsing the same 1,321 test files twice
+    - Candidate B1 -- OPERATOR 2026-11-14 pin: roles/tester.md + roles/reviewer.md forbid a NEW test that pins a sha, line number or locator of a ship-rewritten file, a wall-clock ratio inside the suite, or an optional extra without a skip-guard (reviewer: each is BLOCKING)
+    - Candidate B2 -- every prose list of failure kinds names `unreachable`, and one drift test ties each list to `ATTEMPT_FAILURE_MARKERS`
+    - Candidate B3 -- ARCHITECTURE.md's "Independent, pessimistic gate" and "Resilience" invariants describe the iter-535/536 unknown-head rules (`heads_moved`, `await_known_base`)
+    winner: A1
+    ship: pending (not yet decided)
   iter-537
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- one `_yearless_span_s(begin, end)` replaces the three pasted copies of the "midnight +1 day, then Dec->Jan re-date" span rule in `parse_stage_attempts`, `pending_stage_starts` and `open_holds`
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- post-release reuses preship's same-sha VERIFIED verdict instead of re-running the suite on a byte-identical clone (re-pitch of 531 B3, with fresh numbers)
     - Candidate B3 -- one sub-second in-process "ledger headroom" check (the tightest of test_iter447 EB3/EB4 + the 124/140 history-ledger rows) replaces the 45 s, 72-file grep subset that PM and engineer are told to run every iteration
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 909bcdd
   iter-536
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- OPERATOR 2026-11-12b pin, bite 2: an iteration whose start-of-run `head_of_branch` is `?` holds like `unreachable` (300 s, own cap) and re-reads the head, instead of running blind to a gate that can no longer ship it
@@ -2670,4 +2680,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-268 scouted iterations
+269 scouted iterations

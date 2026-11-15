@@ -55,6 +55,18 @@ code nobody touched this iteration:
   its fixture's good arm, scans clean and is exactly the vacuous control worth a real
   finding. Fires-on-bad without silent-on-good is not a discriminating test.
 
+## Ship-hazard tests -- each one is BLOCKING
+
+This is a SEPARATE class from the advisory scan above, whose findings stay `[NIT]`. For
+every test file the diff ADDS or changes, check the three hazards `roles/tester.md` names
+under SHIP HAZARDS. Each hit is a `[BLOCKING]` finding with file:line and a concrete fix,
+because the ship gate's fresh-clone re-run fails the ship on it (radar 403, gql 93, reflect-mcp 97):
+- H1: a commit sha, line number or `file:line` locator of a ship-rewritten file
+  (for example `PRECHANGE = "<hex>"` or `DIRECTIONS.md:68`).
+- H2: a wall-clock ratio or elapsed-time bound asserted inside the suite.
+- H3: an import of an optional extra with no skip-guard (`pytest.importorskip`).
+Pre-existing tests the diff does not touch are out of scope for this check.
+
 ## Output (`reviewer.md` in the state dir)
 - Numbered findings, each tagged `[BLOCKING]` or `[NIT]`, with file:line and a
   concrete fix.
