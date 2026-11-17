@@ -371,6 +371,7 @@ in the archive.
 - iter 537 -- one `_yearless_span_s` owns the span rule the 3 stamp walkers pasted (output identical).
 - iter 538 -- OPERATOR pin: tester/reviewer cards name 3 ship hazards for a NEW test; reviewer: BLOCKING.
 - iter 539 -- `events --since 7d|YYYY-MM-DD`: event stream cut to a local-midnight window.
+- iter 540 -- OPERATOR pin bite 1: `resumable` lists approved+tested reverted trees; `--write` flags them.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

@@ -434,7 +434,7 @@ def test_b13_census_and_readme_index():
     src = (_ROOT / "foundry.py").read_text()
     verbs = foundry.foundry_cli_verbs(src)
     assert "overlay" in verbs
-    assert len(set(verbs)) == 66
+    assert len(set(verbs)) == 67  # +1 `resumable` (iter 540)
     readme = (_ROOT / "README.md").read_text()
     audit = foundry.readme_verb_index_gaps(readme, verbs)
     assert audit.ok is True and tuple(audit.missing_verbs) == (), audit

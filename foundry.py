@@ -693,6 +693,24 @@ def load_config(path: str) -> ProductConfig:
     return cfg
 
 
+def read_config(path: str) -> ProductConfig:
+    """`load_config` WITHOUT its two `mkdir` calls: parse, merge, guard, resolve.
+
+    WHY a sibling rather than a refactor of `load_config`: iter 503 pins
+    `load_config`'s body byte-for-byte (a sha256 golden), so the mkdir-free path
+    repeats its four steps -- same overlay merge, same fail-closed unknown-key
+    guard -- instead of being split out of it. Used by `resumable` (iter 540),
+    whose contract is "a missing state dir is exit 2 and nothing is written": the
+    shared loader would manufacture the very directory it reports on."""
+    config_path = pathlib.Path(path).expanduser()
+    data = merge_local_overlay(config_path, json.loads(config_path.read_text()))
+    raise_unknown_config_keys(data, path)
+    known = {f.name for f in dataclasses.fields(ProductConfig)}
+    cfg = ProductConfig(**{k: v for k, v in data.items() if k in known})
+    cfg.resolve()
+    return cfg
+
+
 def global_stop() -> bool:
     return (FOUNDRY / "STOP").exists()
 
@@ -29855,6 +29873,269 @@ def recoverable_cli(cfg: ProductConfig, limit: int | None = None,
     return _thin_gather_cli(gather_recoverable, cfg, limit, as_json)
 
 
+# --------------------------------------------------------------------------- #
+# OPERATOR 2026-11-16 pin, bite 1 of 3 (iter 540): `resumable`. An auth outage
+# longer than `auth_resume_max` ends the final gate in `infra-fail`, which writes
+# ABORTED_IMPLEMENTATION.patch and reverts a tree that ALREADY holds a reviewer
+# APPROVE and a tester PASS. `recoverable` cannot tell that tree from scrap (it
+# probes every patch, approved or not), so the operator found each case by hand.
+# This verb makes the case decidable and, with `--write`, drops the
+# `state/iter-N/RESUMABLE.md` flag the later bites consume (bite 2: a PM duty
+# that honors it; bite 3: `run_iteration`'s infra-fail branch calls the same
+# `write_resumable_flag`). CLI-only today: the pipeline never calls it.
+# --------------------------------------------------------------------------- #
+RESUMABLE_PATCH_NAME = "ABORTED_IMPLEMENTATION.patch"
+RESUMABLE_FLAG_NAME = "RESUMABLE.md"
+
+
+def resumable_candidate(names: Iterable[str] | None, review_disposition: object,
+                        test_disposition: object, final_action: object) -> bool:
+    """Whether one iteration dir is an approved + tested tree with NO ship decision.
+
+    The four conditions are conjunctive because each one alone is common and
+    harmless: a preserved patch on its own is usually scrap, and an APPROVE/PASS
+    pair followed by a `final.md` action is a gate that DID decide (PUSHED or
+    REVERTED), which must never be re-armed. Only all four together describe the
+    tree an infra-fail destroyed. PURE and TOTAL: `names=None`, an empty or a
+    non-iterable input returns False and nothing raises."""
+    if names is None:
+        return False
+    try:
+        present = {str(name) for name in names}
+    except TypeError:
+        return False
+    return (RESUMABLE_PATCH_NAME in present
+            and review_disposition == "APPROVE"
+            and test_disposition == "PASS"
+            and final_action is None)
+
+
+def resumable_open(iteration: int, pushed_iterations: Iterable[int] | None) -> bool:
+    """False when a LATER iteration of the same team pushed; True otherwise.
+
+    WHY "later push" is the supersession rule: once the team has shipped past an
+    aborted tree, the roadmap and the code have moved on, so re-landing a patch
+    tens of iterations old would re-arm stale work (`_platform` 471/472 and radar
+    335/337 are exactly that). The same iteration never supersedes itself. PURE
+    and TOTAL: `None`, an empty input, or a member that cannot be compared with
+    `iteration` counts as no later push."""
+    if pushed_iterations is None:
+        return True
+    try:
+        members = list(pushed_iterations)
+    except TypeError:
+        return True
+    for member in members:
+        try:
+            if member > iteration:
+                return False
+        except TypeError:
+            continue
+    return True
+
+
+@dataclasses.dataclass(frozen=True)
+class ResumableRow:
+    """ONE approved + tested + reverted iteration and whether it is still OPEN.
+
+    `patch` is RELATIVE to the work root (`state/iter-N/<patch>`), so the row,
+    its JSON and the flag file never carry a machine path into a public log."""
+    iteration: int
+    patch: str
+    tester_report: str
+    open: bool
+    flagged: bool
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-native serialization of one row."""
+        return {"iteration": self.iteration, "patch": self.patch,
+                "tester_report": self.tester_report, "open": self.open,
+                "flagged": self.flagged}
+
+
+@dataclasses.dataclass(frozen=True)
+class ResumableSummary:
+    """Every resumable candidate of one product, plus the verb's exit code.
+
+    Counts and `exit_code` are DERIVED from `rows`, so the printed figures, the
+    JSON document and the return value can never disagree. `state_ok=False`
+    means there was no state directory to scan (exit 2), which must never read
+    as the healthy "nothing to resume" (exit 0)."""
+    product: str
+    rows: tuple[ResumableRow, ...]
+    state_ok: bool = True
+
+    @property
+    def open_count(self) -> int:
+        """Candidates no later push superseded -- the ones worth re-landing."""
+        return sum(1 for row in self.rows if row.open)
+
+    @property
+    def superseded_count(self) -> int:
+        """Candidates a later PUSHED iteration of the same team made stale."""
+        return len(self.rows) - self.open_count
+
+    @property
+    def exit_code(self) -> int:
+        """2 no state dir / 1 at least one OPEN candidate / 0 otherwise."""
+        if not self.state_ok:
+            return 2
+        return 1 if self.open_count else 0
+
+    def render(self) -> str:
+        """One row per candidate, then ONE summary line (always the last line)."""
+        lines = []
+        for row in self.rows:
+            word = "open" if row.open else "superseded"
+            flag = "  [flagged]" if row.flagged else ""
+            lines.append(f"iter-{row.iteration}  {word}  {row.patch}  "
+                         f"({row.tester_report}){flag}")
+        tail = "" if self.state_ok else " -- no state directory to scan"
+        lines.append(f"resumable ({self.product}): {self.open_count} open, "
+                     f"{self.superseded_count} superseded{tail}")
+        return "\n".join(lines)
+
+    def to_dict(self) -> dict:
+        """A pure, JSON-native snapshot with the same figures as `render()`."""
+        return {"product": self.product,
+                "rows": [row.to_dict() for row in self.rows],
+                "open_count": self.open_count,
+                "superseded_count": self.superseded_count,
+                "exit_code": self.exit_code}
+
+
+def _resumable_text(path: pathlib.Path) -> str:
+    """A report's text, or `""` when it is absent or unreadable (never raises).
+
+    `""` classifies as no APPROVE / no PASS / no action, which is the fail-safe
+    reading for the first two and leaves the third to the other conditions."""
+    try:
+        return path.read_text(errors="replace")
+    except OSError:
+        return ""
+
+
+def gather_resumable(cfg: ProductConfig) -> ResumableSummary:
+    """Scan `cfg.state` for approved + tested trees an infra-fail reverted.
+
+    The ONLY read seam of this verb. READ-ONLY: it lists `iter-<digits>` dirs
+    (via `iteration_numbers`), reads `reviewer.md`, the authoritative tester
+    report (`read_test_disposition`) and `final.md` through the shipped
+    classifiers -- unedited -- and
+    writes nothing. A missing state dir, or a non-directory in its place, yields
+    `state_ok=False` (exit 2) instead of raising. Rows are iteration-ascending."""
+    state = cfg.state
+    product = cfg.name
+    try:
+        if not state.is_dir():
+            return ResumableSummary(product=product, rows=(), state_ok=False)
+        entries = [entry for entry in state.iterdir() if entry.is_dir()]
+    except OSError:
+        return ResumableSummary(product=product, rows=(), state_ok=False)
+    dirs: dict[int, pathlib.Path] = {}
+    for entry in entries:
+        numbers = iteration_numbers([entry.name])
+        if numbers:
+            dirs[numbers[0]] = entry
+    listings: dict[int, set[str]] = {}
+    actions: dict[int, str | None] = {}
+    for number, entry in dirs.items():
+        try:
+            listings[number] = {child.name for child in entry.iterdir()}
+        except OSError:
+            listings[number] = set()
+        final = entry / "final.md"
+        actions[number] = (parse_ship_action(_resumable_text(final))
+                           if "final.md" in listings[number] else None)
+    pushed = [number for number, action in actions.items() if action == "PUSHED"]
+    rows = []
+    for number in sorted(dirs):
+        entry, names = dirs[number], listings[number]
+        tester = authoritative_tester_report(names)
+        review = classify_review_report(_resumable_text(entry / "reviewer.md"))
+        # Through the shipped `read_test_disposition` seam (which calls
+        # `classify_test_report`), keeping that classifier's ONE live call site
+        # (test_iter244); an unreadable report reads "RED", never PASS.
+        verdict = read_test_disposition(entry / tester) if tester else ""
+        if not resumable_candidate(names, review, verdict, actions[number]):
+            continue
+        rows.append(ResumableRow(
+            iteration=number,
+            patch=f"state/{entry.name}/{RESUMABLE_PATCH_NAME}",
+            tester_report=str(tester),
+            open=resumable_open(number, pushed),
+            flagged=RESUMABLE_FLAG_NAME in names))
+    return ResumableSummary(product=product, rows=tuple(rows))
+
+
+def render_resumable_flag(row: ResumableRow) -> str:
+    """The `RESUMABLE.md` body for one row (pure). Relative paths only.
+
+    The LAST non-empty line is the `RESUMABLE: iter-N` sentinel (the
+    detail-then-sentinel layout every flag in this module uses). `exclude:` names
+    what a re-land must NOT carry verbatim: `DIRECTIONS.md` and the old
+    iteration's roadmap ledger rows are rewritten by every ship, so applying them
+    from a stale patch conflicts or re-dates history."""
+    return (f"# RESUMABLE -- iter-{row.iteration}: an approved + tested tree was "
+            "reverted with no ship decision\n\n"
+            f"patch: {row.patch}\n"
+            "review: VERDICT: APPROVE\n"
+            f"tester: {row.tester_report} RESULT: PASS\n"
+            "exclude: DIRECTIONS.md and the roadmap ledger rows (PLATFORM_ROADMAP"
+            ".md / PLATFORM_ROADMAP_ARCHIVE.md) -- re-write them for the landing "
+            "iteration\n\n"
+            f"RESUMABLE: iter-{row.iteration}\n")
+
+
+def write_resumable_flag(cfg: ProductConfig, row: ResumableRow) -> pathlib.Path | None:
+    """Write `state/iter-N/RESUMABLE.md` for `row`; return its path, or None if present.
+
+    NEVER overwrites: the file is opened with mode `"x"`, so an existing flag
+    (possibly hand-edited by the operator) keeps its exact bytes and a second
+    run writes nothing. Raises `OSError` for an unwritable dir; bite 3's pipeline
+    caller will wrap it swallow-safe, the CLI reports it on stderr."""
+    path = cfg.state / f"iter-{row.iteration}" / RESUMABLE_FLAG_NAME
+    try:
+        with path.open("x") as handle:
+            handle.write(render_resumable_flag(row))
+    except FileExistsError:
+        return None
+    return path
+
+
+def resumable_cli(cfg: ProductConfig, as_json: bool = False,
+                  write: bool = False) -> int:
+    """On-demand CLI: list resumable trees; with `write`, flag the OPEN unflagged ones.
+
+    Gathers ONCE through `gather_resumable` (bare name at CALL time, so a
+    monkeypatch bites). `--write` touches OPEN rows only, never a SUPERSEDED one,
+    and goes through `write_resumable_flag`. Each `wrote ...` line goes to stdout
+    in human mode and to stderr under `--json`, so stdout stays exactly ONE JSON
+    document. The exit code is the summary's, identical with or without
+    `--write` (a flag changes `flagged`, never `open`)."""
+    summary = gather_resumable(cfg)
+    if write:
+        written: set[int] = set()
+        for row in summary.rows:
+            if not row.open or row.flagged:
+                continue
+            try:
+                path = write_resumable_flag(cfg, row)
+            except OSError as exc:
+                print(f"resumable: could not write state/iter-{row.iteration}/"
+                      f"{RESUMABLE_FLAG_NAME}: {type(exc).__name__}", file=sys.stderr)
+                continue
+            if path is not None:
+                written.add(row.iteration)
+                print(f"wrote state/iter-{row.iteration}/{RESUMABLE_FLAG_NAME}",
+                      file=sys.stderr if as_json else sys.stdout)
+        summary = dataclasses.replace(summary, rows=tuple(
+            dataclasses.replace(row, flagged=True) if row.iteration in written else row
+            for row in summary.rows))
+    print(json.dumps(summary.to_dict(), indent=2) if as_json else summary.render())
+    return summary.exit_code
+
+
 def leak_guard_verdict(guard_present: bool, returncode: int | None,
                        detail: str = "") -> tuple[str, int]:
     """Pure, TOTAL public-safety verdict: `(verdict word, fail-CLOSED exit code)`.
@@ -30623,6 +30904,21 @@ def main(argv: list[str] | None = None) -> int:
     rcv.add_argument("--json", action="store_true",
                      help="emit the report as one JSON document (machine-readable) "
                           "instead of the human report; same 0/1/2 exit code, honours --limit")
+    # `resumable` (iter 540, OPERATOR 2026-11-16 pin bite 1) lists every iteration
+    # whose reviewer-APPROVEd, tester-PASSed tree an infra-fail reverted with no
+    # ship decision, OPEN unless a later iteration pushed. Dispatched BEFORE
+    # `load_config` through the mkdir-free `read_config`, so a missing state dir
+    # is reported (exit 2), never created. Read-only unless `--write`, which only
+    # ADDS `state/iter-N/RESUMABLE.md` to OPEN dirs lacking one.
+    rsm = sub.add_parser("resumable")
+    rsm.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    rsm.add_argument("--json", action="store_true",
+                     help="emit ONE JSON document (product, rows, open_count, "
+                          "superseded_count, exit_code); same 0/1/2 exit code")
+    rsm.add_argument("--write", action="store_true",
+                     help="write state/iter-N/RESUMABLE.md into every OPEN candidate "
+                          "that lacks one (never overwrites, never a superseded dir)")
     # `stage-times` prints a read-only, offline per-(team,stage) attempt-DURATION
     # digest parsed from the shared `dispatcher.out` -- count / median / max /
     # timeouts(no-output attempts) -- and WARNs on any (team,stage) whose MEDIAN
@@ -31376,6 +31672,14 @@ def main(argv: list[str] | None = None) -> int:
                 return _config_read_failure(args.cmd, args.config, exc)
         return resume_cli(resume_cfg,
                           global_scope=args.global_scope, as_json=args.json)
+    if args.cmd == "resumable":
+        # Dispatched BEFORE load_config, whose `state` mkdir would manufacture the
+        # very directory whose absence this verb must report as exit 2.
+        try:
+            resumable_cfg = read_config(args.config)
+        except (OSError, ValueError, TypeError) as exc:
+            return _config_read_failure(args.cmd, args.config, exc)
+        return resumable_cli(resumable_cfg, as_json=args.json, write=args.write)
     if args.cmd == "overlay":
         # Dispatched BEFORE load_config: the overlay it repairs may be one
         # load_config refuses.

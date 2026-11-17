@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-540
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- OPERATOR 2026-11-16 pin: an approved + tested iteration that infra-fails at the final gate writes `state/iter-N/RESUMABLE.md`, and the next PM re-lands it the way it honors HOTFIX_NEEDED.md
+    - Candidate A2 -- `foundry stop --config P --drain --reason R`: retire ONE team at its next iteration boundary without abandoning its iteration in flight
+    - Candidate A3 -- `company-events --since 7d|YYYY-MM-DD`: one weekly "what happened" report across every team
+    - Candidate B1 -- OPERATOR 2026-11-16 pin: an approved + tested iteration that infra-fails at the final gate writes `state/iter-N/RESUMABLE.md`, and the next PM honors it like HOTFIX_NEEDED.md
+    - Candidate B2 -- `capture_abort_patch` stops writing corrupt patches: restore the trailing blank context lines that `git()`'s `.strip()` deletes
+    - Candidate B3 -- `recoverable` names a corrupt patch instead of `unparsed: the probe named no path`
+    winner: A1
+    ship: pending (not yet decided)
   iter-539
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- every prose list of attempt-failure kinds names `unreachable`, and one drift test ties each list to `ATTEMPT_FAILURE_MARKERS`
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `company-changelog --since 7d|YYYY-MM-DD`: one weekly "what shipped" report across every product
     - Candidate B3 -- a weekly goal that expires: optional `goal_until` (YYYY-MM-DD) stops the goal line after its date
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 551ead3
   iter-538
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- OPERATOR 2026-11-14 pin: roles/tester.md + roles/reviewer.md forbid a NEW test that pins a sha, line number or locator of a ship-rewritten file, a wall-clock ratio inside the suite, or an optional extra without a skip-guard (reviewer: each one BLOCKING)
@@ -2690,4 +2700,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-270 scouted iterations
+271 scouted iterations
