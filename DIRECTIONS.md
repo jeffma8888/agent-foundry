@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-541
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- OPERATOR 2026-11-16 pin, bite 2 of 3: roles/pm.md duty 0a "resume before feature" honors an OPEN `RESUMABLE.md` the way duty 0 honors HOTFIX_NEEDED.md
+    - Candidate A2 -- `capture_abort_patch` stops writing corrupt patches: restore the trailing blank context lines that `git()`'s `.strip()` deletes
+    - Candidate A3 -- a FLAGGED `resumable` row is superseded only by a later PUSHED iteration that names it (`RESUMES: iter-N`), so a hotfix ship cannot silently forgive an approved tree
+    - Candidate B1 -- OPERATOR 2026-11-16 pin, bite 2 of 3: roles/pm.md gains duty 0a, which runs `foundry resumable --config PRODUCT_CONFIG` and, on exit 1, makes a verbatim re-land of the lowest OPEN row the ONLY feature
+    - Candidate B2 -- `pm_resumable_block`: build_prompt hands the PM the OPEN resumable rows in-prompt (silent when none), under the same seam contract as `pm_recoverable_block`
+    - Candidate B3 -- `status` and `company-status` surface OPEN resumable rows: one `resumable: N open (lowest iter-K)` line plus a `resumable_open` JSON key, with the 0/1/2 exit codes unchanged
+    winner: A1
+    ship: pending (not yet decided)
   iter-540
     lenses: new-capability, hardening/DX
     - Candidate A1 -- OPERATOR 2026-11-16 pin: an approved + tested iteration that infra-fails at the final gate writes `state/iter-N/RESUMABLE.md`, and the next PM re-lands it the way it honors HOTFIX_NEEDED.md
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `capture_abort_patch` stops writing corrupt patches: restore the trailing blank context lines that `git()`'s `.strip()` deletes
     - Candidate B3 -- `recoverable` names a corrupt patch instead of `unparsed: the probe named no path`
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED edfa764
   iter-539
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- every prose list of attempt-failure kinds names `unreachable`, and one drift test ties each list to `ATTEMPT_FAILURE_MARKERS`
@@ -2700,4 +2710,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-271 scouted iterations
+272 scouted iterations

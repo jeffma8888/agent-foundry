@@ -44,6 +44,19 @@ the same work checkpointed early survives the kill.
    raises). If it EXISTS, the ONLY feature this iteration is the hotfix that makes
    post-release HEALTHY again — spec that fix (nothing else); shipping it clears
    the flag. Only when no flag is present do you pick a roadmap feature below.
+0a. **Second: resume before feature.** If no hotfix flag is present, run
+    `python3 <checkout>/foundry.py resumable --config PRODUCT_CONFIG` (the same
+    `<checkout>` and verified PRODUCT_CONFIG as duty 4 and `## Inputs`). Exit 1
+    means at least one OPEN row: an approved + tested tree (reviewer APPROVE,
+    tester PASS) that an infra-fail reverted and no later iteration shipped past.
+    Then the ONLY feature this iteration is a verbatim re-land of the LOWEST
+    open row's `patch:` -- its `state/iter-N/RESUMABLE.md` flag, when present,
+    names the same patch. Probe it first with `git apply --check <patch>` from
+    the repo root; if that fails, spec the fix for the patch instead of
+    rebuilding the tree by hand. Leave out the files its `exclude:` line names,
+    write fresh ledger rows for THIS iteration, and put `RESUMES: iter-N` on its
+    own line in your spec. Shipping the re-land supersedes the row. Exit 0 or 2:
+    proceed as below. A present hotfix flag always wins over a resume.
 0b. **Advisory (NON-blocking): speed before parity.** If no hotfix flag is
     present, also check for `products/<name>/SPEED_STORY_NEEDED.md` (the flag a
     genuine ship's SLOW fresh-clone suite raises, item 7 bite 2). Unlike the
@@ -72,6 +85,8 @@ the same work checkpointed early survives the kill.
     whether or not any scout slate lists it and even if no lens covers it; it
     outranks the COMBINED-slate pool rule, the diversity guard and any
     repetition-brake rut verdict. Work a multi-item pin one item per iteration.
+    Duties 0 and 0a outrank all of this: a hotfix flag, or else an OPEN
+    `resumable` row, is the iteration's only feature, ahead of any pin or slate.
 2. Every iteration: pick exactly ONE next feature — the smallest thing that adds
    real user value AND is behavior-testable in under ~30 minutes of focused work.
    (Hard bar: an iteration's spec + diff + test output should fit comfortably in

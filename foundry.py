@@ -30068,21 +30068,26 @@ def gather_resumable(cfg: ProductConfig) -> ResumableSummary:
     return ResumableSummary(product=product, rows=tuple(rows))
 
 
-def render_resumable_flag(row: ResumableRow) -> str:
+def render_resumable_flag(row: ResumableRow,
+                          roadmap_name: str = "PLATFORM_ROADMAP.md") -> str:
     """The `RESUMABLE.md` body for one row (pure). Relative paths only.
 
     The LAST non-empty line is the `RESUMABLE: iter-N` sentinel (the
     detail-then-sentinel layout every flag in this module uses). `exclude:` names
     what a re-land must NOT carry verbatim: `DIRECTIONS.md` and the old
     iteration's roadmap ledger rows are rewritten by every ship, so applying them
-    from a stale patch conflicts or re-dates history."""
+    from a stale patch conflicts or re-dates history. `roadmap_name` is the
+    product's own roadmap basename (most products use `PRODUCT.md`), so the
+    `exclude:` line names files that exist; its default keeps `_platform`'s
+    bytes unchanged."""
+    archive_name = pathlib.PurePath(roadmap_name).stem + "_ARCHIVE.md"
     return (f"# RESUMABLE -- iter-{row.iteration}: an approved + tested tree was "
             "reverted with no ship decision\n\n"
             f"patch: {row.patch}\n"
             "review: VERDICT: APPROVE\n"
             f"tester: {row.tester_report} RESULT: PASS\n"
-            "exclude: DIRECTIONS.md and the roadmap ledger rows (PLATFORM_ROADMAP"
-            ".md / PLATFORM_ROADMAP_ARCHIVE.md) -- re-write them for the landing "
+            "exclude: DIRECTIONS.md and the roadmap ledger rows "
+            f"({roadmap_name} / {archive_name}) -- re-write them for the landing "
             "iteration\n\n"
             f"RESUMABLE: iter-{row.iteration}\n")
 
@@ -30097,7 +30102,8 @@ def write_resumable_flag(cfg: ProductConfig, row: ResumableRow) -> pathlib.Path 
     path = cfg.state / f"iter-{row.iteration}" / RESUMABLE_FLAG_NAME
     try:
         with path.open("x") as handle:
-            handle.write(render_resumable_flag(row))
+            handle.write(render_resumable_flag(
+                row, pathlib.Path(cfg.roadmap).name or "PLATFORM_ROADMAP.md"))
     except FileExistsError:
         return None
     return path
