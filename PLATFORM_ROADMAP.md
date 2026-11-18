@@ -373,6 +373,7 @@ in the archive.
 - iter 539 -- `events --since 7d|YYYY-MM-DD`: event stream cut to a local-midnight window.
 - iter 540 -- OPERATOR pin bite 1: `resumable` lists approved+tested reverted trees; `--write` flags them.
 - iter 541 -- OPERATOR pin bite 2: pm.md duty 0a re-lands the lowest OPEN `resumable` row before any feature.
+- iter 542 -- OPERATOR pin (P): an operator `PARKED.md` parks a `resumable` row; never open, never flagged.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

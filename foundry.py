@@ -29886,6 +29886,14 @@ def recoverable_cli(cfg: ProductConfig, limit: int | None = None,
 # --------------------------------------------------------------------------- #
 RESUMABLE_PATCH_NAME = "ABORTED_IMPLEMENTATION.patch"
 RESUMABLE_FLAG_NAME = "RESUMABLE.md"
+# Item (P) of the same pin (iter 542): an operator-written one-line
+# `state/iter-N/PARKED.md` parks that row. Duty 0a re-lands the lowest OPEN row
+# ahead of every pin, so a tree that can never land (its re-land keeps being
+# reverted, so no later push supersedes it) would livelock the team; this file
+# is the operator's reversible escape -- delete it and the row is open again.
+# The verb only ever READS it.
+RESUMABLE_PARK_NAME = "PARKED.md"
+RESUMABLE_PARK_REASON_MAX = 120
 
 
 def resumable_candidate(names: Iterable[str] | None, review_disposition: object,
@@ -29945,12 +29953,20 @@ class ResumableRow:
     tester_report: str
     open: bool
     flagged: bool
+    parked: bool = False
+    park_reason: str = ""
 
     def to_dict(self) -> dict:
-        """A pure, JSON-native serialization of one row."""
-        return {"iteration": self.iteration, "patch": self.patch,
-                "tester_report": self.tester_report, "open": self.open,
-                "flagged": self.flagged}
+        """A pure, JSON-native serialization of one row.
+
+        The `parked`/`park_reason` keys appear ONLY on a parked row, so a
+        product with no `PARKED.md` keeps its pre-iter-542 JSON byte-for-byte."""
+        doc = {"iteration": self.iteration, "patch": self.patch,
+               "tester_report": self.tester_report, "open": self.open,
+               "flagged": self.flagged}
+        if self.parked:
+            doc.update(parked=True, park_reason=self.park_reason)
+        return doc
 
 
 @dataclasses.dataclass(frozen=True)
@@ -29971,9 +29987,17 @@ class ResumableSummary:
         return sum(1 for row in self.rows if row.open)
 
     @property
+    def parked_count(self) -> int:
+        """Candidates the operator parked with `PARKED.md` (never OPEN)."""
+        return sum(1 for row in self.rows if row.parked)
+
+    @property
     def superseded_count(self) -> int:
-        """Candidates a later PUSHED iteration of the same team made stale."""
-        return len(self.rows) - self.open_count
+        """Candidates a later PUSHED iteration of the same team made stale.
+
+        A parked row is counted as parked only (parked outranks superseded), so
+        open + superseded + parked always equals the row count."""
+        return len(self.rows) - self.open_count - self.parked_count
 
     @property
     def exit_code(self) -> int:
@@ -29986,22 +30010,28 @@ class ResumableSummary:
         """One row per candidate, then ONE summary line (always the last line)."""
         lines = []
         for row in self.rows:
-            word = "open" if row.open else "superseded"
+            word = ("parked" if row.parked
+                    else "open" if row.open else "superseded")
             flag = "  [flagged]" if row.flagged else ""
+            reason = f"  -- {row.park_reason}" if row.parked else ""
             lines.append(f"iter-{row.iteration}  {word}  {row.patch}  "
-                         f"({row.tester_report}){flag}")
+                         f"({row.tester_report}){flag}{reason}")
+        parked = f", {self.parked_count} parked" if self.parked_count else ""
         tail = "" if self.state_ok else " -- no state directory to scan"
         lines.append(f"resumable ({self.product}): {self.open_count} open, "
-                     f"{self.superseded_count} superseded{tail}")
+                     f"{self.superseded_count} superseded{parked}{tail}")
         return "\n".join(lines)
 
     def to_dict(self) -> dict:
         """A pure, JSON-native snapshot with the same figures as `render()`."""
-        return {"product": self.product,
-                "rows": [row.to_dict() for row in self.rows],
-                "open_count": self.open_count,
-                "superseded_count": self.superseded_count,
-                "exit_code": self.exit_code}
+        doc = {"product": self.product,
+               "rows": [row.to_dict() for row in self.rows],
+               "open_count": self.open_count,
+               "superseded_count": self.superseded_count}
+        if self.parked_count:
+            doc["parked_count"] = self.parked_count
+        doc["exit_code"] = self.exit_code
+        return doc
 
 
 def _resumable_text(path: pathlib.Path) -> str:
@@ -30068,6 +30098,48 @@ def gather_resumable(cfg: ProductConfig) -> ResumableSummary:
     return ResumableSummary(product=product, rows=tuple(rows))
 
 
+def resumable_park_reason(path: pathlib.Path) -> str | None:
+    """The park reason `path` (a `PARKED.md`) gives, or None when it is absent.
+
+    The reason is the first non-blank line, stripped and cut to
+    `RESUMABLE_PARK_REASON_MAX` chars. A file that EXISTS always parks, even
+    when empty (`(no reason given)`) or unreadable (`(unreadable)`): the
+    operator's intent is the file's presence, so a bad body must never silently
+    re-open a row the operator meant to stop. Never raises."""
+    try:
+        if not path.exists():
+            return None
+    except OSError:
+        return "(unreadable)"
+    try:
+        text = path.read_text(errors="replace")
+    except OSError:
+        return "(unreadable)"
+    for line in text.splitlines():
+        if line.strip():
+            return line.strip()[:RESUMABLE_PARK_REASON_MAX]
+    return "(no reason given)"
+
+
+def apply_resumable_parks(cfg: ProductConfig,
+                          summary: ResumableSummary) -> ResumableSummary:
+    """Mark every row whose iteration dir holds `PARKED.md` as parked (not open).
+
+    A separate step AFTER `gather_resumable` (which stays byte-unchanged) so a
+    product with no `PARKED.md` gets back the very same summary object. A parked
+    row has `open=False`, so `--write` skips it and it can never make the verb
+    exit 1 -- which is what lets pm.md duty 0a move on. READ-ONLY."""
+    rows = []
+    for row in summary.rows:
+        dir_name = pathlib.PurePosixPath(row.patch).parent.name
+        reason = resumable_park_reason(cfg.state / dir_name / RESUMABLE_PARK_NAME)
+        rows.append(row if reason is None else dataclasses.replace(
+            row, open=False, parked=True, park_reason=reason))
+    if not any(row.parked for row in rows):
+        return summary
+    return dataclasses.replace(summary, rows=tuple(rows))
+
+
 def render_resumable_flag(row: ResumableRow,
                           roadmap_name: str = "PLATFORM_ROADMAP.md") -> str:
     """The `RESUMABLE.md` body for one row (pure). Relative paths only.
@@ -30114,12 +30186,13 @@ def resumable_cli(cfg: ProductConfig, as_json: bool = False,
     """On-demand CLI: list resumable trees; with `write`, flag the OPEN unflagged ones.
 
     Gathers ONCE through `gather_resumable` (bare name at CALL time, so a
-    monkeypatch bites). `--write` touches OPEN rows only, never a SUPERSEDED one,
-    and goes through `write_resumable_flag`. Each `wrote ...` line goes to stdout
+    monkeypatch bites), then applies operator parks through
+    `apply_resumable_parks`. `--write` touches OPEN rows only, never a
+    SUPERSEDED or PARKED one, and goes through `write_resumable_flag`. Each `wrote ...` line goes to stdout
     in human mode and to stderr under `--json`, so stdout stays exactly ONE JSON
     document. The exit code is the summary's, identical with or without
     `--write` (a flag changes `flagged`, never `open`)."""
-    summary = gather_resumable(cfg)
+    summary = apply_resumable_parks(cfg, gather_resumable(cfg))
     if write:
         written: set[int] = set()
         for row in summary.rows:

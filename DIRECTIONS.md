@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-542
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- OPERATOR 2026-11-16 pin, item (P): an operator-written `state/iter-N/PARKED.md` turns that resumable row `parked`, so duty 0a skips it
+    - Candidate A2 -- `recoverable` (and so `pm_recoverable_block`) tags the approved + tested patch `[resumable]`, so the one tree worth re-landing stops hiding among scrap
+    - Candidate A3 -- `status` / `company-status` print a `resumable:` line beside `hotfix flag:`, so the surface an operator scripts against shows a row that now outranks every pin
+    - Candidate B1 -- OPERATOR 2026-11-16 pin, item (P): an operator-written `state/iter-N/PARKED.md` marks that resumable row `parked`, so duty 0a skips it
+    - Candidate B2 -- item (q), informational group: History/Timing/Events' errors-first `exit_code` becomes ONE module-level `_company_errors_first_exit_code(rollup)`, assigned `exit_code = property(_company_errors_first_exit_code)` in each class body
+    - Candidate B3 -- item (q), scanner group: the 5 "clean / ATTENTION / no enabled products" `verdict` properties become ONE `_company_scan_verdict(rollup)`, assigned `verdict = property(_company_scan_verdict)`
+    winner: A1
+    ship: pending (not yet decided)
   iter-541
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- OPERATOR 2026-11-16 pin, bite 2 of 3: roles/pm.md duty 0a "resume before feature" honors an OPEN `RESUMABLE.md` the way duty 0 honors HOTFIX_NEEDED.md
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `pm_resumable_block`: build_prompt hands the PM the OPEN resumable rows in-prompt (silent when none), under the same seam contract as `pm_recoverable_block`
     - Candidate B3 -- `status` and `company-status` surface OPEN resumable rows: one `resumable: N open (lowest iter-K)` line plus a `resumable_open` JSON key, with the 0/1/2 exit codes unchanged
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED f618a81
   iter-540
     lenses: new-capability, hardening/DX
     - Candidate A1 -- OPERATOR 2026-11-16 pin: an approved + tested iteration that infra-fails at the final gate writes `state/iter-N/RESUMABLE.md`, and the next PM re-lands it the way it honors HOTFIX_NEEDED.md
@@ -2710,4 +2720,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-272 scouted iterations
+273 scouted iterations
