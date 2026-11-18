@@ -308,6 +308,8 @@ def test_b9_b15_only_one_row_added_vs_head():
                if l.startswith("-") and not l.startswith("---")]
     if head == now:
         pytest.skip("post-ship: HEAD already carries the row (content arm above holds)")
+    if not _pre_ship_scope_live():
+        pytest.skip("iter 544 already shipped; its one-row diff check is inert")
     code_added = [l for l in added if not l[1:].strip().startswith("#")]
     assert code_added == ['+                "tests/test_iter535_behavior.py",',
                           '+                "tests/test_iter541_behavior.py"}']
@@ -323,7 +325,20 @@ def test_b10_foundry_and_dispatcher_import():
     assert proc.returncode == 0, proc.stderr[-2000:]
 
 
+def _pre_ship_scope_live():
+    """True only while iter 544's own ledger row is not yet in HEAD's roadmap.
+
+    WHY: "product files unchanged vs HEAD" is a scope check for THIS
+    iteration's test-only change. Once 544 ships, HEAD carries its row and a
+    LATER iteration's legitimate code edit must not turn this red (the
+    test_iter379 pattern)."""
+    text = _git("show", "HEAD:PLATFORM_ROADMAP.md")
+    return text is not None and "- iter 544 " not in text
+
+
 def test_b10_product_files_unchanged_vs_head():
+    if not _pre_ship_scope_live():
+        pytest.skip("iter 544 already shipped; scope check is inert")
     for rel in ("foundry.py", "dispatcher.py"):
         head = _head_or_skip(rel)
         assert (REPO / rel).read_text(encoding="utf-8") == head, rel

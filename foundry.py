@@ -18733,6 +18733,32 @@ def _classify_revert(reason: str) -> str:
     return "unknown"
 
 
+_VERDICT_TEST_FAILURES: frozenset[str] = frozenset(
+    {"RED", "UNFINISHED", "BLOCKED", "NONE"})
+
+
+def _classify_revert_from_verdicts(review: str, test: str) -> str:
+    """Classify a bare-sentinel revert from its stage verdicts (pure, total).
+
+    WHY: roles/final.md mandates a BARE `ACTION: REVERTED`, so the sentinel
+    carries no reason and `_classify_revert("")` read every fleet revert as
+    `unknown`. The reviewer verdict (`classify_review_report` vocabulary) and
+    the authoritative tester disposition (`read_test_disposition`, or `""`
+    when no tester report exists) already say why: a CHANGES_REQUIRED is a
+    review defect, an APPROVE + PASS tree reverted at or after the gate is
+    environmental, and an APPROVE whose tester did not pass is a test loss.
+    Anything else -- no tester report, no anchored review verdict, an
+    unrecognised token -- stays `unknown` rather than guessing."""
+    if review == "CHANGES_REQUIRED":
+        return "review"
+    if review == "APPROVE":
+        if test == "PASS":
+            return "environmental"
+        if test in _VERDICT_TEST_FAILURES:
+            return "test"
+    return "unknown"
+
+
 @dataclasses.dataclass(frozen=True)
 class RevertRecord:
     """One reverted iteration with its reason and retry classification."""
@@ -18821,6 +18847,16 @@ def gather_reverts(cfg: ProductConfig,
     `ACTION: REVERTED` token on the sentinel line), classifies via
     `_classify_revert`, and returns newest-first.
 
+    A BARE sentinel (empty reason, which roles/final.md mandates) whose dir
+    holds `reviewer.md` or a tester report is classified instead from the
+    stage verdicts via `_classify_revert_from_verdicts`: the review comes from
+    `classify_review_report` (missing/unreadable reviewer.md = `"NONE"`), the
+    test from `read_test_disposition` on the `authoritative_tester_report`,
+    and the reason becomes `reviewer=<REVIEW> tester=<TEST|absent>`. That tag
+    is never fed to `_classify_revert`: its "reviewer"/"tester" words would
+    keyword-match `review`/`test`. A dir with neither file keeps `""` and
+    `unknown`.
+
     Read-only, creates no directories. A missing or unreadable `cfg.state`
     yields a summary with no records and exit_code 2. Reads through the
     module-level seams by BARE name so a `monkeypatch.setattr(foundry, ...)`
@@ -18852,9 +18888,27 @@ def gather_reverts(cfg: ProductConfig,
             prefix = "ACTION: REVERTED"
             if last.startswith(prefix):
                 reason = last[len(prefix):].strip()
+        retry_class = _classify_revert(reason)
+        if not reason:
+            iter_dir = final_path.parent
+            try:
+                present = [p.name for p in iter_dir.iterdir()]
+            except OSError:
+                present = []
+            report = authoritative_tester_report(present)
+            if "reviewer.md" in present or report is not None:
+                try:
+                    review_text = (iter_dir / "reviewer.md").read_text(
+                        encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    review_text = ""
+                review = classify_review_report(review_text)
+                test = (read_test_disposition(iter_dir / report)
+                        if report is not None else "")
+                reason = f"reviewer={review} tester={test or 'absent'}"
+                retry_class = _classify_revert_from_verdicts(review, test)
         records.append(RevertRecord(
-            iteration=n, reason=reason,
-            retry_class=_classify_revert(reason)))
+            iteration=n, reason=reason, retry_class=retry_class))
     records.reverse()
     return summarize_reverts(product=cfg.name, records=records,
                              scanned=len(numbers))

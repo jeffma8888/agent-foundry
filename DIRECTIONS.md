@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-546
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- `company-changelog --since` and `company-events --since` in ONE bite: the fleet's weekly "what shipped / what happened" report
+    - Candidate A2 -- `foundry park --config P --iter N --reason R` (and `unpark`): the operator's resumable-row escape becomes a verb, mirroring `stop`/`resume`
+    - Candidate A3 -- `new-product --vision PATH [--goal TEXT]`: point the foundry at a repo AND its intent in one command
+    - Candidate B1 -- `reverts` stops reporting every revert as `unknown`: when the sentinel has no reason, classify from the iteration's on-disk reviewer/tester verdicts
+    - Candidate B2 -- `capture_abort_patch` stops writing corrupt patches: restore the trailing blank context lines that `git()`'s `.strip()` deletes
+    - Candidate B3 -- `revert_repo` verifies its reset actually worked and stops logging "repo reverted" over a still-dirty tree
+    winner: B1
+    ship: pending (not yet decided)
   iter-545
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- ARCHITECTURE.md's "Independent, pessimistic gate" invariant names what a revert now PRESERVES: `capture_abort_patch` -> `flag_resumable_after_revert` -> reset, `RESUMABLE.md`, `PARKED.md`, pm.md duty 0a, plus a drift test tied to `revert_repo`'s own body
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry stop --config P --drain --reason R`: retire ONE team at its next iteration boundary instead of abandoning the iteration in flight
     - Candidate B3 -- a weekly goal that expires: optional `goal_until` (YYYY-MM-DD) stops `goal_line` rendering after that date
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 2eca103
   iter-544
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- test_iter541's pinned-def check slices with `tests/_shared.py` and caches each source's def map once per session, so 79 s of suite CPU drops below 1 s and post-release returns to about 60-70 s
@@ -2750,4 +2760,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-276 scouted iterations
+277 scouted iterations

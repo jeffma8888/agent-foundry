@@ -377,6 +377,7 @@ in the archive.
 - iter 543 -- OPERATOR pin bite 3: `revert_repo` auto-writes RESUMABLE.md for an approved+tested tree.
 - iter 544 -- speed: test_iter541 b9 `_defs` slices via `_shared.source_segment`, memoized (~79 s CPU -> <1 s).
 - iter 545 -- docs: ARCHITECTURE §3 says a revert keeps approved work (capture -> RESUMABLE flag -> reset).
+- iter 546 -- DX: `reverts` classifies a bare-sentinel revert from its reviewer/tester verdicts.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

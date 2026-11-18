@@ -1351,6 +1351,16 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # assertion. No newest-ness pin touched: `newest_ness_pin_sites`
                 # over that file is `()` at HEAD AND in the worktree.
                 "tests/test_iter535_behavior.py",
+                # iter 546: FORCED scope-gate (listed ABOVE iter 544's row, which
+                # iter 544 b9 pins as the LAST member). Iter 544 b10 and iter 545 b9 pin
+                # foundry.py byte-equal to HEAD with no ship gate, so ANY later
+                # code iteration turns them red. Each now runs only while HEAD's
+                # roadmap lacks its own `- iter N ` row (the test_iter379
+                # pattern) and skips once shipped. No newest-ness pin touched:
+                # `newest_ness_pin_sites` over each file is `()` at HEAD AND in
+                # the worktree.
+                "tests/test_iter544_behavior.py",
+                "tests/test_iter545_behavior.py",
                 # iter 544: SPEED-ONLY re-implementation of iter 541's `_defs`
                 # (split once via `_shared.split_source_lines` + `source_segment`,
                 # memoized per source text) -- the stdlib segment call was

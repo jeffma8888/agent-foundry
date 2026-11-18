@@ -275,10 +275,22 @@ def test_b9_clean_import_of_foundry_and_dispatcher():
     assert proc.returncode == 0, proc.stderr
 
 
+def _pre_ship_scope_live():
+    """True only while iter 545's own ledger row is not yet in HEAD's roadmap.
+
+    WHY: "no code diff vs HEAD" is a scope check for THIS iteration's docs-only
+    change. Once 545 ships, HEAD carries its row and a LATER iteration's
+    legitimate code edit must not turn this red (the test_iter379 pattern)."""
+    proc = _git("show", "HEAD:PLATFORM_ROADMAP.md")
+    return proc.returncode == 0 and "- iter 545 " not in proc.stdout
+
+
 def test_b9_no_code_diff_in_foundry_or_dispatcher():
     head = _git("rev-parse", "--verify", "HEAD")
     if head.returncode != 0:
         pytest.skip("git HEAD unavailable")
+    if not _pre_ship_scope_live():
+        pytest.skip("iter 545 already shipped; scope check is inert")
     proc = _git("diff", "HEAD", "--", "foundry.py", "dispatcher.py")
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout == ""
