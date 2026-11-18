@@ -376,6 +376,7 @@ in the archive.
 - iter 542 -- OPERATOR pin (P): an operator `PARKED.md` parks a `resumable` row; never open, never flagged.
 - iter 543 -- OPERATOR pin bite 3: `revert_repo` auto-writes RESUMABLE.md for an approved+tested tree.
 - iter 544 -- speed: test_iter541 b9 `_defs` slices via `_shared.source_segment`, memoized (~79 s CPU -> <1 s).
+- iter 545 -- docs: ARCHITECTURE §3 says a revert keeps approved work (capture -> RESUMABLE flag -> reset).
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
@@ -427,39 +428,7 @@ OPEN (no Done-when box ticked). Body moved VERBATIM to the archive by iter 526.
 
 ## Epic (added 2026-08-01): extract the resilience primitives into `resilient-agent-loop-primitives`, then depend on it (strangler)
 
-**Goal:** make `github.com/jeffma8888/resilient-agent-loop-primitives` the single
-source of truth for the three reliability primitives, and have this platform DEPEND
-on it instead of keeping inline copies. Do this AFTER that library's product team
-has shipped the corresponding modules (scheduler, runner, watchdog).
-
-**STATUS 2026-08-03: UNBLOCKED and STARTED.** The gate in `docs/STRANGLER_PLAN.md`
-is satisfied (the library repo is PUBLIC, verified via the gh CLI on 2026-08-03), and
-step 1 is DONE: the dependency is declared in `pyproject.toml` pinned to the immutable
-`v0.1.0` tag, the lock is refreshed, `import resilient_agent_loop` (all three
-submodules) is proven, and the full suite is green (2678 passed). Steps 2-5 are NEXT
-for this team -- read `docs/STRANGLER_PLAN.md` FIRST: it carries the verified v0.1.0
-API signatures and the behavior traps each step must preserve (shift-vs-round
-counting, per-round config re-read, log line ordering, output-file success predicate,
-retry timing constants, single-brain relaunch invariant).
-
-Strangler steps (each a small, separately-shippable, behavior-preserving iteration):
-1. [x] Add `resilient-agent-loop-primitives` as a dependency of the foundry (pinned
-   `@v0.1.0` git dependency; it is stdlib-only so no transitive weight). **(2026-08-03)**
-2. **dispatcher.py -> scheduler:** replace the inline round-robin/STOP/priority loop
-   with a call into the library's `scheduler`. Keep dispatcher.py's config parsing +
-   logging; delegate only the scheduling core. Prove equivalence: existing dispatcher
-   tests stay green byte-for-byte.
-3. **foundry.run_stage -> runner:** replace the inline retry/backoff/timeout/
-   output-file-success logic with the library's `runner`. Keep the stage prompt build
-   + logging. Existing run_stage tests stay green.
-4. **watchdog.py -> watchdog:** replace the inline decide/relaunch with the library's
-   `watchdog`. Existing watchdog tests stay green.
-5. Delete the now-dead inline copies. Confirm `python -c import foundry` and the full
-   `tests/` suite are green, and ARCHITECTURE.md invariants still hold.
-
-Invariant: NEVER regress behavior. Each step lands only if the full suite is green and
-the change is a pure delegation (no semantic change). If the library's API is missing
-something, prefer extending the LIBRARY (its own product team) over forking behavior here.
+Step 1 DONE, steps 2-5 OPEN. Body moved VERBATIM to the archive by iter 545.
 
 ## Feature (added 2026-08-01): dual PM-scout candidate generation (optional, flag-gated)
 

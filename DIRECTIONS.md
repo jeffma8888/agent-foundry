@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-545
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- ARCHITECTURE.md's "Independent, pessimistic gate" invariant names what a revert now PRESERVES: `capture_abort_patch` -> `flag_resumable_after_revert` -> reset, `RESUMABLE.md`, `PARKED.md`, pm.md duty 0a, plus a drift test tied to `revert_repo`'s own body
+    - Candidate A2 -- roles/pm_scout.md states the PM's precedence ladder: a `HOTFIX_NEEDED.md` flag, or else an OPEN `foundry resumable` row, is candidate 1 of every slate, ahead of any OPERATOR pin. This matches pm.md duties 0/0a
+    - Candidate A3 -- pm.md and pm_scout.md define an "un-retired OPERATOR pin" by its CONTENT, not its position: a bullet that asks for a product change. A standing ROLE rule ("TESTER: ...", "FINAL GATE: ...") above the archive heading is never a slate candidate
+    - Candidate B1 -- `company-changelog --since 7d|YYYY-MM-DD`: one "what shipped this week across every team" report
+    - Candidate B2 -- `foundry stop --config P --drain --reason R`: retire ONE team at its next iteration boundary instead of abandoning the iteration in flight
+    - Candidate B3 -- a weekly goal that expires: optional `goal_until` (YYYY-MM-DD) stops `goal_line` rendering after that date
+    winner: A1
+    ship: pending (not yet decided)
   iter-544
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- test_iter541's pinned-def check slices with `tests/_shared.py` and caches each source's def map once per session, so 79 s of suite CPU drops below 1 s and post-release returns to about 60-70 s
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- roles/pm_scout.md states the PM's full precedence ladder: a `HOTFIX_NEEDED.md` flag, or else an OPEN `foundry resumable` row, is candidate 1 of every slate ahead of any OPERATOR pin, matching pm.md duties 0/0a, pinned by a card-vs-card drift test
     - Candidate B3 -- pm.md and pm_scout.md define an "un-retired OPERATOR pin" by content, not position, so the six standing-rule `OPERATOR` bullets in the `## Patterns` head stop reading as live pins
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 8597b6a
   iter-543
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- OPERATOR 2026-11-16 pin, bite 3 (the last one): `revert_repo` flags an approved + tested tree as `RESUMABLE.md` right after its capture, so no operator hand pin is ever needed again
@@ -2740,4 +2750,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-275 scouted iterations
+276 scouted iterations

@@ -1284,6 +1284,7 @@ relax toward 10 once history shows steering is rarely needed).
 - **iter 542 -- OPERATOR 2026-11-16 pin, item (P): an operator-written `state/iter-N/PARKED.md` parks that `resumable` row.** A new `apply_resumable_parks(cfg, summary)` step runs after the unchanged `gather_resumable` inside `resumable_cli`: a candidate dir holding `PARKED.md` becomes `parked` (never `open`, whether or not superseded), carries the file's first non-blank line as its reason (`(no reason given)` / `(unreadable)` fallbacks), is skipped by `--write`, and cannot make the verb exit 1 -- so duty 0a skips it with no card edit. Deleting the file unparks; the verb never writes it. With no `PARKED.md` present (the whole fleet today) text, JSON and exit code are byte-identical to iter 541. Strongest alternative: scout B2's errors-first `exit_code` collapse, deferred behind the pin. Bite 3 (the `run_iteration` infra-fail auto-writer) retires the pin.
 - **iter 543 -- OPERATOR 2026-11-16 pin, bite 3 (last; retires the pin): `revert_repo` flags an approved + tested tree as `RESUMABLE.md` right after its capture.** A new module-level `flag_resumable_after_revert(cfg)` runs swallow-safe, by bare name, between `revert_repo`'s `capture_abort_patch` and its `reset --hard`. It takes the newest iter dir (`save_work_target`, the capture's own rule), runs `apply_resumable_parks(cfg, gather_resumable(cfg))`, and calls the shipped `write_resumable_flag` only when that iteration's row is OPEN and unflagged. An explicit `ACTION: REVERTED`/`PUSHED`, a PARKED dir, an existing flag, and older open rows are all left untouched. One hook covers the final AND tester infra-fail branches with zero `run_iteration` edits, which test_iter541 b9 pins byte-equal to HEAD; both scouts found that the bite as worded could not ship. Brain-path: live after a dispatcher restart. Strongest alternative: scout B2's test_iter541 b9 speed-up (81 s of suite time, the cause of post-release 60 -> 138 s), queued as the next pick.
 - **iter 544 -- speed (answers the advisory SPEED_STORY_NEEDED.md flag, post-release 135.44 s): test_iter541 b9's `_defs` builds its def -> source map with `_shared.split_source_lines` + `source_segment` and memoizes it per source text.** The stdlib `ast.get_source_segment` re-split the 31,914-line foundry.py for each of 639 defs, x2 sources, x5 params, about 79 s of CPU per suite run and the measured cause of post-release going 48-70 s -> 132-138 s at iters 541-543. Test-only: assertions, param ids and PINNED_DEFS unchanged; test_iter204 b15 gains one allow-list row for the edited file. No product code, so it is live at once and has zero resume impact. Strongest alternative: scout B1 (ARCHITECTURE.md §3 still says a revert destroys the tree), queued next; scout A2 (`--dist worksteal`, measured -36% wall) is queued as its own measured bite.
+- **iter 545 -- docs: ARCHITECTURE.md §3's "Independent, pessimistic gate" invariant stops implying a revert destroys approved work.** One additive sentence group inside the existing bullet (no new bolded bullet, so `architecture_invariant_names` keeps its 5 names; the inline `**Post-release re-verification:**` paragraph stays where test_iter376 reads it) names `revert_repo`'s pre-reset chain: `capture_abort_patch` saves `state/iter-N/ABORTED_IMPLEMENTATION.patch`, `flag_resumable_after_revert` flags an approved + tested tree `RESUMABLE.md`, both best-effort and wrapped so neither blocks the reset; `foundry resumable` lists OPEN trees, `PARKED.md` parks one, PM duty 0a re-lands the lowest. A new test AST-walks `revert_repo`'s statements before its `git(..., "reset", ...)` call and asserts every bare-name call there is backticked inside §3, so a future pre-reset hook without a doc line reds the suite. Docs + test only: foundry.py/dispatcher.py untouched, live at once, zero resume impact. Strongest alternative: scout B1 (`company-changelog --since`, measured 1,072 -> 103 entries), queued next.
 
 ## Moved from the index by iter 537
 
@@ -1296,3 +1297,41 @@ and IN ORDER -- each item builds on the artifacts of the one before. Every item
 is ADDITIVE and must not change iteration numbering, state layout, or the
 `VERDICT:`/`RESULT:`/`ACTION:`/`POSTRELEASE:` sentinels (resume-safe for any
 loop in flight), per the self-modification guardrails.
+
+## Moved from the index by iter 545
+
+## Epic (added 2026-08-01): extract the resilience primitives into `resilient-agent-loop-primitives`, then depend on it (strangler)
+
+**Goal:** make `github.com/jeffma8888/resilient-agent-loop-primitives` the single
+source of truth for the three reliability primitives, and have this platform DEPEND
+on it instead of keeping inline copies. Do this AFTER that library's product team
+has shipped the corresponding modules (scheduler, runner, watchdog).
+
+**STATUS 2026-08-03: UNBLOCKED and STARTED.** The gate in `docs/STRANGLER_PLAN.md`
+is satisfied (the library repo is PUBLIC, verified via the gh CLI on 2026-08-03), and
+step 1 is DONE: the dependency is declared in `pyproject.toml` pinned to the immutable
+`v0.1.0` tag, the lock is refreshed, `import resilient_agent_loop` (all three
+submodules) is proven, and the full suite is green (2678 passed). Steps 2-5 are NEXT
+for this team -- read `docs/STRANGLER_PLAN.md` FIRST: it carries the verified v0.1.0
+API signatures and the behavior traps each step must preserve (shift-vs-round
+counting, per-round config re-read, log line ordering, output-file success predicate,
+retry timing constants, single-brain relaunch invariant).
+
+Strangler steps (each a small, separately-shippable, behavior-preserving iteration):
+1. [x] Add `resilient-agent-loop-primitives` as a dependency of the foundry (pinned
+   `@v0.1.0` git dependency; it is stdlib-only so no transitive weight). **(2026-08-03)**
+2. **dispatcher.py -> scheduler:** replace the inline round-robin/STOP/priority loop
+   with a call into the library's `scheduler`. Keep dispatcher.py's config parsing +
+   logging; delegate only the scheduling core. Prove equivalence: existing dispatcher
+   tests stay green byte-for-byte.
+3. **foundry.run_stage -> runner:** replace the inline retry/backoff/timeout/
+   output-file-success logic with the library's `runner`. Keep the stage prompt build
+   + logging. Existing run_stage tests stay green.
+4. **watchdog.py -> watchdog:** replace the inline decide/relaunch with the library's
+   `watchdog`. Existing watchdog tests stay green.
+5. Delete the now-dead inline copies. Confirm `python -c import foundry` and the full
+   `tests/` suite are green, and ARCHITECTURE.md invariants still hold.
+
+Invariant: NEVER regress behavior. Each step lands only if the full suite is green and
+the change is a pure delegation (no semantic change). If the library's API is missing
+something, prefer extending the LIBRARY (its own product team) over forking behavior here.

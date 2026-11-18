@@ -131,7 +131,15 @@ core stages above byte-for-byte, so the default path is unchanged.
 - **Independent, pessimistic gate.** The Final Reviewer re-runs the full suite,
   checks the working tree is clean of stray files, and is the sole git-writer.
   Ship requires `ACTION: PUSHED <sha>` AND a changed remote head; otherwise the
-  loop reverts to `origin/<branch>`. **Post-release re-verification:** after a
+  loop reverts to `origin/<branch>`. **A revert keeps approved work:** before its
+  `reset --hard`, `revert_repo` calls `capture_abort_patch` (the uncommitted tree
+  is saved as `state/iter-N/ABORTED_IMPLEMENTATION.patch`) and then
+  `flag_resumable_after_revert` (an approved + tested tree with no ship decision
+  is flagged `RESUMABLE.md`). Both are best-effort and wrapped at the call site,
+  so neither can ever block or skip the reset. The `resumable` verb
+  (`foundry resumable`) lists each OPEN tree, an operator `PARKED.md` parks one,
+  and PM duty 0a re-lands the lowest OPEN patch verbatim before any new feature.
+  **Post-release re-verification:** after a
   ship, `postrelease_step` re-verifies the *pushed* commit from a throwaway
   fresh clone (clone → setup → test → sha-match → optional smoke) and emits
   `POSTRELEASE: HEALTHY|BROKEN`. This closes the gap the gate cannot: it proves
