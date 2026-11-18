@@ -17,6 +17,7 @@ available (e.g. a `git archive` copy) and pass trivially after the ship commit
 """
 import ast
 import difflib
+import functools
 import importlib.util
 import io
 import json
@@ -28,7 +29,9 @@ import pytest
 
 REPO = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / "tests"))
 import foundry  # noqa: E402
+from _shared import source_segment, split_source_lines  # noqa: E402
 
 PM_CARD = REPO / "roles" / "pm.md"
 PATCH = "ABORTED_IMPLEMENTATION.patch"
@@ -376,9 +379,19 @@ PINNED_DEFS = ("run_iteration", "build_prompt", "capture_abort_patch",
                "gather_resumable", "resumable_open")
 
 
+@functools.lru_cache(maxsize=4)
 def _defs(src):
+    """Top-level def/class name -> source segment, last name wins.
+
+    WHY split once + memoize: the stdlib segment call re-splits the whole
+    source per node, which made the 5 b9 params cost ~16 s each on the
+    ~32k-line foundry.py. The cache key is the source TEXT, never a path, so
+    an edited worktree is a new key and can never be served a stale map. The
+    shared cached dict is read-only by contract; callers only index it.
+    """
     tree = ast.parse(src)
-    return {n.name: ast.get_source_segment(src, n) for n in tree.body
+    lines = split_source_lines(src)
+    return {n.name: source_segment(lines, n) for n in tree.body
             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))}
 
 

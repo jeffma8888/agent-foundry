@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-544
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- test_iter541's pinned-def check slices with `tests/_shared.py` and caches each source's def map once per session, so 79 s of suite CPU drops below 1 s and post-release returns to about 60-70 s
+    - Candidate A2 -- suite runs with `--dist worksteal`, so a cluster of slow tests in one file stops serialising on one xdist worker
+    - Candidate A3 -- a static suite brake: no test may call `ast.get_source_segment` inside a loop or comprehension over a whole module's nodes, so the iter-541 regression cannot come back
+    - Candidate B1 -- ARCHITECTURE.md §3 stops saying a revert destroys the tree: the "Independent, pessimistic gate" invariant names `capture_abort_patch` -> `flag_resumable_after_revert` -> reset, `RESUMABLE.md`, `PARKED.md` and PM duty 0a, pinned by a prose-vs-AST drift test
+    - Candidate B2 -- roles/pm_scout.md states the PM's full precedence ladder: a `HOTFIX_NEEDED.md` flag, or else an OPEN `foundry resumable` row, is candidate 1 of every slate ahead of any OPERATOR pin, matching pm.md duties 0/0a, pinned by a card-vs-card drift test
+    - Candidate B3 -- pm.md and pm_scout.md define an "un-retired OPERATOR pin" by content, not position, so the six standing-rule `OPERATOR` bullets in the `## Patterns` head stop reading as live pins
+    winner: A1
+    ship: pending (not yet decided)
   iter-543
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- OPERATOR 2026-11-16 pin, bite 3 (the last one): `revert_repo` flags an approved + tested tree as `RESUMABLE.md` right after its capture, so no operator hand pin is ever needed again
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- test_iter541's pinned-def check slices once with `tests/_shared.py` and caches each source's def map, so 81 s of suite time becomes under 1 s
     - Candidate B3 -- the company-scan live smokes run each scan once per session and derive the human-exit check from the same run, halving about 26 s of local gate time
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 42241e8
   iter-542
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- OPERATOR 2026-11-16 pin, item (P): an operator-written `state/iter-N/PARKED.md` turns that resumable row `parked`, so duty 0a skips it
@@ -2730,4 +2740,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-274 scouted iterations
+275 scouted iterations

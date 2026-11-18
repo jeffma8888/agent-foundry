@@ -1350,7 +1350,14 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # its `?`-base gate rows neither sleep 300 s nor change an
                 # assertion. No newest-ness pin touched: `newest_ness_pin_sites`
                 # over that file is `()` at HEAD AND in the worktree.
-                "tests/test_iter535_behavior.py"}
+                "tests/test_iter535_behavior.py",
+                # iter 544: SPEED-ONLY re-implementation of iter 541's `_defs`
+                # (split once via `_shared.split_source_lines` + `source_segment`,
+                # memoized per source text) -- the stdlib segment call was
+                # quadratic over foundry.py. Assertions unchanged. No newest-ness
+                # pin touched: `newest_ness_pin_sites` over that file is `()` at
+                # HEAD AND in the worktree.
+                "tests/test_iter541_behavior.py"}
     assert changed <= expected, \
         f"the 75-assertion literal class must NOT be swept; unexpected: {changed - expected}"
     # NOT asserted here: that 185 IS in `changed`. Post-commit -- and in the

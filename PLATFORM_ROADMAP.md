@@ -375,6 +375,7 @@ in the archive.
 - iter 541 -- OPERATOR pin bite 2: pm.md duty 0a re-lands the lowest OPEN `resumable` row before any feature.
 - iter 542 -- OPERATOR pin (P): an operator `PARKED.md` parks a `resumable` row; never open, never flagged.
 - iter 543 -- OPERATOR pin bite 3: `revert_repo` auto-writes RESUMABLE.md for an approved+tested tree.
+- iter 544 -- speed: test_iter541 b9 `_defs` slices via `_shared.source_segment`, memoized (~79 s CPU -> <1 s).
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.
