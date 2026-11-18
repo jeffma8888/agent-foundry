@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-543
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- OPERATOR 2026-11-16 pin, bite 3 (the last one): `revert_repo` flags an approved + tested tree as `RESUMABLE.md` right after its capture, so no operator hand pin is ever needed again
+    - Candidate A2 -- item (q) scan group: the 5 AST-identical "clean / ATTENTION / no enabled products" `verdict` properties become ONE `_company_scan_verdict(rollup)`, assigned `verdict = property(_company_scan_verdict)`
+    - Candidate A3 -- item (q) informational group: History/Timing/Events' errors-first `exit_code` becomes ONE `_company_errors_first_exit_code(rollup)`, assigned `exit_code = property(...)` in each class body
+    - Candidate B1 -- OPERATOR 2026-11-16 pin, bite 3 (last): the final/tester infra-fail path writes `state/iter-N/RESUMABLE.md` itself when APPROVE + PASS are on disk
+    - Candidate B2 -- test_iter541's pinned-def check slices once with `tests/_shared.py` and caches each source's def map, so 81 s of suite time becomes under 1 s
+    - Candidate B3 -- the company-scan live smokes run each scan once per session and derive the human-exit check from the same run, halving about 26 s of local gate time
+    winner: A1
+    ship: pending (not yet decided)
   iter-542
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- OPERATOR 2026-11-16 pin, item (P): an operator-written `state/iter-N/PARKED.md` turns that resumable row `parked`, so duty 0a skips it
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- item (q), informational group: History/Timing/Events' errors-first `exit_code` becomes ONE module-level `_company_errors_first_exit_code(rollup)`, assigned `exit_code = property(_company_errors_first_exit_code)` in each class body
     - Candidate B3 -- item (q), scanner group: the 5 "clean / ATTENTION / no enabled products" `verdict` properties become ONE `_company_scan_verdict(rollup)`, assigned `verdict = property(_company_scan_verdict)`
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED a3d9a09
   iter-541
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- OPERATOR 2026-11-16 pin, bite 2 of 3: roles/pm.md duty 0a "resume before feature" honors an OPEN `RESUMABLE.md` the way duty 0 honors HOTFIX_NEEDED.md
@@ -2720,4 +2730,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-273 scouted iterations
+274 scouted iterations

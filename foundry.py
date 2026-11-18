@@ -1064,9 +1064,19 @@ def revert_repo(cfg: ProductConfig, reason: str) -> None:
     wrapped at the CALL SITE, exactly like the `emit_event` mirror inside
     `log()`. The reset is the invariant here -- a capture that fails, writes
     nothing, or raises must never leave the repo dirty for the next iteration.
+
+    Right after the capture (so the patch is already on disk) the current
+    iteration is flagged `RESUMABLE.md` when it is an approved + tested tree
+    with no ship decision (iter 543), through `flag_resumable_after_revert`,
+    called by bare name and wrapped the same way: the reset, the clean and the
+    log line below always run, whatever the flagger does.
     """
     try:
         capture_abort_patch(cfg, reason)
+    except Exception:
+        pass
+    try:
+        flag_resumable_after_revert(cfg)
     except Exception:
         pass
     git(cfg, "reset", "--hard", f"origin/{cfg.branch}")
@@ -29882,7 +29892,8 @@ def recoverable_cli(cfg: ProductConfig, limit: int | None = None,
 # This verb makes the case decidable and, with `--write`, drops the
 # `state/iter-N/RESUMABLE.md` flag the later bites consume (bite 2: a PM duty
 # that honors it; bite 3: `run_iteration`'s infra-fail branch calls the same
-# `write_resumable_flag`). CLI-only today: the pipeline never calls it.
+# `write_resumable_flag`). Bite 3 (iter 543) has `revert_repo` call
+# `flag_resumable_after_revert`, so the pipeline writes the flag itself.
 # --------------------------------------------------------------------------- #
 RESUMABLE_PATCH_NAME = "ABORTED_IMPLEMENTATION.patch"
 RESUMABLE_FLAG_NAME = "RESUMABLE.md"
@@ -30170,7 +30181,7 @@ def write_resumable_flag(cfg: ProductConfig, row: ResumableRow) -> pathlib.Path 
     NEVER overwrites: the file is opened with mode `"x"`, so an existing flag
     (possibly hand-edited by the operator) keeps its exact bytes and a second
     run writes nothing. Raises `OSError` for an unwritable dir; bite 3's pipeline
-    caller will wrap it swallow-safe, the CLI reports it on stderr."""
+    caller (`flag_resumable_after_revert`) swallows it, the CLI reports it on stderr."""
     path = cfg.state / f"iter-{row.iteration}" / RESUMABLE_FLAG_NAME
     try:
         with path.open("x") as handle:
@@ -30179,6 +30190,38 @@ def write_resumable_flag(cfg: ProductConfig, row: ResumableRow) -> pathlib.Path 
     except FileExistsError:
         return None
     return path
+
+
+def flag_resumable_after_revert(cfg: ProductConfig) -> pathlib.Path | None:
+    """Flag the CURRENT iteration `RESUMABLE.md` if `revert_repo` is destroying an
+    approved + tested tree; return the written path, else None.
+
+    WHY here: every infra-fail branch reverts through `revert_repo`, right after
+    the abort patch is captured, so this one hook flags the tree at the moment
+    it is destroyed with no operator hand pin and no edit to the pinned
+    `run_iteration`. Only the NEWEST dir (`save_work_target`, the capture's own
+    rule) is considered -- backfilling older OPEN rows is `resumable --write`'s
+    job. Parks apply, so a PARKED dir is never open; an existing flag keeps its
+    bytes. Every seam is called by bare name. TOTAL: swallows every exception."""
+    try:
+        target = save_work_target(cfg)
+        if target is None:
+            return None
+        numbers = iteration_numbers([target.name])
+        if not numbers:
+            return None
+        summary = apply_resumable_parks(cfg, gather_resumable(cfg))
+        for row in summary.rows:
+            if row.iteration != numbers[0] or not row.open or row.flagged:
+                continue
+            path = write_resumable_flag(cfg, row)
+            if path is not None:
+                log(cfg, f"wrote state/iter-{row.iteration}/{RESUMABLE_FLAG_NAME} "
+                         "(approved + tested tree reverted with no ship decision)")
+            return path
+        return None
+    except Exception:
+        return None
 
 
 def resumable_cli(cfg: ProductConfig, as_json: bool = False,
