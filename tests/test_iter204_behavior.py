@@ -1361,6 +1361,12 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # the worktree.
                 "tests/test_iter544_behavior.py",
                 "tests/test_iter545_behavior.py",
+                # iter 547: FORCED re-pin (OPERATOR 2026-11-18). A bare APPROVE +
+                # PASS revert with no failed gate item and no kill evidence is
+                # now `unknown`, not `environmental`; VALID gains `gate`. No
+                # newest-ness pin touched: `newest_ness_pin_sites` over that
+                # file is `()` at HEAD AND in the worktree.
+                "tests/test_iter546_behavior.py",
                 # iter 544: SPEED-ONLY re-implementation of iter 541's `_defs`
                 # (split once via `_shared.split_source_lines` + `source_segment`,
                 # memoized per source text) -- the stdlib segment call was

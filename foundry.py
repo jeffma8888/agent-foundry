@@ -18736,6 +18736,75 @@ def _classify_revert(reason: str) -> str:
 _VERDICT_TEST_FAILURES: frozenset[str] = frozenset(
     {"RED", "UNFINISHED", "BLOCKED", "NONE"})
 
+# A FINAL-GATE revert of an APPROVE + PASS tree is the case where the gate
+# caught what reviewer and tester missed: these name a failed gate item
+# (preship BROKEN, a `FAILED:` ledger line, a leak-guard failure, a pytest red
+# count, a BLOCKING failure, a suite that is not green).
+_REVERT_GATE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"preship\W{0,6}[:=]?\W{0,4}\**BROKEN", re.I),
+    re.compile(r"^\s*FAILED:", re.I | re.M),
+    re.compile(r"leak[- _]guard\W.{0,60}(LEAKED|exit\s*1|FAIL)", re.I),
+    re.compile(r"\b[1-9]\d* failed\b", re.I),
+    re.compile(r"\bFAIL(ED)?\b.{0,40}BLOCKING|BLOCKING gate failure", re.I),
+    re.compile(r"\bNOT green\b|suite\W.{0,40}\bRED\b", re.I),
+)
+# Positive environmental evidence: a killed checkpoint stub in final.md ...
+_REVERT_KILL_LITERALS: tuple[str, ...] = (
+    "status: in progress", "stage was killed",
+)
+# ... a timeout/stall in a `final.attempt*.log` ...
+_REVERT_ATTEMPT_LOG_LITERALS: tuple[str, ...] = (
+    "timed out after", "connection stalled",
+)
+# ... or a git push/auth/network failure literal in final.md.
+_REVERT_PUSH_LITERALS: tuple[str, ...] = (
+    "failed to push", "[rejected]", "could not resolve host",
+    "authentication failed", "permission denied (publickey)",
+)
+
+
+def _final_gate_evidence(final_text: str,
+                         attempt_logs: Sequence[str] = ()) -> str:
+    """Re-classify an APPROVE + PASS final-gate revert (pure, total).
+
+    WHY: `_classify_revert_from_verdicts` calls APPROVE + PASS
+    `environmental` (retry-safe), but every row `reverts` reads is a final-gate
+    `ACTION: REVERTED`, so most such rows are the gate catching a real defect.
+    A failed gate item in final.md -> `gate` (not retry-safe), outranking any
+    kill evidence; else positive kill/timeout/push/auth/network evidence ->
+    `environmental`; else `unknown` rather than guessing. The vocabulary also
+    hits prose in PUSHED final.md files, so it is only meaningful on that one
+    branch of `gather_reverts`."""
+    if any(pat.search(final_text) for pat in _REVERT_GATE_PATTERNS):
+        return "gate"
+    lower = final_text.lower()
+    if any(lit in lower for lit in _REVERT_KILL_LITERALS):
+        return "environmental"
+    if any(lit in log.lower() for log in attempt_logs
+           for lit in _REVERT_ATTEMPT_LOG_LITERALS):
+        return "environmental"
+    if any(lit in lower for lit in _REVERT_PUSH_LITERALS):
+        return "environmental"
+    return "unknown"
+
+
+def _final_attempt_log_texts(iter_dir: pathlib.Path,
+                             present: Iterable[str]) -> tuple[str, ...]:
+    """Texts of every readable UTF-8 `final.attempt*.log`, sorted by name.
+
+    WHY: a timed-out or stalled final-gate attempt is recorded only in its
+    attempt log, not in final.md; unreadable/non-UTF-8 logs are skipped so
+    the read-only `reverts` verb never raises on them."""
+    texts: list[str] = []
+    for name in sorted(present):
+        if not (name.startswith("final.attempt") and name.endswith(".log")):
+            continue
+        try:
+            texts.append((iter_dir / name).read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            continue
+    return tuple(texts)
+
 
 def _classify_revert_from_verdicts(review: str, test: str) -> str:
     """Classify a bare-sentinel revert from its stage verdicts (pure, total).
@@ -18805,9 +18874,10 @@ class RevertSummary:
         env = sum(1 for r in self.records if r.retry_class == "environmental")
         rev = sum(1 for r in self.records if r.retry_class == "review")
         tst = sum(1 for r in self.records if r.retry_class == "test")
+        gate = sum(1 for r in self.records if r.retry_class == "gate")
         unk = sum(1 for r in self.records if r.retry_class == "unknown")
         totals = (f"  total {self.total}  environmental {env}  review {rev}"
-                  f"  test {tst}  unknown {unk}")
+                  f"  test {tst}  gate {gate}  unknown {unk}")
         rows = [
             f"  [iter {r.iteration:03d}] {r.retry_class}  {r.reason}"
             for r in self.records
@@ -18855,7 +18925,12 @@ def gather_reverts(cfg: ProductConfig,
     and the reason becomes `reviewer=<REVIEW> tester=<TEST|absent>`. That tag
     is never fed to `_classify_revert`: its "reviewer"/"tester" words would
     keyword-match `review`/`test`. A dir with neither file keeps `""` and
-    `unknown`.
+    `unknown`. When the verdicts alone say `environmental` (APPROVE + PASS),
+    `_final_gate_evidence` decides instead from final.md and the dir's
+    `final.attempt*.log` texts: a failed gate item -> `gate` (the gate caught
+    what reviewer and tester missed; not retry-safe), positive
+    kill/push/auth/network evidence -> `environmental`, else `unknown`. The
+    reason tag is unchanged.
 
     Read-only, creates no directories. A missing or unreadable `cfg.state`
     yields a summary with no records and exit_code 2. Reads through the
@@ -18907,6 +18982,9 @@ def gather_reverts(cfg: ProductConfig,
                         if report is not None else "")
                 reason = f"reviewer={review} tester={test or 'absent'}"
                 retry_class = _classify_revert_from_verdicts(review, test)
+                if retry_class == "environmental":
+                    retry_class = _final_gate_evidence(
+                        text, _final_attempt_log_texts(iter_dir, present))
         records.append(RevertRecord(
             iteration=n, reason=reason, retry_class=retry_class))
     records.reverse()

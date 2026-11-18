@@ -24,7 +24,7 @@ import foundry  # noqa: E402
 
 TEST_TOKENS = ("PASS", "RED", "UNFINISHED", "BLOCKED", "NONE", "")
 REVIEW_TOKENS = ("APPROVE", "CHANGES_REQUIRED", "NONE")
-VALID = {"environmental", "review", "test", "unknown"}
+VALID = {"environmental", "review", "test", "gate", "unknown"}
 
 
 def _cls(review, test):
@@ -124,13 +124,15 @@ class TestEB1to4PureClassifier:
 # EB5-10 -- gather_reverts fallback over tmp fixtures
 # ==========================================================================
 class TestEB5to10GatherFallback:
-    def test_eb5_bare_sentinel_approve_pass_environmental(self, tmp_path):
+    # iter 547 (OPERATOR 2026-11-18 pin): a bare APPROVE + PASS revert with no
+    # failed gate item and no kill/push/auth/network evidence is `unknown`.
+    def test_eb5_bare_sentinel_approve_pass_no_evidence_unknown(self, tmp_path):
         cfg, _, state = _cfg(tmp_path)
         _iter_dir(state, 1, reviewer="VERDICT: APPROVE",
                   testers={"tester.md": "RESULT: PASS"})
         rec = _only(foundry.gather_reverts(cfg))
         assert rec.iteration == 1
-        assert rec.retry_class == "environmental"
+        assert rec.retry_class == "unknown"
         assert rec.reason == "reviewer=APPROVE tester=PASS"
 
     def test_eb6_changes_required_no_tester_review(self, tmp_path):
@@ -146,7 +148,7 @@ class TestEB5to10GatherFallback:
                   testers={"tester.md": "RESULT: FAIL",
                            "tester2.md": "RESULT: PASS"})
         rec = _only(foundry.gather_reverts(cfg))
-        assert rec.retry_class == "environmental"
+        assert rec.retry_class == "unknown"  # iter 547: no gate/kill evidence
         assert rec.reason == "reviewer=APPROVE tester=PASS"
 
     def test_eb7_single_failing_round_is_test(self, tmp_path):
@@ -262,7 +264,7 @@ class TestEB11CLI:
         assert got == [
             (3, "unknown", ""),
             (2, "review", "reviewer=CHANGES_REQUIRED tester=absent"),
-            (1, "environmental", "reviewer=APPROVE tester=PASS"),
+            (1, "unknown", "reviewer=APPROVE tester=PASS"),  # iter 547
         ]
         assert doc["total"] == 3
 
@@ -271,7 +273,7 @@ class TestEB11CLI:
         p = _cli("--config", cfg_path)
         assert p.returncode == 0, p.stderr
         lines = [ln.strip() for ln in p.stdout.splitlines()]
-        assert ("total 3  environmental 1  review 1  test 0  unknown 1"
+        assert ("total 3  environmental 0  review 1  test 0  gate 0  unknown 2"
                 in lines), p.stdout
 
     def test_gather_is_read_only(self, tmp_path):
@@ -293,7 +295,7 @@ class TestEB11CLI:
         assert rc == 0
         classes = [r["retry_class"]
                    for r in json.loads(out.getvalue())["records"]]
-        assert classes == ["unknown", "review", "environmental"]
+        assert classes == ["unknown", "review", "unknown"]  # iter 547
 
 
 # ==========================================================================
