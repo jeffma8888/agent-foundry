@@ -15,7 +15,9 @@ Spec: products/_platform/state/iter-154/pm.md, Expected Behaviors 1-8.
      only 4 TRACKED ones -- so the oracle passed on this machine and failed in the
      fresh clone post-release verification builds. The fixture is now built by the
      test, so the floor cannot depend on any ambient tree.
-  3. CHEAP: 20 consecutive real-tree calls finish in < 5.0 s wall clock.
+  3. CHEAP: 20 consecutive real-tree calls spawn exactly 40 git processes
+     (status + ls-files each). [HOTFIX iter 548] This was a 5.0 s wall-clock
+     budget that CPU contention flaked; it now asserts work done, not seconds.
   4. KNOWN-POSITIVE: a new git-visible (not-ignored) file makes it compare UNEQUAL.
   5. KNOWN-POSITIVE: an in-place edit of a committed tracked file -> UNEQUAL.
   6. KNOWN-POSITIVE: a staged addition (`git add`) -> UNEQUAL.
@@ -56,7 +58,6 @@ import os
 import pathlib
 import subprocess
 import sys
-import time
 
 import pytest
 
@@ -69,7 +70,6 @@ _T61_SRC = _ROOT / "tests" / "test_iter61_behavior.py"
 _REAL_PRODUCTS = _ROOT / "products"
 _REPR_CEILING = 20000
 _CALLS = 20
-_CALLS_BUDGET_S = 5.0
 # behavior 2's hermetic fixture sizes: a 75x spread in files-on-disk that the snapshot
 # must not notice at all. Measured build cost of the pair: 0.40 s (0.01 s + 0.39 s).
 _BULK_SUBDIR = "state/bulk"
@@ -232,15 +232,43 @@ def test_b2_snapshot_is_bounded_not_a_byte_walk(tmp_path):
 
 
 # ---------------------------------------------------------------- behavior 3
-def test_b3_snapshot_is_cheap():
+def test_b3_snapshot_is_cheap(monkeypatch):
+    """CHEAP, asserted as WORK DONE rather than seconds (iter 548 de-flake).
+
+    WHY: the original 5.0 s wall-clock budget went red in iter 547's post-release
+    under CPU contention (load 23.8 on 12 cores) with no defect. A git-spawn count
+    is a constant no machine load can flake, and it still turns red on the real
+    regression this guards against: a per-file walk or an extra git layer.
+    """
     snap = _snap()
-    start = time.monotonic()
+    real_run = subprocess.run
+    argvs: list[list[str]] = []
+
+    def _counting_run(argv, *args, **kwargs):
+        argvs.append(list(argv))
+        return real_run(argv, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", _counting_run)
+    last = None
     for _ in range(_CALLS):
-        snap(_REAL_PRODUCTS)
-    elapsed = time.monotonic() - start
-    assert elapsed < _CALLS_BUDGET_S, (
-        f"iter-154 behavior 3: {_CALLS} real-tree snapshots took {elapsed:.2f}s, "
-        f"over the {_CALLS_BUDGET_S}s budget"
+        last = snap(_REAL_PRODUCTS)
+    monkeypatch.undo()
+    expected = 2 * _CALLS
+    assert len(argvs) == expected, (
+        f"iter-154 behavior 3: {_CALLS} real-tree snapshots spawned {len(argvs)} "
+        f"subprocess.run calls, expected exactly {expected} (2 git calls per snapshot)"
+    )
+    assert all(a and a[0] == "git" for a in argvs), (
+        f"iter-154 behavior 3: every spawn must be git, got {argvs[:4]!r}"
+    )
+    assert tuple(a[1] for a in argvs) == ("status", "ls-files") * _CALLS, (
+        f"iter-154 behavior 3: git subcommand sequence drifted: "
+        f"{tuple(a[1] for a in argvs)[:6]!r}"
+    )
+    assert isinstance(last, tuple) and len(last) == 2 and all(
+        isinstance(part, tuple) for part in last), (
+        f"iter-154 behavior 3: the wrapper must call through to real snapshots, "
+        f"got {type(last).__name__}"
     )
 
 

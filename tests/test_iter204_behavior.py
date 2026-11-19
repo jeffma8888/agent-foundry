@@ -1367,6 +1367,12 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # newest-ness pin touched: `newest_ness_pin_sites` over that
                 # file is `()` at HEAD AND in the worktree.
                 "tests/test_iter546_behavior.py",
+                # iter 548: FORCED de-flake (OPERATOR 2026-11-18b). b3's 5.0 s
+                # wall budget is replaced by a git-spawn count (2 per snapshot),
+                # which no CPU load can flake. No newest-ness pin touched:
+                # `newest_ness_pin_sites` over that file is `()` at HEAD AND in
+                # the worktree.
+                "tests/test_iter154_behavior.py",
                 # iter 544: SPEED-ONLY re-implementation of iter 541's `_defs`
                 # (split once via `_shared.split_source_lines` + `source_segment`,
                 # memoized per source text) -- the stdlib segment call was

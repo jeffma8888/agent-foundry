@@ -10973,6 +10973,22 @@ def clear_speed_story_flag(cfg: ProductConfig) -> None:
     speed_story_flag_path(cfg).unlink(missing_ok=True)
 
 
+def _load_avg_text() -> str:
+    """Render the machine load as `a/b/c (N cores)`, or `n/a` (iter 548).
+
+    WHY: a post-release BROKEN under heavy CPU contention looks identical to a
+    real defect; recording the 1/5/15-minute load lets the operator tell the
+    two apart from the artifact alone. Never raises -- `os.getloadavg` is
+    absent on some platforms and raises OSError when the load is unobtainable.
+    """
+    try:
+        one, five, fifteen = os.getloadavg()
+    except (OSError, AttributeError):
+        return "n/a"
+    cores = os.cpu_count()
+    return f"{one:.2f}/{five:.2f}/{fifteen:.2f} ({'?' if cores is None else cores} cores)"
+
+
 def _write_postrelease_artifact(artifact: pathlib.Path, expected_sha: str,
                                 result: "PostReleaseResult") -> None:
     """Write the per-iteration `postrelease.md` sentinel artifact.
@@ -10981,7 +10997,8 @@ def _write_postrelease_artifact(artifact: pathlib.Path, expected_sha: str,
     `VERDICT:`/`RESULT:`/`ACTION:` sentinel-line contract so the verdict is
     greppable and machine-readable. The body carries the pushed sha, the
     fresh-clone suite wall-time (`suite_seconds`, `n/a` when the test command
-    did not run), and the verdict detail for a human reading the artifact.
+    did not run), the machine load (`load_avg`, so a BROKEN shows whether it ran
+    under CPU contention), and the verdict detail for a human reading it.
     """
     secs = ("n/a" if result.test_seconds is None
             else f"{result.test_seconds:.2f}")
@@ -10989,6 +11006,7 @@ def _write_postrelease_artifact(artifact: pathlib.Path, expected_sha: str,
         f"# Post-release fresh-clone verification -- pushed sha {expected_sha}\n\n"
         f"- skipped_infra: {result.skipped_infra}\n"
         f"- suite_seconds: {secs}\n"
+        f"- load_avg: {_load_avg_text()}\n"
         f"- detail: {result.detail}\n"
         f"{_failure_bullets('failing tests:', result.failures)}\n"
         f"{result.sentinel}\n")

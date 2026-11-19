@@ -379,6 +379,7 @@ in the archive.
 - iter 545 -- docs: ARCHITECTURE §3 says a revert keeps approved work (capture -> RESUMABLE flag -> reset).
 - iter 546 -- DX: `reverts` classifies a bare-sentinel revert from its reviewer/tester verdicts.
 - iter 547 -- OPERATOR pin: `reverts` says `gate` when final.md names a failed gate item, not `environmental`.
+- iter 548 -- HOTFIX (OPERATOR pin): test_iter154 b3 counts git spawns, not seconds; postrelease.md logs load_avg.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

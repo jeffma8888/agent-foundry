@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-548
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- OPERATOR 2026-11-18b pin (the hotfix): test_iter154 b3 asserts work done plus a CPU-seconds bound instead of wall seconds, and postrelease.md records `- load_avg:`
+    - Candidate A2 -- `status` explains a BROKEN post-release: one extra text line naming the last ship's failing test(s) and its recorded load
+    - Candidate A3 -- `foundry company-reverts [--config foundry.config.json] [--limit N] [--json]`: the fleet revert inventory, the first real consumer of `reverts`
+    - Candidate B1 -- OPERATOR 2026-11-18b pin (the hotfix): test_iter154 b3 drops its 5.0 s wall budget for a work-done assertion (exactly 2 git spawns per snapshot), and postrelease.md records `- load_avg:`
+    - Candidate B2 -- item (q) scan group: the 5 AST-identical "clean / ATTENTION / no enabled products" `verdict` properties become ONE `_company_scan_verdict(rollup)`, assigned `verdict = property(_company_scan_verdict)`
+    - Candidate B3 -- item (q) informational group: History/Timing/Events' errors-first `exit_code` becomes ONE `_company_errors_first_exit_code(rollup)`, assigned `exit_code = property(...)` in each class body
+    winner: B1
+    ship: pending (not yet decided)
   iter-547
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- OPERATOR 2026-11-18 pin: `reverts` labels a bare-sentinel APPROVE+PASS revert `gate` when final.md names a failed gate item, `environmental` only on positive kill evidence, else `unknown`
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry company-reverts [--config foundry.config.json] [--limit N] [--json]`: the fleet revert inventory, so the per-product `reverts` verb gets its first real consumer and the 11-18 pin's retirement check becomes one command
     - Candidate B3 -- `new-product --setup-cmd CMD`, and the scaffold always writes `setup_cmd` explicitly, so onboarding a non-Python repo stops producing an iteration 1 that preship is guaranteed to revert
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 2cb5b77
   iter-546
     lenses: new-capability, hardening/DX
     - Candidate A1 -- `company-changelog --since` and `company-events --since` in ONE bite: the fleet's weekly "what shipped / what happened" report
@@ -2770,4 +2780,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-278 scouted iterations
+279 scouted iterations
