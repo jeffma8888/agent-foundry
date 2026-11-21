@@ -295,9 +295,20 @@ def test_b6_pm_card_edit_is_insert_only():
     assert ops <= {"equal", "insert"}, ops
 
 
+def _pre_ship_scope_live():
+    """True only while iter 541's own ledger row is not yet in HEAD's roadmap.
+
+    WHY: "no other role card differs" is a worktree scope check for iter 541's
+    edit. Once 541 ships, a LATER iteration's legitimate role-card edit must
+    not turn it red (the test_iter379 pattern; iter 550 gated it)."""
+    return "- iter 541 " not in (_head("PLATFORM_ROADMAP.md") or "")
+
+
 def test_b6_no_other_role_card_differs():
     if _head("roles/pm.md") is None:
         pytest.skip("no git HEAD available")
+    if not _pre_ship_scope_live():
+        pytest.skip("iter 541 already shipped; scope check is inert")
     proc = subprocess.run(["git", "-C", str(REPO), "status", "--porcelain", "--", "roles"],
                           capture_output=True, text=True, timeout=30)
     assert proc.returncode == 0

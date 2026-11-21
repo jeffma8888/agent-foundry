@@ -1359,6 +1359,8 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # pattern) and skips once shipped. No newest-ness pin touched:
                 # `newest_ness_pin_sites` over each file is `()` at HEAD AND in
                 # the worktree.
+                # iter 550 ALSO scope-gates iter 544's two b6 HEAD diffs of
+                # test_iter541 (same pattern, same `()` pin-site result).
                 "tests/test_iter544_behavior.py",
                 "tests/test_iter545_behavior.py",
                 # iter 547: FORCED re-pin (OPERATOR 2026-11-18). A bare APPROVE +
@@ -1373,6 +1375,31 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # `newest_ness_pin_sites` over that file is `()` at HEAD AND in
                 # the worktree.
                 "tests/test_iter154_behavior.py",
+                # iter 550: FORCED re-pin (OPERATOR 2026-11-18c). `to_dict()`
+                # gains a 9th key, `failing_tests`, so b15's key set and count
+                # move from 8 to 9. No newest-ness pin touched:
+                # `newest_ness_pin_sites` over that file is `()` at HEAD AND in
+                # the worktree.
+                "tests/test_iter198_behavior.py",
+                # iter 550: FORCED re-pin (OPERATOR 2026-11-18c). A BROKEN now
+                # lists its failing ids: b3 asserts `carry` differs from `plain`
+                # ONLY by `failing_tests` and its render block; b8 counts 9
+                # keys. No newest-ness pin touched: `newest_ness_pin_sites` over
+                # that file is `()` at HEAD AND in the worktree.
+                "tests/test_iter517_behavior.py",
+                # iter 550: FORCED scope-gate (the test_iter379 pattern). b8's
+                # "only iter 548's defs changed vs HEAD" check now skips once
+                # HEAD's roadmap carries `- iter 548 `, so a later code edit no
+                # longer turns it red. No newest-ness pin touched:
+                # `newest_ness_pin_sites` over that file is `()` at HEAD AND in
+                # the worktree.
+                "tests/test_iter548_behavior.py",
+                # iter 550 ALSO edits it: FORCED scope-gate (the test_iter379
+                # pattern). b6's "no role card but pm.md differs" check now
+                # skips once HEAD's roadmap carries `- iter 541 `, so the
+                # roles/tester.md H1 edit no longer turns it red. The row stays
+                # LAST (iter 544 b9). `newest_ness_pin_sites` over that file is
+                # `()` at HEAD AND in the worktree.
                 # iter 544: SPEED-ONLY re-implementation of iter 541's `_defs`
                 # (split once via `_shared.split_source_lines` + `source_segment`,
                 # memoized per source text) -- the stdlib segment call was

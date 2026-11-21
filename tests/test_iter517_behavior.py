@@ -334,9 +334,20 @@ def test_b3_to_dict_eight_keys_and_render_byte_identical():
                 verified_sha=SHA, worktree_scope="s")
     plain = foundry.PreshipResult(**base)
     carry = foundry.PreshipResult(**base, suite_output=HEAD_OUT)
-    assert carry.to_dict() == plain.to_dict()
-    assert len(carry.to_dict()) == 8 and "suite_output" not in carry.to_dict()
-    assert carry.render() == plain.render()
+    # iter 550 (OPERATOR 2026-11-18c): a BROKEN now lists its failing ids, so
+    # `carry` differs from `plain` ONLY in `failing_tests` and in the render
+    # lines between `  exit code:` and the sentinel.
+    cd, pd = carry.to_dict(), plain.to_dict()
+    assert cd["failing_tests"] == list(foundry.test_failure_lines(HEAD_OUT))
+    assert pd["failing_tests"] == []
+    assert {k: v for k, v in cd.items() if k != "failing_tests"} == \
+        {k: v for k, v in pd.items() if k != "failing_tests"}
+    assert len(cd) == 9 and "suite_output" not in cd
+    cr, pr = carry.render().splitlines(), plain.render().splitlines()
+    cut = pr.index(next(l for l in pr if l.startswith("  exit code:"))) + 1
+    assert cr[:cut] == pr[:cut] and cr[-1] == pr[-1] == pr[cut]
+    assert cr[cut:-1] == foundry._failure_bullets(
+        "failing tests:", foundry.test_failure_lines(HEAD_OUT)).splitlines()
     assert carry == plain
     assert "test_one.py" not in repr(carry)
 
@@ -545,7 +556,7 @@ def test_b8_incident_detail_names_parent_interp_count_and_lines(monkeypatch, tmp
     d = json.loads(out)
     assert rc == 2
     assert d["exit_code"] == 2 and d["incomplete"] is True and d["verified"] is False
-    assert len(d) == 8, sorted(d)
+    assert len(d) == 9, sorted(d)  # iter 550: + `failing_tests`
     det = d["detail"]
     assert det.startswith("the declared suite FAILED inside a clean local clone, but its "
                           "PARENT"), det

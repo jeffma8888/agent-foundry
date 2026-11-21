@@ -87,6 +87,9 @@ A test you ADD this iteration must not do any of these three things:
   or at ship time (for example `DIRECTIONS.md:68`). HEAD moves the moment the ship
   commits, and the loop rewrites DIRECTIONS.md after you. Anchor on a heading or a
   substring read at test time instead.
+  Never diff against a `git show HEAD:<file>` baseline either (_platform 549): once
+  the ship commits, HEAD already holds your change. Compare to a fixed literal, or
+  skip once HEAD's roadmap carries `- iter N `.
 - H2 ASSERT A WALL-CLOCK RATIO: no elapsed-time bound or throughput ratio inside the
   suite. The suite runs in parallel on a loaded machine (gql 93: 0.69 < 0.80, green
   when run alone). Count calls through a seam or assert a structural bound instead.

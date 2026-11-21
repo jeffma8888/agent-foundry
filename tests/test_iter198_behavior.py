@@ -529,9 +529,11 @@ def test_b14_a_missing_diagnostic_prints_unknown_not_none(sha, scope) -> None:
 # ==========================================================================
 def test_b15_to_dict_has_exactly_the_eight_keys() -> None:
     d = _res(sha=SHA, scope="clean -- x").to_dict()
+    # iter 550 (OPERATOR 2026-11-18c): `failing_tests` appended as the 9th key.
     assert set(d) == {"verified", "incomplete", "exit_code", "detail", "sentinel",
-                      "test_seconds", "verified_sha", "worktree_scope"}, sorted(d)
-    assert len(d) == 8, d
+                      "test_seconds", "verified_sha", "worktree_scope",
+                      "failing_tests"}, sorted(d)
+    assert len(d) == 9, d
 
 
 def test_b15_the_six_existing_keys_keep_their_values() -> None:
@@ -554,8 +556,10 @@ def test_b15_to_dict_round_trips_through_json(sha, scope) -> None:
 def test_b15_json_cli_form_carries_both_new_keys(monkeypatch, tmp_path) -> None:
     rc, out = _cli(monkeypatch, tmp_path, as_json=True)
     doc = json.loads(out)
+    # iter 550 (OPERATOR 2026-11-18c): `failing_tests` appended as the 9th key.
     assert set(doc) == {"verified", "incomplete", "exit_code", "detail", "sentinel",
-                        "test_seconds", "verified_sha", "worktree_scope"}, sorted(doc)
+                        "test_seconds", "verified_sha", "worktree_scope",
+                        "failing_tests"}, sorted(doc)
     assert doc["worktree_scope"] == "2 file(s) uncommitted vs HEAD; 1 file changed, " \
                                     "2 insertions(+)", doc
     assert out.count("PRESHIP:") == 1, out

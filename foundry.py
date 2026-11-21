@@ -11232,6 +11232,22 @@ class PreshipResult:
             return "PRESHIP: VERIFIED"
         return "PRESHIP: INCOMPLETE" if self.incomplete else "PRESHIP: BROKEN"
 
+    @property
+    def failing_tests(self) -> tuple[str, ...]:
+        """The clone suite's failure ids, ONLY on a BROKEN (exit 1) verdict.
+
+        WHY: a red-suite BROKEN used to carry just `PRESHIP_SUITE_FAILED_DETAIL`,
+        so the final gate could not tell a known flake on main from a defect in
+        the tree. Derived (not a field) so the pinned field order/count stays
+        put, and kept OUT of `detail` because `_preship_parent_leg` compares
+        `detail` to that constant. Capped exactly as post-release caps its list
+        (`test_failure_lines`). INCOMPLETE/VERIFIED -> `()`: the parent-leg
+        INCOMPLETE already names its ids in `detail`.
+        """
+        if self.exit_code != 1:
+            return ()
+        return test_failure_lines(self.suite_output)
+
     def render(self) -> str:
         """Deterministic multi-line human report that NEVER raises.
 
@@ -11243,6 +11259,9 @@ class PreshipResult:
                    else f"{self.test_seconds:.2f}s")
         sha = "unknown" if self.verified_sha is None else self.verified_sha
         scope = "unknown" if self.worktree_scope is None else self.worktree_scope
+        # `_failure_bullets` returns "" when there are no ids, so a report
+        # without failures stays byte-identical to its pre-iter-550 form.
+        bullets = _failure_bullets("failing tests:", self.failing_tests)
         return "\n".join([
             "foundry preship (local-clone re-verification)",
             f"  verified:      {self.verified}",
@@ -11252,6 +11271,7 @@ class PreshipResult:
             f"  worktree:      {scope}",
             f"  detail:        {self.detail}",
             f"  exit code:     {self.exit_code}",
+            *bullets.splitlines(),
             self.sentinel,
         ])
 
@@ -11268,6 +11288,7 @@ class PreshipResult:
             "test_seconds": self.test_seconds,
             "verified_sha": self.verified_sha,
             "worktree_scope": self.worktree_scope,
+            "failing_tests": list(self.failing_tests),
         }
 
 

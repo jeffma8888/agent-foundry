@@ -401,8 +401,20 @@ def test_b8_load_avg_text_called_only_from_artifact_writer():
     assert callers == {"_write_postrelease_artifact"}, callers
 
 
+def _pre_ship_scope_live():
+    """True only while iter 548's own ledger row is not yet in HEAD's roadmap.
+
+    WHY: "only the allowed defs changed vs HEAD" is a scope check for THIS
+    iteration's edit. Once 548 ships, HEAD carries its row and a LATER
+    iteration's legitimate code edit must not turn this red (the test_iter379
+    pattern; iter 550 gated it)."""
+    return "- iter 548 " not in _head_text("PLATFORM_ROADMAP.md")
+
+
 @needs_git
 def test_b8_changed_defs_within_allowed_set():
+    if not _pre_ship_scope_live():
+        pytest.skip("iter 548 already shipped; scope check is inert")
     head = _top_defs(_head_text("foundry.py"))
     work = _top_defs(_FOUNDRY.read_text(encoding="utf-8"))
     changed = {n for n in set(head) | set(work) if head.get(n) != work.get(n)}

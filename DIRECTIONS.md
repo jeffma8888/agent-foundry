@@ -1,6 +1,26 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-550
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- OPERATOR 2026-11-18c pin RETRY: preship BROKEN names its failing tests (re-apply state/iter-549/IMPLEMENTATION.patch; eb6 compares against a fixed literal, never `git show HEAD:`)
+    - Candidate A2 -- the suite schedules with `--dist worksteal` (one `addopts` token in pyproject.toml)
+    - Candidate A3 -- test_iter43 b8, the suite's single slowest test (10.21 s), computes `company-weak-tests` under ONE shared `TEST_TREE_CACHE` scope for its human and `--json` calls
+    - Candidate B1 -- OPERATOR 2026-11-18c pin RETRY: preship BROKEN names its failing tests. Re-land it from reflog commit 89776b1 (not the tester-less IMPLEMENTATION.patch), and rewrite eb6 against a fixed literal
+    - Candidate B2 -- final.md's revert path saves the doomed tree BEFORE its reset, and ARCHITECTURE §3 says so, pinned by a card-vs-code order test
+    - Candidate B3 -- tester.md SHIP HAZARDS adds the two newest self-breaking shapes (H4 `git show HEAD:` baseline, H5 untracked-file census) and replaces the stale "Three tests" count with a test-checked list
+    winner: B1
+    ship: pending (not yet decided)
+  iter-549
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- OPERATOR 2026-11-18c pin: preship BROKEN lists its failing test ids, reusing post-release's `test_failure_lines` + `_failure_bullets`
+    - Candidate A2 -- the five byte-identical "clean / ATTENTION / no enabled products" scan `verdict` properties become one `_company_scan_verdict`
+    - Candidate A3 -- the four "OK / ERRORS / no enabled products" informational `verdict` properties become one `_company_info_verdict`
+    - Candidate B1 -- OPERATOR 2026-11-18c pin: preship BROKEN lists its failing test ids, reusing post-release's `test_failure_lines` + `_failure_bullets`
+    - Candidate B2 -- the suite schedules with `--dist worksteal`: one pyproject token, about -18% wall on every one of the 5+ suite runs per iteration
+    - Candidate B3 -- delete test_iter502 eb2, a pytest-inside-pytest duplicate of a test the suite already collects directly
+    winner: A1
+    ship: REVERTED
   iter-548
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- OPERATOR 2026-11-18b pin (the hotfix): test_iter154 b3 asserts work done plus a CPU-seconds bound instead of wall seconds, and postrelease.md records `- load_avg:`
@@ -10,7 +30,7 @@ foundry directions -- _platform
     - Candidate B2 -- item (q) scan group: the 5 AST-identical "clean / ATTENTION / no enabled products" `verdict` properties become ONE `_company_scan_verdict(rollup)`, assigned `verdict = property(_company_scan_verdict)`
     - Candidate B3 -- item (q) informational group: History/Timing/Events' errors-first `exit_code` becomes ONE `_company_errors_first_exit_code(rollup)`, assigned `exit_code = property(...)` in each class body
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED c4f2616
   iter-547
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- OPERATOR 2026-11-18 pin: `reverts` labels a bare-sentinel APPROVE+PASS revert `gate` when final.md names a failed gate item, `environmental` only on positive kill evidence, else `unknown`
@@ -2780,4 +2800,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-279 scouted iterations
+281 scouted iterations
