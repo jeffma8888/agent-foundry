@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-553
+    lenses: hardening/DX, integration-and-adoption
+    - Candidate A1 -- OPERATOR 11-21b bite 2: preship sizes its budget per product with `commit_check_budget(gather_timing(cfg))`; roles/final.md says STAGE_TIMEOUT 1800 and never skip preship for stage time
+    - Candidate A2 -- the budget ceiling stops claiming a "600 s stage cap": derive `COMMIT_CHECK_BUDGET_CEILING_SECONDS` from STAGE_TIMEOUT so radar's measured 531 s suite fits
+    - Candidate A3 -- preship's parent-drift leg gets the same per-product budget: a flat 180 s `PRESHIP_PARENT_BUDGET_SECONDS` can never finish radar's or repolens's suite, so the iter-517 machine-vs-tree check is dead code there
+    - Candidate B1 -- OPERATOR 11-21b bite 2: `preship_cli` sizes its budget with `commit_check_budget(gather_timing(cfg).measured_seconds)`; roles/final.md cites STAGE_TIMEOUT 1800 and says preship is never skipped for stage time
+    - Candidate B2 -- `history` shows each ship's preship verdict from final.md, so "shipped with no clean-clone check" becomes visible in the ledger operators already run
+    - Candidate B3 -- `timing` / `company-timing` print the live clean-clone budget the sizer grants, so no pin, card or final ever quotes a stale budget again
+    winner: A1
+    ship: pending (not yet decided)
   iter-552
     lenses: new-capability, hardening/DX
     - Candidate A1 -- OPERATOR 2026-11-21b pin: commit-check reports the tree's ledger key and sizes its budget per product from post-release suite times, and a same-key GREEN replaces preship at the final gate
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `capture_abort_patch` reads its diff through `worktree_patch_text` instead of the stripping `git()` helper, so an abort rescue is never a corrupt patch
     - Candidate B3 -- final.md's revert path stops hand-resetting: it un-commits with `reset --soft` to the base, and the loop's own `revert_repo` then captures, flags RESUMABLE and hard-resets
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 1361fef
   iter-551
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- OPERATOR 2026-11-21 pin: a verb commits the worktree, untracked files included, into a throwaway clone and runs the declared suite there, and tester.md step 2's one full-suite run becomes that run
@@ -2820,4 +2830,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-283 scouted iterations
+284 scouted iterations

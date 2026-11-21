@@ -12176,7 +12176,7 @@ def probe_worktree_scope(repo) -> str | None:
 
 
 def verify_local_clone(cfg: "ProductConfig", expected_sha: str,
-                       clone_dir) -> "PreshipResult":
+                       clone_dir, budget: float | None = None) -> "PreshipResult":
     """Re-verify the LOCAL commit at `expected_sha` from a throwaway clone.
 
     Clones `str(cfg.repo)` -- the filesystem path of the product repo itself, so
@@ -12189,8 +12189,9 @@ def verify_local_clone(cfg: "ProductConfig", expected_sha: str,
     clone, `cfg.setup_cmd`, `cfg.test_cmd`, then a `rev-parse HEAD` sha check,
     each inside the clone, each routed through the `run_cmd` seam.
 
-    Budget: `PRESHIP_BUDGET_SECONDS` is read at CALL time, `_monotonic()` is
-    taken on entry, and the remaining budget is recomputed before EVERY command.
+    Budget: `budget` when given (iter 553: `preship_cli` passes a per-product
+    size from `preship_budget` only when it beats the floor), else
+    `PRESHIP_BUDGET_SECONDS` read at CALL time; `_monotonic()` is taken on entry, and the remaining budget is recomputed before EVERY command.
     A non-positive remainder issues no further command and returns the
     budget-exhausted verdict; otherwise the remainder is passed as that command's
     explicit `timeout`. So the knob bounds both the total and every step. A
@@ -12208,7 +12209,9 @@ def verify_local_clone(cfg: "ProductConfig", expected_sha: str,
     test_seconds: float | None = None
     suite_output: str | None = None
     result: "PreshipResult"
-    budget = PRESHIP_BUDGET_SECONDS  # module global, read at CALL time
+    sized_budget = budget  # None = the flat global; kept to name it on exhaustion
+    if budget is None:
+        budget = PRESHIP_BUDGET_SECONDS  # module global, read at CALL time
 
     def _remaining() -> float:
         """Seconds of budget left; negative once the deadline has passed."""
@@ -12294,6 +12297,14 @@ def verify_local_clone(cfg: "ProductConfig", expected_sha: str,
         result = dataclasses.replace(result, test_seconds=test_seconds,
                                      suite_output=suite_output,
                                      verified_sha=expected_sha)
+        if budget_exhausted and sized_budget is not None:
+            # `preship_verdict` names the GLOBAL knob, which a sized run did not
+            # use; restate the budget that actually ran out so the INCOMPLETE
+            # detail points at the right lever. The flat path stays byte-identical.
+            result = dataclasses.replace(result, detail=(
+                "pre-ship budget exhausted before the verification finished "
+                f"(sized budget {sized_budget}s); no verdict was reached about "
+                "the tree"))
     except Exception as exc:  # fail-SAFE: cannot decide, so do not bless
         result = PreshipResult(
             False, True,
@@ -12429,6 +12440,35 @@ def _preship_parent_leg(cfg: "ProductConfig", expected_sha: str,
         return result
 
 
+def preship_budget(suite_seconds: object) -> float | None:
+    """Pure: the per-product preship budget, or None to keep the flat global.
+
+    WHY (OPERATOR 11-21b bite 2): radar's and repolens's suites outgrow the flat
+    `PRESHIP_BUDGET_SECONDS`, so finals skipped preship or got INCOMPLETE. This
+    reuses `commit_check_budget` (one sizer, two consumers) but returns a number
+    ONLY when it beats the floor: a floor product then keeps today's exact
+    `verify_local_clone` call, which ~20 positional-only test fakes depend on.
+    Knobs are module globals read at CALL time. Never raises.
+    """
+    try:
+        sized = commit_check_budget(suite_seconds)
+        return sized if sized > float(COMMIT_CHECK_BUDGET_SECONDS) else None
+    except Exception:  # noqa: BLE001 -- an unsizable history keeps the global
+        return None
+
+
+def _preship_cli_budget(cfg: ProductConfig) -> float | None:
+    """The sized preship budget for `cfg`, or None; a history read never raises.
+
+    `gather_timing` reads files only (no `run_cmd`), so calling it cannot shift
+    the scripted command sequences that `preship_cli` tests replay.
+    """
+    try:
+        return preship_budget(gather_timing(cfg).measured_seconds)
+    except Exception:  # noqa: BLE001 -- no readable history is the flat global
+        return None
+
+
 def preship_cli(cfg: ProductConfig, as_json: bool = False) -> int:
     """Gate the commit-to-push window: re-verify HEAD from a local clone.
 
@@ -12457,8 +12497,13 @@ def preship_cli(cfg: ProductConfig, as_json: bool = False) -> int:
             "could not resolve the local HEAD sha to verify against: "
             f"{expected_sha or 'no output'}")
     else:
-        result = verify_local_clone(cfg, expected_sha,
-                                    cfg.state / "preship_clone")
+        sized = _preship_cli_budget(cfg)
+        if sized is None:  # the exact pre-553 call: positional-only fakes rely on it
+            result = verify_local_clone(cfg, expected_sha,
+                                        cfg.state / "preship_clone")
+        else:
+            result = verify_local_clone(cfg, expected_sha,
+                                        cfg.state / "preship_clone", budget=sized)
         # Parent-drift leg (iter 517): the VERB, not the gate's judgement,
         # tells a red tree from a red machine. Total; can only reach exit 2.
         result = _preship_parent_leg(cfg, expected_sha, result)
