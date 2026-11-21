@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-551
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- OPERATOR 2026-11-21 pin: a verb commits the worktree, untracked files included, into a throwaway clone and runs the declared suite there, and tester.md step 2's one full-suite run becomes that run
+    - Candidate A2 -- ARCHITECTURE §3's "A revert keeps approved work" is false for final-gate reverts. roles/final.md's revert path saves the tree before its own reset, and a drift test ties the card to §3
+    - Candidate A3 -- README #50 and final.md's revert evidence learn the iter-550 preship output: the `failing tests:` bullets and the `--json` keys, with a drift test against `PreshipResult.as_json`
+    - Candidate B1 -- OPERATOR 2026-11-21 pin: `foundry commit-check --config P [--json]` commits the worktree, untracked files included, into a throwaway clone and runs the declared suite there, and tester.md step 2's one full-suite run becomes that run
+    - Candidate B2 -- `recoverable` finds a gate-reverted tree in `git reflog`: one `[reflog]` row per unreachable `(foundry iter N)` commit whose final.md ends `ACTION: REVERTED`, naming the sha to `cherry-pick -n`
+    - Candidate B3 -- a weekly goal that expires: an optional `goal_until` (YYYY-MM-DD) stops `goal_line` rendering after that date, and `overlay --set goal_until=...` accepts it
+    winner: A1
+    ship: pending (not yet decided)
   iter-550
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- OPERATOR 2026-11-18c pin RETRY: preship BROKEN names its failing tests (re-apply state/iter-549/IMPLEMENTATION.patch; eb6 compares against a fixed literal, never `git show HEAD:`)
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- final.md's revert path saves the doomed tree BEFORE its reset, and ARCHITECTURE §3 says so, pinned by a card-vs-code order test
     - Candidate B3 -- tester.md SHIP HAZARDS adds the two newest self-breaking shapes (H4 `git show HEAD:` baseline, H5 untracked-file census) and replaces the stale "Three tests" count with a test-checked list
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED c4d080c
   iter-549
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- OPERATOR 2026-11-18c pin: preship BROKEN lists its failing test ids, reusing post-release's `test_failure_lines` + `_failure_bullets`
@@ -2800,4 +2810,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-281 scouted iterations
+282 scouted iterations

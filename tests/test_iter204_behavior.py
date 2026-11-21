@@ -1297,6 +1297,10 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # own and its read of iter 362's pin) stepped to 66. No
                 # newest-ness pin touched: `newest_ness_pin_sites` over that file
                 # is `()` at HEAD AND in the worktree.
+                # iter 551 ALSO edits it: `commit-check` takes the census 67 -> 68
+                # (b11's literal and its read of iter 362's pin), as does iter
+                # 362's EXPECTED_VERB_COUNT and iter 503's b13. No newest-ness pin
+                # touched in any of the three.
                 "tests/test_iter497_behavior.py",
                 # iter 505: FORCED re-pins. `merge_local_overlay` now DROPS an
                 # overlay push escalation at load time, so iter 504's two b12
@@ -1394,6 +1398,18 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # `newest_ness_pin_sites` over that file is `()` at HEAD AND in
                 # the worktree.
                 "tests/test_iter548_behavior.py",
+                # iter 551: FORCED re-pin (OPERATOR 2026-11-21). roles/tester.md
+                # step 2 gains `commit-check`, so b2's `role_card_verbs` pin
+                # moves to ("commit-check", "test-quality"). No newest-ness pin
+                # touched: `newest_ness_pin_sites` over that file is `()` at
+                # HEAD AND in the worktree.
+                "tests/test_iter421_behavior.py",
+                # iter 551: FORCED re-pin (OPERATOR 2026-11-21). b6[tester]'s
+                # `role_card_verbs` pin gains `commit-check`; the reviewer param
+                # is unchanged. No newest-ness pin touched:
+                # `newest_ness_pin_sites` over that file is `()` at HEAD AND in
+                # the worktree.
+                "tests/test_iter538_behavior.py",
                 # iter 550 ALSO edits it: FORCED scope-gate (the test_iter379
                 # pattern). b6's "no role card but pm.md differs" check now
                 # skips once HEAD's roadmap carries `- iter 541 `, so the

@@ -52,6 +52,7 @@ the tool result behind every claim or cut the claim.
    not. The scan takes under a second on one module, so it never delays a
    checkpoint, and the Reviewer runs BEFORE you, so this scan is yours alone.
 2. Run the FULL suite (the quality-check command from Context).
+   Run it as `python3 <checkout>/foundry.py commit-check --config <PRODUCT_CONFIG>`: it commits the worktree, untracked files included, in a throwaway clone and runs that suite there. That run IS your one decisive full-suite run, so do NOT also run the plain suite; report its `COMMIT-CHECK:` sentinel and every failing test it names.
 3. Write your output file (`tester.md` in the state dir):
    - the isolation statement
    - what you tested per behavior (numbered, matching the spec)

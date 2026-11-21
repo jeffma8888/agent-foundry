@@ -12479,6 +12479,241 @@ def preship_cli(cfg: ProductConfig, as_json: bool = False) -> int:
           if as_json else result.render())
     return result.exit_code
 
+# --------------------------------------------------------------------------- #
+# `foundry commit-check` (iter 551, OPERATOR 2026-11-21 pin): run the declared
+# suite on the worktree AS IT WOULD BE COMMITTED, while the tester can still fix
+# it. `preship` re-verifies HEAD only, so it sees "green in the worktree, red
+# once committed" (a test keyed on `git show HEAD:`, an untracked test missed by
+# a `git ls-files` census) only AFTER the gate commit, when it can only revert.
+# This verb commits the source worktree -- untracked non-ignored files included
+# -- inside a throwaway local clone and runs the suite THERE. DORMANT: no
+# pipeline call site; roles/tester.md invokes it by hand. Preship is unchanged.
+# --------------------------------------------------------------------------- #
+# Same reasoning and default as `PRESHIP_BUDGET_SECONDS` (one clone + one cold
+# setup + one full suite), but a separate knob so tuning one never moves the
+# other gate. Exhausting it is INCOMPLETE (exit 2), never RED.
+COMMIT_CHECK_BUDGET_SECONDS: float = 240.0
+
+# Cap on the step output echoed into an INCOMPLETE detail: enough to name the
+# git error, never enough to bloat the tester's report.
+COMMIT_CHECK_DETAIL_MAX_CHARS = 300
+
+
+@dataclasses.dataclass(frozen=True)
+class CommitCheckResult:
+    """Outcome of one `commit_check` run; every view derives from these fields.
+
+    `exit_code` is the single decision (0 green / 1 red / 2 could not decide);
+    `verdict`, `sentinel`, `render()` and `to_dict()` are all derived from it,
+    so text mode, `--json` and the process exit code can never disagree.
+    `failing_tests` is non-empty only on a RED verdict.
+    """
+    exit_code: int
+    detail: str
+    failing_tests: tuple[str, ...] = ()
+    test_seconds: float | None = None
+
+    @property
+    def verdict(self) -> str:
+        """`GREEN` / `RED` / `INCOMPLETE`, keyed on `exit_code` alone."""
+        return {0: "GREEN", 1: "RED"}.get(self.exit_code, "INCOMPLETE")
+
+    @property
+    def sentinel(self) -> str:
+        """The one greppable verdict line that closes the text report."""
+        return f"COMMIT-CHECK: {self.verdict}"
+
+    def render(self) -> str:
+        """Detail-then-sentinel report: the LAST non-empty line is the sentinel."""
+        seconds = ("n/a" if self.test_seconds is None
+                   else f"{self.test_seconds:.2f}s")
+        bullets = _failure_bullets("failing tests:", self.failing_tests)
+        return "\n".join([
+            "foundry commit-check (worktree committed in a throwaway clone)",
+            f"  suite wall:    {seconds}",
+            f"  detail:        {self.detail}",
+            f"  exit code:     {self.exit_code}",
+            *bullets.splitlines(),
+            self.sentinel,
+        ])
+
+    def to_dict(self) -> dict:
+        """JSON-native payload with exactly the five documented keys."""
+        return {
+            "verdict": self.verdict,
+            "exit_code": self.exit_code,
+            "detail": self.detail,
+            "failing_tests": list(self.failing_tests),
+            "test_seconds": self.test_seconds,
+        }
+
+
+def _commit_check_step_failed(step: str, out: str) -> "CommitCheckResult":
+    """INCOMPLETE naming the step that stopped the run, with a capped echo."""
+    echo = " ".join(str(out or "").split())[:COMMIT_CHECK_DETAIL_MAX_CHARS]
+    return CommitCheckResult(
+        2, f"step {step} failed, no verdict: {echo or 'no output'}")
+
+
+def _mirror_source_excludes(repo, clone_dir) -> None:
+    """Copy the SOURCE repo's `.git/info/exclude` into the clone's git dir.
+
+    WHY: `--git-dir=<clone>/.git` makes git read the CLONE's `info/exclude`,
+    not the source's, so files the source hides there (this repo hides
+    `dispatcher.out` and whole untracked product dirs) would be staged and
+    committed, and the suite would go RED on a tree nobody would ever commit.
+    Measured on this repo before the fix: 3 false failures. A no-op when the
+    source has no such FILE (a linked worktree's `.git` is a file, not a dir).
+    The destination's parents are created so a scripted `run_cmd` that made
+    no real clone still gets a consistent, cleanup-owned directory.
+    """
+    src = pathlib.Path(repo) / ".git" / "info" / "exclude"
+    if not src.is_file():
+        return
+    dst = pathlib.Path(clone_dir) / ".git" / "info" / "exclude"
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, dst)
+
+
+def _clear_clone_worktree(clone_dir) -> None:
+    """Delete every entry of the clone's worktree except its `.git` dir.
+
+    WHY: step `stage` (`--git-dir=<clone>/.git --work-tree=<repo> add -A`)
+    drops a source-DELETED tracked file from the clone's INDEX while the
+    clone's own copy stays on disk, so `reset --hard` then treats that copy as
+    UNTRACKED and leaves it: the suite would run a stale file (a deleted
+    failing test gives a false RED; a deleted imported module, a false GREEN).
+    Emptying the worktree before `materialize` makes `reset --hard` rebuild it
+    from the commit alone. A file operation, so the command sequence is
+    unchanged. A no-op unless `<clone>/.git` is a directory, so it can never
+    touch a directory that is not a clone.
+    """
+    root = pathlib.Path(clone_dir)
+    if not (root / ".git").is_dir():
+        return
+    for entry in root.iterdir():
+        if entry.name == ".git":
+            continue
+        if entry.is_dir() and not entry.is_symlink():
+            shutil.rmtree(entry)
+        else:
+            entry.unlink()
+
+
+def commit_check(cfg: "ProductConfig", clone_dir) -> "CommitCheckResult":
+    """Commit the SOURCE worktree inside a throwaway clone and run the suite there.
+
+    WHY: the tester's worktree suite cannot see a failure that exists only once
+    the tree is committed; preship sees it but can only revert. Steps, each via
+    the bare `run_cmd` seam, each stopping the run on failure:
+    clone `cfg.repo` (local path, no network); `git --git-dir=<clone>/.git
+    --work-tree=<repo> add -A` stages the source's tracked edits, deletions and
+    untracked non-ignored files into the CLONE's index (the source `.gitignore`
+    applies, and so does its `.git/info/exclude`, mirrored into the clone right
+    after the clone by `_mirror_source_excludes`); commit and `reset --hard` inside
+    the clone, with the clone's worktree emptied in between by
+    `_clear_clone_worktree` so a source deletion is reflected on disk too;
+    the same pairing's `status --porcelain` must be EMPTY, proving the
+    commit equals the worktree; then `cfg.setup_cmd` and `cfg.test_cmd` in the
+    clone. The source index and refs are never written: only the clone's are.
+
+    Budget: `COMMIT_CHECK_BUDGET_SECONDS` is read at CALL time and the remainder
+    is recomputed before EVERY command and passed as its timeout. A suite that
+    fails having used its whole slice is budget-attributable, so INCOMPLETE,
+    never RED. Any seam exception is INCOMPLETE with its repr; never raises.
+    `_try_cleanup_clone` runs before the clone and on every exit path.
+    """
+    budget = COMMIT_CHECK_BUDGET_SECONDS  # module global, read at CALL time
+    repo, clone = str(cfg.repo), str(clone_dir)
+    pair = [f"--git-dir={clone}/.git", f"--work-tree={repo}"]
+    git_steps = [
+        ("clone", ["git", "clone", repo, clone]),
+        ("stage", ["git", *pair, "add", "-A"]),
+        ("commit", ["git", "-C", clone, "-c", "user.name=foundry",
+                    "-c", "user.email=foundry@localhost", "commit", "-q",
+                    "--allow-empty", "-m", "commit-check"]),
+        ("materialize", ["git", "-C", clone, "reset", "-q", "--hard"]),
+        ("scope", ["git", *pair, "status", "--porcelain"]),
+    ]
+    try:
+        started = _monotonic()
+        _try_cleanup_clone(clone_dir)
+
+        def _granted() -> int | None:
+            """Whole-second slice for the next command; None once exhausted."""
+            rem = budget - (_monotonic() - started)
+            return preship_step_timeout(rem) if rem > 0 else None
+
+        def _exhausted(step: str) -> "CommitCheckResult":
+            """INCOMPLETE: the knob ran out before `step` could start."""
+            return CommitCheckResult(
+                2, f"budget exhausted before step {step} "
+                   f"(COMMIT_CHECK_BUDGET_SECONDS={budget}); no verdict")
+
+        for step, argv in git_steps:
+            granted = _granted()
+            if granted is None:
+                return _exhausted(step)
+            res = run_cmd(argv, timeout=granted)
+            if not res.ok:
+                return _commit_check_step_failed(step, res.out)
+            if step == "clone":
+                _mirror_source_excludes(repo, clone_dir)
+            if step == "commit":
+                _clear_clone_worktree(clone_dir)
+            if step == "scope" and res.out.strip():
+                return _commit_check_step_failed(
+                    step, "the committed tree differs from the worktree: "
+                          + res.out)
+
+        granted = _granted()
+        if granted is None:
+            return _exhausted("setup")
+        res = run_cmd(shlex.split(cfg.setup_cmd), cwd=clone_dir,
+                      timeout=granted)
+        if not res.ok:
+            return _commit_check_step_failed("setup", res.out)
+
+        granted = _granted()
+        if granted is None:
+            return _exhausted("suite")
+        t0 = _monotonic()
+        suite = run_cmd(shlex.split(cfg.test_cmd), cwd=clone_dir,
+                        timeout=granted)
+        seconds = _monotonic() - t0
+        if suite.ok:
+            return CommitCheckResult(
+                0, "the worktree, committed in a clean clone, passes the "
+                   "declared suite", test_seconds=seconds)
+        if seconds >= granted:
+            return CommitCheckResult(
+                2, f"the suite used its whole {granted}s slice "
+                   f"(COMMIT_CHECK_BUDGET_SECONDS={budget}); no verdict",
+                test_seconds=seconds)
+        return CommitCheckResult(
+            1, "the worktree, committed in a clean clone, FAILS the declared "
+               "suite", failing_tests=test_failure_lines(suite.out),
+            test_seconds=seconds)
+    except Exception as exc:  # fail-SAFE: cannot decide, so never green
+        return CommitCheckResult(
+            2, f"commit-check errored, treated as INCOMPLETE: {exc!r}")
+    finally:
+        _try_cleanup_clone(clone_dir)
+
+
+def commit_check_cli(cfg: ProductConfig, as_json: bool = False) -> int:
+    """Print `commit_check`'s verdict (text or one `--json` document).
+
+    The clone lives at `cfg.state / "commit_check_clone"`, under the already
+    git-ignored `products/*/state/`, so it can never leak into a ship diff and
+    `add -A` from the source worktree never stages it. Returns the verdict's
+    exit code: 0 green / 1 red / 2 could not decide.
+    """
+    result = commit_check(cfg, cfg.state / "commit_check_clone")
+    print(json.dumps(result.to_dict(), indent=2)
+          if as_json else result.render())
+    return result.exit_code
+
 
 # --------------------------------------------------------------------------- #
 # Read-only company-health probe (roadmap item 12 -- `foundry status`).
@@ -31496,6 +31731,18 @@ def main(argv: list[str] | None = None) -> int:
                      help="emit the verdict as one JSON document "
                           "(machine-readable) instead of the human report; "
                           "same 0/1/2 exit code")
+    # `commit-check` (iter 551) commits the SOURCE worktree, untracked files
+    # included, inside a throwaway clone and runs the declared suite there, so
+    # the tester sees the committed tree's verdict while it can still fix it.
+    # DORMANT: the pipeline never calls it; roles/tester.md invokes it by hand.
+    # Exit 0 green / 1 red (failing ids named) / 2 could not decide.
+    ccp = sub.add_parser("commit-check")
+    ccp.add_argument("--config", required=True,
+                     help="path to product JSON config")
+    ccp.add_argument("--json", action="store_true",
+                     help="emit the verdict as one JSON document "
+                          "(machine-readable) instead of the human report; "
+                          "same 0/1/2 exit code")
     # `company-status` rolls up EVERY enabled dispatch team's iter-16
     # `status` health into ONE company verdict. Its `--config` points at the
     # DISPATCH config (`foundry.config.json`), NOT a product config, and it
@@ -32074,6 +32321,8 @@ def main(argv: list[str] | None = None) -> int:
         return events_cli(cfg, kind=args.kind, limit=args.limit, as_json=args.json)
     if args.cmd == "preship":
         return preship_cli(cfg, as_json=args.json)
+    if args.cmd == "commit-check":
+        return commit_check_cli(cfg, as_json=args.json)
     if args.cmd == "once":
         res = run_iteration(cfg)
         print(json.dumps(res))

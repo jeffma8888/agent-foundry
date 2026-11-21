@@ -218,7 +218,9 @@ def test_b5_no_preship_in_either_card(card):
 
 @pytest.mark.parametrize("card", [TESTER, REVIEWER], ids=["tester", "reviewer"])
 def test_b6_role_card_verbs_unchanged(card):
-    assert foundry.role_card_verbs(card.read_text(encoding="utf-8")) == ("test-quality",)
+    # iter 551: FORCED re-pin -- the tester card's step 2 gained `commit-check`.
+    expected = ("commit-check", "test-quality") if card == TESTER else ("test-quality",)
+    assert foundry.role_card_verbs(card.read_text(encoding="utf-8")) == expected
 
 
 def test_b6_role_card_verbs_discriminates():

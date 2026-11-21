@@ -278,7 +278,9 @@ def test_b1_duty_2_and_duty_3_keep_their_text():
 # ==========================================================================
 def test_b2_tester_card_names_exactly_the_test_quality_verb():
     verbs = foundry.role_card_verbs(TESTER_CARD.read_text())
-    assert verbs == (VERB,), f"roles/tester.md must name exactly {VERB!r}; got {verbs!r}"
+    # iter 551: FORCED re-pin -- step 2 now runs the suite via `commit-check`.
+    expected = ("commit-check", VERB)
+    assert verbs == expected, f"roles/tester.md must name exactly {expected!r}; got {verbs!r}"
 
 
 def test_b2_tester_card_has_no_verb_gap_against_the_live_cli():
