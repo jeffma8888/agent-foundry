@@ -1410,6 +1410,11 @@ def test_b15_only_the_three_expected_test_files_differ_from_head():
                 # `newest_ness_pin_sites` over that file is `()` at HEAD AND in
                 # the worktree.
                 "tests/test_iter538_behavior.py",
+                # iter 552: FORCED re-pin (OPERATOR 2026-11-21b). The CLI JSON
+                # doc gains `tree_key` + `budget_seconds` (b7 key set) and the
+                # tree-key read precedes the clone (b7 clone-dir pin finds the
+                # first clone call). No newest-ness pin touched.
+                "tests/test_iter551_behavior.py",
                 # iter 550 ALSO edits it: FORCED scope-gate (the test_iter379
                 # pattern). b6's "no role card but pm.md differs" check now
                 # skips once HEAD's roadmap carries `- iter 541 `, so the

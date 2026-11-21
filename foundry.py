@@ -39,6 +39,7 @@ import difflib
 import functools
 import hashlib
 import json
+import math
 import os
 import pathlib
 import re
@@ -12498,6 +12499,56 @@ COMMIT_CHECK_BUDGET_SECONDS: float = 240.0
 # git error, never enough to bloat the tester's report.
 COMMIT_CHECK_DETAIL_MAX_CHARS = 300
 
+# Per-product sizing (iter 552, OPERATOR 2026-11-21b): a flat 240 s cannot fit
+# radar, whose post-release suite alone runs 200-241 s. The budget is
+# ceil(FACTOR * max(last WINDOW measured suite seconds) + MARGIN), clamped to
+# [COMMIT_CHECK_BUDGET_SECONDS, COMMIT_CHECK_BUDGET_CEILING_SECONDS]; the
+# ceiling keeps one run well inside the 600 s stage cap.
+COMMIT_CHECK_BUDGET_WINDOW = 8
+COMMIT_CHECK_BUDGET_FACTOR = 1.25
+COMMIT_CHECK_BUDGET_MARGIN_SECONDS = 60.0
+COMMIT_CHECK_BUDGET_CEILING_SECONDS = 480.0
+
+
+def _budget_sample(value: object) -> float | None:
+    """One measured suite time as a finite non-negative float, else None.
+
+    WHY: post-release history is hand-parsed text, so a bool, None, string,
+    NaN, inf, negative or float-overflowing int must drop out rather than
+    poison the max (a single inf would pin every run to the ceiling).
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        num = float(value)
+    except (OverflowError, ValueError):
+        return None
+    return num if math.isfinite(num) and num >= 0 else None
+
+
+def commit_check_budget(suite_seconds: object) -> float:
+    """Pure: size the commit-check budget from measured post-release suite times.
+
+    WHY: radar's suite alone takes 200-241 s, so the flat floor makes every
+    radar run INCOMPLETE. Only the LAST `COMMIT_CHECK_BUDGET_WINDOW` valid
+    samples count, so an old outlier ages out; the result is clamped to
+    [floor, ceiling] so one slow run can never grant more than a stage holds.
+    Every knob is a module global read at CALL time. Never raises.
+    """
+    floor = float(COMMIT_CHECK_BUDGET_SECONDS)
+    try:
+        samples = [_budget_sample(v) for v in suite_seconds]  # type: ignore[union-attr]
+    except Exception:  # noqa: BLE001 -- None / non-iterable history is "no history"
+        samples = []
+    valid = [v for v in samples if v is not None]
+    window = int(COMMIT_CHECK_BUDGET_WINDOW)
+    recent = valid[-window:] if window > 0 else []
+    if not recent:
+        return floor
+    sized = float(math.ceil(COMMIT_CHECK_BUDGET_FACTOR * max(recent)
+                            + COMMIT_CHECK_BUDGET_MARGIN_SECONDS))
+    return min(float(COMMIT_CHECK_BUDGET_CEILING_SECONDS), max(floor, sized))
+
 
 @dataclasses.dataclass(frozen=True)
 class CommitCheckResult:
@@ -12600,7 +12651,8 @@ def _clear_clone_worktree(clone_dir) -> None:
             entry.unlink()
 
 
-def commit_check(cfg: "ProductConfig", clone_dir) -> "CommitCheckResult":
+def commit_check(cfg: "ProductConfig", clone_dir,
+                 budget: float | None = None) -> "CommitCheckResult":
     """Commit the SOURCE worktree inside a throwaway clone and run the suite there.
 
     WHY: the tester's worktree suite cannot see a failure that exists only once
@@ -12617,13 +12669,15 @@ def commit_check(cfg: "ProductConfig", clone_dir) -> "CommitCheckResult":
     commit equals the worktree; then `cfg.setup_cmd` and `cfg.test_cmd` in the
     clone. The source index and refs are never written: only the clone's are.
 
-    Budget: `COMMIT_CHECK_BUDGET_SECONDS` is read at CALL time and the remainder
+    Budget: `budget` (the CLI passes `commit_check_budget`'s per-product size);
+    when None, `COMMIT_CHECK_BUDGET_SECONDS` is read at CALL time. The remainder
     is recomputed before EVERY command and passed as its timeout. A suite that
     fails having used its whole slice is budget-attributable, so INCOMPLETE,
     never RED. Any seam exception is INCOMPLETE with its repr; never raises.
     `_try_cleanup_clone` runs before the clone and on every exit path.
     """
-    budget = COMMIT_CHECK_BUDGET_SECONDS  # module global, read at CALL time
+    if budget is None:
+        budget = COMMIT_CHECK_BUDGET_SECONDS  # module global, read at CALL time
     repo, clone = str(cfg.repo), str(clone_dir)
     pair = [f"--git-dir={clone}/.git", f"--work-tree={repo}"]
     git_steps = [
@@ -12708,10 +12762,48 @@ def commit_check_cli(cfg: ProductConfig, as_json: bool = False) -> int:
     git-ignored `products/*/state/`, so it can never leak into a ship diff and
     `add -A` from the source worktree never stages it. Returns the verdict's
     exit code: 0 green / 1 red / 2 could not decide.
+
+    The budget is sized per product from `gather_timing`'s post-release suite
+    seconds (the floor when that read fails). The source tree's ledger key is
+    read BEFORE and AFTER the run: equal keys are reported (byte-identical to
+    `foundry ledger-key`), so a later gate can match a GREEN to the exact tree
+    it ships; differing keys void the verdict to INCOMPLETE, because the
+    verdict no longer describes one tree; an unreadable key is UNKNOWN and
+    leaves the verdict alone.
     """
-    result = commit_check(cfg, cfg.state / "commit_check_clone")
-    print(json.dumps(result.to_dict(), indent=2)
-          if as_json else result.render())
+    try:
+        budget = commit_check_budget(gather_timing(cfg).measured_seconds)
+    except Exception:  # noqa: BLE001 -- no timing history is the flat floor
+        budget = float(COMMIT_CHECK_BUDGET_SECONDS)
+
+    def _reading() -> tuple[str, int, int] | str:
+        try:
+            return _ledger_tree_reading(cfg)
+        except Exception as exc:  # noqa: BLE001 -- unreadable key, not a crash
+            return f"key read errored: {exc!r}"
+
+    before = _reading()
+    result = commit_check(cfg, cfg.state / "commit_check_clone", budget=budget)
+    after = _reading()
+    tree_key: str | None = None
+    if isinstance(before, tuple) and isinstance(after, tuple):
+        if before[0] == after[0]:
+            tree_key = before[0]
+            key_line = tree_key
+        else:
+            result = CommitCheckResult(
+                2, "the worktree changed during the run (tree key before != "
+                   "after); no verdict", test_seconds=result.test_seconds)
+            key_line = "UNKNOWN -- worktree changed during the run"
+    else:
+        key_line = "UNKNOWN -- " + (before if isinstance(before, str) else after)
+    if as_json:
+        print(json.dumps({**result.to_dict(), "tree_key": tree_key,
+                          "budget_seconds": budget}, indent=2))
+    else:
+        lines = result.render().splitlines()
+        lines[-1:-1] = [f"  budget:        {budget:.0f}s", f"  tree key:      {key_line}"]
+        print("\n".join(lines))
     return result.exit_code
 
 

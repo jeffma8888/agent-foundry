@@ -350,7 +350,10 @@ def test_b7_json_document(tmp_path, monkeypatch, mode, code, verdict):
     _install(monkeypatch, cfg, **kw)
     rc, out = _run_cli(cfg, as_json=True)
     doc = json.loads(out)
-    assert set(doc) == {"verdict", "exit_code", "detail", "failing_tests", "test_seconds"}
+    # iter 552: FORCED re-pin (OPERATOR 2026-11-21b) -- the CLI doc gains
+    # `tree_key` and `budget_seconds`; `to_dict()` itself keeps its five keys.
+    assert set(doc) == {"verdict", "exit_code", "detail", "failing_tests", "test_seconds",
+                        "tree_key", "budget_seconds"}
     assert rc == code and doc["exit_code"] == code and doc["verdict"] == verdict
     assert isinstance(doc["failing_tests"], list)
     if code == 1:
@@ -364,7 +367,10 @@ def test_b7_cli_clone_dir_is_under_state(tmp_path, monkeypatch):
     h = _install(monkeypatch, cfg)
     _run_cli(cfg)
     want = str(pathlib.Path(cfg.state) / "commit_check_clone")
-    assert h.calls[0]["argv"] == ["git", "clone", str(cfg.repo), want]
+    # iter 552: FORCED re-pin -- the CLI reads the tree key before the run, so
+    # the clone is the first CLONE call, no longer calls[0].
+    clones = [c for c in h.calls if c["kind"] == "clone"]
+    assert clones[0]["argv"] == ["git", "clone", str(cfg.repo), want]
 
 
 # ==========================================================================

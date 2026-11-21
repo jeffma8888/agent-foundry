@@ -382,6 +382,7 @@ in the archive.
 - iter 548 -- HOTFIX (OPERATOR pin): test_iter154 b3 counts git spawns, not seconds; postrelease.md logs load_avg.
 - iter 550 -- OPERATOR pin: preship BROKEN lists its failing test ids in text and --json (`failing_tests`).
 - iter 551 -- OPERATOR pin: `commit-check` runs the suite on the worktree committed in a throwaway clone.
+- iter 552 -- OPERATOR pin bite 1: commit-check sizes its budget per product and reports the tree key.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

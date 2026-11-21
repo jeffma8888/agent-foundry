@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-552
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- OPERATOR 2026-11-21b pin: commit-check reports the tree's ledger key and sizes its budget per product from post-release suite times, and a same-key GREEN replaces preship at the final gate
+    - Candidate A2 -- `foundry unverified-ships --config P [--limit N] [--json]`: list the PUSHED iterations that reached origin with no clean-clone evidence
+    - Candidate A3 -- `foundry gate-fit --config P [--json]`: forecast whether the final gate's clean-clone verification fits the stage cap before a ship skips it
+    - Candidate B1 -- OPERATOR 2026-11-21b pin: commit-check's budget is sized per product, tester.md says INCOMPLETE is no verdict, and final.md accepts a same-key GREEN in place of preship
+    - Candidate B2 -- `capture_abort_patch` reads its diff through `worktree_patch_text` instead of the stripping `git()` helper, so an abort rescue is never a corrupt patch
+    - Candidate B3 -- final.md's revert path stops hand-resetting: it un-commits with `reset --soft` to the base, and the loop's own `revert_repo` then captures, flags RESUMABLE and hard-resets
+    winner: A1
+    ship: pending (not yet decided)
   iter-551
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- OPERATOR 2026-11-21 pin: a verb commits the worktree, untracked files included, into a throwaway clone and runs the declared suite there, and tester.md step 2's one full-suite run becomes that run
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `recoverable` finds a gate-reverted tree in `git reflog`: one `[reflog]` row per unreachable `(foundry iter N)` commit whose final.md ends `ACTION: REVERTED`, naming the sha to `cherry-pick -n`
     - Candidate B3 -- a weekly goal that expires: an optional `goal_until` (YYYY-MM-DD) stops `goal_line` rendering after that date, and `overlay --set goal_until=...` accepts it
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 179cbf9
   iter-550
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- OPERATOR 2026-11-18c pin RETRY: preship BROKEN names its failing tests (re-apply state/iter-549/IMPLEMENTATION.patch; eb6 compares against a fixed literal, never `git show HEAD:`)
@@ -2810,4 +2820,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-282 scouted iterations
+283 scouted iterations

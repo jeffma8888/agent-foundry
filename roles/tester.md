@@ -53,6 +53,7 @@ the tool result behind every claim or cut the claim.
    checkpoint, and the Reviewer runs BEFORE you, so this scan is yours alone.
 2. Run the FULL suite (the quality-check command from Context).
    Run it as `python3 <checkout>/foundry.py commit-check --config <PRODUCT_CONFIG>`: it commits the worktree, untracked files included, in a throwaway clone and runs that suite there. That run IS your one decisive full-suite run, so do NOT also run the plain suite; report its `COMMIT-CHECK:` sentinel and every failing test it names.
+   `COMMIT-CHECK: INCOMPLETE` is NO verdict: the machine or the budget stopped it, not the tree. Never write `RESULT: FAIL` on it; run the plain suite (the quality-check command) ONCE instead and report that as your full-suite outcome. On GREEN, copy its `tree key:` line verbatim into your report.
 3. Write your output file (`tester.md` in the state dir):
    - the isolation statement
    - what you tested per behavior (numbered, matching the spec)
