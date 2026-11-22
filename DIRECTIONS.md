@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-554
+    lenses: integration-and-adoption, simplification-and-deletion
+    - Candidate A1 -- OPERATOR 2026-11-21c pin: `test_failure_lines` also keeps tsc `<file>(<l>,<c>): error TS<n>:` lines, so a typecheck-red suite names its failure in preship, commit-check and post-release
+    - Candidate A2 -- `history` (and `--json`) show each shipped iteration's preship verdict from its final.md, so "shipped with no clean-clone check" shows in the ledger operators already run
+    - Candidate A3 -- `new-product` on-ramp writes `setup_cmd` explicitly: add a `--setup-cmd CMD` flag, and when the flag is omitted infer the command from the repo's lockfile/manifest (`pyproject.toml` -> `uv sync`, `package-lock.json` -> `npm ci`, `package.json` -> `npm install`)
+    - Candidate B0 -- OPERATOR 2026-11-21c pin: `test_failure_lines` also keeps tsc `<file>(<l>,<c>): error TS<n>:` lines (display helper only)
+    - Candidate B1 -- `test_quality_cli` stops carrying the 9th private copy of the thin-printer body: `return _thin_gather_cli(gather_test_quality, cfg, files, as_json)`
+    - Candidate B2 -- one ACTION-line reader: `parse_ship_action` and `parse_ship_sha` share a private `_ship_action_tokens(text) -> list[str]` instead of two copies of the last-non-empty-line rule
+    winner: A1
+    ship: pending (not yet decided)
   iter-553
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- OPERATOR 11-21b bite 2: preship sizes its budget per product with `commit_check_budget(gather_timing(cfg))`; roles/final.md says STAGE_TIMEOUT 1800 and never skip preship for stage time
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `history` shows each ship's preship verdict from final.md, so "shipped with no clean-clone check" becomes visible in the ledger operators already run
     - Candidate B3 -- `timing` / `company-timing` print the live clean-clone budget the sizer grants, so no pin, card or final ever quotes a stale budget again
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED b137278
   iter-552
     lenses: new-capability, hardening/DX
     - Candidate A1 -- OPERATOR 2026-11-21b pin: commit-check reports the tree's ledger key and sizes its budget per product from post-release suite times, and a same-key GREEN replaces preship at the final gate
@@ -2830,4 +2840,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-284 scouted iterations
+285 scouted iterations

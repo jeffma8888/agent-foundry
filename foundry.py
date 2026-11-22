@@ -10630,15 +10630,22 @@ TEST_FAILURE_LINE_MAX = 300
 # descriptions in a different order/numbering yield equal kept lines (iter 524).
 _TAP_NOT_OK_NUMBER_RE = re.compile(r"^not ok \d+(?=\s|$)")
 
+# tsc's non-pretty diagnostic `<file>(<line>,<col>): error TS<n>: <msg>`
+# (OPERATOR 2026-11-21c). DISPLAY ONLY: kept by `test_failure_lines`, never by
+# `failure_summary_line`, so the preship parent-leg oracle is unchanged.
+_TSC_ERROR_LINE_RE = re.compile(r"^\S.*\(\d+,\d+\): error TS\d+: ")
+
 
 def failure_summary_line(line: str) -> str | None:
     """The kept, normalised failure-summary form of ONE output line, or None.
 
     WHY one shared predicate: `test_failure_lines` (display) and
     `failing_summary_set` (the preship parent-leg oracle) must never disagree
-    about which lines name a failure, and both were pytest-only, so a vitest or
-    node product always gave an empty set and the iter-517 parent leg could
-    never fire there (OPERATOR 2026-11-10). Matching is by SHAPE, not keyed on
+    about which RUNNER lines name a failure (tsc `error TS<n>` lines are
+    DISPLAY-only: `test_failure_lines` keeps them via `_display_failure_line`,
+    this oracle predicate never does -- OPERATOR 2026-11-21c), and both were
+    pytest-only, so a vitest or node product always gave an empty set and the
+    iter-517 parent leg could never fire there (OPERATOR 2026-11-10). Matching is by SHAPE, not keyed on
     `test_cmd`, because a real `test_cmd` (`sh -c 'npm test ...'`) need not name
     its runner. Three shapes, all case-sensitive on the left-stripped line:
     pytest `FAILED `/`ERROR ` and vitest `FAIL ` (trailing space required, so
@@ -10660,8 +10667,27 @@ def failure_summary_line(line: str) -> str | None:
         return None
 
 
+def _display_failure_line(line: str) -> str | None:
+    """`failure_summary_line`, plus a stripped tsc error line (display only).
+
+    WHY a wrapper instead of widening `failure_summary_line`: that predicate
+    also feeds `failing_summary_set` -> `preship_parent_drift`, so a new shape
+    there would move a gate verdict. A typecheck-only red (`npm test && npm run
+    typecheck`) used to show an EMPTY failing list; here it names itself while
+    every oracle stays byte-identical. Total: any raise -> None.
+    """
+    kept = failure_summary_line(line)
+    if kept is not None:
+        return kept
+    try:
+        stripped = line.strip()
+        return stripped if _TSC_ERROR_LINE_RE.match(stripped) else None
+    except Exception:
+        return None
+
+
 def test_failure_lines(out: str | None, limit: int = 10) -> tuple[str, ...]:
-    """Extract the failure summary lines (pytest, vitest, TAP) from test output.
+    """Extract the failure summary lines (pytest, vitest, TAP, tsc) from test output.
 
     WHY: `verify_fresh_clone` used to keep only `.ok` from the test command, so
     every BROKEN post-release said just `fresh-clone test suite failed` and the
@@ -10669,14 +10695,16 @@ def test_failure_lines(out: str | None, limit: int = 10) -> tuple[str, ...]:
     a line is kept when `failure_summary_line` keeps it -- pytest `FAILED `/
     `ERROR `, vitest ` FAIL  <file> > <name>`, or TAP `not ok` with its number
     stripped (vitest `×` lines are excluded: they carry per-run timings and
-    duplicate the `FAIL` lines). Kept lines are cut to `TEST_FAILURE_LINE_MAX`
-    chars. Beyond `limit` matches, one trailing `... and N more` element
+    duplicate the `FAIL` lines) -- plus, DISPLAY ONLY via
+    `_display_failure_line`, tsc's non-pretty `<file>(<l>,<c>): error TS<n>: `
+    diagnostics (OPERATOR 2026-11-21c), which `failing_summary_set` never keeps.
+    Kept lines are cut to `TEST_FAILURE_LINE_MAX` chars. Beyond `limit` matches, one trailing `... and N more` element
     stands in for the rest. `None`/`""` -> `()`.
     """
     if not out:
         return ()
     matches = [kept[:TEST_FAILURE_LINE_MAX]
-               for kept in map(failure_summary_line, str(out).splitlines())
+               for kept in map(_display_failure_line, str(out).splitlines())
                if kept is not None]
     if len(matches) <= limit:
         return tuple(matches)

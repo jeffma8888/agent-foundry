@@ -204,6 +204,11 @@ def test_b2_exit_codes_are_zero_one_two():
 
 def test_b2_cli_prints_one_json_document_and_writes_nothing(tmp_path):
     state = _ROOT / "products" / "_platform" / "state"
+    # `load_config` itself creates the gitignored `cfg.state` dir for EVERY verb, so on a
+    # fresh clone its absence is ambient local state, not a property of `losses`. Establish
+    # the precondition here (08-11 rule) instead of depending on test order; the verb must
+    # still add nothing INSIDE it.
+    state.mkdir(parents=True, exist_ok=True)
     before = sorted(p.name for p in state.iterdir()) if state.is_dir() else None
     proc = subprocess.run([sys.executable, "foundry.py", "losses", "--config", PLATFORM_CFG,
                            "--json"], cwd=str(_ROOT), capture_output=True, text=True)
