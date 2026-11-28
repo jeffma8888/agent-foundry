@@ -388,6 +388,7 @@ in the archive.
 - iter 556 -- item (q): 5 scan Company* roll-ups share one `verdict` fn (re-landed from aborted 555).
 - iter 557 -- DX: the PM preserved-work feed omits a patch already landed in HEAD (`git apply -R --check`).
 - iter 558 -- OPERATOR pin 11-27: `test-quality --files` lists a non-`.py` file as `not applicable:`, exit 0.
+- iter 559 -- live-lag reads ship commits from the brain's checkout (`FOUNDRY`), not the product repo.
 
 ### Migration notes (per §6 self-mod guardrail)
 - iters 03, 14, 26, 52 — bodies ARCHIVED verbatim to `PLATFORM_ROADMAP_ARCHIVE.md` under `## Compacted from the index by iter 182`. Append NEW notes here.

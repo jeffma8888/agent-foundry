@@ -23418,8 +23418,16 @@ def live_lag_status(cfg: "ProductConfig",
     read INSIDE the body) so a `monkeypatch.setattr(foundry, ...)` on any of them
     still bites here, which is what keeps the whole report verifiable offline.
 
+    The ship truth is `git_ship_commits(FOUNDRY)` -- the checkout the dispatcher
+    brain imported at launch -- NOT the product repo (`cfg.repo`): the launch is
+    dated from that checkout's `dispatcher.out`, so only ITS commits can be
+    shipped-but-not-live. Reading `cfg.repo` (iter 130-558) made every product
+    whose repo is not the foundry checkout WARN "restart the dispatcher" about its
+    own product-code ships. `FOUNDRY` is read by bare name at CALL time, so a
+    `monkeypatch.setattr(foundry, "FOUNDRY", ...)` redirects it (iter 559).
+
     TOTAL: never raises, never returns `None`. A missing or unreadable log, a
-    bannerless log, a raising seam, a `cfg` with no usable `repo`, and an epoch
+    bannerless log, a raising seam, and an epoch
     `_TS_FMT` cannot even format all degrade to an UNKNOWN status whose
     `unknown_reason` says which. Because UNKNOWN can never reach WARN, no failure
     in here can invent a restart -- which is the whole point of returning the
@@ -23441,8 +23449,9 @@ def live_lag_status(cfg: "ProductConfig",
         # rather than reach `render()`, whose total `stamp` would otherwise emit
         # a sentence with no launch instant in it.
         dt.datetime.fromtimestamp(launch).strftime(_TS_FMT)
-        inert = inert_iterations(launch,
-                                 git_ship_commits(getattr(cfg, "repo", "")))
+        # Ship truth is the brain's OWN checkout, never `cfg.repo`: only a
+        # commit to the code the dispatcher imported can be shipped-not-live.
+        inert = inert_iterations(launch, git_ship_commits(FOUNDRY))
         return summarize_live_lag(launch_epoch=launch, inert=inert)
     except Exception as exc:
         return summarize_live_lag(

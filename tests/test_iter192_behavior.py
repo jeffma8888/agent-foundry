@@ -250,7 +250,11 @@ def test_b2_pm_prompt_is_pre_plus_exactly_the_seam_output(tmp_path,
 
 
 def test_b2_insertion_sits_immediately_before_the_iteration_number_line(
-        tmp_path) -> None:
+        tmp_path, monkeypatch) -> None:
+    # Hermetic (iter 559): the iter-367 drift feed sits between this block and
+    # the iteration line, and its live-lag gauge now reads the REAL foundry
+    # checkout + dispatcher.out, so a stale running brain would WARN into it.
+    monkeypatch.setattr(foundry, "drift_prompt_block", lambda c: "")
     cfg, _ = _opted_in(tmp_path, sub="pos")
     block = foundry.pm_gap_block(cfg, "pm")
     post = _prompt(cfg, "pm")
