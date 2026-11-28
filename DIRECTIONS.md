@@ -1,6 +1,26 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-556
+    lenses: performance-and-throughput, narrative-and-docs
+    - Candidate A1 -- re-land iter 555's aborted company-scan `verdict` collapse from its saved patch instead of re-engineering it
+    - Candidate A2 -- refresh DIRECTIONS.md right after the PM stage (not just before the final), so the tester's GREEN `tree key:` equals the final's key
+    - Candidate A3 -- the final gate carries the tester's same-key commit-check GREEN instead of re-running the worktree suite
+    - Candidate B1 -- commit-check's INCOMPLETE detail stops printing the per-product SIZED budget under the floor knob's name (`COMMIT_CHECK_BUDGET_SECONDS=362.0` while that constant is 240.0)
+    - Candidate B2 -- README #50 and #69 stop describing one flat budget knob: state the per-product sizer the two clean-clone verbs have used since 552/553, plus commit-check's `tree key:` line, with a drift test tied to the constants
+    - Candidate B3 -- README #68 and ARCHITECTURE §3 say where an infra-aborted, never-reviewed tree goes: iter 555's engineered patch is in no `resumable` row and in no line of `recoverable`'s text report
+    winner: A1
+    ship: pending (not yet decided)
+  iter-555
+    lenses: simplification-and-deletion, performance-and-throughput
+    - Candidate A1 -- the 5 identical company-scan `verdict` properties become ONE `_company_scan_verdict`, assigned as `verdict = property(_company_scan_verdict)`
+    - Candidate A2 -- one "last non-empty line starts with PREFIX -> remainder" reader replaces the 4 hand-copies in `_sentinel_token`, `parse_ship_action`, `parse_ship_sha` and `gather_reverts`
+    - Candidate A3 -- delete test_iter502 `test_eb2_the_nested_test_passes_or_skips_with_reason`, which runs a pytest inside pytest to execute a test the suite already collects
+    - Candidate B1 -- the final gate's one decisive full-suite run is `preship` (clean clone at the ship commit); the worktree suite runs only when preship is INCOMPLETE
+    - Candidate B2 -- live-smoke company scans share ONE worker-session `TEST_TREE_CACHE` (conftest `_invoke_main`), so each worker parses each scanned test file once
+    - Candidate B3 -- one cached fresh-interpreter import probe replaces 262 per-module `subprocess.run([sys.executable, "-c", "import foundry, dispatcher"])` spawns
+    winner: A1
+    ship: unknown
   iter-554
     lenses: integration-and-adoption, simplification-and-deletion
     - Candidate A1 -- OPERATOR 2026-11-21c pin: `test_failure_lines` also keeps tsc `<file>(<l>,<c>): error TS<n>:` lines, so a typecheck-red suite names its failure in preship, commit-check and post-release
@@ -10,7 +30,7 @@ foundry directions -- _platform
     - Candidate B1 -- `test_quality_cli` stops carrying the 9th private copy of the thin-printer body: `return _thin_gather_cli(gather_test_quality, cfg, files, as_json)`
     - Candidate B2 -- one ACTION-line reader: `parse_ship_action` and `parse_ship_sha` share a private `_ship_action_tokens(text) -> list[str]` instead of two copies of the last-non-empty-line rule
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED d11ec8a
   iter-553
     lenses: hardening/DX, integration-and-adoption
     - Candidate A1 -- OPERATOR 11-21b bite 2: preship sizes its budget per product with `commit_check_budget(gather_timing(cfg))`; roles/final.md says STAGE_TIMEOUT 1800 and never skip preship for stage time
@@ -2840,4 +2860,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-285 scouted iterations
+287 scouted iterations

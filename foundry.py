@@ -13455,6 +13455,37 @@ def _company_findings_exit_code(rollup: CompanyRollupCounts) -> int:
     return 0
 
 
+def _company_scan_verdict(rollup: CompanyRollupCounts) -> str:
+    """The company `verdict` token the five SCAN roll-ups share (item (q)).
+
+    ONE body for `CompanyWeakTests`, `CompanyConstantAsserts`,
+    `CompanySkippedTests`, `CompanyTestQuality` and `CompanyConfigLint`, each of
+    which assigns it in its OWN class body as
+    `verdict = property(_company_scan_verdict)` (the iter 207 `exit_code`
+    precedent). It replaces five AST-identical hand-copies, each of which claimed
+    to be the ONE source of truth: five copies of one rule means a token fix can
+    land in four of them and the drift is invisible.
+
+    The single human token for the current `exit_code` -- `"clean"` (0) /
+    `"ATTENTION"` (1) / `"no enabled products"` (2). ONE source of truth for both
+    `render()`'s last line and the JSON `verdict` key, so the text and the machine
+    payload can never drift from the exit code. NOTE these are the COMPANY
+    tokens, NOT the per-product ones: not the `SkippedTestSummary` token
+    `"ALWAYS-SKIPPED TESTS FOUND"`, not the `TestQualitySummary` composite tokens
+    (`clean` / `QUALITY ISSUES FOUND` / `nothing to scan`), and not the
+    `ConfigLint` tokens (`OK` / `WARNINGS` / `PROBLEMS`).
+
+    Reads only `exit_code`, so it is indifferent to WHICH exit rule the class
+    uses (`CompanyConfigLint` keeps its own errors-gated `exit_code`). Stays a
+    module-level function rather than a `CompanyRollupCounts` property for the
+    same reason as `_company_findings_exit_code`: iter 153 pins the mixin's
+    property set to exactly the three counts, and the informational roll-ups map
+    their exit codes to DIFFERENT tokens (`OK` / `ERRORS`). Assigned UNANNOTATED
+    so the dataclass decorator never mistakes it for a field.
+    """
+    return {0: "clean", 1: "ATTENTION", 2: "no enabled products"}[rollup.exit_code]
+
+
 def _company_scan_to_dict(rollup: CompanyRollupCounts) -> dict:
     """The JSON payload the three SCANNER roll-ups share (item (q)).
 
@@ -23855,13 +23886,7 @@ class CompanyWeakTests(CompanyRollupCounts):
 
     exit_code = property(_company_findings_exit_code)
 
-    @property
-    def verdict(self) -> str:
-        """The single human token for the current `exit_code` -- `"clean"` (0) /
-        `"ATTENTION"` (1) / `"no enabled products"` (2). ONE source of truth for
-        both `render()`'s last line and the JSON `verdict` key, so the text and
-        the machine payload can never drift from the exit code."""
-        return {0: "clean", 1: "ATTENTION", 2: "no enabled products"}[self.exit_code]
+    verdict = property(_company_scan_verdict)
 
     def _rollup(self) -> str:
         """The company weak-test rollup as a substring: `{files_scanned} files
@@ -24037,13 +24062,7 @@ class CompanyConstantAsserts(CompanyRollupCounts):
 
     exit_code = property(_company_findings_exit_code)
 
-    @property
-    def verdict(self) -> str:
-        """The single human token for the current `exit_code` -- `"clean"` (0) /
-        `"ATTENTION"` (1) / `"no enabled products"` (2). ONE source of truth for
-        both `render()`'s last line and the JSON `verdict` key, so the text and
-        the machine payload can never drift from the exit code."""
-        return {0: "clean", 1: "ATTENTION", 2: "no enabled products"}[self.exit_code]
+    verdict = property(_company_scan_verdict)
 
     def _rollup(self) -> str:
         """The company constant-assert rollup as a substring: `{files_scanned}
@@ -24235,15 +24254,7 @@ class CompanySkippedTests(CompanyRollupCounts):
 
     exit_code = property(_company_findings_exit_code)
 
-    @property
-    def verdict(self) -> str:
-        """The single human token for the current `exit_code` -- `"clean"` (0) /
-        `"ATTENTION"` (1) / `"no enabled products"` (2). ONE source of truth for
-        both `render()`'s last line and the JSON `verdict` key, so the text and
-        the machine payload can never drift from the exit code. NOTE these are the
-        COMPANY tokens, NOT the per-product `SkippedTestSummary` token
-        `"ALWAYS-SKIPPED TESTS FOUND"`."""
-        return {0: "clean", 1: "ATTENTION", 2: "no enabled products"}[self.exit_code]
+    verdict = property(_company_scan_verdict)
 
     def _rollup(self) -> str:
         """The company always-skipped rollup as a substring: `{files_scanned}
@@ -24482,15 +24493,7 @@ class CompanyTestQuality(CompanyRollupCounts):
 
     exit_code = property(_company_findings_exit_code)
 
-    @property
-    def verdict(self) -> str:
-        """The single human token for the current `exit_code` -- `"clean"` (0) /
-        `"ATTENTION"` (1) / `"no enabled products"` (2). ONE source of truth for
-        both `render()`'s last line and the JSON `verdict` key, so the text and
-        the machine payload can never drift from the exit code. NOTE these are the
-        COMPANY tokens, NOT the per-product `TestQualitySummary` composite tokens
-        (`clean` / `QUALITY ISSUES FOUND` / `nothing to scan`)."""
-        return {0: "clean", 1: "ATTENTION", 2: "no enabled products"}[self.exit_code]
+    verdict = property(_company_scan_verdict)
 
     def _rollup(self) -> str:
         """The company composite rollup as a substring: `{files_scanned} files
@@ -24753,15 +24756,7 @@ class CompanyConfigLint(CompanyRollupCounts):
             return 2
         return 0
 
-    @property
-    def verdict(self) -> str:
-        """The single human token for the current `exit_code` -- `"clean"` (0) /
-        `"ATTENTION"` (1) / `"no enabled products"` (2). ONE source of truth for
-        both `render()`'s last line and the JSON `verdict` key, so text and
-        machine payload never drift from the exit code. NOTE these are the COMPANY
-        tokens, NOT the per-product `ConfigLint` tokens (`OK` / `WARNINGS` /
-        `PROBLEMS`)."""
-        return {0: "clean", 1: "ATTENTION", 2: "no enabled products"}[self.exit_code]
+    verdict = property(_company_scan_verdict)
 
     def _rollup(self) -> str:
         """The company rollup as a substring: `{total_errors} config errors,
