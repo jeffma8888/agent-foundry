@@ -15802,6 +15802,14 @@ def pm_recoverable_block(cfg: ProductConfig, stage: str) -> str:
     missing, unreadable or malformed state dir can NEVER crash or alter the PM
     stage. Writes nothing, applies nothing, and gates nothing.
 
+    LANDED ROWS ARE OMITTED (iter 557): a non-`applies` preserved row whose code
+    `recoverable_landed` proves is already in HEAD (ledgers excluded) is dropped
+    and counted on a `landed:` line, because after a successful re-land the
+    window would otherwise tell the next PMs to re-land shipped work. When every
+    preserved row is landed the block is "" (nothing preserved is left); when
+    none is, the block is byte-identical to the pre-iter-557 output. `applies`
+    rows are never probed: a forward-applying patch is by definition not in HEAD.
+
     Its one run-path caller is `build_prompt`, which calls it unconditionally for
     EVERY stage: the stage gate lives HERE, inside the seam, so the call site has
     no branch to get wrong and a monkeypatched seam is reached from every stage.
@@ -15812,9 +15820,91 @@ def pm_recoverable_block(cfg: ProductConfig, stage: str) -> str:
         summary = gather_recoverable(cfg, limit=PM_RECOVERABLE_LIMIT)
         if not summary.preserved_rows:
             return ""
-        return f"{PM_RECOVERABLE_LABEL}\n{summary.render()}\n"
+        excludes = recoverable_ledger_excludes(cfg)
+        landed = [row for row in summary.preserved_rows
+                  if row.verdict != RECOVERABLE_VERDICT_APPLIES
+                  and recoverable_landed(row.path, cfg.repo, excludes)]
+        if not landed:
+            return f"{PM_RECOVERABLE_LABEL}\n{summary.render()}\n"
+        landed_ids = {id(row) for row in landed}
+        kept = recoverable_summary(
+            [row for row in summary.rows if id(row) not in landed_ids], summary.base)
+        if not kept.preserved_rows:
+            return ""
+        return (f"{PM_RECOVERABLE_LABEL}\n"
+                f"landed: {len(landed)} preserved patch(es) already in HEAD, omitted\n"
+                f"{kept.render()}\n")
     except Exception:
         return ""
+
+
+#: One `diff --git a/<X> b/<Y>` section header of a saved patch. Anchored per
+#: line (re.M) and `\r?$`-terminated so a CRLF-saved patch still parses; the
+#: lazy groups never cross a newline because `.` excludes it.
+_RECOVERABLE_DIFF_GIT_RE = re.compile(
+    r"^diff --git a/(?P<a>.+?) b/(?P<b>.+?)\r?$", re.M)
+
+
+def recoverable_patch_paths(text: object) -> tuple[str, ...]:
+    """Every repo path a saved patch's `diff --git` headers name (sorted, unique).
+
+    PURE and TOTAL: a non-`str` or header-less input yields `()`, never a raise.
+    Both the `a/` and `b/` sides are kept because a rename touches two paths and
+    either one may be the non-ledger path that makes a "landed" probe meaningful
+    (see `recoverable_landed`'s all-excluded guard).
+    """
+    if not isinstance(text, str):
+        return ()
+    found: set[str] = set()
+    for match in _RECOVERABLE_DIFF_GIT_RE.finditer(text):
+        found.add(match.group("a"))
+        found.add(match.group("b"))
+    return tuple(sorted(found))
+
+
+def recoverable_ledger_excludes(cfg: ProductConfig) -> tuple[str, ...]:
+    """Basenames a "landed" reverse probe must IGNORE: the ledger files.
+
+    PURE. The roadmap, its `_ARCHIVE.md` twin and DIRECTIONS.md are appended to
+    by EVERY later iteration, so a saved patch's ledger hunks stop
+    reverse-applying long after its code landed -- probing them would grade every
+    re-landed patch "not in HEAD", which is exactly the false re-land invitation
+    this filter removes. Derived from `cfg.roadmap` (not hard-coded) so a product
+    whose roadmap is `PRODUCT.md` excludes its own ledger pair.
+    """
+    roadmap = getattr(cfg, "roadmap", "") or ""
+    names = {"DIRECTIONS.md"}
+    name = pathlib.PurePath(str(roadmap)).name if roadmap else ""
+    if name:
+        names.add(name)
+        names.add(pathlib.PurePath(name).stem + "_ARCHIVE.md")
+    return tuple(sorted(names))
+
+
+def recoverable_landed(path: object, repo: object, excludes: Sequence[str]) -> bool:
+    """True when a saved patch's NON-LEDGER change is already in `repo`'s tree.
+
+    WHY: a three-way/blocked preserved patch may be "unusable" only because a
+    later iteration already re-landed it; `git apply -R --check` (read-only, it
+    applies nothing) succeeding proves the reverse of the change applies, i.e.
+    the change is present. NEVER raises; any doubt reads False, so the feed falls
+    back to showing the row -- the pre-change behaviour, never a hidden loss.
+
+    The all-excluded guard is load-bearing: git exits 0 on a patch whose EVERY
+    path is excluded, so without it a ledger-only patch would read as landed.
+    Those guards cost zero `run_cmd` calls; otherwise exactly ONE probe, reached
+    by bare module name so a monkeypatched `run_cmd` bites.
+    """
+    try:
+        text = pathlib.Path(str(path)).read_text(encoding="utf-8", errors="replace")
+        skip = set(excludes)
+        if not [name for name in recoverable_patch_paths(text) if name not in skip]:
+            return False
+        flags = [f"--exclude={name}" for name in excludes]
+        res = run_cmd(["git", "apply", "-R", "--check", *flags, str(path)], cwd=repo)
+        return bool(res.ok)
+    except Exception:
+        return False
 
 
 # --------------------------------------------------------------------------- #

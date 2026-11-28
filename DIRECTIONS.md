@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-557
+    lenses: narrative-and-docs, new-capability
+    - Candidate A1 -- commit-check's INCOMPLETE detail names the per-product SIZED budget as `sized budget Ns`, not `COMMIT_CHECK_BUDGET_SECONDS=<sized value>`
+    - Candidate A2 -- the six role cards (plus pm.md:131 and README lines 287-313) stop reciting a "~600s per-stage cap" the agent CLI has not enforced since 09-27; they cite STAGE_TIMEOUT like final.md already does, and a test pins it
+    - Candidate A3 -- README #50 and #69 stop describing one flat budget knob: they state the per-product `commit_check_budget` sizer shared since 552/553 and what commit-check's `tree key:` line is, with a test tied to the live constants
+    - Candidate B1 -- `recoverable` learns a `landed` class: a preserved patch whose code paths already reverse-apply on HEAD is reported as consumed, not as "RECOVERABLE, prefer re-landing"
+    - Candidate B2 -- `foundry can-fail --config P --test tests/test_iterNN_behavior.py [--json]`: run the new test file against a `git archive HEAD` copy and report how many of its tests go RED without the change
+    - Candidate B3 -- `foundry reland --config P --iter N [--apply]`: the 4-command verbatim re-land as one checked verb (dry-run by default)
+    winner: B1
+    ship: pending (not yet decided)
   iter-556
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- re-land iter 555's aborted company-scan `verdict` collapse from its saved patch instead of re-engineering it
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- README #50 and #69 stop describing one flat budget knob: state the per-product sizer the two clean-clone verbs have used since 552/553, plus commit-check's `tree key:` line, with a drift test tied to the constants
     - Candidate B3 -- README #68 and ARCHITECTURE §3 say where an infra-aborted, never-reviewed tree goes: iter 555's engineered patch is in no `resumable` row and in no line of `recoverable`'s text report
     winner: A1
-    ship: pending (not yet decided)
+    ship: PUSHED 4eb51ce
   iter-555
     lenses: simplification-and-deletion, performance-and-throughput
     - Candidate A1 -- the 5 identical company-scan `verdict` properties become ONE `_company_scan_verdict`, assigned as `verdict = property(_company_scan_verdict)`
@@ -2860,4 +2870,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-287 scouted iterations
+288 scouted iterations
