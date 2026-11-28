@@ -1,6 +1,16 @@
 # Foundry directions
 
 foundry directions -- _platform
+  iter-558
+    lenses: new-capability, hardening/DX
+    - Candidate A1 -- OPERATOR 2026-11-27 pin: `test-quality --files` puts a non-`.py` file on a `not applicable:` line instead of counting it as a parse error, and a run with no Python file exits 0 with a verdict that says so
+    - Candidate A2 -- `foundry can-fail --config P --test tests/test_iterNN_behavior.py [--json]`: run a new test module against a `git archive HEAD` copy and report how many of its tests go RED without the change
+    - Candidate A3 -- `company-changelog --since Nd|YYYY-MM-DD`: the fleet's "what shipped this week" in one command
+    - Candidate B1 -- OPERATOR 2026-11-27 pin: `test-quality --files` gives a non-`.py` file a `not applicable:` line, never a parse error or a false `clean`
+    - Candidate B2 -- commit-check prints the suite's own tally line (`14350 passed, 62 skipped in 55.40s` / vitest `Tests 2190 passed (2190)`) in its text report
+    - Candidate B3 -- `parse_scout_lens` snaps to the known lens pool, so a scout title's trailing text stops corrupting the committed DIRECTIONS.md `lenses:` field
+    winner: A1
+    ship: pending (not yet decided)
   iter-557
     lenses: narrative-and-docs, new-capability
     - Candidate A1 -- commit-check's INCOMPLETE detail names the per-product SIZED budget as `sized budget Ns`, not `COMMIT_CHECK_BUDGET_SECONDS=<sized value>`
@@ -10,7 +20,7 @@ foundry directions -- _platform
     - Candidate B2 -- `foundry can-fail --config P --test tests/test_iterNN_behavior.py [--json]`: run the new test file against a `git archive HEAD` copy and report how many of its tests go RED without the change
     - Candidate B3 -- `foundry reland --config P --iter N [--apply]`: the 4-command verbatim re-land as one checked verb (dry-run by default)
     winner: B1
-    ship: pending (not yet decided)
+    ship: PUSHED 77503e3
   iter-556
     lenses: performance-and-throughput, narrative-and-docs
     - Candidate A1 -- re-land iter 555's aborted company-scan `verdict` collapse from its saved patch instead of re-engineering it
@@ -2870,4 +2880,4 @@ foundry directions -- _platform
     - Candidate 3: cap lesson length at WRITE time (root-cause, defense in depth)
     winner: B1
     ship: PUSHED 2f6dd82
-288 scouted iterations
+289 scouted iterations

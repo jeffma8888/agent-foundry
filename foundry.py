@@ -10249,6 +10249,20 @@ class TestQualitySummary:
     weak: WeakTestSummary
     constant: ConstantAssertSummary
     skipped: SkippedTestSummary
+    not_applicable: tuple[str, ...] = ()
+
+    @property
+    def all_not_applicable(self) -> bool:
+        """True iff an explicit `--files` run held ONLY non-Python paths: at
+        least one path sits on `not_applicable` AND every lens had nothing to
+        scan. WHY a separate state: a TypeScript tester's own `*.test.ts` module
+        is not a Python parse error it could ever fix (OPERATOR 2026-11-27), yet
+        it is not a `clean` scan either -- nothing was checked. Python-only input
+        leaves `not_applicable` empty, so this is False and every other property
+        is byte-identical to before."""
+        return bool(self.not_applicable) and all(
+            c == 2 for c in (self.weak.exit_code, self.constant.exit_code,
+                             self.skipped.exit_code))
 
     @property
     def files_scanned(self) -> int:
@@ -10320,9 +10334,14 @@ class TestQualitySummary:
         ``1`` iff ANY lens flagged a finding or parse error (`1 in codes`), else
         ``0`` (clean). Derived from the sub exit codes rather than re-aggregating
         `files_scanned`, so it stays correct even when a test constructs the
-        three sub-summaries independently."""
+        three sub-summaries independently. One case is checked FIRST: when
+        `all_not_applicable` (only non-Python `--files` paths), return ``0`` --
+        the scanner honestly does not apply, which is neither a must-fix (1) nor
+        a usage error (2); `verdict` says so instead of claiming `clean`."""
         codes = (self.weak.exit_code, self.constant.exit_code,
                  self.skipped.exit_code)
+        if self.all_not_applicable:
+            return 0
         if all(c == 2 for c in codes):
             return 2
         if 1 in codes:
@@ -10331,17 +10350,23 @@ class TestQualitySummary:
 
     @property
     def clean(self) -> bool:
-        """True iff the composite `exit_code` is 0 -- the SINGLE source of truth
-        (no independent re-derivation, so `clean` can never disagree with the
-        exit code)."""
-        return self.exit_code == 0
+        """True iff the composite `exit_code` is 0 AND the run actually scanned
+        Python -- derived from `exit_code` (no independent re-derivation), with
+        the one carve-out that an `all_not_applicable` run exits 0 yet is NOT
+        clean, because nothing was checked and a false `clean` is the lie the
+        not-applicable verdict exists to avoid."""
+        return self.exit_code == 0 and not self.all_not_applicable
 
     @property
     def verdict(self) -> str:
         """The single human token for the current `exit_code` -- ONE source of
         truth for `render()`'s last line so text + exit code never drift. The
         composite token set is `clean`/`QUALITY ISSUES FOUND`/`nothing to scan`,
-        NOT the sub-scans' `WEAK TESTS FOUND`/etc."""
+        plus `not applicable (no Python test files)` when `all_not_applicable`
+        (exit 0, but never the word `clean`), NOT the sub-scans' `WEAK TESTS
+        FOUND`/etc."""
+        if self.all_not_applicable:
+            return "not applicable (no Python test files)"
         return {0: "clean", 1: "QUALITY ISSUES FOUND",
                 2: "nothing to scan"}[self.exit_code]
 
@@ -10358,9 +10383,10 @@ class TestQualitySummary:
         finding, one ``  [always-skipped] <file> :: <test>`` per skipped finding
         (each tag names WHICH lens flagged it, so an OVERLAPPING test appears
         under BOTH tags); ``parse errors: P`` with one ``  <file>: <message>``
-        line each (the deduped union); and a final ``verdict:`` token matching
-        `exit_code` as the LAST non-empty line. A clean composite prints NO
-        finding lines."""
+        line each (the deduped union); one ``  not applicable: <path>`` line per
+        non-Python `--files` path, in input order; and a final ``verdict:``
+        token matching `exit_code` as the LAST non-empty line. A clean composite
+        prints NO finding lines."""
         lines = [
             f"foundry test-quality -- {self.product}",
             f"  files scanned: {self.files_scanned}",
@@ -10378,6 +10404,8 @@ class TestQualitySummary:
         lines.append(f"  parse errors: {self.total_parse_errors}")
         for path, message in self.parse_errors:
             lines.append(f"  {path}: {message}")
+        for path in self.not_applicable:
+            lines.append(f"  not applicable: {path}")
         lines.append(f"verdict: {self.verdict}")
         return "\n".join(lines)
 
@@ -10392,7 +10420,9 @@ class TestQualitySummary:
         sub-documents `weak`/`constant`/`skipped` as their respective
         `to_dict()` VERBATIM (so a machine consumer can drill into any lens); and
         `parse_errors` as a JSON array of ``{"file","message"}`` objects (the
-        deduped union, same order as `self.parse_errors`). Every value is
+        deduped union, same order as `self.parse_errors`). A `not_applicable`
+        array is appended LAST, and ONLY when non-empty, so Python-only output
+        keeps its pinned key list byte-identical. Every value is
         JSON-native, so `json.dumps(...)` never raises and the dict round-trips
         through `json.loads(json.dumps(...))`. Pure: touches no filesystem, only
         the already-gathered sub-summaries."""
@@ -10412,12 +10442,15 @@ class TestQualitySummary:
             "skipped": self.skipped.to_dict(),
             "parse_errors": [{"file": path, "message": message}
                              for path, message in self.parse_errors],
-        }
+        } | ({"not_applicable": list(self.not_applicable)}
+             if self.not_applicable else {})
 
 
 def summarize_test_quality(*, product: str, weak: WeakTestSummary,
                            constant: ConstantAssertSummary,
-                           skipped: SkippedTestSummary) -> TestQualitySummary:
+                           skipped: SkippedTestSummary,
+                           not_applicable: tuple[str, ...] = ()
+                           ) -> TestQualitySummary:
     """Pure keyword-only constructor for a `TestQualitySummary` (Behavior 1).
 
     A thin, total wrapper (mirror of `summarize_skipped_tests`) that packs the
@@ -10426,7 +10459,8 @@ def summarize_test_quality(*, product: str, weak: WeakTestSummary,
     from `test_quality_cli` so the decision core stays a pure function the tester
     can drive without any filesystem."""
     return TestQualitySummary(product=product, weak=weak,
-                              constant=constant, skipped=skipped)
+                              constant=constant, skipped=skipped,
+                              not_applicable=tuple(not_applicable))
 
 
 def gather_test_quality(cfg: ProductConfig, files=None) -> TestQualitySummary:
@@ -10448,7 +10482,7 @@ def gather_test_quality(cfg: ProductConfig, files=None) -> TestQualitySummary:
     OUTPUT-PRESERVING SPEED-UP (iter 159), two halves at this one call site:
 
       * the file list is resolved ONCE here -- `_gather_weak_test_files(cfg.repo)`
-        when `files is None`, else `files` untouched -- and the SAME list is handed
+        when `files is None`, else the `.py` subset of `files` -- and the SAME list is handed
         to all three gathers, so the repo is walked once instead of three times
         (2 globs x 3 lenses = 6 rglobs) while `files_scanned` and every emitted
         `str(path)` stay byte-identical. With `files` given, `_gather_weak_test_files`
@@ -10462,9 +10496,22 @@ def gather_test_quality(cfg: ProductConfig, files=None) -> TestQualitySummary:
     gather raises, and a NESTED composite call reuses the already-open cache while
     the OUTER call remains the one that restores `None`. No gather signature
     changes (a `trees=` argument would `TypeError` in the 17 test monkeypatch sites
-    that replace these seams with `lambda cfg, files=None:`)."""
+    that replace these seams with `lambda cfg, files=None:`).
+
+    NOT-APPLICABLE PARTITION (iter 558): ONLY when `files` is given, a path
+    whose suffix is not exactly ``.py`` is withheld from the three lenses and
+    recorded on `not_applicable` instead, so a TypeScript `*.test.ts` module
+    is no longer fed to `ast.parse` as a fake, unfixable parse error. The split
+    lives HERE, not in the shared `_gather_test_scan`, so `weak-tests` and its
+    three sibling `--files` scanners stay byte-identical; the rglob mode only
+    globs Python names, so it never yields a not-applicable path."""
     global TEST_TREE_CACHE
     paths = _gather_weak_test_files(cfg.repo) if files is None else files
+    not_applicable: tuple[str, ...] = ()
+    if files is not None:
+        not_applicable = tuple(str(f) for f in paths
+                               if pathlib.Path(f).suffix != ".py")
+        paths = [f for f in paths if pathlib.Path(f).suffix == ".py"]
     outer_cache = TEST_TREE_CACHE
     if outer_cache is None:
         TEST_TREE_CACHE = {}
@@ -10474,6 +10521,7 @@ def gather_test_quality(cfg: ProductConfig, files=None) -> TestQualitySummary:
             weak=gather_weak_tests(cfg, paths),
             constant=gather_constant_asserts(cfg, paths),
             skipped=gather_skipped_tests(cfg, paths),
+            not_applicable=not_applicable,
         )
     finally:
         TEST_TREE_CACHE = outer_cache
